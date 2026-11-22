@@ -1,7 +1,9 @@
 /**
- * Result codes for the CEO-only driver run (`gstack-autoplan next --ceo-only`,
+ * Result codes for the /autoplan publication guard line (GUARD_ENFORCED, printed by
+ * gstack-skill-start; lib/autoplan-guard-status.ts), the CEO-only driver run (`gstack-autoplan next --ceo-only`,
  * lib/autoplan-ceo-only.ts) and its shadow-mode reader (`gstack-autoplan shadow`,
- * lib/autoplan-shadow-reader.ts). Kept beside lib/result-codes.ts, which spreads
+ * lib/autoplan-shadow-reader.ts), and the writer check `gstack-artifact validate` runs on a run.json
+ * (lib/autoplan-writer-check.ts). Kept beside lib/result-codes.ts, which spreads
  * this table into RESULT_CODES; the same rules apply: one stable
  * docs/troubleshooting.md anchor, a summary and a fix clause each. The run is
  * documented in docs/unattended.md#ceo-only-runs.
@@ -9,6 +11,21 @@
 import type { ResultCode } from './result-codes';
 
 export const AUTOPLAN_RESULT_CODES = {
+  ARTIFACT_NOT_AUTOPLAN_RUN: {
+    anchor: 'artifact-not-autoplan-run',
+    summary: 'run.json lacks what gstack-autoplan writes on every run (its host, plan_input and the other run-state fields) or has no attempts.jsonl journal',
+    fix: 'drive the run with gstack-autoplan next/submit/answer/export; a run.json written by hand or by a script is not evidence of a review',
+  },
+  ARTIFACT_JOURNAL_MISMATCH: {
+    anchor: 'artifact-journal-mismatch',
+    summary: 'attempts.jsonl, a bound review output or the run’s checkpoint disagrees with run.json',
+    fix: 'treat the run as edited after the fact; restore it from a checkpoint (gstack-autoplan resume --from) or rerun it with gstack-autoplan',
+  },
+  GUARD_ENFORCED: {
+    anchor: 'guard-enforced',
+    summary: 'Claude Code runs the autoplan publication hook, so a phase Read or reviewer dispatch is denied until the previous phase report is published',
+    fix: 'publish each phase report as visible message text, not reasoning, in a message whose only tool call is `true autoplan-published <phase>`',
+  },
   CEO_ONLY_CONFLICT: {
     anchor: 'ceo-only-conflict',
     summary: '--ceo-only was combined with a flag that adds a phase (--ui, --developer-tool, --agent-primary), or a plan\'s scope marker names it',

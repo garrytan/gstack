@@ -1,0 +1,35 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-founder-resources — the office-hours founder-resource pool, served on demand.
+ *
+ *   gstack-founder-resources [--shown <url,url,...>]
+ *
+ * Prints RESOURCES_TOTAL and RESOURCES_SHOWN_COUNT, then either
+ * `RESOURCES: exhausted` or every entry the user has not been shown yet, under
+ * its category header, exactly as the prompt used to carry it. Shown URLs come
+ * from the builder profile (`gstack-developer-profile --read`, RESOURCES_SHOWN)
+ * unless --shown is given; when the profile can't be read it prints
+ * `PROFILE_READ: failed` and treats nothing as shown, as the prompt did.
+ * Exit 0, or 2 on a usage error. Data: lib/founder-resources.ts.
+ */
+import * as path from 'node:path';
+import { renderIndex } from '../lib/founder-resources';
+import { runScriptSync } from '../lib/script-invocation';
+
+const args = process.argv.slice(2);
+const at = args.indexOf('--shown');
+if (args.length && !(at === 0 && args.length === 2)) {
+  process.stderr.write('usage: gstack-founder-resources [--shown <url,...>]\n');
+  process.exit(args[0] === '--help' || args[0] === '-h' ? 0 : 2);
+}
+
+let shown: string[] = [];
+if (at === 0) {
+  shown = args[1]!.split(',').map(s => s.trim()).filter(Boolean);
+} else {
+  const r = runScriptSync(path.join(import.meta.dir, 'gstack-developer-profile'), ['--read'], { encoding: 'utf8', timeout: 15_000 });
+  const line = r.status === 0 ? (r.stdout ?? '').split('\n').find(l => l.startsWith('RESOURCES_SHOWN: ')) : undefined;
+  if (line === undefined) process.stdout.write('PROFILE_READ: failed\n');
+  else shown = line.slice('RESOURCES_SHOWN: '.length).split(',').map(s => s.trim()).filter(Boolean);
+}
+process.stdout.write(renderIndex(shown));

@@ -611,8 +611,6 @@ gbrain:
 
 describe("gstack-brain-context-load — shipped state-root manifest files read the configured root", () => {
   const cases = [
-    { skill: "investigate", id: "project-learnings", file: ["projects", "test-repo", "learnings.jsonl"] },
-    { skill: "investigate", id: "recent-eureka", file: ["analytics", "eureka.jsonl"] },
     { skill: "office-hours", id: "design-doc-history", file: ["projects", "test-repo", "alice-main-design-20260914.md"] },
   ];
   for (const c of cases) it(`${c.skill}:${c.id} reads only the configured root`, () => {

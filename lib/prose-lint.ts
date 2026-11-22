@@ -12,7 +12,7 @@
  * (`--gate`), so templates and docs get a report and nothing more.
  */
 import * as fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { addedLines } from './banned-terms';
 import { parseChangelog } from './changelog-check';
 

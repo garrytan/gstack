@@ -7,8 +7,11 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyRelease, openRelease } from '../lib/release-stamp';
+import { checkBodyShape, visibleOpening } from '../lib/pr-body-shape';
+import { DEFAULT_TERMS } from '../lib/plain-title';
+import { sectionText } from '../lib/squash-message';
 import { loadPolicyFromBase, MERGE_KEY_VERSION } from '../lib/ship-policy';
-import { classifyTrainHead } from '../lib/version-gate-train';
+import { classifyTrainHead } from '../crew/lib/version-gate-train';
 import { BASE_POLICY, cleanup, makeFixtureRepo, readFile, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const POLICY = { ...BASE_POLICY, changelog_fragments: { dir: 'changelog.d', required_checks: ['free-tests'] }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
@@ -133,10 +136,36 @@ describe('gstack-release-stamp open', () => {
     expect(repo.git('--git-dir', repo.origin, 'rev-parse', 'refs/heads/main')).toBe(repo.git('rev-parse', 'origin/main'));
     expect(calls.map(a => a[1])).toEqual(['list', 'create']);
     expect(calls[1]!.slice(0, 7)).toEqual(['pr', 'create', '--base', 'main', '--head', 'release/1.3.0.0', '--title']);
+    const body = calls[1]![calls[1]!.indexOf('--body') + 1]!;
+    expect(checkBodyShape(body, DEFAULT_TERMS)).toEqual([]);
+    expect(visibleOpening(body)[0]).toBe('v1.3.0.0 ships 2 user-visible changes, listed one per line under Release notes with the pull request that made each.');
+    expect(sectionText(body, 'Release notes')).toBe('- a change\n- b feature');
     expect(r.lines.join('\n')).toContain('NEXT: gstack-ship-queue land --pr 42 --pin ' + r.head);
     expect(classifyRelease({ repoRoot: repo.work, policy: policyOf(repo), mergeBase: repo.git('rev-parse', 'origin/main'), head: r.head! }).ok).toBe(true);
     expect(repo.git('branch', '--show-current')).toBe('elsewhere');
     expect(repo.git('worktree', 'list').split('\n')).toHaveLength(1);
+  });
+
+  // GSTA-643 list: on Capy gh signs in as the owner, so open hands the release PR to the host's PR tool instead of gh pr create.
+  test('on Capy, open pushes the release branch and hands the PR to the host tool without gh pr create', () => {
+    const repo = landed();
+    const state = fs.mkdtempSync(path.join(repo.work, '..', 'state-'));
+    const calls: string[][] = [];
+    const r = openRelease({ repoRoot: repo.work, base: 'main', env: { GSTACK_CAPY: '1', GSTACK_STATE_ROOT: state }, gh: (args) => {
+      calls.push(args);
+      if (args[0] === 'repo') return { ok: true, out: JSON.stringify({ nameWithOwner: 'o/r', url: 'https://github.com/o/r' }), err: '' };
+      return { ok: true, out: '', err: '' };
+    } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(calls.map(a => a.slice(0, 2).join(' '))).toEqual(['pr list', 'repo view']);
+    expect(repo.git('--git-dir', repo.origin, 'rev-parse', 'refs/heads/release/1.3.0.0')).toBe(r.head!);
+    const handed = r.lines.find(l => l.startsWith('HOST_PUBLISH: '))!;
+    expect(handed).toStartWith('HOST_PUBLISH: pr-create new repo=o/r base=main head=release/1.3.0.0 title-file=');
+    const file = (part: string) => fs.readFileSync(new RegExp(` ${part}-file=(\\S+)`).exec(handed)![1]!, 'utf8');
+    expect(file('title')).toBe('v1.3.0.0 release');
+    expect(sectionText(file('body'), 'Release notes')).toBe('- a change\n- b feature');
+    expect(r.lines.at(-1)).toBe('NEXT: gstack-ship-queue land --pr <n> --pin ' + r.head + ' once the PR the host opens has green checks');
   });
 
   test('a fork PR on release/<version> is never reused: open lists same-repo heads only and opens its own PR', () => {
@@ -173,6 +202,41 @@ describe('gstack-release-stamp open', () => {
     if (!again.ok) return;
     expect(repo.git('--git-dir', repo.origin, 'rev-parse', 'refs/heads/' + again.branch)).toBe(again.head!);
     expect(repo.git('branch', '--list', 'release/*')).toBe('');
+  });
+
+  // Value: protects=a reopen that force-pushes a new stamp also rewrites the open release PR's body, so its change count, notes, base and
+  //   land pin match the pushed head; fails_when=the open PR keeps the old body (GSTA-677 on #4573); seam=openRelease with a gh stub
+  test('reopening at a moved base rewrites the open release PR\'s body to the new stamp', () => {
+    const repo = landed();
+    const calls: string[][] = [];
+    const r = openRelease({ repoRoot: repo.work, base: 'main', gh: (args) => { calls.push(args); return { ok: true, out: 'https://github.com/o/r/pull/44\n', err: '' }; } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(calls.map(a => a.slice(0, 3))).toEqual([['pr', 'list', '--head'], ['pr', 'edit', 'https://github.com/o/r/pull/44']]);
+    const body = calls[1]![calls[1]!.indexOf('--body') + 1]!;
+    expect(body).toContain(`--pin ${r.head}`);
+    expect(sectionText(body, 'Release notes')).toBe('- a change\n- b feature');
+    const refused = openRelease({ repoRoot: repo.work, base: 'main', now: new Date('2030-01-02T00:00:00Z'), gh: (args) => (args[1] === 'edit' ? { ok: false, out: '', err: 'HTTP 502' } : { ok: true, out: 'https://github.com/o/r/pull/44\n', err: '' }) });
+    expect(refused).toMatchObject({ ok: false, code: 'RELEASE_STAMP_INVALID' });
+  });
+
+  test('on Capy, a reopen hands the new body to the host tool without gh pr edit', () => {
+    const repo = landed();
+    const state = fs.mkdtempSync(path.join(repo.work, '..', 'state-'));
+    const calls: string[][] = [];
+    const r = openRelease({ repoRoot: repo.work, base: 'main', env: { GSTACK_CAPY: '1', GSTACK_STATE_ROOT: state }, gh: (args) => {
+      calls.push(args);
+      if (args[0] === 'repo') return { ok: true, out: JSON.stringify({ nameWithOwner: 'o/r', url: 'https://github.com/o/r' }), err: '' };
+      return { ok: true, out: 'https://github.com/o/r/pull/44\n', err: '' };
+    } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(calls.map(a => a.slice(0, 2).join(' '))).toEqual(['pr list', 'repo view']);
+    const handed = r.lines.find(l => l.startsWith('HOST_PUBLISH: '))!;
+    expect(handed).toStartWith('HOST_PUBLISH: pr-body 44 repo=o/r');
+    const body = fs.readFileSync(/ body-file=(\S+)/.exec(handed)![1]!, 'utf8');
+    expect(body).toContain(`--pin ${r.head}`);
+    expect(r.lines).toContain('RELEASE_PR: #44 https://github.com/o/r/pull/44');
   });
 
   test('--dry-run creates nothing; an empty base is refused', () => {

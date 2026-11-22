@@ -205,3 +205,77 @@ describe('--background', () => {
     expect(r.stdout).toMatch(/DISTILL_SPAWNED: pid=\d+/);
   });
 });
+
+// ----------------------------------------------------------------------
+// Egress receipt (#4617): the typed answers leave the machine, so the
+// send writes a receipt first, fail-closed. A local stand-in for the
+// Anthropic API (ANTHROPIC_BASE_URL) records what the ledger held when
+// the request arrived.
+// ----------------------------------------------------------------------
+
+describe('egress receipt', () => {
+  const ledgerPath = () => path.join(stateRoot, 'security', 'egress.jsonl');
+  const ledgerRecords = (): Array<Record<string, unknown>> =>
+    fs.existsSync(ledgerPath())
+      ? fs.readFileSync(ledgerPath(), 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      : [];
+
+  async function distillAgainstStub(): Promise<{ status: number; stderr: string; requests: Array<Array<Record<string, unknown>>> }> {
+    const requests: Array<Array<Record<string, unknown>>> = [];
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      async fetch(req) {
+        await req.text();
+        requests.push(ledgerRecords());
+        return Response.json({
+          id: 'msg_stub', type: 'message', role: 'assistant', model: 'stub',
+          content: [{ type: 'text', text: '{"proposals": []}' }],
+          stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 },
+        });
+      },
+    });
+    try {
+      const proc = Bun.spawn({
+        cmd: [BIN],
+        env: makeEnv({ ANTHROPIC_API_KEY: 'test-key', ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}` }),
+        cwd: fixtureCwd,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        timeout: 30_000,
+      });
+      const [status, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+      return { status, stderr, requests };
+    } finally {
+      server.stop(true);
+    }
+  }
+
+  test('writes a content-free distill-free-text receipt before the model call', async () => {
+    writeAuqOtherEvent('please never ask me about design review on typo fixes');
+    const r = await distillAgainstStub();
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.requests.length).toBe(1);
+    const atSend = r.requests[0].filter((rec) => rec.type === 'egress' && rec.sink === 'distill-free-text');
+    expect(atSend.length).toBe(1);
+    expect(atSend[0].host).toMatch(/^127\.0\.0\.1:\d+$/);
+    expect(atSend[0].payload_class).toContain('count=1');
+    expect(atSend[0].sha256).toBeNull();
+    const ledger = fs.readFileSync(ledgerPath(), 'utf-8');
+    expect(ledger).not.toContain('typo fixes');
+    expect(ledger).not.toContain('test-key');
+    expect(ledgerRecords().some((rec) => rec.type === 'outcome')).toBe(true);
+  });
+
+  test('refuses the send when the receipt cannot be written (fail-closed)', async () => {
+    writeAuqOtherEvent('ship small PRs please');
+    fs.writeFileSync(path.join(stateRoot, 'security'), 'not a directory');
+    const r = await distillAgainstStub();
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('EGRESS_RECEIPT_FAILED');
+    expect(r.requests.length).toBe(0);
+    const log = fs.readFileSync(path.join(stateRoot, 'projects', cwdSlug, 'question-log.jsonl'), 'utf-8');
+    expect(log).not.toContain('distilled_at');
+  });
+});
+

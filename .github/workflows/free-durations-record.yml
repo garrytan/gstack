@@ -9,7 +9,9 @@ name: Free-suite duration seeds
 # a seed PR. A file that fails while recording turns its job red but keeps its
 # duration (a red file is still a real cost) and is named in the PR body; an
 # interrupted recording, or more than 5 red files on either OS, proposes
-# nothing (docs/TESTING_INTERNALS.md#free-suite-duration-seed).
+# nothing (docs/TESTING_INTERNALS.md#free-suite-duration-seed). A seed PR
+# closed without merging opens a blocker issue (the seed stays stale until the
+# next recording lands), and a seed PR that merges closes it.
 
 on:
   schedule:
@@ -20,9 +22,15 @@ on:
         description: Push the bot branch and open or refresh the seed PR (false records and reports only)
         type: boolean
         default: true
+  pull_request:
+    types: [closed]
+    branches: [main]
+    paths:
+      - scripts/free-test-durations.json
+      - scripts/free-test-durations-windows.json
 
 concurrency:
-  group: free-durations-record
+  group: ${{ github.event_name == 'pull_request' && format('free-durations-seed-pr-{0}', github.event.pull_request.number) || 'free-durations-record' }}
   cancel-in-progress: false
 
 permissions:
@@ -30,6 +38,7 @@ permissions:
 
 jobs:
   linux:
+    if: github.event_name != 'pull_request'
     runs-on: ubicloud-standard-8
     timeout-minutes: 45
     steps:
@@ -70,6 +79,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/windows-free-tests.yml
     permissions:
       contents: read
@@ -79,7 +89,7 @@ jobs:
 
   propose:
     needs: [linux, windows]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -127,6 +137,12 @@ jobs:
           fi
           cp "$RUNNER_TEMP/linux/free-test-durations.json" scripts/free-test-durations.json
           cp "$RUNNER_TEMP/windows/free-test-durations-windows.json" scripts/free-test-durations-windows.json
+          # New files over the 60 s ceiling become annotated exceptions naming
+          # this recording, and files back under it leave the allowlist, so the
+          # seed PR passes the ratchet without a maintainer edit (GST-3303).
+          allowlist=$(bun --no-env-file --config=/dev/null run scripts/free-seed-allowlist.ts --reconcile --recording "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          if [ -n "$allowlist" ]; then allowlist_line=$(printf '%s\n' "$allowlist" | paste -sd, - | sed 's/,/, /g'); else allowlist_line=unchanged; fi
+          echo "Seed allowlist: $allowlist_line" | tee -a "$GITHUB_STEP_SUMMARY"
           if ratchet=$(GSTACK_FREE_SEED_BASE="$(git rev-parse HEAD)" bun test test/free-seed-ratchet.test.ts 2>&1); then
             ratchet_line="passes"
           else
@@ -153,7 +169,7 @@ jobs:
           git switch -C "$branch"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add scripts/free-test-durations.json scripts/free-test-durations-windows.json
+          git add scripts/free-test-durations.json scripts/free-test-durations-windows.json scripts/free-test-seed-allowlist.json
           git commit -m "$subject"
           git push --force-with-lease="refs/heads/$branch:$remote_head" origin "HEAD:refs/heads/$branch"
           cat > pr-body.md <<EOF
@@ -162,6 +178,7 @@ jobs:
           - Linux seed (ubicloud-standard-8): +$linux_added / -$linux_removed files
           - Windows seed (windows-latest): +$windows_added / -$windows_removed files
           - Files that failed while recording (durations kept; this PR's own free checks decide): $failed_line
+          - Seed allowlist (each new file over 60 s is admitted with a todo to split it; files back under 60 s leave): $allowlist_line
           - Seed growth ratchet (60 s ceiling, shrink-only allowlist): $ratchet_line
 
           Data only. This run dispatched Free Tests (the required free-tests check), Windows Smoke and Quality gate on this branch; those are this PR's checks. The pull_request runs wait as "action required" because a token-opened PR never starts them without approval. Stamp and merge per docs/ship-policy.md; the stamp push runs the full PR checks.
@@ -174,3 +191,33 @@ jobs:
           gh workflow run free-tests.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
           gh workflow run windows-smoke.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
           gh workflow run quality-gate.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+
+  seed-pr-closed:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'bot/free-duration-seeds' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Raise the stale-seed blocker when a seed PR closes unmerged, clear it when one merges
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          title="Blocker: free-suite duration seed PR closed unmerged"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ "$MERGED" = true ]; then
+            if [ -n "$existing" ]; then gh issue close "$existing" --repo "$GITHUB_REPOSITORY" --comment "Seed PR #$PR_NUMBER merged, so the seed is current again."; fi
+            exit 0
+          fi
+          cat > "$RUNNER_TEMP/blocker.md" <<EOF
+          Seed PR #$PR_NUMBER was closed without merging, so scripts/free-test-durations.json still lacks every free test file added since its last recording. Unseeded files are packed at the seed's 99th percentile, which unbalances shards and stretches every Free Tests job toward its 90-minute cap.
+
+          Fix: dispatch a fresh recording on main (\`gh workflow run free-durations-record.yml --ref main\`) and merge the seed PR it opens, or record with \`bun run test:ubicloud --record-durations\` and land the seed in a PR. This issue closes when a seed PR from the recorder merges; close it by hand if the seed lands another way. See docs/TESTING_INTERNALS.md#free-suite-duration-seed.
+          EOF
+          if [ -n "$existing" ]; then gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/blocker.md"
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/blocker.md"; fi
+          echo "::error::Seed PR #$PR_NUMBER closed unmerged; the free-suite duration seed stays stale until a recording lands."
+          exit 1

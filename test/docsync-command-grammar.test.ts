@@ -234,6 +234,88 @@ test('the installed docs-candidate helper is admitted only with a private .json 
   expect(docsNativeInterface(fixture)).toContain('compare <that .json> and --help commands');
 });
 
+test('the docs-candidate result command is admitted only with a private output file, a plain audit id and a private --out-dir', () => {
+  const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+  const output = path.join(fixture.home, 'audit-1-output.md');
+  const dir = path.join(fixture.home, 'docs-record');
+  for (const command of [
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${fixture.home}`,
+    `${helper} result ${output} --out-dir ${dir} --audit-id audit-1`,
+    `${helper} result --help`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(true);
+  for (const command of [
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${fixture.repo}`,
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${path.join(fixture.repo, '.gstack')}`,
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${path.join(fixture.skills, 'bin')}`,
+    `${helper} result ${output} --audit-id audit-1 --out-dir ${dir} --exec rm`,
+    `${helper} result ${output} --audit-id audit-1 --mode edit`,
+    `${helper} result ${output} --audit-id audit-1 --audit-id audit-2`,
+    `${helper} result ${output} --audit-id audit-1`,
+    `${helper} result ${output} --audit-id ../audit-1 --out-dir ${dir}`,
+    `${helper} result ${path.join(fixture.repo, 'out.md')} --audit-id audit-1 --out-dir ${dir}`,
+    `${helper} result --help extra`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
+  expect(docsNativeInterface(fixture)).toContain(`${fixture.skills.split(path.sep).join('/')}/bin/gstack-docs-candidate result <a saved private .md or .json child output> --audit-id <the audit id> --out-dir <`);
+});
+
+// Census 42748129558 (ship-docsync-store): Step 14.5 counts each launch with `gstack-docs-candidate attempt` (#4192), which
+// this interface did not declare, so the parent correctly stopped before launching any audit.
+test('the docs-candidate attempt command is admitted only with a private child output and a private --state .json', () => {
+  const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+  const output = path.join(fixture.home, 'audit-1-output.md');
+  const state = path.join(fixture.home, 'docs-attempts.json');
+  for (const command of [`${helper} attempt ${output} --state ${state}`, `${helper} attempt --help`])
+    expect(docsCommandAllowed(command, fixture), command).toBe(true);
+  for (const command of [
+    `${helper} attempt ${output} --state ${path.join(fixture.repo, '.gstack/tmp/docs-attempts.json')}`,
+    `${helper} attempt ${output} --state ${path.join(fixture.home, 'docs-attempts.md')}`,
+    `${helper} attempt ${output} --state ${path.join(fixture.skills, 'bin/docs-attempts.json')}`,
+    `${helper} attempt ${path.join(fixture.repo, 'out.md')} --state ${state}`,
+    `${helper} attempt ${output}`,
+    `${helper} attempt --state ${state} ${output}`,
+    `${helper} attempt ${output} --state ${state} --exec rm`,
+    `${helper} attempt ${output} --out ${state}`,
+    `${helper} attempt --help extra`,
+    `~/.claude/skills/gstack/bin/gstack-docs-candidate attempt ${output} --state ${state}`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
+  expect(docsNativeInterface(fixture)).toContain(`${fixture.skills.split(path.sep).join('/')}/bin/gstack-docs-candidate attempt <a saved private .md or .json child output> --state <a private .json under ${fixture.home}> and attempt --help`);
+});
+
+// Census 44432023197 (ship-docsync-current): result printed FORMAT_REPAIR: format-only for a line that dropped
+// documentation_section, and this interface declared neither repair-prompt nor result --repair-of, so the parent correctly stopped.
+test('the docs-candidate format repair is admitted only with private output files and a plain audit id', () => {
+  const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+  const output = path.join(fixture.home, 'audit-1-output.md');
+  const reply = path.join(fixture.home, 'audit-1-repair.md');
+  const dir = path.join(fixture.home, 'docs-record');
+  for (const command of [
+    `${helper} repair-prompt ${output} --audit-id audit-1`,
+    `${helper} repair-prompt --help`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of ${output}`,
+    `${helper} result ${reply} --repair-of ${output} --out-dir ${fixture.home} --audit-id audit-1`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(true);
+  for (const command of [
+    `${helper} repair-prompt ${output}`,
+    `${helper} repair-prompt ${output} --audit-id ../audit-1`,
+    `${helper} repair-prompt ${output} --audit-id audit-1 --out ${reply}`,
+    `${helper} repair-prompt --audit-id audit-1 ${output}`,
+    `${helper} repair-prompt ${path.join(fixture.repo, 'out.md')} --audit-id audit-1`,
+    `${helper} repair-prompt audit-1-output.md --audit-id audit-1`,
+    `${helper} repair-prompt --help extra`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of ${path.join(fixture.repo, 'out.md')}`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of ${path.join(fixture.skills, 'bin/out.md')}`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of audit-1-output.md`,
+    `${helper} result ${reply} --audit-id audit-1 --repair-of ${output}`,
+    `${helper} result ${reply} --audit-id audit-1 --audit-id audit-2 --out-dir ${dir}`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --repair-of ${output} --repair-of ${output}`,
+    `${helper} result ${reply} --audit-id audit-1 --out-dir ${dir} --exec ${output}`,
+    `~/.claude/skills/gstack/bin/gstack-docs-candidate repair-prompt ${output} --audit-id audit-1`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
+  const skills = fixture.skills.split(path.sep).join('/');
+  expect(docsNativeInterface(fixture)).toContain('optionally followed by --repair-of <the saved output that result rejected with FORMAT_REPAIR:>');
+  expect(docsNativeInterface(fixture)).toContain(`${skills}/bin/gstack-docs-candidate repair-prompt <that rejected output> --audit-id <the audit id> and repair-prompt --help`);
+});
+
 // Train gate 39904966815 and GSTA-63's focused run joined the candidate's --help onto a line of reads; v1.91.185.0 moved the
 // own-call rule into the sentence naming --help and the slip came back four times (JOINED_READ_LINES below). The --help only
 // prints usage, so it now joins a line of reads like a Git read; every other own-call command stays alone.
@@ -283,6 +365,32 @@ test.each(JOINED_READ_LINES)('captured joined read line from %s is a declared re
     expect(docsCommandAllowed(command, owned, [publish])).toBe(true);
     expect(docsToolFailures(nativeResult(command, 'usage: gstack-docs-candidate snapshot ...'), owned, [publish], true)).toEqual([]);
     expect(docsCommandAllowed(`${command}; git add app.ts`, owned, [publish])).toBe(false);
+  } finally { owned.clean(); }
+});
+
+// Gate 44321344888 slice 7 @ 3ecd7168, ship-docsync-failure (claude-opus-5-5): after prepare for docs-a2 the parent checked
+// the new prompt and candidate with one grep whose double-quoted pattern ends in an escaped quote, then a tail. The shared
+// grammar rejected every escape inside double quotes, so this read failed the run as an undeclared command.
+test('captured grep with an escaped double quote inside its pattern is a declared read; other escapes and joins stay refused', () => {
+  const owned = fixtureDocs('current');
+  try {
+    const actor = path.join(import.meta.dir, 'helpers/docsync-fault-actor.ts');
+    const prompt = path.join(owned.home, 'prompt-docs-a2.md'), candidate = path.join(owned.home, 'candidate-docs-a2.json');
+    fs.writeFileSync(prompt, 'RETRY_NOTE: x\nAudit id docs-a2\n');
+    fs.writeFileSync(candidate, '{"handbook/reference/commands/widget.md.tmpl": "b64635c"}\n');
+    const captured = 'grep -n "RETRY_NOTE\\|Audit id\\|widget.md.tmpl\\"" {home}/prompt-docs-a2.md {home}/candidate-docs-a2.json; tail -n 3 {home}/prompt-docs-a2.md';
+    const command = captured.replaceAll('{home}', owned.home);
+    const run = spawnSync('bash', ['-c', command], { cwd: owned.repo, encoding: 'utf8', timeout: 10000 });
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('widget.md.tmpl"');
+    expect(docsCommandAllowed(command, owned, [actor])).toBe(true);
+    expect(docsToolFailures(nativeResult(command, run.stdout), owned, [actor])).toEqual([]);
+    for (const denied of [
+      command.replace('widget.md.tmpl\\"', 'widget.md.tmpl\\$HOME'), command.replace('widget.md.tmpl\\"', 'widget.md.tmpl\\\\'),
+      command.replace('widget.md.tmpl\\"', 'widget.md.tmpl\\`id\\`'), `${command} > ${path.join(owned.home, 'out.md')}`, `${command}; rm -f ${prompt}`,
+      command.replace(candidate, path.join(owned.home, 'actor-state.json')), command.replace(candidate, '/etc/passwd'),
+      'grep -n "widget.md.tmpl\\" README.md', 'grep -n "x\\"" README.md; git add app.ts',
+    ]) expect(docsCommandAllowed(denied, owned, [actor]), denied).toBe(false);
   } finally { owned.clean(); }
 });
 

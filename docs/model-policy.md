@@ -106,7 +106,17 @@ an unknown or multi-provider host can show both choices.
 
 Custom endpoints and partner platforms need an explicitly compatible model or
 `host` mode. Gstack does not guess that public API IDs work with Bedrock, Vertex,
-Foundry or a custom Codex provider. A model identifier passing syntax validation
+Foundry or a custom Codex provider. One case counts as explicit: when a custom
+Codex provider's own `config.toml` sets `model` to exactly the selected tier's
+catalog ID (the catalog's OpenAI frontier model, by default), plan reviews use it,
+because you already route that ID to your endpoint. Any other name there, such
+as a smart-tier model or a deployment alias, is refused
+(`custom_provider_model_not_tier`): it could be any model, so name it with the
+tier setting or the environment override if you want it as your plan reviewer.
+`gstack-codex-probe role-ready`, `gstack-outside-voice run --runner codex-cli`
+(for the `autoplan` and `spec` gates), and `gstack-models resolve` and `list`
+share this selection, so the readiness check, the review and the listing never
+pick different models. A model identifier passing syntax validation
 is not proof of account availability. See [provider recovery](troubleshooting.md#model-policy-provider).
 
 Detection is conservative, not a replacement for the CLI's settings engine.
@@ -160,7 +170,10 @@ A value gstack can't use stops only the agent role, naming the file and the fix.
 **On Capy.** Each cloud machine starts fresh, so config.yaml does not carry
 over. Keep the preference in `preferences.yaml` next to the gstack skill's
 SKILL.md in your Drive: one `agent_model: <value>` line, with `#` comments
-allowed (any other key is ignored with a warning). The session start puts the
+allowed. The file may also hold `telemetry_capy: anonymous`, which opts gstack's
+own Capy sessions in to anonymous telemetry, and `telemetry_capy_source: gt`,
+which labels those rows `gt` ([privacy](privacy.md)); any other key is ignored
+with a warning. The session start puts the
 file's path in the launch file as `GSTACK_PREFERENCES_FILE` and gstack reads it
 where it is: nothing is copied, and `--check` never writes the skill folder. Agents write that
 file only when you ask them to remember a preference. To change or clear it for

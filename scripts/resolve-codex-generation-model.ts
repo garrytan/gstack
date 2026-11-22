@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
-import { ModelPolicyError, resolvePlanReviewModel, selectionRepair, type ModelSelection } from '../lib/model-policy';
+import { CODEX_MODEL_REPAIR, codexConfigModel, codexNativeModel, ModelPolicyError, resolvePlanReviewModel, selectionRepair, type ModelSelection } from '../lib/model-policy';
 import { emitModelPolicyNotice } from '../lib/model-policy-notice';
 
 export interface CodexGenerationModelResolution {
@@ -117,7 +117,7 @@ export interface CodexRuntimeModelSelection {
 /** Characters a model id may carry before it is interpolated into `-c "model=\"…\""`. */
 export const CODEX_RUNTIME_MODEL_PATTERN = /^[A-Za-z0-9._:/-]{1,100}$/;
 
-const REPAIR = 'Choose a model your Codex account can use: name it for this request, set GSTACK_CODEX_MODEL=<model>, or set model in the Codex config.toml.';
+const REPAIR = CODEX_MODEL_REPAIR;
 
 /**
  * Runtime model for gstack-owned Codex calls (#2914). Unlike the generation
@@ -145,42 +145,9 @@ export function resolveCodexRuntimeModel(opts: {
   };
   if (opts.explicit) return chosen('explicit request', opts.explicit);
   if (env.GSTACK_CODEX_MODEL) return chosen('GSTACK_CODEX_MODEL', env.GSTACK_CODEX_MODEL);
-
-  const home = opts.home ?? env.HOME ?? os.homedir();
-  const codexHome = opts.codexHome ?? env.CODEX_HOME ?? path.join(home, '.codex');
-  if (!path.isAbsolute(codexHome)) {
-    throw new Error(`CODEX_HOME '${sanitize(codexHome)}' is not an absolute path, so its config.toml model cannot be read. ${REPAIR}`);
-  }
-  const configPath = path.join(codexHome, 'config.toml');
-  let raw: string;
-  try {
-    raw = fs.readFileSync(configPath, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { kind: opts.kind, model: CODEX_DEFAULT_MODEL, source: `gstack default (no ${stripControl(configPath)})` };
-    }
-    throw new Error(`Could not read ${sanitize(configPath)}. ${REPAIR}`);
-  }
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = Bun.TOML.parse(raw) as Record<string, unknown>;
-  } catch {
-    throw new Error(`Could not parse ${sanitize(configPath)}. ${REPAIR}`);
-  }
-  const profileName = typeof parsed.profile === 'string' ? parsed.profile : undefined;
-  const profiles = parsed.profiles as Record<string, Record<string, unknown> | undefined> | undefined;
-  const profile = profileName && typeof profiles === 'object' ? profiles?.[profileName] : undefined;
-  const candidates: Array<[string, unknown]> = [
-    ...(opts.kind === 'review' ? [[`${configPath} review_model`, parsed.review_model] as [string, unknown]] : []),
-    [`${configPath} [profiles.${profileName}].model`, profile?.model],
-    [`${configPath} model`, parsed.model],
-  ];
-  for (const [source, value] of candidates) {
-    if (value === undefined) continue;
-    if (typeof value !== 'string') throw new Error(`${sanitize(source)} is not a string. ${REPAIR}`);
-    return chosen(source, value);
-  }
-  return { kind: opts.kind, model: CODEX_DEFAULT_MODEL, source: `gstack default (no model in ${stripControl(configPath)})` };
+  const named = codexConfigModel({ ...opts, env });
+  if (named.value === null) return { kind: opts.kind, model: CODEX_DEFAULT_MODEL, source: `gstack default (${named.source})` };
+  return chosen(named.source, named.value);
 }
 
 export interface CodexPlanReviewSelection extends CodexRuntimeModelSelection {
@@ -204,7 +171,7 @@ export function resolveCodexPlanReviewModel(opts: {
   cwd?: string;
 }): CodexPlanReviewSelection {
   const env = opts.env ?? process.env;
-  const selection = resolvePlanReviewModel({ provider: 'openai', requestedModel: opts.explicit || undefined, env, cwd: opts.cwd });
+  const selection = resolvePlanReviewModel({ provider: 'openai', requestedModel: opts.explicit || undefined, env, cwd: opts.cwd, nativeModel: codexNativeModel({ ...opts, env }) });
   const repair = stripControl(selectionRepair(selection).join('; '));
   if (selection.status === 'selected') {
     const model = selection.requestedModel;
@@ -219,7 +186,7 @@ export function resolveCodexPlanReviewModel(opts: {
 
 function policyFailure(error: unknown): string {
   if (!(error instanceof ModelPolicyError)) return (error as Error).message;
-  return [`${error.problem} ${error.cause}`.trim(), ...error.repair.map(step => `Repair: ${step}`), `Docs: ${error.docs}`].join('\n');
+  return [`${error.problem} ${error.cause}`.trim(), ...error.repair.map(step => `Repair: ${step}`), `Docs: ${error.docs}`, `CODEX_MODEL_POLICY: ${error.reason}`].join('\n');
 }
 
 function readArg(name: string): string | undefined {

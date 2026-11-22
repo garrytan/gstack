@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { guardFixture, section, codeOf, denial, type GuardFixture } from './helpers/autoplan-guard-fixture';
 import { readOwnedClaudePublicTranscript } from '../lib/claude-public-transcript';
 import { OWNED_READ_APPROVAL } from '../autoplan/bin/owned-read';
+import { ownedCausalOrder, recordMeta } from '../lib/claude-journal-records';
 
 type Row = Record<string, any>;
 const fixtures: GuardFixture[] = [];
@@ -155,6 +156,106 @@ describe('Claude Code 2.1.300 compaction with a preserved segment', () => {
     const elapsed = performance.now() - started;
     expect(output).toEqual(OWNED_READ_APPROVAL);
     expect(elapsed).toBeLessThan(1000);
+  });
+});
+
+/**
+ * Claude Code 2.1.317 (#4200): the boundary's logicalParentUuid names a record the
+ * file never receives, and the preserved list ends with the segment's tail, the last
+ * record kept in place before the boundary. Followed literally, the boundary is an
+ * orphan, every later record was dropped, and each phase entry was refused on every
+ * retry. Such a boundary continues from that tail.
+ */
+const shape317 = (boundary: Row) => {
+  const { preservedSegment, preservedMessages } = boundary.compactMetadata;
+  boundary.version = '2.1.317';
+  boundary.logicalParentUuid = randomUUID();
+  preservedMessages.uuids.pop(); preservedMessages.allUuids.pop();
+  preservedSegment.tailUuid = preservedMessages.uuids.at(-1);
+};
+const transcriptOf = (f: GuardFixture) => readOwnedClaudePublicTranscript(f.transcript, f.cwd, f.sessionId).transcript;
+
+describe('Claude Code 2.1.317 compaction whose logical parent is never written', () => {
+  test('records written after the boundary stay owned', () => {
+    const f = fixture(); compact300(f, { shape: shape317 });
+    expect(toolIds(f)).toEqual(['init', 'entry', 'close-head', 'close', expect.stringMatching(/^noop-/)]);
+  });
+
+  test('the next phase entry passes once the close packet is read in full after the compaction', async () => {
+    const f = fixture(); compact300(f, { shape: shape317 });
+    expect(await f.hook(nextPhase(f))).toEqual(OWNED_READ_APPROVAL);
+  });
+
+  test('three such compactions in one session stay owned and the next phase entry passes', async () => {
+    const f = fixture();
+    for (const splitAt of ['entry', 'close-head', 'close']) compact300(f, { splitAt, shape: shape317 });
+    expect(toolIds(f)).toEqual(['init', 'entry', 'close-head', 'close', expect.stringMatching(/^noop-/)]);
+    expect(await f.hook(nextPhase(f))).toEqual(OWNED_READ_APPROVAL);
+  });
+
+  // Holds: each shape below is refused or reported today and must stay so.
+  test('a 2.1.300 tail that is the logical parent and not flushed yet still supplies no ownership', async () => {
+    const f = fixture();
+    const { tail } = compact300(f);
+    write(f, rowsOf(f).filter(r => r.uuid !== tail));
+    expect(toolIds(f)).not.toContain('close');
+    expect(codeOf(await f.hook(nextPhase(f)))).toBe('close_incomplete');
+  });
+
+  test('a preserved list whose last entry is not the segment tail does not continue the boundary', async () => {
+    const f = fixture(); compact300(f, { shape: b => { shape317(b); b.compactMetadata.preservedSegment.tailUuid = randomUUID(); } });
+    expect(toolIds(f)).not.toContain('close');
+    expect(codeOf(await f.hook(nextPhase(f)))).toBe('close_incomplete');
+  });
+
+  test('a preserved list naming no record of this file does not continue the boundary', async () => {
+    const f = fixture(); compact300(f, { shape: b => { shape317(b);
+      const ids = [randomUUID(), randomUUID()]; b.compactMetadata.preservedMessages.uuids = ids; b.compactMetadata.preservedSegment.tailUuid = ids[1]; } });
+    expect(toolIds(f)).not.toContain('close');
+    expect(codeOf(await f.hook(nextPhase(f)))).toBe('close_incomplete');
+  });
+
+  test('a preserved tail that is a subagent record does not continue the boundary', async () => {
+    const f = fixture();
+    const agentRecord = randomUUID();
+    compact300(f, { shape: b => { shape317(b);
+      b.compactMetadata.preservedMessages.uuids = [agentRecord]; b.compactMetadata.preservedSegment.tailUuid = agentRecord; } });
+    const rows = rowsOf(f), at = rows.findIndex(r => r.subtype === 'compact_boundary'), last = rows[at - 1]!;
+    rows.splice(at, 0, { ...last, uuid: agentRecord, parentUuid: last.uuid, isSidechain: true, agentId: 'a1',
+      type: 'attachment', attachment: { type: 'reminder' }, message: undefined });
+    write(f, rows);
+    expect(toolIds(f)).not.toContain('close');
+    expect(codeOf(await f.hook(nextPhase(f)))).toBe('close_incomplete');
+  });
+
+  test('a boundary with an absent logical parent and no compactMetadata still drops what follows', async () => {
+    const f = fixture(); compact300(f, { shape: b => { b.logicalParentUuid = randomUUID(); delete b.compactMetadata; } });
+    expect(toolIds(f)).not.toContain('close');
+    expect(codeOf(await f.hook(nextPhase(f)))).toBe('close_incomplete');
+  });
+
+  test('a 2.1.300 boundary that cycles back but whose list omits its logical parent is still reported as an unrecognized shape', async () => {
+    const f = fixture(); compact300(f, { shape: b => { const { preservedSegment, preservedMessages } = b.compactMetadata;
+      preservedMessages.uuids.pop(); preservedSegment.tailUuid = preservedMessages.uuids.at(-1); } });
+    expect(toolIds(f)).not.toContain('close');
+    expect(transcriptOf(f)).toMatchObject({ status: 'missing', reason: 'unrecognized_shape:compaction_unreachable' });
+    expectUnrecognizedCompaction(f, await f.hook(nextPhase(f)));
+  });
+
+  test('a resumed fork that opens with such a boundary stays a genesis root', () => {
+    const kept = randomUUID(), boundary = randomUUID();
+    const row = (uuid: string, parentUuid: string | null, extra: Row) =>
+      ({ uuid, parentUuid, isSidechain: false, cwd: '/w', timestamp: '2026-11-09T00:00:00.000Z', ...extra });
+    const shaped = [
+      row(boundary, null, { type: 'system', subtype: 'compact_boundary', logicalParentUuid: randomUUID(),
+        compactMetadata: { preservedSegment: { tailUuid: kept }, preservedMessages: { uuids: [kept] } } }),
+      row(kept, randomUUID(), { type: 'attachment', attachment: { type: 'reminder' } }),
+      row(randomUUID(), boundary, { type: 'user', message: { role: 'user', content: 'continued' } }),
+    ];
+    const orderOf = (rows: Row[]) => ownedCausalOrder(rows.map((r, i) => recordMeta(r, i)), '/w');
+    const control = orderOf(shaped.map(r => r.uuid === boundary ? { ...r, compactMetadata: undefined } : r));
+    expect(control).toEqual({ order: [0, 2], root: boundary });
+    expect(orderOf(shaped)).toEqual(control);
   });
 });
 

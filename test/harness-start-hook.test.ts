@@ -8,8 +8,8 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { TARGETS, readLedger, register, status, unregister, type RegisterOptions } from '../lib/harness-register';
-import { HOOK_ID, START_NOTE, START_NOTE_MAX, hookChoice, hookFiles, inspectHook } from '../lib/harness-start-hook';
+import { TARGETS, readLedger, register, status, unregister, writeLedger, type RegisterOptions } from '../lib/harness-register';
+import { HOOK_ID, START_HOOK_DEFAULT, START_NOTE, START_NOTE_MAX, hookChoice, hookFiles, inspectHook } from '../lib/harness-start-hook';
 import { cleanupFixtures, cleanupSeed, makeFixture, makeSource, registryRows, runSetup } from './helpers/install-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -133,11 +133,16 @@ describe('start hook: the note and the plugin files', () => {
 });
 
 describe('start hook: who decides', () => {
-  test('flag, then GSTACK_HARNESS_START_HOOK, then gstack-config harness_start_hook, then the ledger', () => {
+  test('flag, then GSTACK_HARNESS_START_HOOK, then gstack-config harness_start_hook, then the ledger, then the default (on)', () => {
     const d = tmp();
     const state = path.join(d, 'state');
     fs.mkdirSync(state);
-    expect(hookChoice(undefined, {}, state, undefined)).toEqual({ on: false, source: 'ledger' });
+    expect(START_HOOK_DEFAULT).toBe('on');
+    expect(hookChoice(undefined, {}, state, undefined)).toEqual({ on: true, source: 'default' });
+    expect(hookChoice(undefined, {}, state, 'off')).toEqual({ on: false, source: 'ledger' });
+    expect(hookChoice(undefined, {}, state, 'off', 'refused')).toEqual({ on: true, source: 'default' });
+    expect(hookChoice(undefined, {}, state, 'off', 'flag')).toEqual({ on: false, source: 'ledger' });
+    expect(hookChoice(undefined, {}, state, 'off', 'env')).toEqual({ on: false, source: 'ledger' });
     expect(hookChoice(undefined, {}, state, 'on')).toEqual({ on: true, source: 'ledger' });
     fs.writeFileSync(path.join(state, 'config.yaml'), 'harness_start_hook: off\n');
     expect(hookChoice(undefined, {}, state, 'on')).toEqual({ on: false, source: 'config' });
@@ -212,13 +217,60 @@ describe('start hook: who decides', () => {
 });
 
 describe('start hook: OpenClaw lifecycle (fake CLI)', () => {
-  test('default registration adds no plugin and runs no harness command', () => {
+  test('default registration turns the hook on, says so with the off switch, and a failed activation is not an error', () => {
     const r = rig('openclaw');
     const res = register(r.o());
-    expect(res.hook).toEqual({ state: 'off' });
-    expect(fs.existsSync(path.join(r.profile, 'extensions'))).toBe(false);
+    expect(res.hook).toMatchObject({ state: 'active', required: false, retried: true, profile: r.profile, root: r.root });
+    expect(res.hook?.detail).toContain('on by default; turn it off: gstack-harness register openclaw --no-start-hook, or gstack-config set harness_start_hook off');
+    expect(fs.readdirSync(r.root).sort()).toEqual(['index.js', 'note.txt', 'openclaw.plugin.json', 'package.json']);
+    expect(readLedger(res.ledger)!.meta).toMatchObject({ start_hook: 'on', hook_active: 'yes' });
+    expect(readLedger(res.ledger)!.meta.start_hook_by).toBeUndefined();
+    expect(register(r.o()).hook?.state).toBe('unchecked');
+
+    const blocked = rig('openclaw', { noCli: true, fresh: true });
+    const quiet = register(blocked.o());
+    expect(quiet.hook).toMatchObject({ required: false });
+    expect(quiet.hook?.state).not.toBe('active');
+  }, 120_000);
+
+  test('an off given by flag or env is kept by later runs; an off recorded before the default changed, or a record from before the start hook existed, stays off and says once how to turn it on', () => {
+    const r = rig('openclaw');
+    const off = register(r.o({ startHook: false }));
+    expect(off.hook?.state).toBe('off');
+    expect(readLedger(off.ledger)!.meta).toMatchObject({ start_hook: 'off', start_hook_by: 'flag' });
+    const refreshed = register(r.o({ inherit: true }));
+    expect(refreshed.hook?.state).toBe('off');
     expect(r.calls()).toEqual([]);
-    expect(readLedger(res.ledger)!.files.every(f => f.path.startsWith(path.join(r.profile, 'skills') + path.sep))).toBe(true);
+    expect(fs.existsSync(r.root)).toBe(false);
+
+    const viaEnv = rig('openclaw');
+    const envOff = register({ ...viaEnv.o(), env: { ...viaEnv.env, GSTACK_HARNESS_START_HOOK: '0' } });
+    expect(readLedger(envOff.ledger)!.meta).toMatchObject({ start_hook: 'off', start_hook_by: 'env' });
+    expect(register(viaEnv.o({ inherit: true })).hook?.state).toBe('off');
+    expect(viaEnv.calls()).toEqual([]);
+
+    const old = readLedger(off.ledger)!;
+    delete old.meta.start_hook_by;
+    writeLedger(off.ledger, old);
+    const upgraded = register(r.o({ inherit: true }));
+    expect(upgraded.status).toBe('updated');
+    expect(upgraded.hook).toEqual({ state: 'off', detail: 'off, as before: gstack now turns it on only for new registrations; turn it on: gstack-harness register openclaw --start-hook' });
+    expect(readLedger(upgraded.ledger)!.meta).toMatchObject({ start_hook: 'off', start_hook_by: 'before-default' });
+    expect(fs.existsSync(r.root)).toBe(false);
+    const again = register(r.o({ inherit: true }));
+    expect(again.status).toBe('unchanged');
+    expect(again.hook).toEqual({ state: 'off' });
+    expect(r.calls()).toEqual([]);
+
+    const older = readLedger(off.ledger)!;
+    delete older.meta.start_hook;
+    delete older.meta.start_hook_by;
+    writeLedger(off.ledger, older);
+    const fromBeforeHooks = register(r.o({ inherit: true }));
+    expect(fromBeforeHooks.hook).toEqual({ state: 'off', detail: 'off, as before: gstack now turns it on only for new registrations; turn it on: gstack-harness register openclaw --start-hook' });
+    expect(readLedger(fromBeforeHooks.ledger)!.meta).toMatchObject({ start_hook: 'off', start_hook_by: 'before-default' });
+    expect(fs.existsSync(r.root)).toBe(false);
+    expect(r.calls()).toEqual([]);
   }, 120_000);
 
   test('on, refreshed, disabled by the user, then off: activation runs once, a user disable sticks, opt-out cleans up', () => {
@@ -532,6 +584,8 @@ describe('start hook: HARN-18 smoke defects (GST-778)', () => {
     expect(custom.hook).toMatchObject({ state: 'off', required: true });
     expect(custom.hook?.fix).toContain('--no-start-hook');
     expect(register({ ...r.o({ skillsDir: path.join(r.d, 'custom', 'skills'), startHook: false }), env: { ...r.env, GSTACK_HARNESS_START_HOOK: '1' } }).hook).toEqual({ state: 'off' });
+    expect(readLedger(res.ledger)!.meta.start_hook_by).toBe('refused');
+    expect(register(r.o({ inherit: true })).hook?.state).toBe('active');
   }, 120_000);
 
   test('a fresh harness with no config: turning the hook on creates no config, runs no harness command, and fails with the setup to run first', () => {

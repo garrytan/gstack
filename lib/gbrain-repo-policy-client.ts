@@ -16,7 +16,7 @@
  * site keeps its own fail-open / fail-closed decision on `error`.
  */
 
-import { spawnSync } from "child_process";
+import { spawnSync } from "./spawn-sync";
 import { lstatSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { mergedStateRoots, resolveStateRoot } from "./state-root";

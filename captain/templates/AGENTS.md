@@ -25,7 +25,7 @@ a standing approval instead of asking again. Append; never rewrite an owner's wo
   rerun: <amount>. Over the cap is a fresh ask.
 
 ## Asks to the owner (<owner>, <date>: "<words>")
-- The ask format (gstack docs/captain.md), explained like I'm five: <Captain name>, then one
+- The ask format (gstack crew/docs/captain.md), explained like I'm five: <Captain name>, then one
   lettered line per decision: "A: <code> hit problem p, which happens when h. We could fix it
   in these ways: 1) x; 2) y; 3) z. Recommendation: x because why. A1 to take recommendation."
   "do it" takes every recommendation in the list at full scope, follow-ons included, no

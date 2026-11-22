@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BASE_POLICY, cleanup, makeFixtureRepo, type FixtureRepo } from './helpers/restamp-fixture';
-import { bumpVersion, regeneratedAtBase } from '../lib/version-gate-train';
+import { bumpVersion, regeneratedAtBase } from '../crew/lib/version-gate-train';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'compare-pr-version.ts');

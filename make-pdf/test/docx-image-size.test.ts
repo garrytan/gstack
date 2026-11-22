@@ -104,7 +104,8 @@ await generate({ input: ${JSON.stringify(path.join(workDir, "doc.md"))}, output:
       const run = Bun.spawnSync([process.execPath, "-e", script], { timeout: 30_000, stdout: "pipe", stderr: "pipe" });
       const stderr = run.stderr.toString();
       expect(run.exitCode).toBe(0);
-      expect(stderr.match(/docx: dropped an ICNS image/g)).toHaveLength(2);
+      expect(stderr).toContain("not a recognized image (png, jpeg, gif, webp, svg): evil.png");
+      expect(stderr.match(/docx: dropped an ICNS image/g)).toHaveLength(1);
       expect(unzip(["-p", out, "word/document.xml"]).toString("utf8")).not.toContain("<w:drawing>");
     } finally {
       fs.rmSync(workDir, { recursive: true, force: true });

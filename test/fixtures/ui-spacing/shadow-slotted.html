@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project settings: rows slotted into a shadow root</title>
+<link rel="stylesheet" href="replica.css">
+<script src="sharing.js"></script>
+</head>
+<body>
+<main>
+<qm-card id="card"></qm-card>
+<script>
+customElements.define('qm-card', class extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: 'open' }).innerHTML = '<style>:host { display: block }</style><div class="card-frame"><slot></slot></div>'; }
+});
+document.getElementById('card').innerHTML = window.SHARING_HTML;
+</script>
+</main>
+</body>
+</html>

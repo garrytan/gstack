@@ -33,7 +33,6 @@
     "gstack-upgrade",
     "guard",
     "health",
-    "investigate",
     "ios-clean",
     "ios-design-review",
     "ios-fix",

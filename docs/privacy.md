@@ -11,9 +11,43 @@ no, and `gstack-config set telemetry off` turns it off at any time.
   whether the browser was used, whether the run was live or a test, a session
   id, the count of live session markers (below), the error class, the failed step, and an error message passed through gstack's
   secret redaction (cut to 200 characters). `community` adds a stable device
-  ID; `anonymous` sends no ID. Prompt-injection detections add the attacking
+  ID; `anonymous` sends no device ID. Prompt-injection detections add the attacking
   page's domain, a payload hash, a confidence score, the detection layer and
   the verdict.
+- **Each skill run also sends** these labels, each a pick from a
+  fixed list (anything else is sent as `unknown`):
+  - `host`: which coding agent ran it (`claude_code`, `codex`, `cursor`,
+    `openclaw`, `hermes` or `other`), read from the agent's environment.
+  - `model_family`: `claude_opus`, `claude_sonnet`, `claude_haiku`,
+    `claude_other`, `gpt`, `gemini` or `other`, as the model reports it about itself.
+  - `invoked`: started by you, by the model, or chained from another skill.
+  - `exit_reason`: completed, stopped by you, blocked, a tool error, a test
+    failure, the context limit, or gave up.
+  - `checks`: whether the skill's own checks passed, failed or weren't run.
+  - `routing`: whether your CLAUDE.md/AGENTS.md has gstack's routing section
+    and whether gstack hooks are installed (`none`, `block`, `hooks`,
+    `both`). The files are read on your machine; only that word is sent.
+  - `harness_session_id`: a random 16-character id for one agent session. It
+    is created on first use, kept in that session's marker file below, and
+    ends when the marker does (120 idle minutes). It is never your device ID
+    and never reused, so it links the skills of one session and nothing
+    across sessions or machines. It is sent on both tiers, except under a
+    harness that runs every session in one process (Capy's capy-server).
+  - Upgrades send one `upgrade_completed` event: success or the failure
+    reason (`refused_dirty`, `busy`, `fetch_failed`, `setup_failed`,
+    `other`) and the version you came from. `--check` and unattended
+    sessions send nothing.
+  - `source` is set to `ci` under CI and `eval` inside gstack's eval runs,
+    so lab traffic stays out of real-use numbers. gstack's own use on Capy is
+    labelled `capy` (or `gt`, below) and kept out of them too. A duration gstack can't
+    measure is sent empty instead of 0.
+- **On Capy:** sessions an agent drives there send nothing unless the owner's
+  `preferences.yaml` beside the Capy gstack skill holds the line
+  `telemetry_capy: anonymous`. Then each skill run sends one row at the
+  `anonymous` tier (no device ID, even on a machine set to `community`),
+  labelled `capy`. Any other value, or two such lines, is off. A second line,
+  `telemetry_capy_source: gt`, labels the rows `gt` instead (gstack's
+  maintainer's own machines); any other label is `capy`.
 - **What's never sent:** code, file paths, repo names, branch names, prompts,
   or any other content you write.
 - **What stays on your machine:** opted in, each run is also logged to
@@ -26,8 +60,11 @@ no, and `gstack-config set telemetry off` turns it off at any time.
 - **Where it goes:** [Supabase](https://supabase.com) (an open-source Firebase
   alternative). The schema is in [`supabase/migrations/`](../supabase/migrations/),
   so you can verify what's collected. The publishable key in the repo is a
-  public key; row-level security denies direct access, and edge functions
-  enforce schema checks, event allowlists and field length limits.
+  public key that can neither read nor write those tables; every write goes
+  through edge functions that enforce schema checks, event allowlists and
+  field length limits. gstack never uses Supabase sign-in, and signed-in users
+  are denied everything too. gstack's own test suite never sends telemetry
+  to the live project.
 
 **Update check (on by default, regardless of telemetry).** Every interactive
 skill start runs `gstack-update-check`. When its cache is stale (60 minutes after an
@@ -58,8 +95,9 @@ them by name.
 your telemetry setting. They are functional state, not usage logs, and the
 files are never sent:
 
-- **Session markers:** `~/.gstack/sessions/<pid>`, one empty file per live agent
-  session, touched at skill start and deleted after 120 minutes. The count lets
+- **Session markers:** `~/.gstack/sessions/<pid>`, one file per live agent
+  session, touched at skill start and deleted after 120 idle minutes. With
+  telemetry on it holds that session's random `harness_session_id`. The count lets
   skills notice several sessions on one machine; with telemetry on, that number
   is the session count above.
 - **Project timeline:** `~/.gstack/projects/<repo>/timeline.jsonl` records skill

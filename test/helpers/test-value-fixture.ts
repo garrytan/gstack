@@ -12,6 +12,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createCoverageAuditFixture } from '../fixtures/coverage-audit-fixture';
 
 export const LOW_VALUE_TESTS = {
   sourceGrep: 'test/pricing-source.test.ts',
@@ -127,4 +128,48 @@ export function jsonFindings(output: string): any[] {
 export function recordsNonTestCallerSearch(finding: { evidence?: unknown }): boolean {
   const evidence = JSON.stringify(finding.evidence ?? '');
   return /non_test_callers/.test(evidence) && /\bgit grep\b|\brg\b|\bgrep\b|\bGrep\b|\bag\b|\back\b/.test(evidence);
+}
+
+const REFUND_SMOKE_TEST = `
+import { refundPayment } from '../src/billing';
+test('refundPayment does not throw', () => {
+  expect(() => refundPayment('pay_1', 'duplicate')).not.toThrow();
+});
+`;
+
+/** ship-coverage-value: the coverage-audit billing fixture plus a ★-only refundPayment smoke test. */
+export function createShipCoverageValueFixture(dir: string): void {
+  createCoverageAuditFixture(dir);
+  fs.appendFileSync(path.join(dir, 'test/billing.test.ts'), REFUND_SMOKE_TEST);
+}
+
+/** The header of the innermost function or test/it/describe call whose braces span a `file:line` reference under cwd, or null. */
+export function enclosingDeclaration(cwd: string, ref: unknown): string | null {
+  const match = String(ref ?? '').match(/^(.+?):(\d+)(?:-\d+)?$/);
+  if (!match || !fs.existsSync(path.resolve(cwd, match[1]!))) return null;
+  const lines = fs.readFileSync(path.resolve(cwd, match[1]!), 'utf8').split('\n');
+  const target = Number(match[2]) - 1;
+  for (let start = Math.min(target, lines.length - 1); start >= 0; start--) {
+    if (!/^\s*(?:export\s+)?(?:async\s+)?function\s+\w+|^\s*(?:test|it|describe)\s*\(/.test(lines[start]!)) continue;
+    let depth = 0;
+    for (let end = start; end < lines.length; end++) {
+      depth += (lines[end]!.match(/\{/g) ?? []).length - (lines[end]!.match(/\}/g) ?? []).length;
+      if (depth > 0) continue;
+      if (target <= end) return lines[start]!.trim();
+      break;
+    }
+  }
+  return null;
+}
+
+/**
+ * A weak_gaps row for symbol: named in the row, or a star_one row whose path:line
+ * lies inside the symbol's function and whose existing_test:line lies inside a test
+ * naming it. The Step 7 schema has no function-name field, so a file:line row counts.
+ */
+export function weakGapCovers(gap: any, cwd: string, symbol: RegExp): boolean {
+  if (symbol.test(JSON.stringify(gap))) return true;
+  return gap?.reason === 'star_one'
+    && symbol.test(enclosingDeclaration(cwd, gap.path) ?? '')
+    && symbol.test(enclosingDeclaration(cwd, gap.existing_test) ?? '');
 }

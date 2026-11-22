@@ -122,7 +122,7 @@ describe('GSTA-56: gstack never takes configuration from the audited repository'
       'scripts/eval-compare.ts',
       'scripts/eval-summary.ts',
       'scripts/garry-output-comparison.ts',
-      'scripts/measure-journal-read.ts',
+      'crew/scripts/measure-journal-read.ts',
     ];
     expect(scripts.filter(f => firstLine(f) !== ISOLATED_SHEBANG)).toEqual([]);
   });
@@ -210,7 +210,7 @@ describe('GSTA-56: gstack never takes configuration from the audited repository'
     };
     const offenders: string[] = [];
     for (const f of TRACKED) {
-      if (f.startsWith('.github/') || f.startsWith('scripts/') || /\.test\.ts$|^test-setup\.ts$/.test(f) || EXEMPT[f]) continue;
+      if (f.startsWith('.github/') || f.startsWith('scripts/') || f.startsWith('crew/scripts/') || /\.test\.ts$|^test-setup\.ts$/.test(f) || EXEMPT[f]) continue;
       if (!f.endsWith('.ts') && !/^#!.*\bbun\b/.test(firstLine(f))) continue;
       const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
       for (const m of src.matchAll(SPAWN_BUN)) {

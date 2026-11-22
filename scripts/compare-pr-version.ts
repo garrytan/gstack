@@ -16,7 +16,7 @@
 // only blocks actual collisions.
 
 import { readFileSync } from "node:fs";
-import { classifyTrainHead } from "../lib/version-gate-train";
+import { classifyTrainHead } from "../crew/lib/version-gate-train";
 
 const [, , jsonPath, prNumber] = process.argv;
 if (!jsonPath) {

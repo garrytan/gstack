@@ -20,8 +20,10 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { resolveClaudeCommand } from './claude-bin';
+import { readConfigKey } from './state-root';
 import { wtreeFingerprint } from './script-invocation';
 import { resultLine } from './result-codes';
 import {
@@ -300,11 +302,12 @@ export function cmdLaunch(argv: string[], ctx: Ctx): Outcome {
   const claude = resolveClaudeCommand(ctx.env);
   if (!claude) throw usageError('no claude binary resolves (PATH, GSTACK_CLAUDE_BIN); launch the child by hand or rerun with --delegate never');
   const session = crypto.randomUUID();
-  const prompt = `Load gstack. Your Claude Code session id is ${session}. Run /ship --continue ${path.resolve(file)}: first gstack-ship-budget verify-handoff --in ${path.resolve(file)} --session ${session}, then only the steps the brief names, then gstack-ship-budget return as its return contract says.`;
+  const ship = readConfigKey('skill_prefix', ctx.env) === 'true' ? '/gstack-ship' : '/ship';
+  const prompt = `${ship} --continue ${path.resolve(file)} Your Claude Code session id is ${session}. First run gstack-ship-budget verify-handoff --in ${path.resolve(file)} --session ${session}, then only the steps the brief names, then gstack-ship-budget return as its return contract says.`;
   const log = path.join(path.dirname(block.return_file), `child-${session}.log`);
   joinMeter(block.parent_ledger, session, ctx.env);
   const out = fs.openSync(log, 'a', 0o600);
-  const child = spawn(claude.command, [...claude.argsPrefix, '-p', '--session-id', session, ...CHILD_PERMISSION_ARGS, prompt], { cwd: ctx.cwd, env: ctx.env, detached: true, stdio: ['ignore', out, out] });
+  const child = spawn(claude.command, [...claude.argsPrefix, '-p', '--session-id', session, ...CHILD_PERMISSION_ARGS, '--', prompt], { cwd: ctx.cwd, env: ctx.env, detached: true, stdio: ['ignore', out, out] });
   child.unref();
   fs.closeSync(out);
   return { stdout: [`CHILD: session=${session} pid=${child.pid} log=${log} return=${block.return_file}`], exit: 0 };

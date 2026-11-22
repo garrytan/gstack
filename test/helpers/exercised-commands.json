@@ -811,27 +811,6 @@
       "costUsd": 0.013,
       "costRuns": 101
     },
-    "investigate-owned-abort": {
-      "observations": 178,
-      "withCommands": 178,
-      "commands": [],
-      "costUsd": 0.2212,
-      "costRuns": 105
-    },
-    "investigate-owned-completion": {
-      "observations": 164,
-      "withCommands": 164,
-      "commands": [],
-      "costUsd": 0.2184,
-      "costRuns": 105
-    },
-    "investigate-owned-ending-error": {
-      "observations": 178,
-      "withCommands": 178,
-      "commands": [],
-      "costUsd": 0.2694,
-      "costRuns": 105
-    },
     "land-and-deploy-first-run": {
       "observations": 179,
       "withCommands": 179,

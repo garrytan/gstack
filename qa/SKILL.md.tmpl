@@ -11,7 +11,7 @@ description: |
   or asks "does this work?". Three tiers: Quick (critical/high only),
   Standard (+ medium), Exhaustive (+ cosmetic). Produces contract outcomes or browser health scores,
   fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only. (gstack)
-codex_default_prompt: "Use $gstack-qa to test what changed (browser, API, CLI, jobs, workers, webhooks), reproduce each defect, fix it, and prove the fix with a regression test."
+codex_default_prompt: "Use $qa to test what changed (browser, API, CLI, jobs, workers, webhooks), reproduce each defect, fix it, and prove the fix with a regression test."
 voice-triggers:
   - "quality check"
   - "test the app"
@@ -120,7 +120,7 @@ Prefer the richer of recent project test plans and plans in conversation over gi
    {{SLUG_EVAL}}
    ls -t "$GSTACK_STATE_ROOT"/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
-2. **Conversation context:** Prior `/autoplan` or `/plan-ceo-review` test plans.
+2. **Conversation context:** Prior `/plan-eng-review` or `/plan-ceo-review` test plans.
 3. Fall back to git diff only if neither exists.
 
 ---

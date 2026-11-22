@@ -86,11 +86,11 @@ case "$REDACT_CODE" in
     exit 2 ;;
   3)
     printf '%s\n' "$REDACT_JSON"
-    rm -f "$REDACT_FILE"
+    rm "$REDACT_FILE"
     echo 'HIGH redaction finding: outside dispatch and downstream persistence blocked. Redact at source and rescan; no skip.' >&2
     exit 3 ;;
   *)
-    rm -f "$REDACT_FILE"
+    rm "$REDACT_FILE"
     echo "Redaction scan failed (exit $REDACT_CODE); refusing outside dispatch and downstream persistence." >&2
     exit 1 ;;
 esac
@@ -114,7 +114,7 @@ Branch on `$REDACT_CODE`:
 After the approved sink consumes the file, or when the user cancels, clean up (never before dispatch reads the scanned bytes):
 
 ```bash
-rm -f "$REDACT_FILE"
+rm "$REDACT_FILE"
 ```
 
 Guardrail, not airtight enforcement — direct `gh`/`git` bypass it; it catches accidents.
@@ -173,10 +173,9 @@ fi
 
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
 _OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
-trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+trap 'rm -r "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
-
 _CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
 export _CODEX_DEADLINE=$(($(date +%s)+120)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
@@ -279,7 +278,7 @@ ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed -E 's|.*/issues/([0-9]+)$|\1|')
 echo "Filed: $ISSUE_URL (ISSUE_NUMBER: $ISSUE_NUMBER)"
 [ -s "$APPROACH_FILE" ] && ~/.claude/skills/gstack/bin/gstack-decision-log "$(jq -cn --arg n "$ISSUE_NUMBER" --rawfile t "$TITLE_FILE" --rawfile a "$APPROACH_FILE" \
   '{decision: ("Spec filed #" + $n + ": " + ($t | rtrimstr("\n"))), rationale: ($a | rtrimstr("\n")), scope: "issue", issue: $n, source: "skill", confidence: 7}')" 2>/dev/null || true
-rm -f "$APPROACH_FILE"
+rm "$APPROACH_FILE" 2>/dev/null || :
 ```
 
 Exit 1 (HIGH): do NOT file; rotate and redact at source, no skip. Exit 2 (MEDIUM): ask
@@ -347,7 +346,7 @@ ARCHIVE_PATH="$ARCHIVE_DIR/$ARCHIVE_NAME"
   printf '\n'
   cat "$REDACT_FILE"
 } > "$ARCHIVE_PATH.tmp"
-mv "$ARCHIVE_PATH.tmp" "$ARCHIVE_PATH" && rm -f "$TITLE_FILE"
+mv "$ARCHIVE_PATH.tmp" "$ARCHIVE_PATH" && rm "$TITLE_FILE"
 echo "Archived: $ARCHIVE_PATH (SLUG_TITLE: $SLUG_TITLE)"
 ```
 
@@ -439,7 +438,7 @@ followed by the coordinator contract every lane inherits word for word
 
 ## Coordinator contract (inherited by every lane)
 
-Merge conditions. A lane's PR merges only when: the required gate lanes are green on the stamped tree or the tree receipt says `gate-reuse: eligible`; `gstack-lane-check` reports `clear` for its planned files against every other open lane; the PR body opens with the `gstack-ship-receipt` block; and the coordinator, not the lane, says merge. A lane never merges, rebases another lane, or force-pushes.
+Merge conditions. A lane's PR merges only when: the required gate lanes are green on the stamped tree or the tree receipt says `gate-reuse: eligible`; `gstack-lane-check` reports `clear` for its planned files against every other open lane; the PR body carries the `gstack-ship-receipt` block in its Agent notes section; and the coordinator, not the lane, says merge. A lane never merges, rebases another lane, or force-pushes.
 
 Behavior-change notices. Every user-visible behavior change outside the plan's own items is listed in the PR body under `## Behavior changes` with the file, the old behavior and the new one, before the review starts. An omitted change found in review is a CRITICAL finding, whatever its size.
 

@@ -9,7 +9,8 @@ name: Free Tests
 # here (the eval matrix skips fork PRs because repository secrets can't reach
 # them). test/free-tests-workflow-wiring.test.ts fails CI if a secret sneaks in.
 # The one exception is TRUNK_API_TOKEN in the trunk-dynamic-ci observer, which
-# runs no pull-request code and which nothing depends on (see that job).
+# runs no pull-request code and nothing depends on it (see that job). The Trunk
+# Flaky Tests uploader runs after this workflow, in trunk-flaky-tests.yml.
 #
 # This is a REQUIRED check from day one (branch protection lists it). If it's
 # red, fix or quarantine-with-issue — don't make it advisory; an advisory lane
@@ -41,7 +42,7 @@ on:
   workflow_dispatch:
     inputs:
       free_runner:
-        description: 'Runner-sizing experiments only: Ubicloud runner for the free-suite shards (ubicloud-standard-2, -4 or -8; empty keeps FREE_SUITE_RUNNER). Never cite such a run as a PR or train Free Tests result.'
+        description: 'Runner-sizing experiments only: Ubicloud runner for the free-suite shards (ubicloud-standard-2, -4, -8 or -16; empty keeps FREE_SUITE_RUNNER). Never cite such a run as a PR or train Free Tests result.'
         type: string
         default: ''
       free_shards:
@@ -65,9 +66,9 @@ on:
 # before the runner can name a hung file. Measured over 110 free-suite jobs in
 # PR runs 41467261350..41478988224: p50 60 s, p90 80 s, max 142 s.
 env:
-  FREE_SUITE_RUNNER: ubicloud-standard-8
+  FREE_SUITE_RUNNER: ubicloud-standard-16
   FREE_SUITE_SHARDS: '10'
-  FREE_SUITE_JOBS: '4'
+  FREE_SUITE_JOBS: '8'
   FREE_SUITE_SETUP_SECONDS: '300'
 
 # Keyed on the PR number, not head_ref: a bare branch name carries no fork
@@ -154,9 +155,66 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bun --no-env-file --config=/dev/null run scripts/ci-tree-reuse.ts find --workflow free-tests.yml --profile ci-reuse/free-tests --pull-request
 
+  # R81 (docs/pregate.md#docs-only): a pull request whose every path is human docs runs
+  # docs-lane instead of the suites. The classifier is the base branch's copy, run on
+  # the merge commit against its first parent; any error reads as not docs-only.
+  docs-scope:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+      tests: ${{ steps.scope.outputs.tests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - id: scope
+        uses: ./.github/actions/docs-scope
+
+  docs-lane:
+    needs: docs-scope
+    if: needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Configure git identity (docs reader tests init temp repos)
+        run: |
+          git config --global user.email "free-tests-ci@gstack.test"
+          git config --global user.name "Free Tests CI"
+          git config --global init.defaultBranch main
+      - name: Links on the lines this pull request added resolve
+        run: git diff --name-only -z --diff-filter=AMR HEAD^1 HEAD -- '*.md' | xargs -0 -r bun run scripts/check-doc-links.ts --base HEAD^1
+      - name: Run the tests that read docs by directory
+        env:
+          DOCS_TESTS: ${{ needs.docs-scope.outputs.tests }}
+        run: |
+          set -eu
+          if [ -z "$DOCS_TESTS" ]; then exit 0; fi
+          read -ra tests <<< "$DOCS_TESTS"
+          bun --no-env-file test --timeout=30000 "${tests[@]}"
+
+  # The planner runs beside reuse and docs-scope instead of after them, so the
+  # shards wait for one round of small jobs, not two (GST-3303: the second
+  # round cost 21 s at p50 and 363 s at p95 of GitHub queue). It only plans:
+  # free-suite and the aggregate still read reuse and docs-scope, so a reused
+  # main push or a docs-only pull request runs no shard. On those runs the
+  # plan and its artifact are unused; scripts/lib/ci-history.ts reads a run
+  # whose only artifact is free-plan as one that ran no shard.
   free-plan:
-    needs: reuse
-    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -187,8 +245,8 @@ jobs:
           shards="${SHARDS_OVERRIDE:-$FREE_SUITE_SHARDS}"
           jobs="${JOBS_OVERRIDE:-$FREE_SUITE_JOBS}"
           case "$runner" in
-            ubicloud-standard-2|ubicloud-standard-4|ubicloud-standard-8) ;;
-            *) echo "::error::free_runner '$runner' is not ubicloud-standard-2, -4 or -8"; exit 1 ;;
+            ubicloud-standard-2|ubicloud-standard-4|ubicloud-standard-8|ubicloud-standard-16) ;;
+            *) echo "::error::free_runner '$runner' is not ubicloud-standard-2, -4, -8 or -16"; exit 1 ;;
           esac
           case "$shards" in
             ''|*[!0-9]*) echo "::error::free_shards '$shards' is not a whole number"; exit 1 ;;
@@ -214,8 +272,8 @@ jobs:
           if-no-files-found: error
 
   cso-macos-launcher:
-    needs: reuse
-    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
+    needs: [reuse, docs-scope]
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -255,8 +313,8 @@ jobs:
   # the Codex probe from zsh, macOS's default shell (#3024; no paid call), and
   # runs ubi-runner under macOS's bsdtar and one-true-awk (#3680, #3679).
   macos-named-regressions:
-    needs: reuse
-    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
+    needs: [reuse, docs-scope]
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -301,8 +359,8 @@ jobs:
           bun test --timeout=30000 "${files[@]}"
 
   cso-windows-launcher:
-    needs: reuse
-    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
+    needs: [reuse, docs-scope]
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -331,8 +389,8 @@ jobs:
           retention-days: 14
 
   cso-docker-integration:
-    needs: reuse
-    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
+    needs: [reuse, docs-scope]
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -363,8 +421,8 @@ jobs:
           DOCKER_HOST: unix:///var/run/docker.sock
 
   typecheck:
-    needs: reuse
-    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
+    needs: [reuse, docs-scope]
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -388,8 +446,8 @@ jobs:
   # the quick tier also runs on it. Its pin equals GSTACK_BUN_DEFAULT;
   # test/bun-version-drift.test.ts checks this job exists and agrees.
   quick-bun-default:
-    needs: reuse
-    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
+    needs: [reuse, docs-scope]
+    if: ${{ !cancelled() && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: ubicloud-standard-8
     timeout-minutes: 30
     steps:
@@ -419,6 +477,32 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: linux-playwright-chromium-${{ steps.playwright.outputs.version }}
+      # --with-deps fetches about 38 MB of system packages from archive.ubuntu.com
+      # on every run. On 2026-11-19 that mirror served some runners at 85 to
+      # 280 kB/s: 17 of 456 first attempts hit the 5-minute limit, and each
+      # retry then died in seconds on the dpkg lock that the killed attempt's
+      # apt-get still held (run 44485949701). apt now waits for that lock, and
+      # the packages one run downloads are cached under a key made from the
+      # runner's installed package list and the Playwright version, so a later
+      # run on the same image installs them with dpkg and never touches the mirror.
+      - name: Make apt wait for its lock and keep the packages it downloads
+        run: printf 'DPkg::Lock::Timeout "240";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/90gstack-ci > /dev/null
+      - name: Fingerprint the runner's installed system packages
+        id: apt_base
+        env:
+          PLAYWRIGHT_VERSION: ${{ steps.playwright.outputs.version }}
+        run: echo "cache_key=linux-apt-debs-$(dpkg-query -W -f='${binary:Package}=${Version}\n' | sha256sum | cut -c1-16)-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Restore the system packages an earlier run downloaded
+        id: apt_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/gstack-apt-debs
+          key: ${{ steps.apt_base.outputs.cache_key }}
+      - name: Install the cached system packages without the network
+        id: apt_offline
+        if: steps.apt_cache.outputs.cache-hit == 'true'
+        continue-on-error: true
+        run: sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb
       # The cache restores the browser; --with-deps still runs apt for system
       # libraries. On 2026-10-21 apt stalled on an archive.ubuntu.com fetch and
       # held free-suite (12) for the whole 20-minute job timeout (run
@@ -429,11 +513,17 @@ jobs:
         id: playwright_install
         timeout-minutes: 5
         continue-on-error: true
-        run: npx playwright install --with-deps chromium
+        env:
+          SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
+        run: |
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
       - name: Retry the Playwright Chromium install once
         if: steps.playwright_install.outcome == 'failure'
         timeout-minutes: 5
-        run: npx playwright install --with-deps chromium
+        env:
+          SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
+        run: |
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
       - name: Configure the bundled Chromium sandbox helper
         run: |
           set -euo pipefail
@@ -463,6 +553,21 @@ jobs:
           sudo apparmor_parser -r "$profile"
       - name: Install Xvfb + X11 utilities + gate tools
         run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji zsh
+      - name: Keep the system packages this run downloaded
+        id: apt_keep
+        if: steps.apt_cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/gstack-apt-debs
+          if compgen -G '/var/cache/apt/archives/*.deb' > /dev/null; then
+            cp /var/cache/apt/archives/*.deb ~/.cache/gstack-apt-debs/
+            echo "save=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save the system packages for the next run on this image
+        if: steps.apt_keep.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/gstack-apt-debs
+          key: ${{ steps.apt_cache.outputs.cache-primary-key }}
       - name: Configure git identity (tests init temp repos)
         run: |
           git config --global user.email "free-tests-ci@gstack.test"
@@ -483,12 +588,38 @@ jobs:
         env:
           GSTACK_FREE_RETRY_FLAKY: "1"
           GSTACK_FLAKE_LEDGER: ${{ runner.temp }}/flake-ledger.jsonl
-        run: xvfb-run -a bun run test:quick
+        run: xvfb-run -a bun run test:quick --junit-dir "$RUNNER_TEMP/quick-junit"
+
+      # Kept for trunk-flaky-tests.yml, which uploads them to Trunk as the
+      # bun-default variant after the run, so a flaky pass here reaches Trunk
+      # as well as the flake ledger (GST-3303).
+      - name: Upload the quick tier's JUnit reports
+        if: always()
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: quick-junit
+          path: ${{ runner.temp }}/quick-junit/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # The quick tier retries a failing file once too, so its flaky passes go
+      # in the same flake-ledger-* series the aggregate summarizes and
+      # test:health counts. Before GST-3303 this ledger was written and lost.
+      - name: Upload the quick tier's flake ledger
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: flake-ledger-quick
+          path: ${{ runner.temp }}/flake-ledger.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
 
   free-suite:
     name: free-suite (${{ matrix.shard }})
-    needs: [free-plan, reuse]
-    if: ${{ !cancelled() && needs.free-plan.result == 'success' && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') }}
+    needs: [free-plan, reuse, docs-scope]
+    if: ${{ !cancelled() && needs.free-plan.result == 'success' && (needs.reuse.result != 'success' || needs.reuse.outputs.reused != 'true') && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}
     runs-on: ${{ needs.free-plan.outputs.runner }}
     # Per shard, from the plan: runner wall + flaky retry + setup (#3850).
     timeout-minutes: ${{ matrix.timeout_minutes }}
@@ -542,6 +673,32 @@ jobs:
           path: ~/.cache/ms-playwright
           key: linux-playwright-chromium-${{ steps.playwright.outputs.version }}
 
+      # --with-deps fetches about 38 MB of system packages from archive.ubuntu.com
+      # on every run. On 2026-11-19 that mirror served some runners at 85 to
+      # 280 kB/s: 17 of 456 first attempts hit the 5-minute limit, and each
+      # retry then died in seconds on the dpkg lock that the killed attempt's
+      # apt-get still held (run 44485949701). apt now waits for that lock, and
+      # the packages one run downloads are cached under a key made from the
+      # runner's installed package list and the Playwright version, so a later
+      # run on the same image installs them with dpkg and never touches the mirror.
+      - name: Make apt wait for its lock and keep the packages it downloads
+        run: printf 'DPkg::Lock::Timeout "240";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/90gstack-ci > /dev/null
+      - name: Fingerprint the runner's installed system packages
+        id: apt_base
+        env:
+          PLAYWRIGHT_VERSION: ${{ steps.playwright.outputs.version }}
+        run: echo "cache_key=linux-apt-debs-$(dpkg-query -W -f='${binary:Package}=${Version}\n' | sha256sum | cut -c1-16)-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Restore the system packages an earlier run downloaded
+        id: apt_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/gstack-apt-debs
+          key: ${{ steps.apt_base.outputs.cache_key }}
+      - name: Install the cached system packages without the network
+        id: apt_offline
+        if: steps.apt_cache.outputs.cache-hit == 'true'
+        continue-on-error: true
+        run: sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb
       # The cache restores the browser; --with-deps still runs apt for system
       # libraries. On 2026-10-21 apt stalled on an archive.ubuntu.com fetch and
       # held free-suite (12) for the whole 20-minute job timeout (run
@@ -552,12 +709,18 @@ jobs:
         id: playwright_install
         timeout-minutes: 5
         continue-on-error: true
-        run: npx playwright install --with-deps chromium
+        env:
+          SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
+        run: |
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
 
       - name: Retry the Playwright Chromium install once
         if: steps.playwright_install.outcome == 'failure'
         timeout-minutes: 5
-        run: npx playwright install --with-deps chromium
+        env:
+          SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
+        run: |
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
 
       - name: Configure the bundled Chromium sandbox helper
         run: |
@@ -602,6 +765,21 @@ jobs:
       # skip instead of running.
       - name: Install Xvfb + X11 utilities + gate tools
         run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji zsh
+      - name: Keep the system packages this run downloaded
+        id: apt_keep
+        if: steps.apt_cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/gstack-apt-debs
+          if compgen -G '/var/cache/apt/archives/*.deb' > /dev/null; then
+            cp /var/cache/apt/archives/*.deb ~/.cache/gstack-apt-debs/
+            echo "save=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save the system packages for the next run on this image
+        if: steps.apt_keep.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/gstack-apt-debs
+          key: ${{ steps.apt_cache.outputs.cache-primary-key }}
 
       - name: Configure git identity (tests init temp repos)
         run: |
@@ -653,7 +831,7 @@ jobs:
       # if a future edit drops the gate build (or poppler), the lane FAILS
       # instead of the gates silently self-skipping back to false green.
       - name: Run free suite
-        run: xvfb-run -a bun run test:free --ci-run "$RUNNER_TEMP/free-plan.json" --shard ${{ matrix.shard }} --result "$RUNNER_TEMP/free-results/shard-${{ matrix.shard }}.json"
+        run: xvfb-run -a bun run test:free --ci-run "$RUNNER_TEMP/free-plan.json" --shard ${{ matrix.shard }} --result "$RUNNER_TEMP/free-results/shard-${{ matrix.shard }}.json" --junit-dir "$RUNNER_TEMP/free-junit"
         env:
           GSTACK_EXPECT_BINARIES: "1"
           # WS1 flake telemetry: a single timing flake must not red the only
@@ -680,6 +858,19 @@ jobs:
           name: free-result-${{ matrix.shard }}
           path: ${{ runner.temp }}/free-results/*.json
           if-no-files-found: error
+
+      # bun's JUnit report from every child of this shard, the flaky retry
+      # included. Only trunk-flaky-tests.yml reads it; no verdict does.
+      - name: Upload shard JUnit reports
+        if: always()
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: free-junit-${{ matrix.shard }}
+          path: ${{ runner.temp }}/free-junit/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Uploaded unconditionally (not just on failure): a flaky-pass run is
       # GREEN — that's the point — so its evidence must survive green runs.
@@ -719,13 +910,16 @@ jobs:
   # else takes the strict path below unchanged, which alone uploads tested-tree.
   free-tests:
     if: always()
-    needs: [reuse, free-suite, typecheck, quick-bun-default, cso-macos-launcher, macos-named-regressions, cso-windows-launcher, cso-docker-integration]
+    needs: [reuse, docs-scope, docs-lane, free-suite, typecheck, quick-bun-default, cso-macos-launcher, macos-named-regressions, cso-windows-launcher, cso-docker-integration]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Take the reuse path only for a verified main-push or pull request reuse
+      - name: Take the docs-only path for a docs-only pull request, or the reuse path only for a verified main-push or pull request reuse
         id: route
         env:
+          DOCS_SCOPE_RESULT: ${{ needs.docs-scope.result }}
+          DOCS_ONLY: ${{ needs.docs-scope.outputs.docs_only }}
+          DOCS_LANE_RESULT: ${{ needs.docs-lane.result }}
           REUSE_RESULT: ${{ needs.reuse.result }}
           REUSED: ${{ needs.reuse.outputs.reused }}
           REUSE_RUN_ID: ${{ needs.reuse.outputs.run_id }}
@@ -733,8 +927,17 @@ jobs:
           REUSE_TREE: ${{ needs.reuse.outputs.tree }}
         run: |
           set -eu
+          if [ "$DOCS_SCOPE_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
+            test "$GITHUB_EVENT_NAME" = pull_request || { echo "::error::docs-only claimed on a $GITHUB_EVENT_NAME run"; exit 1; }
+            test "$DOCS_LANE_RESULT" = success || { echo "::error::docs-lane concluded $DOCS_LANE_RESULT"; exit 1; }
+            echo 'Docs-only pull request: the docs lane passed and the suites were skipped; this run records no tested tree (docs/pregate.md#docs-only).' >> "$GITHUB_STEP_SUMMARY"
+            echo 'reused=false' >> "$GITHUB_OUTPUT"
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$REUSE_RESULT" != success ] || [ "$REUSED" != true ]; then
             echo 'reused=false' >> "$GITHUB_OUTPUT"
+            echo 'skip=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
@@ -746,8 +949,9 @@ jobs:
           test "$REUSE_RUN_URL" = "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN_ID"
           echo "Reused $REUSE_RUN_URL, which passed on tree $REUSE_TREE; this push ran no suite of its own." >> "$GITHUB_STEP_SUMMARY"
           echo 'reused=true' >> "$GITHUB_OUTPUT"
+          echo 'skip=true' >> "$GITHUB_OUTPUT"
       - name: Require the free suite, typecheck, the quick tier on the default Bun, macOS regressions, and every CSO platform gate
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         env:
           FREE_SUITE_RESULT: ${{ needs.free-suite.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
@@ -766,20 +970,20 @@ jobs:
           test "$CSO_WINDOWS_RESULT" = success
           test "$CSO_DOCKER_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         with:
           bun-version: 1.4.2
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         with:
           name: free-plan
           path: ${{ runner.temp }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         with:
           pattern: free-result-*
           merge-multiple: true
@@ -788,26 +992,26 @@ jobs:
       # flake-ledger.jsonl). A green run is where a retried flake hides, so the
       # summary runs before strict verification.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         with:
           pattern: flake-ledger-*
           path: ${{ runner.temp }}/flake-ledgers
       - name: Summarize flaky passes absorbed by the serial retry
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         run: bun run scripts/test-health-report.ts flake-summary "$RUNNER_TEMP/flake-ledgers" >> "$GITHUB_STEP_SUMMARY"
       - name: Require exact coverage and complete strict results
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         run: bun run scripts/test-free-shards.ts --ci-verify "$RUNNER_TEMP/free-plan.json" --results "$RUNNER_TEMP/free-results"
       # Only after strict verification passed, so a red or partial run never
       # leaves a record; the reuse path never reaches here.
       - name: Record the tested tree
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SIZING_OVERRIDE: ${{ inputs.free_runner }}${{ inputs.free_shards }}${{ inputs.free_jobs }}
         run: bun run scripts/ci-tree-reuse.ts record --plan "$RUNNER_TEMP/free-plan.json" --results "$RUNNER_TEMP/free-results" --os Linux,macOS,Windows --out "$RUNNER_TEMP/tested-tree/tree.json"
       - name: Upload the tested tree
-        if: steps.route.outputs.reused != 'true'
+        if: steps.route.outputs.skip != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tested-tree

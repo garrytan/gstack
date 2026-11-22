@@ -17,7 +17,7 @@
  *
  * v1 coverage target: the ~30-50 most-common recurring question categories across
  * ship, review, office-hours, plan-ceo-review, plan-eng-review, plan-design-review,
- * plan-devex-review, qa, investigate, and land-and-deploy. One-way doors 100%.
+ * plan-devex-review, qa, and land-and-deploy. One-way doors 100%.
  *
  * Adding a new entry
  * ------------------
@@ -56,7 +56,6 @@ export type StandardOption =
   | 'reject'
   | 'defer'
   | 'skip'
-  | 'investigate'
   | 'approve'
   | 'deny'
   | 'expand'
@@ -223,7 +222,7 @@ export const QUESTIONS = {
     skill: 'office-hours',
     category: 'routing',
     door_type: 'two-way',
-    options: ['startup', 'intrapreneur', 'hackathon', 'oss-research', 'learning', 'fun'],
+    options: ['startup', 'intrapreneur', 'pivot', 'hackathon', 'oss-research', 'learning', 'fun'],
     signal_key: 'session-mode',
     description: "What's your goal with this session? (Sets mode: startup vs builder)",
   },
@@ -443,26 +442,6 @@ export const QUESTIONS = {
   },
 
   // -----------------------------------------------------------------------
-  // /investigate — root-cause debugging
-  // -----------------------------------------------------------------------
-  'investigate-hypothesis-confirm': {
-    id: 'investigate-hypothesis-confirm',
-    skill: 'investigate',
-    category: 'approval',
-    door_type: 'two-way',
-    options: ['accept', 'reject', 'refine'],
-    description: "Root-cause hypothesis — accept, reject, or refine before proceeding to fix?",
-  },
-  'investigate-fix-apply': {
-    id: 'investigate-fix-apply',
-    skill: 'investigate',
-    category: 'approval',
-    door_type: 'one-way',
-    options: ['accept', 'reject'],
-    description: "Apply the proposed fix?",
-  },
-
-  // -----------------------------------------------------------------------
   // /land-and-deploy — merge + deploy + verify
   // -----------------------------------------------------------------------
   'land-and-deploy-merge-confirm': {
@@ -550,14 +529,6 @@ export const QUESTIONS = {
     door_type: 'two-way',
     options: ['core', 'all', 'off'],
     description: "Let gstack proactively suggest skills based on conversation context? core (the four core skills, default) / all / off",
-  },
-  'preamble-routing-injection': {
-    id: 'preamble-routing-injection',
-    skill: 'preamble',
-    category: 'approval',
-    door_type: 'two-way',
-    options: ['accept', 'decline'],
-    description: "Add gstack skill routing rules to CLAUDE.md?",
   },
   'preamble-vendored-migration': {
     id: 'preamble-vendored-migration',

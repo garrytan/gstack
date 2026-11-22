@@ -88,7 +88,7 @@ describe('#3105 severity forms are read by every gate that summarises a review',
   for (const gate of ['execution', 'structured', 'review'] as const) {
     test(`${gate}: label forms`, () => {
       for (const [text, highest] of forms) {
-        const r = classifyOutsideReview({ text: `${text}\n${REC}`, gate });
+        const r = classifyOutsideReview({ text: `${text}\n${REC}\nVERDICT: FINDINGS`, gate });
         const verdict = highest === 'P0' || highest === 'P1' ? 'findings' : 'clean';
         expect({ text, highest: r.findings.highest as string | null, verdict: r.verdict as string }).toEqual({ text, highest, verdict });
       }
@@ -100,10 +100,10 @@ describe('#3105 severity forms are read by every gate that summarises a review',
       }
     });
     test(`${gate}: negative controls stay clean`, () => {
-      expect(classifyOutsideReview({ text: read('no-findings.txt'), gate }).verdict).toBe('clean');
-      expect(classifyOutsideReview({ text: read('p1-in-code.txt'), gate }).verdict).toBe('clean');
+      expect(classifyOutsideReview({ text: `${read('no-findings.txt')}\nVERDICT: CLEAN`, gate }).verdict).toBe('clean');
+      expect(classifyOutsideReview({ text: `${read('p1-in-code.txt')}\nVERDICT: CLEAN`, gate }).verdict).toBe('clean');
       for (const text of ['The P1 queue drains first.', 'Ship it; we discussed P1 and P2 priorities yesterday.', 'See issue #P12.', 'Use a P10 bucket.'])
-        expect({ text, verdict: classifyOutsideReview({ text: `${text}\nNo issues found.\n${REC}`, gate }).verdict as string }).toEqual({ text, verdict: 'clean' });
+        expect({ text, verdict: classifyOutsideReview({ text: `${text}\nNo issues found.\n${REC}\nVERDICT: CLEAN`, gate }).verdict as string }).toEqual({ text, verdict: 'clean' });
     });
   }
 
@@ -122,8 +122,8 @@ describe('#3329 a last not-ready Verdict blocks even with advisory findings', ()
   const ISSUE = '1. **P2 — The docs lag the new flag.**\n2. **P3 — Rename the helper.**\nVerdict: not ready (1 P1/P2)';
   const P2 = '1. **P2 — The docs lag the new flag.**';
   const textFor = (gate: OutsideGate, text: string) => gate === 'review' ? `${text}\n${REC}` : text;
-  const see = (text: string, gate: OutsideGate) => {
-    const r = classifyOutsideReview({ text: textFor(gate, text), gate });
+  const see = (text: string, gate: OutsideGate, tail = '') => {
+    const r = classifyOutsideReview({ text: textFor(gate, text) + tail, gate });
     return { verdict: r.verdict as string, highest: r.findings.highest as string | null, reason: (r.reason ?? null) as string | null, unparsed: r.unparsed ?? null };
   };
 
@@ -151,8 +151,8 @@ describe('#3329 a last not-ready Verdict blocks even with advisory findings', ()
       const r = see(text, 'execution');
       expect({ text, verdict: r.verdict, highest: r.highest }).toEqual({ text, verdict: 'clean', highest: text.includes('P2') ? 'P2' : 'P3' });
     }
-    expect(see(`${P2}\nVerdict: ready`, 'review').verdict).toBe('clean');
-    expect(validateOutsideReview(`${P2}\nVerdict: ready`, 'structured')).toEqual({ completed: true, gate: 'pass' });
+    expect(see(`${P2}\nVerdict: ready`, 'review', '\nVERDICT: FINDINGS').verdict).toBe('clean');
+    expect(validateOutsideReview(`${P2}\nVerdict: ready\nVERDICT: FINDINGS`, 'structured')).toEqual({ completed: true, gate: 'pass' });
   });
 
   test('the last recognized Verdict wins, including supported formatting; quotes do not', () => {
@@ -166,7 +166,7 @@ describe('#3329 a last not-ready Verdict blocks even with advisory findings', ()
     expect(see(`${fence}\n${P2}\nVerdict: not ready`, 'execution')).toMatchObject({ verdict: 'findings', highest: 'P2' });
     expect(see(`${P2}\nVerdict: ready\nThe rubric says \`Verdict: not ready\`.`, 'execution').verdict).toBe('clean');
     expect(see(`${P2}\nThe rubric says \`Verdict: not ready\`.`, 'execution').verdict).toBe('clean');
-    expect(see(`No issues found.\n${fence}`, 'review').verdict).toBe('clean');
+    expect(see(`No issues found.\n${fence}`, 'review', '\nVERDICT: CLEAN').verdict).toBe('clean');
   });
 
   test('parsed P2 plus an unparsed label and not-ready still blocks and keeps the diagnostic', () => {
@@ -193,8 +193,8 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
   const cli3925 = (gate: OutsideGate, name: string) =>
     spawnSync(process.execPath, [LIB, '--verdict', '--label', 'Codex consult', '--exit', '0', gate, path.join(FIX3925, name)], { encoding: 'utf8', timeout: 10000 });
   const textFor = (gate: OutsideGate, text: string) => gate === 'review' ? `${text}\n${REC}` : text;
-  const see = (text: string, gate: OutsideGate) => {
-    const r = classifyOutsideReview({ text: textFor(gate, text), gate });
+  const see = (text: string, gate: OutsideGate, tail = '') => {
+    const r = classifyOutsideReview({ text: textFor(gate, text) + tail, gate });
     return { verdict: r.verdict as string, reason: (r.reason ?? null) as string | null, unlabeled: r.findings.unlabeled ?? 0 };
   };
 
@@ -237,16 +237,20 @@ describe('#3925 an unrecognized verdict is not clean; numbered findings never pr
     for (const label of ['**Nonblocking — The log repeats.**', 'Nonblocking: the log repeats.', '**Minor** — the log repeats.', 'The log repeats the attempt count.'])
       expect({ label, ...see(`1. ${label}\nVerdict: ready`, 'execution') }).toEqual({ label, verdict: 'clean', reason: null, unlabeled: 1 });
     expect(see('1. **P3 — Rename it.**\n2. Nonblocking — the log repeats.\nVerdict: ready', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 1 });
-    expect(classifyOutsideReview({ text: fs.readFileSync(path.join(FIX3925, 'nonblocking-numbered.txt'), 'utf8'), gate: 'structured' })).toMatchObject({ verdict: 'unverified', reason: 'untagged_review', findings: { highest: null, unlabeled: 1 } });
+    expect(classifyOutsideReview({ text: fs.readFileSync(path.join(FIX3925, 'nonblocking-numbered.txt'), 'utf8'), gate: 'structured' })).toMatchObject({ verdict: 'unverified', reason: 'missing_verdict', findings: { highest: null, unlabeled: 1 } });
   });
 
   test('negative controls: real clean replies, consult answers, tagged findings and quoted examples stay as they were', () => {
     for (const gate of ['execution', 'structured', 'review'] as const) {
-      expect({ gate, ...see(read('no-findings.txt'), gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
+      expect({ gate, ...see(read('no-findings.txt'), gate, '\nVERDICT: CLEAN') }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
       for (const verdictLine of ['Verdict: Ready to merge.', 'Verdict: LGTM', 'Verdict: Approve', 'Verdict: Ship it', 'Verdict: NO_FINDINGS', 'Verdict: `NO_FINDINGS`', 'Verdict: ready. The `[P1]` from round 1 is fixed.'])
-        expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate) }).toEqual({ gate, verdictLine, verdict: 'clean', reason: null, unlabeled: 0 });
-      expect({ gate, ...see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', gate) }).toEqual({ gate, verdict: 'clean', reason: null, unlabeled: 0 });
+        expect({ gate, verdictLine, ...see(`No issues found.\n${verdictLine}`, gate, '\nVERDICT: CLEAN') }).toEqual({ gate, verdictLine, verdict: 'clean', reason: null, unlabeled: 0 });
+      // GST-1821 fix round (Captain ruling): VERDICT: CLEAN beside unlabeled numbered items is a contradiction, so it is not clean.
+      expect({ gate, ...see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', gate, '\nVERDICT: CLEAN') }).toEqual(gate === 'execution'
+        ? { gate, verdict: 'clean', reason: null, unlabeled: 2 } : { gate, verdict: 'unverified', reason: 'untagged_review', unlabeled: 2 });
     }
+    // Without the verdict line no prose sentence vouches for the list, so an execution reply counts its numbered items.
+    expect(see('I checked:\n1. the retry path\n2. every caller\nNo issues found.\nVerdict: ready', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 2 });
     expect(see('No issues found.\n## Verdict\nReady.', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 0 });
     expect(see('1. Use a queue.\n2. Add a retry cap.', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 0 });
     expect(see('1. **P2 — The docs lag.**\n2. **P3 — Rename it.**\nVerdict: ready', 'execution')).toEqual({ verdict: 'clean', reason: null, unlabeled: 0 });

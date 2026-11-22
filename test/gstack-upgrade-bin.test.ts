@@ -17,7 +17,7 @@ import { capyHost, type CapyHost } from './helpers/capy-host';
 
 const REPO = path.resolve(import.meta.dir, '..');
 const DEPS = [
-  'bin/gstack-upgrade', 'bin/gstack-bun-version.sh', 'bin/gstack-paths', 'bin/gstack-state-root.sh',
+  'bin/gstack-upgrade', 'bin/gstack-bun-version.sh', 'bin/gstack-paths', 'bin/gstack-state-root.sh', 'bin/gstack-lock.sh',
   'bin/gstack-egress-lib.sh', 'bin/gstack-egress-receipt', 'lib/egress-receipt.ts', 'lib/state-root.ts',
   'bin/gstack-lease', 'bin/gstack-harness-pid.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-ff-update',
 ];
@@ -128,6 +128,27 @@ describe('gstack-upgrade', () => {
     expect(retry.stdout).toContain('reinstall pending from 1.0.0');
     expect(f.calls()).toEqual(['setup --refresh-registered', 'setup --refresh-registered']);
     expect(f.run().stdout).toContain('gstack-upgrade: current 1.0.1');
+  });
+
+  test('telemetry: one upgrade_completed per run with its upgrade_error and from-version; --check sends nothing', () => {
+    const f = fixture();
+    const telLog = path.join(f.host.base, 'calls.log.tel');
+    write(path.join(f.root, 'bin/gstack-telemetry-log'), '#!/usr/bin/env bash\necho "$*" >> "$UPGRADE_LOG.tel"\n', 0o755);
+    const tel = () => fs.existsSync(telLog) ? fs.readFileSync(telLog, 'utf8').trim().split('\n').filter(Boolean) : [];
+    expect(f.run(['--check']).status).toBe(1);
+    expect(tel()).toEqual([]);
+    fs.writeFileSync(path.join(f.root, 'README.md'), 'local edit\n');
+    expect(f.run().status).toBe(3);
+    f.git(['checkout', '--', 'README.md']);
+    expect(f.run([], { STUB_SETUP_EXIT: '1' }).status).toBe(1);
+    const retry = f.run();
+    expect(retry.status, retry.stdout + retry.stderr).toBe(0);
+    const ev = '--no-sweep --event-type upgrade_completed';
+    expect(tel()).toEqual([
+      `${ev} --outcome error --from-version 1.0.0 --upgrade-error refused_dirty`,
+      `${ev} --outcome error --from-version 1.0.0 --upgrade-error setup_failed`,
+      `${ev} --outcome success --from-version 1.0.0 --upgrade-error none`,
+    ]);
   });
 
   test('a Capy install (the installer marker) runs bin/gstack-capy-install instead of setup', () => {

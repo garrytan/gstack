@@ -5,7 +5,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { validateSkill, externalHostPathLeaks } from '../test/helpers/skill-parser';
 import { ALL_HOST_CONFIGS } from '../hosts/index';
 import {

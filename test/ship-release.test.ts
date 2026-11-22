@@ -6,6 +6,8 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { finishPlanLine } from '../lib/plan-record';
+import { RESULT_CODES } from '../lib/result-codes';
 import { BUMP_NEVER_KEY_VERSION } from '../lib/ship-policy';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -172,6 +174,27 @@ describe('finish (Steps 15-16)', () => {
     expect(f.git('ls-remote', '--heads', 'origin', 'feat').stdout).toBe('');
   });
 
+  // Value: protects=finish --plan resolves the brief's Plan line before any stage: require + Plan: required stops with no commit; a resolvable line prints PLAN: first; fails_when=finishPlan runs after the stages, its stop is dropped, or the line is not first; why_new=plan-record.test.ts covers the helper only; seam=none; no_claim=approved-row resolution (exempt line used)
+  test('finish --plan: under GSTACK_PLAN_RECORD=require "Plan: required" stops before any stage; a resolvable line under warn prints PLAN: first', () => {
+    const f = fx();
+    const reviewed = wtree(f);
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro']).status).toBe(0);
+    const post = snapshot(f);
+    const args = ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE];
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const stop = f.run(RELEASE, [...args, '--plan', 'Plan: required'], { GSTACK_PLAN_RECORD: 'require' });
+    expect(stop.status).toBe(3);
+    expect(stop.stdout).toMatch(/^PLAN: refused .*\(PLAN_NOT_APPROVED\)/m);
+    expect(stop.stdout).toMatch(/^STOP: .*\(PLAN_NOT_APPROVED\); fix: /m);
+    expect(stop.stdout).not.toContain('COMMIT:');
+    expect(f.git('rev-parse', 'HEAD').stdout.trim()).toBe(head);
+    const ok = f.run(RELEASE, [...args, '--plan', 'exempt: bug fix'], { GSTACK_PLAN_RECORD: 'warn' });
+    expect(ok.stdout.split('\n')[0]).toBe('PLAN: exempt bug fix');
+    expect(ok.stdout).toMatch(/^COMMIT: /m);
+    expect(ok.status).toBe(0);
+    expect(finishPlanLine(f.work, f.git('branch', '--show-current').stdout.trim(), f.git('rev-parse', 'HEAD').stdout.trim())).toBe('Plan: exempt: bug fix');
+  });
+
   // Value: protects=under changelog_fragments the branch's own fragment is release metadata: version writes nothing and names it in NEXT, finish commits it as the release commit and the route counts it as metadata, and another fragment is still a feature file; fails_when=finish stops on changelog.d/<slug>.md or routes it to re-review (/ship #3648 fix-check 4, CRITICAL);
   //   why_new=releasePaths predates changelog_fragments (#3654); seam=gstack-ship-policy show-effective, gstack-wtree; no_claim=the merge step's fold
   test('under changelog_fragments the branch fragment is release metadata and Step 12 names it', () => {
@@ -242,7 +265,7 @@ describe('finish (Steps 15-16)', () => {
 });
 
 describe('push (Step 17)', () => {
-  // Value: protects=push refuses a branch other than Step 1's saved one, waits for the one-time guard offer, refuses open gate findings on a ready PR without approval, then pushes once and reports ALREADY_PUSHED after; fails_when=it pushes past an unanswered offer or a ready PR with open gate findings, or pushes twice;
+  // Value: protects=push refuses a branch other than Step 1's saved one, waits for the one-time guard offer, refuses open gate findings on a ready PR without approval, then pushes once and reports already_pushed after; fails_when=it pushes past an unanswered offer or a ready PR with open gate findings, or pushes twice;
   //   why_new=moved from Step 17's idempotency block; seam=gstack-config, gh, git ls-remote, gstack-pregate sealed; no_claim=the guard block's hook install
   test('an unanswered guard offer stops; open gate findings on a ready PR stop; then it pushes once', () => {
     const f = fx();
@@ -261,8 +284,8 @@ describe('push (Step 17)', () => {
     expect(gate.stdout).toContain('STOP: 2 open gate finding(s) and ready PR #12');
     const pushed = f.run(RELEASE, ['push', '--branch', 'feat']);
     expect(pushed.status).toBe(0);
-    expect(lineOf(pushed.stdout, 'PUSH')).toMatch(/^PUSH: pushed [0-9a-f]{12} to origin\/feat$/);
-    expect(lineOf(f.run(RELEASE, ['push', '--branch', 'feat']).stdout, 'PUSH')).toMatch(/^PUSH: ALREADY_PUSHED /);
+    expect(lineOf(pushed.stdout, 'PUSH')).toMatch(/^PUSH: pushed remote=origin ref=feat head=[0-9a-f]{40}$/);
+    expect(lineOf(f.run(RELEASE, ['push', '--branch', 'feat']).stdout, 'PUSH')).toMatch(/^PUSH: already_pushed remote=origin ref=feat head=[0-9a-f]{40}$/);
   });
 
   // Value: protects=an unattended push defers the one-time guard offer instead of stopping, and leaves the offer open for the next interactive session (no marker, no hook); fails_when=unattended push stops on the offer (replays 8G #34, 8G #36 and 9G each spent calls on it), writes .redact-prepush-prompted, or installs a hook;
@@ -272,7 +295,7 @@ describe('push (Step 17)', () => {
     const r = f.run(RELEASE, ['push', '--branch', 'feat'], { GSTACK_SESSION_KIND: 'unattended' });
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(lineOf(r.stdout, 'REDACT_PREPUSH')).toBe('REDACT_PREPUSH: false prompted=no deferred=unattended');
-    expect(lineOf(r.stdout, 'PUSH')).toMatch(/^PUSH: pushed [0-9a-f]{12} to origin\/feat$/);
+    expect(lineOf(r.stdout, 'PUSH')).toMatch(/^PUSH: pushed remote=origin ref=feat head=[0-9a-f]{40}$/);
     expect(fs.existsSync(path.join(f.state, '.redact-prepush-prompted'))).toBe(false);
     expect(fs.existsSync(path.join(f.work, '.git', 'hooks', 'pre-push'))).toBe(false);
   });
@@ -290,6 +313,83 @@ describe('push (Step 17)', () => {
     expect(r.status).toBe(3);
     expect(r.stdout).toContain('STOP: non-fast-forward');
     expect(r.stdout).toContain('never force-push');
+  });
+
+  // Value: protects=a never-pushed branch whose name breaks the repo's plain-words policy stops before the push, and a plain name pushes; fails_when=a coded or jargon branch name reaches origin, or a plain one is refused;
+  //   why_new=plain public record (docs/ship-policy.md#plain-titles); seam=.gstack/plain-titles.json, git ls-remote; no_claim=branches already on origin
+  test('a never-pushed branch name with a tracker code or coined term in its front stops; a plain name pushes', () => {
+    const f = fx();
+    f.write({ '.gstack/plain-titles.json': JSON.stringify({ codes: ['\\bGST-\\d+\\b'], terms: ['pregate'], allow: [], since: '2026-11-08', exempt_branch_prefixes: ['release/'] }) });
+    f.commit('policy');
+    f.git('branch', '-m', 'gst-1825-pregate-fix');
+    const r = f.run(RELEASE, ['push', '--branch', 'gst-1825-pregate-fix'], { GSTACK_SESSION_KIND: 'unattended' });
+    expect(r.status, r.stdout + r.stderr).toBe(3);
+    expect(lineOf(r.stdout, 'BRANCH')).toContain('BRANCH: refused');
+    expect(r.stdout).toContain('is not plain words');
+    f.git('branch', '-m', 'faster-checks-gst-1825');
+    const ok = f.run(RELEASE, ['push', '--branch', 'faster-checks-gst-1825'], { GSTACK_SESSION_KIND: 'unattended' });
+    expect(ok.status, ok.stdout + ok.stderr).toBe(0);
+    expect(lineOf(ok.stdout, 'PUSH')).toMatch(/^PUSH: pushed remote=origin ref=faster-checks-gst-1825 head=[0-9a-f]{40}$/);
+  });
+});
+
+describe('push: one stable PUSH line outside tools can match (GST-3053)', () => {
+  // Value: protects=every push run ends with exactly one PUSH: line, pushed or already_pushed with remote, branch and full head, or failed with a registered reason code, so a probe or report can tell that /ship pushed without seeing a git push call;
+  //   fails_when=a push prints no line, two lines, a short sha, or a reason code with no troubleshooting row; why_new=harness-evals#487 graded 48 real /ship pushes as no push; seam=git push and ls-remote against the fixture's bare origin; no_claim=hosted remotes
+  const UNATTENDED = { GSTACK_SESSION_KIND: 'unattended' };
+  const pushLines = (out: string) => out.split('\n').filter(l => l.startsWith('PUSH: '));
+  const last = (out: string) => out.trimEnd().split('\n').pop();
+  const remoteHead = (f: ShipFx) => f.git('ls-remote', '--heads', 'origin', 'refs/heads/feat').stdout.split(/\s/)[0];
+  const failed = (out: string, code: string) => {
+    expect(Object.keys(RESULT_CODES)).toContain(code);
+    expect(pushLines(out)).toEqual([`PUSH: failed reason=${code}`]);
+    expect(last(out)).toBe(`PUSH: failed reason=${code}`);
+  };
+
+  test('a push ends with PUSH: pushed naming the remote, the branch and the full head', () => {
+    const f = fx();
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const r = f.run(RELEASE, ['push', '--branch', 'feat'], UNATTENDED);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(pushLines(r.stdout)).toEqual([`PUSH: pushed remote=origin ref=feat head=${head}`]);
+    expect(last(r.stdout)).toBe(`PUSH: pushed remote=origin ref=feat head=${head}`);
+    expect(remoteHead(f)).toBe(head);
+  });
+
+  test('a rerun at the pushed head ends with PUSH: already_pushed and pushes nothing new', () => {
+    const f = fx();
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    expect(f.run(RELEASE, ['push', '--branch', 'feat'], UNATTENDED).status).toBe(0);
+    const again = f.run(RELEASE, ['push', '--branch', 'feat'], UNATTENDED);
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    expect(pushLines(again.stdout)).toEqual([`PUSH: already_pushed remote=origin ref=feat head=${head}`]);
+    expect(last(again.stdout)).toBe(`PUSH: already_pushed remote=origin ref=feat head=${head}`);
+    expect(remoteHead(f)).toBe(head);
+  });
+
+  test('a refused, rejected or failed push ends with PUSH: failed and its reason code, with the exit status unchanged', () => {
+    const f = fx();
+    const usage = f.run(RELEASE, ['push']);
+    expect(usage.status).toBe(2);
+    failed(usage.stderr, 'PUSH_REFUSED');
+    const moved = f.run(RELEASE, ['push', '--branch', 'other'], UNATTENDED);
+    expect(moved.status).toBe(3);
+    failed(moved.stdout, 'PUSH_REFUSED');
+    expect(remoteHead(f)).toBe('');
+    fs.writeFileSync(path.join(f.work, '.git', 'hooks', 'pre-push'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const hooked = f.run(RELEASE, ['push', '--branch', 'feat'], UNATTENDED);
+    expect(hooked.status).toBe(3);
+    expect(hooked.stdout).toContain('STOP: push failed');
+    failed(hooked.stdout, 'PUSH_GIT_FAILED');
+    expect(remoteHead(f)).toBe('');
+    fs.rmSync(path.join(f.work, '.git', 'hooks', 'pre-push'));
+    expect(f.run(RELEASE, ['push', '--branch', 'feat'], UNATTENDED).status).toBe(0);
+    f.git('reset', '-q', '--hard', 'HEAD~1');
+    f.write({ 'src/z.ts': 'export const z = 1;\n' }); f.commit('diverge');
+    const rejected = f.run(RELEASE, ['push', '--branch', 'feat'], UNATTENDED);
+    expect(rejected.status).toBe(3);
+    expect(rejected.stdout).toContain('STOP: non-fast-forward');
+    failed(rejected.stdout, 'PUSH_REJECTED');
   });
 });
 

@@ -11,9 +11,10 @@
  *
  * Free, deterministic, gate-tier.
  */
-import { describe, test, expect } from 'bun:test';
+import { afterAll, describe, test, expect } from 'bun:test';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -69,6 +70,60 @@ describe('gstack-session-kind', () => {
     // The resolver/helper guard on -n, so an empty string must NOT mean headless —
     // this is the opt-out path harness suites use to exercise the interactive branch.
     expect(kind({ GSTACK_HEADLESS: '' })).toBe('interactive');
+  });
+});
+
+// Codex 0.170 gives every tool shell CODEX_THREAD_ID in its TUI and in exec
+// alike; only the nearest codex process's subcommand tells them apart (exec
+// runs tool shells itself, the TUI runs them under `codex app-server`). A fake
+// `codex` script stands in for that process and runs the helper as its child.
+describe.skipIf(process.platform === 'win32')('Codex sessions (GST-3161)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-kind-'));
+  const fake = path.join(dir, 'codex');
+  fs.writeFileSync(fake, `#!/usr/bin/env bash\nbash -c '"$SK_BIN"'\n`, { mode: 0o755 });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const underCodex = (args: string[], env: Record<string, string> = {}) => execFileSync(fake, args, {
+    env: { PATH: process.env.PATH ?? '/usr/bin:/bin', SK_BIN: BIN, CODEX_THREAD_ID: 't-1', CODEX_CI: '1', ...env },
+    encoding: 'utf-8',
+    timeout: 30_000,
+  }).trim();
+
+  test('codex exec (and its alias and global flags) → headless', () => {
+    expect(underCodex(['exec', '--json', 'fix the bug'])).toBe('headless');
+    expect(underCodex(['e', 'fix the bug'])).toBe('headless');
+    expect(underCodex(['-c', 'model="gpt-6.1-sol"', '--dangerously-bypass-approvals-and-sandbox', 'exec', '-'])).toBe('headless');
+    expect(underCodex(['review', '--uncommitted'])).toBe('headless');
+  });
+
+  test('interactive Codex (the TUI app-server, a resumed session, a prompt that says exec) → interactive', () => {
+    expect(underCodex(['app-server', '--listen', 'unix://', '--managed-daemon'])).toBe('interactive');
+    expect(underCodex(['resume', '--last'])).toBe('interactive');
+    // Linux reads argv from /proc; ps elsewhere joins argv, so this prompt reads as exec there.
+    if (process.platform === 'linux') expect(underCodex(['--no-daemon', 'exec the tests and fix them'])).toBe('interactive');
+    expect(underCodex([])).toBe('interactive');
+  });
+
+  test('negative controls: Conductor outranks codex exec; no CODEX_THREAD_ID means no Codex signal', () => {
+    expect(underCodex(['exec', 'x'], { CONDUCTOR_WORKSPACE_PATH: '/tmp/ws' })).toBe('interactive');
+    expect(underCodex(['exec', 'x'], { CONDUCTOR_PORT: '55010' })).toBe('interactive');
+    expect(underCodex(['exec', 'x'], { CODEX_THREAD_ID: '' })).toBe('interactive');
+    expect(underCodex(['exec', 'x'], { GSTACK_SESSION_KIND: 'unattended' })).toBe('unattended');
+  });
+
+  test.skipIf(process.platform !== 'linux')('a shell between codex exec and the helper, with no ps on PATH → headless (Linux reads parent pids from /proc)', () => {
+    const nested = path.join(dir, 'nested', 'codex');
+    const noPs = path.join(dir, 'no-ps-bin');
+    fs.mkdirSync(path.dirname(nested));
+    fs.mkdirSync(noPs);
+    fs.writeFileSync(nested, `#!/usr/bin/env bash\nbash -c '"$SK_BIN"; true'\n`, { mode: 0o755 });
+    for (const tool of ['bash', 'tr']) fs.symlinkSync(Bun.which(tool)!, path.join(noPs, tool));
+    const run = (args: string[]) => execFileSync(nested, args, {
+      env: { PATH: noPs, SK_BIN: BIN, CODEX_THREAD_ID: 't-1', CODEX_CI: '1' },
+      encoding: 'utf-8',
+      timeout: 30_000,
+    }).trim();
+    expect(run(['exec', 'fix the bug'])).toBe('headless');
+    expect(run(['app-server', '--listen', 'unix://'])).toBe('interactive');
   });
 });
 

@@ -21,6 +21,7 @@ import {
 } from './ship-budget';
 import { callLogFile, countLoggedCalls, loggedCallsLine, readCallLog } from './ship-call-log';
 import { callsLine, countCalls } from './ship-calls';
+import { callsSince, timeStop } from './ship-clock';
 import { claudeConfigDir, loadMeterState, newMeterState, nonceSessions, readClaudeUsage, saveMeterState, sessionJournals } from './claude-usage';
 
 export type Opts = Record<string, string | true>;
@@ -380,14 +381,15 @@ export function cmdClose(argv: string[], ctx: Ctx): Outcome {
   });
 }
 
-const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n.used}${n.credits === undefined ? '' : ` credits=${n.credits}`}`
+const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n.used}${n.credits === undefined ? '' : ` credits=${n.credits}`}${n.calls === undefined ? '' : ` calls=${n.calls}`}`
   + (n.readers ? ` readers=${n.readers.n} readers_tokens=${n.readers.tokens}${n.readers.credits === undefined ? '' : ` readers_credits=${n.readers.credits}`}` : '');
 
 /**
  * note: record one program's readings (tokens and credits) and, when --dispatched-at
  * brackets them, the readers it dispatched; stop only once used + unknown pass the cap.
  * It reserves, admits and delegates nothing: ship/DRIVER.md's observe runs end every
- * program with it instead of a check at each boundary.
+ * program with it instead of a check at each boundary. It records the calls since the previous
+ * note (lib/ship-clock.ts), and in observe mode past 100 minutes it prints STOP: past 100 minutes.
  */
 export function cmdNote(argv: string[], ctx: Ctx): Outcome {
   const o = parseArgs(argv, ['run', 'record', 'step', 'label', 'reading', 'credits', 'dispatched-at', 'dispatched-credits', 'readers']);
@@ -406,9 +408,14 @@ export function cmdNote(argv: string[], ctx: Ctx): Outcome {
     const credits = creditsUsed(l);
     const readers = dispatched && l.meter.last !== null ? { n: dispatched.readers ?? 1, tokens: l.meter.last - dispatched.at,
       ...(before !== undefined && l.credits ? { credits: Math.round((l.credits.last - before) * 100) / 100 } : {}) } : undefined;
-    const n: Note = { step, ...(label ? { label } : {}), at: new Date().toISOString(), used: tally(l).used, ...(credits === null ? {} : { credits }), ...(readers ? { readers } : {}) };
+    const at = new Date().toISOString();
+    const prev = l.notes?.at(-1)?.at;
+    const calls = callsSince(ctx.env, prev ?? l.created_at, at, prev === undefined);
+    const n: Note = { step, ...(label ? { label } : {}), at, used: tally(l).used, ...(credits === null ? {} : { credits }), ...(readers ? { readers } : {}), ...(calls === null ? {} : { calls }) };
     (l.notes ??= []).push(n);
-    return observed(l, step, label ?? step, null, `NOTE: ${noteText(n)}`);
+    const out = observed(l, step, label ?? step, null, `NOTE: ${noteText(n)}`);
+    const stop = out.exit === 0 ? timeStop(l, ctx.cwd, step, ctx.env) : null;
+    return stop ? { stdout: [out.stdout[0]!, ...stop], exit: 3 } : out;
   });
 }
 
@@ -480,8 +487,9 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
     }
     const was = l.stopped;
     delete l.stopped;
+    if (was?.reason === 'past_100_minutes') l.clock_from = new Date().toISOString();
     pointMarker(l.marker, l);
-    return [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, `RESUMED: from=${was ? `Step ${was.step} (${was.reason})` : 'running'}`, budgetLine(l, { call: null, next: was?.next ?? '-', projected: 0, verdict: 'continue' })];
+    return [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, `RESUMED: from=${was ? `Step ${was.step} (${was.reason})` : 'running'}`, ...(was?.reason === 'past_100_minutes' ? [`CLOCK: restarted at ${l.clock_from} (the 100-minute limit counts from here)`] : []), budgetLine(l, { call: null, next: was?.next ?? '-', projected: 0, verdict: 'continue' })];
   });
   return { stdout: [...lines, ...out], exit: 0 };
 }

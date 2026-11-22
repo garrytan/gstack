@@ -20,12 +20,22 @@ export const COVERAGE_TAGS = ['RH-1', 'RH-3', 'RH-4', 'RH-12', 'RH-13', 'RH-14',
 export interface TagContext {
   floor: PathClass | null;
   path: string;
+  /** The path before a rename or copy; RH-1 also reads a test renamed to data. */
+  oldPath?: string;
   /** Every changed path in the candidate (new paths), for RH-3 owner lookup. */
   allPaths: ReadonlySet<string>;
 }
 
 /** Prose files (docs, prompt templates) carry no code idioms: only the path-based RH-3 applies. */
 export const PROSE_FILE = /\.(?:md|mdx|markdown|txt|rst|adoc|asciidoc)(?:\.tmpl)?$/i;
+/**
+ * Data, logs and run output: no test runner executes them, and they quote "fit (" as English, so RH-1's skip, focus and
+ * removed-declaration idioms skip them. Every other file keeps RH-1, as does data renamed from any other file.
+ */
+const DATA_FILE = /\.(?:json|jsonl|ndjson|csv|tsv|log|out)$/i;
+function testCapable(ctx: TagContext): boolean {
+  return [ctx.path, ctx.oldPath ?? ctx.path].some((p) => !DATA_FILE.test(p));
+}
 /** Generated, vendored or minified files: unreadable as hunks, so floor inventory only. */
 export const GENERATED_FILE = /(?:^|\/)(?:dist|build|vendor|node_modules|\.yarn)\/|\.min\.(?:js|css)$|(?:^|\/)[^/]*lock(?:\.json|\.yaml|b)?$/i;
 
@@ -93,8 +103,8 @@ function anyMatch(lines: string[], idioms: RegExp[]): boolean {
   return lines.some((l) => idioms.some((re) => re.test(l)));
 }
 
-/** Multi-line empty catch / `except:` + `pass` across consecutive added lines. */
-function swallowsAcrossLines(adds: string[]): boolean {
+/** Multi-line empty catch / `except:` + `pass` across consecutive added lines: the one detector off the floor that reads more than one added line. */
+export function swallowsAcrossLines(adds: string[]): boolean {
   for (let i = 0; i + 1 < adds.length; i++) {
     const a = adds[i].trim();
     const b = adds[i + 1].trim();
@@ -235,13 +245,15 @@ export function tagHunk(h: Hunk, ctx: TagContext): TagResult {
   } else if (ctx.floor === 'golden') tags.add('RH-3?');
   if (PROSE_FILE.test(ctx.path) || GENERATED_FILE.test(ctx.path)) return { tags: [...tags], notes, citation: null };
 
-  const removedDecls = dels.filter((l) => TEST_DECLARATION.test(l)).length;
-  const addedDecls = adds.filter((l) => TEST_DECLARATION.test(l)).length;
-  if (removedDecls > addedDecls) {
-    tags.add('RH-1');
-    notes.push(`RH-1: ${removedDecls - addedDecls} test declaration(s) removed`);
+  if (testCapable(ctx)) {
+    const removedDecls = dels.filter((l) => TEST_DECLARATION.test(l)).length;
+    const addedDecls = adds.filter((l) => TEST_DECLARATION.test(l)).length;
+    if (removedDecls > addedDecls) {
+      tags.add('RH-1');
+      notes.push(`RH-1: ${removedDecls - addedDecls} test declaration(s) removed`);
+    }
+    if (anyMatch(adds, SKIP_IDIOMS) || (ctx.floor === 'test' && anyMatch(adds, SKIP_IDIOMS_TEST_ONLY))) tags.add('RH-1');
   }
-  if (anyMatch(adds, SKIP_IDIOMS) || (ctx.floor === 'test' && anyMatch(adds, SKIP_IDIOMS_TEST_ONLY))) tags.add('RH-1');
 
   if (nonTest && anyMatch(adds, PLACEHOLDER_IDIOMS)) tags.add('RH-4');
   if (nonTest && anyMatch(adds, ENV_SNIFF_IDIOMS)) tags.add('RH-12');
@@ -260,6 +272,22 @@ export function tagHunk(h: Hunk, ctx: TagContext): TagResult {
 
   const sorted = [...tags].sort(compareTags);
   return { tags: sorted, notes, citation: sorted.length ? findCitation(adds) : null };
+}
+
+/** Every idiom one added line can carry a tag by on its own (the floor-free part of tagHunk): where a tagged line's matches sit. */
+const LINE_IDIOMS = [...SKIP_IDIOMS, ...PLACEHOLDER_IDIOMS, ...ENV_SNIFF_IDIOMS, ...SUPPRESSION_IDIOMS, ...BYPASS_IDIOMS, ...SWALLOW_SINGLE_LINE].map((r) => new RegExp(r.source, r.flags.includes('g') ? r.flags : r.flags + 'g'));
+
+/**
+ * The tags one added line carries alone, outside the floor (tagHunk on a one-line hunk), and the spans its idioms matched:
+ * what a gate-tagged data excerpt shows (lib/review-secret-excerpt.ts, GST-3273). A tag no single line carries (RH-1's
+ * removed declarations, RH-3, RH-15, RH-16 across lines) never appears here, so a file holding one is never cut.
+ */
+export function lineTags(text: string, path: string): { tags: string[]; spans: Array<[number, number]> } {
+  const tags = tagHunk({ header: '', lines: [{ kind: 'add', text }] }, { floor: null, path, allPaths: new Set([path]) }).tags;
+  if (!tags.length) return { tags, spans: [] };
+  const spans: Array<[number, number]> = [];
+  for (const r of LINE_IDIOMS) for (const m of text.matchAll(r)) if (m[0]) spans.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
+  return { tags, spans };
 }
 
 /** RH ids in numeric order; a `?` variant follows its base. */

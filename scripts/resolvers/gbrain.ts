@@ -41,7 +41,6 @@ interface SkillSaveMeta {
 
 const skillSaveMap: Record<string, SkillSaveMeta> = {
   'office-hours':         { slugPrefix: 'office-hours',    title: 'Office Hours',    tag: 'design-doc' },
-  'investigate':          { slugPrefix: 'investigations',  title: 'Investigation',   tag: 'investigation' },
   'plan-ceo-review':      { slugPrefix: 'ceo-plans',       title: 'CEO Plan',        tag: 'ceo-plan' },
   'plan-eng-review':      { slugPrefix: 'eng-reviews',     title: 'Eng Review',      tag: 'eng-review' },
   'plan-design-review':   { slugPrefix: 'design-reviews',  title: 'Design Review',   tag: 'design-review' },
@@ -52,8 +51,8 @@ const skillSaveMap: Record<string, SkillSaveMeta> = {
   'design-consultation':  { slugPrefix: 'design-systems',  title: 'Design System',   tag: 'design-system' },
 };
 
-export function generateGBrainContextLoad(ctx: TemplateContext): string {
-  let base = `## Brain Context Load
+export function generateGBrainContextLoad(_ctx: TemplateContext): string {
+  const base = `## Brain Context Load
 
 **Skip this entire section if \`gbrain\` is not on PATH.**
 
@@ -64,10 +63,6 @@ Extract 2-4 keywords from the user's request. Search the brain:
 If \`gbrain search\` returns no results or any non-zero exit, proceed
 without brain context. Full search/read protocol + examples:
 see \`docs/gbrain-write-surfaces.md\` §Context Load.`;
-
-  if (ctx.skillName === 'investigate') {
-    base += `\n\nFor structured-data extraction requests ("track this", "extract from emails", "build a tracker"), route to GBrain's data-research skill instead: \`gbrain call data-research\`.`;
-  }
 
   return base;
 }
@@ -103,7 +98,7 @@ repo root, write the page into the printed file with your file-write tool
 then the output in markdown), then:
 
 \`\`\`bash
-gbrain put "${meta.slugPrefix}/<feature-slug>" < "<page-file>" && rm -f "<page-file>"
+gbrain put "${meta.slugPrefix}/<feature-slug>" < "<page-file>" && rm "<page-file>"
 \`\`\`
 
 Read the saved page back before claiming persistence. Then create stub pages for
@@ -179,7 +174,7 @@ SLUG=$(${binDir}/gstack-slug --get SLUG 2>/dev/null) || true
 ${loadLines}
 } > /tmp/.gstack-brain-context-$$.md 2>/dev/null
 [ -s /tmp/.gstack-brain-context-$$.md ] && cat /tmp/.gstack-brain-context-$$.md
-rm -f /tmp/.gstack-brain-context-$$.md 2>/dev/null || true
+rm /tmp/.gstack-brain-context-$$.md 2>/dev/null || true
 \`\`\`
 
 **How to use this context:**

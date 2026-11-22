@@ -51,6 +51,8 @@ echo "  No manual installation needed!"
 echo ""
 echo "Manual install (for your regular Chrome):"
 echo ""
+echo "  Adding a Chrome extension called gstack browse that adds the gstack side panel to your regular Chrome. You'll see it as the gstack browse icon in Chrome's toolbar and on chrome://extensions. Remove it with: chrome://extensions → gstack browse → Remove"
+echo ""
 echo "  1. Opening chrome://extensions now..."
 
 # Open chrome://extensions

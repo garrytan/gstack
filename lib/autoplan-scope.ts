@@ -4,31 +4,52 @@
  * interactive path (`gstack-autoplan-snapshot.ts scope`, read by
  * autoplan/SKILL.md) take UI scope from `detectUiScope` over the
  * Implementation plan only. UI needs a rendered surface: a path to a rendered
- * file, or a UI term next to a visual noun. Bare UI words are weak evidence:
+ * file, or a UI term next to a visual noun. A named .ts/.js file under the
+ * repo root that holds a tagged html, css or svg template (Lit, htm) is a
+ * rendered file: bin/gstack-diff-scope's content arm (GST-1718), read through
+ * lib/frontend-scope.ts. Bare UI words are weak evidence:
  * they keep the runner's conservative section fallback but do not add the
  * Design phase. The scope marker is the author's way to pin flags in the plan
  * itself; it is read, never written. `detectDocsOnly` classifies the paths
  * the Implementation plan names: a plan that touches only markdown no agent
  * or gate consumes is docs-only (CEO + Eng, outside voice on Eng only).
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { TEMPLATE_TAG, isTemplateCandidate } from './frontend-scope';
 import { classifyPath } from './review-depth';
 
-export const UI_TERMS = ['component', 'screen', 'form', 'button', 'modal', 'layout', 'dashboard', 'sidebar', 'nav', 'dialog'] as const;
+export const UI_TERMS = ['component', 'screen', 'form', 'button', 'modal', 'layout', 'dashboard', 'sidebar', 'nav', 'dialog', 'row', 'list', 'picker', 'menu', 'section'] as const;
 export const VISUAL_NOUNS = ['page', 'layout', 'style', 'pixel', 'view', 'browser', 'css'] as const;
 const VISUAL_WINDOW = 4;
 const RENDERED_EXT = /(?:^|\/)[^/.][^/]*\.(?:tsx|jsx|vue|svelte|css|scss|html|erb|hbs)$/i;
 const RENDERED_DIR = /(?:^|\/)(?:components|pages|views|styles)\//i;
+const TEMPLATE_MAX_BYTES = 2_000_000;
 
 export interface UiEvidence { terms: Array<{ term: string; count: number }>; visual: string[]; files: string[] }
 export interface UiScope { uiRequired: boolean; uiMatches: number; uiEvidence: UiEvidence }
 
 const wordOf = (w: string, list: readonly string[]) => list.find(t => w === t || w === `${t}s` || (t === 'style' && w === 'stylesheet'));
 
-/** UI scope from rendered surfaces: a rendered file path, or a UI term within a few words of a visual noun in the same sentence (paths are not prose). */
-export function detectUiScope(implementationPlan: string): UiScope {
-  const files = [...new Set([...implementationPlan.matchAll(/[\w@~$.\/-]+/g)]
-    .map(m => m[0].replace(/[.\-]+$/, ''))
-    .filter(t => t.length > 1 && (RENDERED_EXT.test(t) || RENDERED_DIR.test(t))))];
+/** A named non-test .ts/.js file inside root that holds a tagged html, css or svg template; missing, unreadable or outside root is no. */
+function holdsTemplate(file: string, root: string): boolean {
+  if (!isTemplateCandidate(file)) return false;
+  try {
+    const base = fs.realpathSync(root);
+    const real = fs.realpathSync(path.resolve(base, file));
+    const rel = path.relative(base, real);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+    const st = fs.statSync(real);
+    return st.isFile() && st.size <= TEMPLATE_MAX_BYTES && TEMPLATE_TAG.test(fs.readFileSync(real, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+/** UI scope from rendered surfaces: a rendered file path (with root, a named template file too), or a UI term within a few words of a visual noun in the same sentence (paths are not prose). */
+export function detectUiScope(implementationPlan: string, root?: string): UiScope {
+  const files = [...new Set([...implementationPlan.matchAll(/[\w@~$.\/-]+/g)].map(m => m[0].replace(/[.\-]+$/, '')))]
+    .filter(t => t.length > 1 && (RENDERED_EXT.test(t) || RENDERED_DIR.test(t) || (root !== undefined && holdsTemplate(t, root))));
   const counts = new Map<string, number>();
   const visual: string[] = [];
   for (const sentence of implementationPlan.split(/[.!?;:](?:\s|$)|\n\s*\n/)) {

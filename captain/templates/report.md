@@ -4,7 +4,7 @@ Written by the lane when it finishes. The controller reads this before chat.
 
 ## Outcome
 
-<what shipped, in two or three sentences; what was out of scope and where it went>
+<first a `Failed or skipped:` line naming each test, check or step that failed or never ran, or none, and an `Also changed:` line for config, CI or files outside the ask, or none; then what shipped, in two or three sentences; what was out of scope and where it went>
 
 Unverified: <none | each claim above that the lane did not check itself, and why>
 
@@ -16,9 +16,12 @@ Unverified: <none | each claim above that the lane did not check itself, and why
 
 READY block sent: <yes, date> · SHIP_RECEIPT: pr=<n> head=<sha12 of the pin, as the tool prints it> · screen: <choice and why>
 
+Open work: <none | each open PR and issue this thread still owns, with the live thread that takes it
+or the issue that carries its trigger (crew/docs/captain.md, No orphaned work)>
+
 ## Needs
 
-<"nothing", or the owner's decisions in the ask format (gstack docs/captain.md): one lettered line each, "A1 to take recommendation">
+<"nothing", or the owner's decisions in the ask format (gstack crew/docs/captain.md): one lettered line each, "A1 to take recommendation">
 
 ## Cost
 

@@ -11,7 +11,7 @@
  * ship_greptile_early false` turns it off. Logic: lib/greptile-early.ts.
  */
 import * as path from "path";
-import { spawnSync } from "child_process";
+import { spawnSync } from "../lib/spawn-sync";
 import { runGreptileEarly } from "../lib/greptile-early";
 
 process.exitCode = runGreptileEarly(process.argv.slice(2), {

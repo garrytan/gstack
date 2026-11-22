@@ -166,7 +166,7 @@ test('late verified outputs are committed before push, without tags', () => {
   expectOrdered(compact(between(entryTemplate, '### 5. Report, then push', '## Step 17:')), [/commit/i, 'continue to Step 17'], 'ship Step 16.5');
   expectMentions(entry, [['not', 'git tag']], 'ship entry');
   expectOrdered(pushFlow, ['**Non-fast-forward push:**', '**Authentication, hook or network failure:**'], 'ship Step 17');
-  expectTokens(pushFlow, ['`ALREADY_PUSHED`'], 'ship Step 17');
+  expectTokens(pushFlow, ['`already_pushed`', '`PUSH: pushed|already_pushed|failed …`'], 'ship Step 17');
 });
 
 test('Step 18 resolves open PR state before preparing the title file Step 19 posts', () => {
@@ -175,7 +175,7 @@ test('Step 18 resolves open PR state before preparing the title file Step 19 pos
   expectTokens(lookup, ['glab mr list --source-branch <branch-name> --output json'], 'ship Step 18');
   const title = compact(between(prTemplate, '### Prepare the title (Step 18)', '## Step 19:'));
   expectOrdered(title, ['{{FREE_TEXT_FILE:TITLE_FILE=pr-title}}', 'gstack-pr-title-rewrite.sh <new-version> --stdin > "$TITLE_FILE"'], 'ship Step 18 title');
-  expectTokens(title, ['`v<NEW_VERSION> <type>: <summary>`', '`v$NEW_VERSION `', "grep -Eq '^v<new-version>( |$)' \"$TITLE_FILE\""], 'ship Step 18 title');
+  expectTokens(title, ['`v<NEW_VERSION> <plain change>`', '`v$NEW_VERSION `', "grep -Eq '^v<new-version>( |$)' \"$TITLE_FILE\""], 'ship Step 18 title');
   expectAbsent(compact(entryTemplate + prTemplate), ['"<current title>"', 'NEW_TITLE'], 'ship Steps 18-19');
   expectTokens(prTemplate, ['--title-file "$TITLE_FILE"', 'exit 1', '**3**'], 'ship pr-body');
   const generated = readTemplate('ship/sections/pr-body.md');
@@ -218,12 +218,12 @@ test('a repository without a version source or CHANGELOG ships with one skipped 
 
 test('Step 14.5 runs the doc caps before the verification gate and records the audit for the receipt, with the owner exception shape (E11)', () => {
   // The caps come from origin/<base>'s policy (a branch cannot raise its own cap), and the per-invocation record is cleared before the first launch.
-  expectOrdered(docsTemplate, ['rm -f .gstack/tmp/docs-audit.json', '### Continue or recover', 'gstack-ship-receipt docs-caps --base <base>', 'never the\nbranch\'s copy', '`DOCS_CAP: <path> <bytes>/<max> ok|over`', 'write the receipt\'s record to `.gstack/tmp/docs-audit.json`', '## Blocked recovery'], 'ship documentation section');
+  expectOrdered(docsTemplate, ['rm .gstack/tmp/docs-audit.json 2>/dev/null || true', '### Continue or recover', 'gstack-ship-receipt docs-caps --base <base>', 'never the\nbranch\'s copy', '`DOCS_CAP: <path> <bytes>/<max> ok|over`', 'write the receipt\'s record to `.gstack/tmp/docs-audit.json`', '## Blocked recovery'], 'ship documentation section');
   expectAbsent(docsTemplate, ['docs-caps --policy .gstack/ship-policy.json'], 'ship documentation section cap source');
   expectTokens(docs, ['`DOCS_CAP: none declared`', '"status":"updated|current"', '"status":"blocked"', '"exception":{"accepted_by"', '`DOCS_AUDIT_BLOCKED`', 'An unattended run has no owner to accept: it stops here.'], 'ship documentation section');
   const compose = between(prTemplate, 'Handoff record first', '**Existing open PR/MR**');
   expectTokens(compose, ['--docs @.gstack/tmp/docs-audit.json', '`DOCS_AUDIT_BLOCKED`'], 'ship pr-body receipt write');
-  expectTokens(compact(between(prTemplate, '## Documentation', '## Test plan')), ['`Documentation exception: accepted by <accepted_by> <date> via <via>: <reason>`'], 'ship pr-body Documentation');
+  expectTokens(compact(between(prTemplate, '## Documentation', '## Tests')), ['`Documentation exception: accepted by <accepted_by> <date> via <via>: <reason>`'], 'ship pr-body Documentation');
 });
 
 test('Step 9.4 applies the cap before any edit, names its scratch files under .gstack/tmp/, logs Step 11 late defers, and hands reviewers the range from pass 2 (PR 1 review notes)', () => {

@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { checkoutTree } from '../lib/review-brief';
 import { TARGETED_RULES, targetedBriefSha } from '../lib/review-targeted';
-import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
+import { extractReceipt, placeReceipt } from '../lib/ship-receipt';
 import { receiptDepthAtHead, targetedClassesSince } from '../lib/ship-receipt-depth';
 import { cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
@@ -255,7 +255,7 @@ describe('write and carry refuse a receipt the queue\'s targeted verdict refuses
     let n = 0;
     const carry = (receipt: object) => {
       const body = path.join(repo.root, `body-${++n}.md`);
-      fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', receipt as any));
+      fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', receipt as any));
       return { ...runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body], { GSTACK_STATE_ROOT: path.join(repo.root, 'state') }), body };
     };
     const uncovered = carry(versioned);

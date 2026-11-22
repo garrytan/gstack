@@ -9,7 +9,7 @@
  * (lib/pricing.ts), so the spend table always shows `unknown` charges and the
  * worst-case overrun (one in-flight call per worker) beside `spent`.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -19,16 +19,21 @@ import { EXCLUDED_BILLING_CATEGORIES, estimateCostUsd, hasPricing, PRICING, pric
 import type { ResultCodeName } from './result-codes';
 import type { ModelRulesCheck } from './eval-models';
 import { readLedger, release, reserve, settle, SpendCapExceeded, summarize, type SpendLedger, type SpendSummary } from './spend-ledger';
+import { checkDecisions, checkLoop, checkModelGenerations, checkQuickLook, checkScoring, frozenDate, grandfathered, isQuickLook, loopGrandfathered, type DecisionsCheck, type LoopCheck, type ModelGenerationCheck, type QuickLookCheck, type ScoringCheck } from './eval-plan-checks';
 
 // ---------------------------------------------------------------------------
 // preregistration
 // ---------------------------------------------------------------------------
-export const PREREG_SECTIONS = ['Bars', 'Arms', 'Comparison', 'Decoys', 'Stop rules', 'Held-out exposure'] as const;
+export const PREREG_SECTIONS = ['Bars', 'Decisions', 'Arms', 'Comparison', 'Scoring', 'Pilot', 'Cost', 'Decoys', 'Stop rules', 'Held-out exposure'] as const;
+/** Sections added with the result checks; a preregistration frozen before them (`frozen:` before RESULT_CHECKS_SINCE) is not asked for them. */
+const RESULT_CHECK_SECTIONS: readonly string[] = ['Decisions', 'Scoring'];
+/** Sections added with the eval-loop checks (`frozen:` before LOOP_CHECKS_SINCE is not asked for them). */
+const LOOP_CHECK_SECTIONS: readonly string[] = ['Pilot', 'Cost'];
 /** `## Comparison`: `stack: loaded` when any arm loads gstack or another skill stack, `stack: none` with a `why:` otherwise. */
 export interface ComparisonCheck { stack: 'loaded' | 'none' | null; why: string | null; errors: string[] }
 /** `## No-gstack arm`, required when `stack: loaded`: one `<model>#no-gstack` Arms line per model, the inputs, prompt, panel and report it shares with the variants, and its masking, install and audit lines. */
 export interface NoGstackArmCheck { required: boolean; ok: boolean; arms: string[]; problems: string[] }
-export interface PreregCheck { ok: boolean; present: string[]; missing: string[]; empty: string[]; comparison: ComparisonCheck; no_gstack: NoGstackArmCheck; diagnostics: PreregDiagnostics | null }
+export interface PreregCheck { ok: boolean; present: string[]; missing: string[]; empty: string[]; comparison: ComparisonCheck; no_gstack: NoGstackArmCheck; diagnostics: PreregDiagnostics | null; decisions: DecisionsCheck; scoring: ScoringCheck; frozen: string | null; grandfathered: boolean; loop: LoopCheck; loop_grandfathered: boolean; quick: QuickLookCheck | null; models: ModelGenerationCheck }
 export const NO_GSTACK_LOADOUT = 'no-gstack';
 /** masking, install and audit keep the arm clean (TESTING_INTERNALS.md#no-gstack-arm): an arm that read a gstack skill file is contaminated. */
 export const NO_GSTACK_KEYS = ['arms', 'inputs', 'prompt', 'panel', 'report', 'masking', 'install', 'audit'] as const;
@@ -37,16 +42,34 @@ export function preregTemplate(title = 'Eval preregistration'): string {
   return `# ${title}
 
 ## Bars
-<!-- One line per metric: name, the pass bar, the direction, and what a miss means for the decision. -->
+<!-- \`lesson:\` the public lesson the run is after, then one line per metric: name, the pass bar and the direction. -->
+
+## Decisions
+<!-- One \`if <result>: <what we do>\` line per way the run can come out (a pass, a miss, no difference), at least two, written before anything is spent. If every result leads to the same action, the eval changes nothing: do not run it. -->
 
 ## Arms
-<!-- One line per arm: the arm identity first (\`<model>\` or \`<model>#<loadout>\`, the model in lib/pricing.ts, e.g. \`claude-opus-5-5#no-gstack\`), settings, and the per-item cost from \`gstack-eval-plan arms\`. Models under test are frontier models (today \`claude-opus-5-5\`, \`gpt-6.1-sol\`) plus at most one named low-cost primary; a Haiku or Sonnet arm only with a stated tier question. -->
+<!-- One line per arm: the arm identity first (\`<model>\` or \`<model>#<loadout>\`, the model in lib/pricing.ts, e.g. \`claude-opus-5-5#no-gstack\`), settings, and the per-item cost from \`gstack-eval-plan arms\`. Models under test are frontier models (today \`claude-opus-5-5\`, \`gpt-6.2-sol\`) plus at most one named low-cost primary; a Haiku or Sonnet arm only with a stated tier question. No gpt-4o and no model lib/pricing.ts marks \`superseded_by\` (R116). -->
 
 ## Comparison
 <!-- \`stack: loaded\` when any arm loads gstack or another skill stack (review variants, preamble loadouts, skill diets, a model panel under a stack); otherwise \`stack: none\` and a \`why:\` line. -->
 
 ## No-gstack arm
 <!-- Required with \`stack: loaded\`: \`arms:\` one \`<model>#no-gstack\` Arms line per model; \`inputs:\` the same rows and fixture; \`prompt:\` the task only (no SKILL.md, preamble, hooks or installed skills); \`panel:\` the same E2E kind, trials and judge; \`report:\` its row beside the variants; \`masking:\` how the run agent is kept from gstack (an empty directory bind-mounted over ~/.capy/drive/user-garry-tan and ~/.capy/drive/org-gstack-gbrain before it starts, or a container that sees no Capy drive); \`install:\` no gstack at ~/.local/share/gstack or ~/.claude/skills; \`audit:\` the per-arm drive-read audit (an arm that read a gstack skill file is contaminated and gets zero credit). -->
+
+## Scoring
+<!-- \`judge: none\` when a rule scores every metric; otherwise \`judge: <model>\` from another model family than every arm, \`labels: <n>\` hand-labelled outputs it is checked against (at least 100, or 40 for a plan frozen before 2026-11-22; never held-out rows) and \`agreement: <kappa bar>\` (at least 0.6), \`per-arm: yes\` (agreement read on each arm's outputs, not pooled) and \`effort: <the reasoning effort set in the judge's start>\`; GPT-6 Astra or GPT-6.2 Astra judges Claude arms, Claude Opus 5.5 judges GPT arms. With two or more arms: \`paired: yes\`, \`interval: 95%\` and \`mdd: <the smallest difference this run can detect>\`. -->
+
+## Models
+<!-- Optional: every other model the run starts, as \`reader: <model>\` and \`simulator: <model>\` lines. R116 refuses gpt-4o and any model lib/pricing.ts marks \`superseded_by\` in every role, arms and the judge included, and names the replacement. \`vendor-default: <model> <system>\` keeps a competitor system's built-in model when that system (an arm) is tested as its vendor ships it; the check records it and the results must name it. -->
+
+## Pilot
+<!-- Uncounted, per arm, before its counted run: \`share: <at most 10>%\` of that arm's budget; \`counted: no\`; \`ran:\` how the arm's own outputs show the part under test ran; \`judge:\` the judge's label check on that arm's pilot outputs (with a model judge); \`supply:\` how the units are shown to be suppliable at the planned rate; \`units:\` every unit type the counted run uses, each drawn at least once; \`seed:\` the fixed seed for the draw order, independent of the number of workers. An arm that fails is fixed or left out, and reported as left out. -->
+
+## Cost
+<!-- \`paid: $<the counted run's paid budget>\`; \`meter: <expected agent and machine spend, or $0>\`; \`ledger: <the private file where the actual cost and the decision it settled are written>\`. A public results page carries the decision, not the cost, unless the cost is the lesson. -->
+
+## Interim look
+<!-- Required when paid is above $500: \`at: 50%\` of the units; \`looks: 1\`; \`bounds: O'Brien-Fleming\` with the values (for one look at half: stop for effect at |z| >= 2.80, final |z| >= 1.98); \`futility: <the result at the look that stops the run>\`. No other look is taken. Delete this section when paid is $500 or less. -->
 
 ## Decoys
 <!-- Inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves. -->
@@ -56,7 +79,22 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 
 ## Held-out exposure
 <!-- Every held-out set this plan touches: | set | prior exposure (which runs, which models) | reservation (what this run may read) | -->
-<!-- Optional: a \`## Diagnostics\` section declares the summarizer (\`summarizer: <command naming {fixture}>\`), its synthetic records (\`fixture: <path>\`) and one | diagnostic | expected | row per diagnostic; \`prereg --check --allow-repo-commands\` runs it. -->
+<!-- Answers on the task machine: how each unit's machine was checked, before any session, for answers the agent could read there (other git refs such as \`git log --all\`, build and package caches, archives and the task's own work tree; never a sweep of \`/\`, runner state or \`~/.ssh\`). -->
+<!-- Grader: when a grader runs git in the agent's repo, how it treats that repo as hostile: a sanitized copy of .git with no repo, system or global config, hooks, attributes, textconv or signature display; original index timestamps; no API keys in its environment; a test that plants each setting. -->
+<!-- Optional: a \`## Diagnostics\` section declares the summarizer (\`summarizer: <command naming {fixture}>\`), its synthetic records (\`fixture: <path>\`) and one | diagnostic | expected | row per diagnostic; \`prereg --check --allow-repo-commands\` runs it. A count reported as zero needs its diagnostic declared here with a planted case (expected 1 or more). -->
+`;
+}
+
+/** `prereg --init --quick`: a quick look, three lines and a cap, that publishes no number (docs/TESTING_INTERNALS.md#eval-loop-checks). */
+export function quickLookTemplate(title = 'Quick look'): string {
+  return `# ${title}
+
+kind: quick look
+question: <the one question, e.g. does this edit help on these 10 tasks>
+decision: <if it helps: open a counted run with a preregistration; if not: close the question>
+stop: <when it stops: the cap, or the first result that answers the question>
+cap: $100
+<!-- At most $100 paid and one day. A quick look publishes no number: \`results --check\` refuses it. It only opens or closes a question. -->
 `;
 }
 
@@ -130,14 +168,29 @@ function checkNoGstackArm(text: string, stack: ComparisonCheck['stack']): NoGsta
 
 export function checkPrereg(text: string): PreregCheck {
   const present: string[] = []; const missing: string[] = []; const empty: string[] = [];
+  const exempt = grandfathered(text);
+  const loopExempt = loopGrandfathered(text);
+  const noLoop: LoopCheck = { paid: null, interim_required: false, errors: [] };
+  if (isQuickLook(text)) {
+    const quick = checkQuickLook(text);
+    return { ok: !quick.errors.length, models: checkModelGenerations({ arms: [] }), present, missing, empty, comparison: { stack: null, why: null, errors: [] }, no_gstack: { required: false, ok: true, arms: [], problems: [] }, diagnostics: null, decisions: { outcomes: [], errors: [] }, scoring: { judge: null, labels: null, agreement: null, errors: [] }, frozen: frozenDate(text), grandfathered: exempt, loop: noLoop, loop_grandfathered: loopExempt, quick };
+  }
   for (const name of PREREG_SECTIONS) {
+    if (exempt && RESULT_CHECK_SECTIONS.includes(name)) continue;
+    if (loopExempt && LOOP_CHECK_SECTIONS.includes(name)) continue;
     const body = sectionBody(text, name);
     if (body === null) missing.push(name); else if (body.length === 0) empty.push(name); else present.push(name);
   }
   const comparison = checkComparison(text);
   const no_gstack = checkNoGstackArm(text, comparison.stack);
   const diagnostics = parsePreregDiagnostics(text);
-  return { ok: missing.length === 0 && empty.length === 0 && !comparison.errors.length && no_gstack.ok && !diagnostics?.errors.length, present, missing, empty, comparison, no_gstack, diagnostics };
+  const decisions = exempt ? { outcomes: [], errors: [] } : checkDecisions(sectionBody(text, 'Decisions'));
+  const scoring = exempt ? { judge: null, labels: null, agreement: null, errors: [] } : checkScoring(sectionBody(text, 'Scoring'), armIdentities(text), frozenDate(text));
+  const section = (name: string) => sectionBody(text, name);
+  const loop = loopExempt ? noLoop : checkLoop({ pilot: section('Pilot'), cost: section('Cost'), interim: section('Interim look'), scoring: section('Scoring'), bars: section('Bars'), arms: section('Arms'), heldOut: section('Held-out exposure') });
+  const models = checkModelGenerations({ arms: armIdentities(text), judge: scoring.judge, models: section('Models'), frozen: frozenDate(text) });
+  const ok = missing.length === 0 && empty.length === 0 && !comparison.errors.length && no_gstack.ok && !diagnostics?.errors.length && !decisions.errors.length && !scoring.errors.length && !loop.errors.length && models.ok;
+  return { ok, models, present, missing, empty, comparison, no_gstack, diagnostics, decisions, scoring, frozen: frozenDate(text), grandfathered: exempt, loop, loop_grandfathered: loopExempt, quick: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -296,13 +349,15 @@ export interface DryRunResult {
     model_rules?: { ok: boolean; source: string; refused: string[] };
     /** R54: Haiku and Sonnet are not models under test; arms on them alone are refused unless the plan asks about that tier. */
     frontier: { ok: boolean; small_tier: string[]; tier_question: string | null; recost_usd: Record<string, number> };
+    /** R116: no arm is gpt-4o or a model lib/pricing.ts marks superseded_by. */
+    generation: ModelGenerationCheck;
   };
   per_item_usd: Record<string, number | null>; excluded_billing: readonly string[]; pass: boolean; stub: 'stub-model (no network, $0)';
 }
 export interface DryRunOptions { input: string; arms: string[]; fields?: string[]; outputBudget?: number; retryPrompt?: string; maxRows?: number; cap?: number; modelRules?: ModelRulesCheck; tierQuestion?: string }
 
 /** Today's frontier models under test (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test); a small-tier plan is re-costed on these. */
-export const FRONTIER_MODELS = ['claude-opus-5-5', 'gpt-6.1-sol'] as const;
+export const FRONTIER_MODELS = ['claude-opus-5-5', 'gpt-6.2-sol'] as const;
 export const isSmallTierModel = (model: string) => /(^|[-/])(haiku|sonnet)(-|$)/i.test(model);
 
 /** Four bytes per token, the estimator every gstack admission uses. */
@@ -346,9 +401,10 @@ export function dryRun(o: DryRunOptions): DryRunResult {
   const smallTier = o.arms.filter(a => isSmallTierModel(armModel(a)));
   const recost = Object.fromEntries(FRONTIER_MODELS.map(m => [m, rows * o.arms.length * estimateCostUsd({ input: avgIn, output: budget }, m)]));
   checks.frontier = { ok: smallTier.length < o.arms.length || !!o.tierQuestion?.trim(), small_tier: smallTier, tier_question: o.tierQuestion?.trim() || null, recost_usd: recost };
+  checks.generation = checkModelGenerations({ arms: o.arms });
   return {
     schema_version: 1, input: o.input, rows, bad_rows: bad, est_input_tokens: inputTokens, est_output_tokens: rows * budget, arms: o.arms, checks, per_item_usd: perItem,
-    excluded_billing: EXCLUDED_BILLING_CATEGORIES, pass: rows > 0 && bad.length === 0 && checks.price_table.ok && checks.output_budget.ok && checks.retry_prompt.ok && (checks.reservation_fits_cap?.ok ?? true) && (checks.model_rules?.ok ?? true) && checks.frontier.ok, stub: 'stub-model (no network, $0)',
+    excluded_billing: EXCLUDED_BILLING_CATEGORIES, pass: rows > 0 && bad.length === 0 && checks.price_table.ok && checks.output_budget.ok && checks.retry_prompt.ok && (checks.reservation_fits_cap?.ok ?? true) && (checks.model_rules?.ok ?? true) && checks.frontier.ok && checks.generation.ok, stub: 'stub-model (no network, $0)',
   };
 }
 
@@ -361,6 +417,7 @@ export function renderDryRun(r: DryRunResult): string {
     `CHECK: retry-prompt ${r.checks.retry_prompt.ok ? `ok — ${JSON.stringify(r.checks.retry_prompt.text)}` : 'missing (pass --retry-prompt <file> with the exact text the run will send)'}`,
     ...(r.checks.reservation_fits_cap ? [renderReservationCheck(r.checks.reservation_fits_cap, r.checks.output_budget.budget)] : []),
     ...(r.checks.frontier.small_tier.length ? [renderFrontierCheck(r.checks.frontier, r.arms.length)] : []),
+    ...(r.checks.generation?.refused.length ? [`CHECK: model-generation refused ${r.checks.generation.refused.map(a => `${a.model} (use ${a.replacement})`).join(', ')} (R116, docs/TESTING_INTERNALS.md#frontier-models-under-test)`] : []),
     ...(r.checks.model_rules ? [`CHECK: model-rules ${r.checks.model_rules.ok ? 'ok' : `refused ${r.checks.model_rules.refused.join('; ') || 'invalid rules'}`} (source ${r.checks.model_rules.source})`] : []),
     ...Object.entries(r.per_item_usd).map(([m, usd]) => `ESTIMATE: ${m} per_item=${usd === null ? 'unknown (no price)' : `$${usd.toFixed(4)}`} (estimate: excludes ${r.excluded_billing.length} billing categories, see lib/pricing.ts)`),
     `DRY_RUN_RESULT: ${r.pass ? 'pass' : 'fail'}`,
@@ -396,6 +453,7 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
   const dry = JSON.parse(fs.readFileSync(o.dryRun, 'utf8')) as DryRunResult;
   if (!dry.pass) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `${o.dryRun} did not pass; the pilot never starts on a failed dry run` } };
   if (o.arms.length && o.arms.every(a => isSmallTierModel(armModel(a))) && !dry.checks.frontier?.tier_question) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `every pilot arm is Haiku or Sonnet and ${o.dryRun} records no --tier-question (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test)` } };
+  const stale = checkModelGenerations({ arms: o.arms }).refused; if (stale.length) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_MODEL_OLD_GENERATION', message: stale.map(a => `${a.model} is an older generation; use ${a.replacement} (R116)`).join('; ') } };
   const tokens = o.tokens ?? { input: dry.rows ? Math.ceil(dry.est_input_tokens / dry.rows) : DEFAULT_TOKENS.input, output: dry.checks.output_budget.budget };
   const seat = o.seatMetered ?? [];
   const stray = seat.filter(a => !o.arms.includes(a));

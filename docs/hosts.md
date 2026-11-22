@@ -24,7 +24,7 @@ neither does `./setup --local`.
 
 **What it writes.** Copies in the harness's own skills folder, never edits to
 `openclaw.json`, Hermes's `config.yaml` or any context file you did not name.
-The one exception is the [start hook](#start-hook), which you turn on yourself:
+The one exception is the [start hook](#start-hook), which is on by default for a new registration:
 it adds a plugin and enables it through the harness's own commands.
 A context block is opt-in: `gstack-harness register openclaw|hermes|generic
 --context <file>` writes the marked block into that file only, after printing
@@ -61,20 +61,20 @@ characters, the part of a description Hermes's skills index shows.
 
 | Harness | What gstack registers | Install | Verify | Remove |
 |---|---|---|---|---|
-| OpenClaw | default `--skills hybrid`: `gstack-review`, `gstack-investigate`, `gstack-qa` and `gstack-ship` as top-level skills plus one `gstack` router skill whose body lists every other skill and its path, in `${OPENCLAW_STATE_DIR:-~/.openclaw}/skills`. With OpenClaw 2026.10.6's 19 eligible bundled skills, hybrid's skills section stays in full format under its 18,000-character budget; `--skills all` (17,971, compact format, descriptions cut) lists every skill as its own folder, `--skills router` (6,701) only the router. OpenClaw serves a registered skill's `SKILL.md` whole or refuses it ("Skill instructions cannot be partially served"), at most 32,768 bytes when its model catalog has no context window for the model and 32,000 characters with a 100K-200K-token window, so any registered skill over 32,000 bytes (three of the four in hybrid, 25 of 62 in `all` today) is a short entry `SKILL.md` with the same name and description that sends the agent to its full `SKILL.md` in a plain copy of every skill (the router's `gstack/skills/`, or `.gstack-skills/` under `--skills all`, a folder OpenClaw's skill scan skips), which OpenClaw reads in pages. A context window under 100K tokens lowers that budget to 16,000 characters, which this limit does not cover | `./setup --host openclaw`, or `./setup` inside OpenClaw | `openclaw skills list --json` shows `gstack` and the four task skills (source `openclaw-managed`, eligible) | `gstack-harness unregister openclaw` |
+| OpenClaw | default `--skills hybrid`: `gstack-review`, `gstack-qa`, `gstack-ship` and `gstack-plan-eng-review` as top-level skills plus one `gstack` router skill whose body lists every other skill and its path, in `${OPENCLAW_STATE_DIR:-~/.openclaw}/skills`. With OpenClaw 2026.10.6's 19 eligible bundled skills, hybrid's skills section stays in full format under its 18,000-character budget; `--skills all` (17,971, compact format, descriptions cut) lists every skill as its own folder, `--skills router` (6,701) only the router. OpenClaw serves a registered skill's `SKILL.md` whole or refuses it ("Skill instructions cannot be partially served"), at most 32,768 bytes when its model catalog has no context window for the model and 32,000 characters with a 100K-200K-token window, so any registered skill over 32,000 bytes (review, ship and plan-eng-review among the four task skills in hybrid, 26 of 63 in `all` today) is a short entry `SKILL.md` with the same name and description that sends the agent to its full `SKILL.md` in a plain copy of every skill (the router's `gstack/skills/`, or `.gstack-skills/` under `--skills all`, a folder OpenClaw's skill scan skips), which OpenClaw reads in pages. A context window under 100K tokens lowers that budget to 16,000 characters, which this limit does not cover | `./setup --host openclaw`, or `./setup` inside OpenClaw | `openclaw skills list --json` shows `gstack` and the four task skills (source `openclaw-managed`, eligible) | `gstack-harness unregister openclaw` |
 | Hermes | every skill, as `gstack-<skill>` in one `gstack` category, in `${HERMES_HOME:-~/.hermes}/skills/gstack`. Hermes's skills index lists only skills registered as folders, so a router would leave the rest out of the listing (`skill_view` still loads an unlisted skill by name, but nothing tells the model it exists) | `./setup --host hermes`, or `./setup` inside Hermes | `hermes skills list` shows the `gstack-*` skills in category `gstack` | `gstack-harness unregister hermes` |
 | dots (feder-cr) | the `gstack` router in `/home/dot/skills/gstack`, which the Dot lists every turn | `./setup` on the Dot's computer, or `gstack-harness register dots` | the Dot's Skills page, or `GET /skills` | `gstack-harness unregister dots` |
-| QM | three skills (`gstack-investigate`, `gstack-review`, `gstack-plan`) in QM's own skill format, from `qm/sandbox/skills/` ([qm/README.md](../qm/README.md)). `gstack-harness register qm --yes` still stops before sending anything: QM imports a skill pack by cloning the whole repository and caps it at 32 MiB and 5,000 files, and gstack's repository is about 73 MiB ([why](troubleshooting.md#harness-qm-pack-too-large)) | copy `qm/sandbox/skills/gstack-*` into `<deploy dir>/sandbox/skills/` and run `qm up` | ask it for a gstack skill | remove the folders and run `qm up` again |
+| QM | one skill (`gstack-plan`) in QM's own skill format, from `qm/sandbox/skills/` ([qm/README.md](../qm/README.md)). `gstack-harness register qm --yes` still stops before sending anything: QM imports a skill pack by cloning the whole repository and caps it at 32 MiB and 5,000 files, and gstack's repository is about 73 MiB ([why](troubleshooting.md#harness-qm-pack-too-large)) | copy `qm/sandbox/skills/gstack-*` into `<deploy dir>/sandbox/skills/` and run `qm up` | ask it for a gstack skill | remove the folders and run `qm up` again |
 | Muse Code, Grok Build | nothing: both read `~/.claude/skills`, so the Claude install (`./setup`) is what they see, with Claude tool names | `./setup` | `gstack-harness status` runs `muse skills list` / `grok inspect` and reports *discovered (Claude-rendered, unverified)* | `gstack-uninstall` |
 | Grok Bot, any chat-only skill library | nothing on disk | `gstack-harness register generic --print`, then paste the router and block into the app | ask it for a gstack skill | delete the pasted text |
 | any other harness | the router in an Agent Skills folder you name, and/or a 600-byte routing block between `<!-- gstack:begin harness-routing -->` markers in a context file you name | `gstack-harness register generic --skills-dir <dir>` and/or `--context <file>`; `gstack-harness manifest generic` prints every skill as JSON | the harness's own skill list | `gstack-harness unregister generic` |
 
 <a id="start-hook"></a>
-### Start hook (OpenClaw and Hermes, opt-in)
+### Start hook (OpenClaw and Hermes, on by default for new registrations)
 
 Every gstack skill starts with a command in its Preamble (`gstack-skill-start`) that sets up the session: whether it runs unattended, questions, consent, upgrade checks. In OpenClaw and Hermes, agents read gstack's skills but almost never run that command (1 start in 29 chances, HARN-18). The start hook is a small `gstack-start` plugin that puts one note of about 210 characters on every user turn, telling the agent to run that command first, exactly as written, with no pipe.
 
-It is off unless you turn it on, because turning it on changes the harness's own settings:
+It is on by default (gstack-evals#369: a line on the prompt naming a skill got Opus 5.5 to load it in 58 of 60 sessions, where a skill relying on its description loaded in 0 of 60). Turning it on changes the harness's own settings:
 
 | | OpenClaw | Hermes |
 |---|---|---|
@@ -83,13 +83,13 @@ It is off unless you turn it on, because turning it on changes the harness's own
 | Settings it changes, through the harness's own CLI | `openclaw config set plugins.entries.gstack-start.hooks.allowConversationAccess true` and `...enabled true` in `openclaw.json`. OpenClaw runs `before_prompt_build` from a plugin it did not bundle only with that grant, which also lets the plugin's hooks see conversation content (the plugin reads only its own note.txt) | `hermes plugins enable gstack-start` adds it to `plugins.enabled` in `config.yaml` |
 | Check | `openclaw plugins inspect gstack-start --runtime --json` lists `before_prompt_build` under `typedHooks` | `hermes plugins list` shows `gstack-start` enabled |
 
-**Turn it on.** `gstack-harness register openclaw --start-hook` (or `hermes`), or `gstack-config set harness_start_hook on` followed by `./setup`, or `GSTACK_HARNESS_START_HOOK=1 ./setup --host openclaw`. The first of these that is set decides: the `--start-hook`/`--no-start-hook` flag, then `GSTACK_HARNESS_START_HOOK` (`1`/`on` or `0`/`off`), then `harness_start_hook`, then the choice saved in the registration's ledger. Whatever decides, the choice is saved, so refresh and upgrades keep it. The hook goes only into the harness profile's own plugin folder; a registration with a custom `--skills-dir`, or OpenClaw run with `OPENCLAW_CONFIG_PATH` pointing at another config, gets no hook (`HARNESS_HOOK_UNSUPPORTED` with `--start-hook`; with `GSTACK_HARNESS_START_HOOK` or `harness_start_hook`, `register` and `./setup --host` say why and exit 4). `OPENCLAW_CONFIG_PATH` naming the profile's own `openclaw.json`, by any path that resolves to it, is fine. A hook you already turned on stays on when a later run happens to have `OPENCLAW_CONFIG_PATH` set.
+**On by default, and how to choose.** A new registration with no choice gets the hook. The first of these that is set decides: the `--start-hook`/`--no-start-hook` flag, then `GSTACK_HARNESS_START_HOOK` (`1`/`on` or `0`/`off`), then `harness_start_hook` in gstack-config, then the choice saved in the registration's ledger, then the default. Every off a registration saved is kept, including one saved before the default changed: an upgrade never turns an existing start hook on. The first `./setup` or `/gstack-upgrade` after the change prints, once, `off, as before: gstack now turns it on only for new registrations; turn it on: gstack-harness register <harness> --start-hook`. The only off the default overrides is one gstack recorded because it had to refuse the hook (a custom `--skills-dir` or a foreign `OPENCLAW_CONFIG_PATH`), so the hook comes on once that cause is gone. When the default turns the hook on and the harness cannot activate it yet, the skills are registered and the run does not fail; later refreshes try again. The hook goes only into the harness profile's own plugin folder; a registration with a custom `--skills-dir`, or OpenClaw run with `OPENCLAW_CONFIG_PATH` pointing at another config, gets no hook (`HARNESS_HOOK_UNSUPPORTED` with `--start-hook`; with `GSTACK_HARNESS_START_HOOK` or `harness_start_hook`, `register` and `./setup --host` say why and exit 4). `OPENCLAW_CONFIG_PATH` naming the profile's own `openclaw.json`, by any path that resolves to it, is fine. A hook you already turned on stays on when a later run happens to have `OPENCLAW_CONFIG_PATH` set.
 
 **Run the harness's own setup first.** gstack turns the hook on only in a harness that already has its config (`openclaw.json` from `openclaw onboard`, `config.yaml` from `hermes setup`). Without one, the harness CLI would create a config holding nothing but gstack's plugin setting, with no model, provider or terminal settings, so gstack runs no harness command: the plugin's files are written, the hook reports `written` with the setup to run, and `register` and `./setup --host` exit 4. Once the harness is set up, the next `./setup` or `gstack-harness refresh` turns the hook on, changing only the `gstack-start` plugin entry.
 
-**Check it.** The receipt and `gstack-harness status` show `start hook: active` (configured for new sessions; a running OpenClaw gateway or Hermes gateway picks it up when it reloads or restarts), `written` (files in place but not active, with the reason and the command that fixes it), `disabled` (you turned it off in the harness), `unknown` (the harness CLI is not on `PATH`, as inside OpenClaw's or Hermes's own terminal tool, and the config file cannot settle it; gstack reads `plugins.enabled` and `plugins.disabled` from Hermes's `config.yaml` and the plugin entry from `openclaw.json` instead), `unchecked` (a run that left a hook already on alone, or `status --no-check`; `gstack-harness status` checks it) or `off`. When the run that turns the hook on (or `--start-hook`) leaves it inactive, `gstack-harness register` and `./setup --host` exit 4 after registering the skills (`HARNESS_HOOK_INACTIVE`). Later refreshes and upgrades try once more each time, without failing, until the hook is active or you disable the plugin in the harness.
+**Check it.** The receipt and `gstack-harness status` show `start hook: active` (configured for new sessions; a running OpenClaw gateway or Hermes gateway picks it up when it reloads or restarts), `written` (files in place but not active, with the reason and the command that fixes it), `disabled` (you turned it off in the harness), `unknown` (the harness CLI is not on `PATH`, as inside OpenClaw's or Hermes's own terminal tool, and the config file cannot settle it; gstack reads `plugins.enabled` and `plugins.disabled` from Hermes's `config.yaml` and the plugin entry from `openclaw.json` instead), `unchecked` (a run that left a hook already on alone, or `status --no-check`; `gstack-harness status` checks it) or `off`. When `--start-hook`, `GSTACK_HARNESS_START_HOOK` or `harness_start_hook` turns the hook on and the run leaves it inactive, `gstack-harness register` and `./setup --host` exit 4 after registering the skills (`HARNESS_HOOK_INACTIVE`); when only the default turned it on, the run does not fail. Later refreshes and upgrades try once more each time, without failing, until the hook is active or you disable the plugin in the harness.
 
-**Turn it off.** `gstack-harness register openclaw --no-start-hook` (or `hermes`), or `gstack-config set harness_start_hook off` followed by `./setup`. Either turns the plugin off through the harness's CLI and removes its folder. You can also switch it off in the harness (`openclaw config set plugins.entries.gstack-start.enabled false`, `hermes plugins disable gstack-start`); gstack then leaves it off and never turns it back on unless you pass `--start-hook` again. `gstack-harness unregister` and `gstack-uninstall` remove it with the rest (Hermes only disables it when its folder holds an edited file or a kept `.edited-*` copy, so your edit survives), and print the harness command to run when the harness CLI is not on `PATH`. In a profile with no harness config yet (no `openclaw.json` or `config.yaml`), the hook was never turned on, so turning it off or unregistering runs no harness command and leaves the config alone.
+**Turn it off.** `gstack-harness register openclaw --no-start-hook` (or `hermes`), which that registration keeps, or `gstack-config set harness_start_hook off` followed by `./setup`, which every registration keeps. Either turns the plugin off through the harness's CLI and removes its folder. You can also switch it off in the harness (`openclaw config set plugins.entries.gstack-start.enabled false`, `hermes plugins disable gstack-start`); gstack then leaves it off and never turns it back on unless you pass `--start-hook` again. `gstack-harness unregister` and `gstack-uninstall` remove it with the rest (Hermes only disables it when its folder holds an edited file or a kept `.edited-*` copy, so your edit survives), and print the harness command to run when the harness CLI is not on `PATH`. In a profile with no harness config yet (no `openclaw.json` or `config.yaml`), the hook was never turned on, so turning it off or unregistering runs no harness command and leaves the config alone.
 
 **What it costs.** The note is about 50 tokens and lands on every user turn, and each copy stays in the session's history, so a long session pays more (mostly cache reads). HARN-18's panel measures the added cost per trial. OpenClaw also logs that it cannot verify where the plugin came from, because gstack writes it instead of installing it from npm or ClawHub.
 
@@ -117,23 +117,17 @@ when Claude Code has gstack installed. Paste this to your OpenClaw agent:
 See [docs/OPENCLAW.md](OPENCLAW.md) for advanced dispatch routing and
 the gstack-lite/gstack-full prompt templates.
 
-## Native OpenClaw Skills (via ClawHub)
+## /office-hours, /plan-ceo-review and /retro in OpenClaw
 
-Four methodology skills that work directly in your OpenClaw agent, no Claude Code
-session needed. Install from ClawHub:
+Your OpenClaw agent can run these directly in chat, with no Claude Code session.
+They come with native registration: `./setup --host openclaw` registers gstack's
+`gstack` router skill, which lists them with every other workflow and serves
+the current version of each ([install, verify and remove](#agent-harnesses)).
 
-```
-clawhub install gstack-openclaw-office-hours gstack-openclaw-ceo-review gstack-openclaw-investigate gstack-openclaw-retro
-```
-
-| Skill | What it does |
-|-------|-------------|
-| `gstack-openclaw-office-hours` | Product interrogation with 6 forcing questions |
-| `gstack-openclaw-ceo-review` | Strategic challenge with 4 scope modes |
-| `gstack-openclaw-investigate` | Root cause debugging methodology |
-| `gstack-openclaw-retro` | Weekly engineering retrospective |
-
-These are conversational skills. Your OpenClaw agent runs them directly via chat.
+Earlier docs sent you to ClawHub for `gstack-openclaw-office-hours`,
+`gstack-openclaw-ceo-review` and `gstack-openclaw-retro`. Those were April 2026
+builds, and gstack no longer publishes skills on ClawHub. If you installed them,
+remove them, so your agent doesn't load an old copy next to the current one.
 
 ## Which agents a checkout renders for
 
@@ -173,7 +167,7 @@ after you approve); ask for `gstack-office-hours`, or list them with
 Codex skills in `.agents/skills` (the workspace tier wins), and workspace skills
 load only in trusted folders (`/trust`).
 
-Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
+Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex` (Codex lists its one as `claude-code`: mention it as `$claude-code`); each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
 `/claude` has been renamed to `/claude-code`. Re-run `./setup --host <name>` to migrate managed installations, including other harnesses sharing the checkout. Setup preserves the previous installation if replacement generation or installation fails and prints repair instructions.
 
@@ -202,6 +196,14 @@ override applies to that run only; set `model` in your Codex `config.toml` to
 make it stick across upgrades. After changing your Codex model, rerun
 `./setup --host codex` to regenerate the skills.
 
+**Reasoning effort and hooks.** gstack's workflows do best at high reasoning
+effort; setup never changes it, so start Codex with
+`codex -c model_reasoning_effort=high` when you run them. With Codex 0.170 or
+newer, setup also adds gstack's routing hook and destructive-command check to
+`${CODEX_HOME:-~/.codex}/hooks.json`, and Codex runs them once you trust them at
+its startup prompt or in `/hooks`: see
+[Codex hooks](skill-routing-and-contracts.md#codex).
+
 **Plan-review and implementation tiers.** Plan workflows use an independent
 `frontier` reviewer: Fable 5.1 from Codex, or GPT-6 Astra from Claude Code.
 Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.1 Sol.
@@ -224,11 +226,23 @@ repair message and reports the outside review as unavailable. It never silently
 switches to its default. Nested Codex reviews also run with installed skills
 hidden (`-c skills.include_instructions=false`), so a review cannot turn into a
 whole nested skill run. Runtime model selection is separate from the setup-time
-behavioral profile above. Without the plan-review role, `/claude-code` (`gstack-claude-code`
+behavioral profile above. Without the plan-review role, `/claude-code` (`$claude-code`
 on Codex) preserves Claude's configured model. Set `GSTACK_CLAUDE_MODEL=<model>`
 or name a model in your request to override it for the invocation, including
 resumed consultations. See [eval defaults and overrides](../CONTRIBUTING.md#testing--evals)
 for capture, judge, and benchmark model selection.
+
+**Subagents on Codex.** Codex has no Agent tool, so the Codex skills start every
+audit and reviewer subagent (/ship's coverage, plan and docs audits, the native
+review voices) with Codex's `spawn_agent` and wait on `wait_agent` until it reports
+a final status. Turn multi-agent on first: `multi_agent = true` under `[features]`
+in `~/.codex/config.toml`. Without it the dispatch fails and the step takes its
+documented failure path. Codex has no read-only Plan subagent type, so when the
+plan reviews' outside voice is unavailable they report it unavailable instead of
+starting a native fallback. /ship's review record still only counts a reviewer
+whose brief gstack itself sent: a reviewer started some other way has no recorded
+send, so `gstack-review-dispatch verify` reports its brief `NOT_SENT` and prints
+`VERIFY: dirty` (exit 1) rather than trusting it.
 
 ## The design binary's models
 

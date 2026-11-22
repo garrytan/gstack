@@ -16,7 +16,7 @@ import { shippedBody } from './helpers/ship-queue-train-fixture';
 import { resolveReleaseConflicts } from '../lib/ship-queue-land';
 import { receiptDepthAtHead, receiptExclude, receiptReviewAtHead } from '../lib/ship-receipt-depth';
 import { mergePolicy, REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
-import { persist, repoIdentity } from '../lib/ship-queue-train-record';
+import { persist, repoIdentity } from '../crew/lib/ship-queue-train-record';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d' }, min_gstack_version: '1.91.336.0' };
@@ -42,6 +42,7 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  let head='';try{head=g('rev-parse','refs/heads/'+p.headRefName)}catch{};",
     "  console.log(JSON.stringify({...p,headRefOid:head}));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='list'){console.log(JSON.stringify(Object.entries(d.prs).filter(([,p])=>p.state==='OPEN').map(([n,p])=>({number:Number(n),headRefOid:g('rev-parse','refs/heads/'+p.headRefName),isCrossRepository:!!p.isCrossRepository}))));process.exit(0)}",
+    "if(a[0]==='api'&&/actions\\/runs\\?head_sha=/.test(a[1])){console.log(JSON.stringify({total_count:0,workflow_runs:[]}));process.exit(0)}",
     "if(a[0]==='api'){const m=/commits\\/([0-9a-f]+)\\/(check-runs|status)/.exec(a[1]);if(!m)process.exit(1);",
     "  if(m[2]==='status'){console.log(JSON.stringify({total_count:0,statuses:[]}));process.exit(0)}",
     "  const red=d.red.includes(m[1]);console.log(JSON.stringify({total_count:1,check_runs:[{id:1,name:'free-tests',status:'completed',conclusion:red?'failure':'success',completed_at:'2026-10-29T00:00:00Z',app:{id:1}}]}));process.exit(0)}",
@@ -625,7 +626,8 @@ describe('land: one pass, base, lock and history', () => {
     const r = land(fx, ['--pr', '13']);
     expect(r.err).toBe('');
     expect(r.out).toContain('LANDED: ');
-    expect(JSON.parse(fs.readFileSync(fx.data, 'utf8')).mergeArgs).toContain('--merge');
+    expect(JSON.parse(fs.readFileSync(fx.data, 'utf8')).mergeArgs).toEqual(['--merge', '--match-head-commit', expect.any(String), '--subject', 'PR 13 title (#13)', '--body', '']);
+    expect(r.out).toContain('SUBJECT: PR 13 title (#13)');
   }, 90_000);
 
   // Value: protects=a merge-only land interrupted after GitHub merged resumes to LANDED, though a true merge puts the pin inside
@@ -783,5 +785,22 @@ describe('land: the READY receipt', () => {
     expect(fx.repo.git('ls-remote', 'origin', 'refs/notes/gstack-land')).toBe('');
     markReady(fx, '28', pin);
     expect(land(fx, ['--pr', '28']).out).toContain('PUSHED: ');
+  }, 90_000);
+});
+
+describe('land refreshes the base before its receipt check (GST-2232)', () => {
+  // Value: protects=land never binds a receipt against an origin/<base> it could not refresh; fails_when=land ignores a failed
+  //   base fetch and compares the receipt with the clone's old ref (the false RECEIPT_INVALID ready gave gbrain #8991);
+  //   why_new=every land test reaches a working origin; seam=land -> bindShippedReceipt; no_claim=merge: direct land (it refused
+  //   a failed fetch already)
+  test('an unfetchable origin/main refuses QUEUE_BASE_UNFETCHED before the receipt is compared or anything is pushed', () => {
+    const fx = setup();
+    const pin = openPr(fx, '7');
+    fx.repo.git('remote', 'set-url', 'origin', path.join(fx.repo.root, 'gone.git'));
+    const r = land(fx, ['--pr', '7']);
+    expect(r.status).toBe(EXIT.refused);
+    expect(r.err).toMatch(/cannot fetch origin\/main.*\(QUEUE_BASE_UNFETCHED\)/);
+    expect(r.out).not.toContain('SHIP_RECEIPT:');
+    expect(fx.repo.git('--git-dir', fx.repo.origin, 'rev-parse', 'refs/heads/pr-7')).toBe(pin);
   }, 90_000);
 });

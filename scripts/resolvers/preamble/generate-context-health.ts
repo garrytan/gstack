@@ -18,6 +18,6 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 //
 // Skills by tier:
 //   T1: browse, setup-cookies, benchmark
-//   T2: investigate, cso, retro, doc-release, setup-deploy, canary, checkpoint, health
+//   T2: cso, retro, doc-release, setup-deploy, canary, checkpoint, health
 //   T3: autoplan, codex, design-consult, office-hours, ceo/design/eng-review
 //   T4: ship, review, qa, qa-only, design-review, land-deploy

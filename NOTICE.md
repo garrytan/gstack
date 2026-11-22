@@ -138,9 +138,8 @@ design is not a defect, missing context; independent agreement as the strongest 
 text is carried; this entry is a courtesy.
 Also ideas, not text, from `pstack/skills/blast-radius`, `recall`, `benchmark-checklist`,
 `architect` (`references/design-red-flags.md`) and `principle-attack-the-premise`
-(Garry, 2026-10-26: "Do it, send"): the one safety fact, the five-rung evidence ladder and
-the shared-premise red flag in `investigate/sections/blast-radius.md.tmpl` and
-`investigate/SKILL.md.tmpl`; the transcript-mining fallback and its status-tagged brief in
+(Garry, 2026-10-26: "Do it, send"): the one safety fact and the five-rung evidence ladder in
+/ship's Blast radius PR section (`ship/sections/pr-body.md.tmpl`); the transcript-mining fallback and its status-tagged brief in
 `context-restore/sections/transcripts.md.tmpl`; the seven questions in
 `benchmark/sections/vet-the-number.md.tmpl`; the second-shape comparison and the eight
 design red flags in Section 1 of `plan-eng-review/sections/review-sections.md.tmpl`; and the generated

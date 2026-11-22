@@ -19,7 +19,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../lib/spawn-sync';
 import { panelVerdict, type TrialOutcomeRecord } from '../../test/helpers/eval-store';
 import { HEADROOM_FAIL, HEADROOM_WARN } from '../../test/helpers/eval-budgets';
 import { sanitizeFixedFenceLine } from './published-text';

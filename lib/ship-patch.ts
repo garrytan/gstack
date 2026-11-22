@@ -9,10 +9,10 @@
  *   base merge only shifted line numbers; patch-ids ignore positions, so a block moved to an identical
  *   context elsewhere is changed);
  * - context: the +/- lines match hunk for hunk, and each hunk sits where the base's own
- *   change (reviewedBase -> currentBase) puts it, so only context lines the base edited differ;
- *   or a hunk's added lines match byte for byte and its removed lines are the base's own edit of
- *   the lines the reviewed hunk replaced (founderstar#563: the base took SAVE_VERSION 83 under the
- *   branch's 84, GST-1561), which the scoped review reads too.
+ *   change (reviewedBase -> currentBase) puts it, so only context lines the base edited differ.
+ *   A hunk whose added lines match but whose removed lines changed with the base (founderstar#563:
+ *   the base took SAVE_VERSION 83 under the branch's 84, GST-1561) is changed: the PR's own added
+ *   and removed lines must both be the reviewed bytes for a head to count as reviewed (GST-2673).
  *   The merge may still have spliced the two (a JSON entry where the branch changed one key and
  *   the base the next), so a context path needs a scoped review of its hunks, never a silent pass;
  * - changed: anything else, including the same lines moved to another place, a file-mode change, and any path whose
@@ -22,7 +22,7 @@
  * Paths reach git as literal pathspecs from NUL-separated listings, so quoted names and glob
  * characters cannot widen or empty a comparison.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -112,6 +112,45 @@ function sameSpot(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null
   return c.oldStart >= low && c.oldStart <= map(above)! - 1;
 }
 
+/**
+ * Ids a generator derives from base-side text (GST-2975, #4383): every generated skill file names the shared preamble's
+ * content hash, so a base edit to the shared preamble changes that id in every file the branch also regenerated. The
+ * comparison reads each side with these ids masked; nothing else in the file is masked.
+ */
+const GENERATED_IDS: ReadonlyArray<[RegExp, string]> = [[/(gstack shared preamble `)[0-9a-f]{12}(`)/g, '$1<id>$2'], [/^(# gstack shared preamble )[0-9a-f]{12}$/gm, '$1<id>']];
+const maskIds = (text: string) => GENERATED_IDS.reduce((t, [re, to]) => t.replace(re, to), text);
+
+/**
+ * The path's diffs between two of the sides, read with GENERATED_IDS masked when any side's text carries one (a scratch
+ * object directory holds the masked blobs, so the repository gains no object); null masking when a side lacks the path,
+ * is binary, or names no id, and the diffs are then the plain ones.
+ */
+function sideDiffs(repoRoot: string, s: PatchSides, rel: string): { diff: (from: string, to: string, context: number) => string | null; done: () => void } {
+  const plain = { diff: (from: string, to: string, context: number) => pathDiff(repoRoot, from, to, rel, context), done: () => {} };
+  const refs = [...new Set([s.reviewedBase, s.reviewed, s.currentBase, s.current])];
+  const texts = refs.map(ref => spawnSync('git', ['cat-file', 'blob', `${ref}:${rel}`], { cwd: repoRoot, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 }));
+  if (texts.some(t => t.status !== 0 || t.stdout.includes(0))) return plain;
+  const raw = texts.map(t => t.stdout.toString('utf8'));
+  if (!raw.some(t => maskIds(t) !== t)) return plain;
+  const objects = git(repoRoot, ['rev-parse', '--git-path', 'objects'])?.trim();
+  if (!objects) return plain;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-patch-mask-'));
+  const env = { ...process.env, GIT_OBJECT_DIRECTORY: dir, GIT_ALTERNATE_OBJECT_DIRECTORIES: path.resolve(repoRoot, objects) };
+  const run = (args: string[], input?: string) => spawnSync('git', ['-c', 'core.quotepath=off', ...args], { cwd: repoRoot, env, encoding: 'utf8', input, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
+  const blobs = new Map(refs.map((ref, i) => [ref, run(['hash-object', '-w', '--stdin'], maskIds(raw[i]!)).stdout.trim()]));
+  const done = () => fs.rmSync(dir, { recursive: true, force: true });
+  if ([...blobs.values()].some(b => !/^[0-9a-f]{40,64}$/.test(b))) { done(); return plain; }
+  return {
+    diff: (from, to, context) => {
+      const [a, b] = [blobs.get(from)!, blobs.get(to)!];
+      const r = run(['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--binary', '--full-index', `-U${context}`, a, b]);
+      if (r.status !== 0) return null;
+      return r.stdout.split('\n').map(l => /^(diff --git|--- |\+\+\+ )/.test(l) ? l.replaceAll(`a/${a}`, `a/${rel}`).replaceAll(`b/${b}`, `b/${rel}`) : l).join('\n');
+    },
+    done,
+  };
+}
+
 /** The verdict for one path the branch touches on either side (module header). */
 export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathVerdict {
   const r3 = pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3);
@@ -119,32 +158,60 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
   if (r3 === null || c3 === null || (!r3.trim() && !c3.trim())) return 'changed';
   const modes = (d: string) => d.split('\n').filter(l => /^(old mode|new mode|new file mode|deleted file mode) /.test(l)).join('\n');
   if (modes(r3) !== modes(c3)) return 'changed';
-  const ids = [patchId(repoRoot, r3), patchId(repoRoot, c3)];
-  if (ids[0] === null || ids[1] === null) return 'changed';
-  const r0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 0) ?? '');
-  const c0 = zeroHunks(pathDiff(repoRoot, s.currentBase, s.current, rel, 0) ?? '');
-  if (ids[0] === ids[1] && r0 === null) return 'same';
-  const b0 = zeroHunks(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 0) ?? '');
-  if (!r0?.length || !c0 || !b0 || r0.length !== c0.length) return 'changed';
-  const map = mapper(b0);
-  if (!r0.every((h, i) => h.body === c0[i]!.body ? sameSpot(h, c0[i]!, map) : baseEditOnly(h, c0[i]!, map, b0))) return 'changed';
-  return ids[0] === ids[1] && r0.every((h, i) => h.body === c0[i]!.body) ? 'same' : 'context';
+  const sides = sideDiffs(repoRoot, s, rel);
+  try {
+    const [mr3, mc3] = [sides.diff(s.reviewedBase, s.reviewed, 3), sides.diff(s.currentBase, s.current, 3)];
+    if (mr3 === null || mc3 === null) return 'changed';
+    if (!mr3.trim() && !mc3.trim()) return 'same';
+    const ids = [patchId(repoRoot, mr3), patchId(repoRoot, mc3)];
+    if (ids[0] === null || ids[1] === null) return 'changed';
+    const r0 = zeroHunks(sides.diff(s.reviewedBase, s.reviewed, 0) ?? '');
+    const c0 = zeroHunks(sides.diff(s.currentBase, s.current, 0) ?? '');
+    if (ids[0] === ids[1] && r0 === null) return 'same';
+    const b0 = zeroHunks(sides.diff(s.reviewedBase, s.currentBase, 0) ?? '');
+    if (!r0?.length || !c0 || !b0 || r0.length !== c0.length) return 'changed';
+    const map = mapper(b0);
+    let spliced = false;
+    for (const [i, h] of r0.entries()) {
+      if (h.body === c0[i]!.body && sameSpot(h, c0[i]!, map)) continue;
+      if (!splicedHunk(h, c0[i]!, b0)) return 'changed';
+      spliced = true;
+    }
+    return ids[0] === ids[1] && !spliced ? 'same' : 'context';
+  } finally {
+    sides.done();
+  }
+}
+
+const TOKEN = /\s+|[\w$.]+|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|[^]/g;
+/** The tokens `to` adds to `from` when `from` is `to` with tokens left out (a greedy embedding), else null. */
+function insertedTokens(from: string, to: string): string[] | null {
+  const [f, t] = [from.match(TOKEN) ?? [], to.match(TOKEN) ?? []];
+  const added: string[] = [];
+  let k = 0;
+  for (const tok of t) { if (k < f.length && tok === f[k]) k++; else added.push(tok); }
+  return k === f.length ? added : null;
 }
 
 /**
- * Whether a hunk whose body changed since review differs only by the base's edit of the lines it replaces: the added
- * lines are the reviewed ones byte for byte, and the lines just outside the reviewed hunk's removed range are lines the
- * base kept, landing just outside the current hunk's range, so the current removed lines are the base's version of the
- * reviewed ones. A hunk that now removes another line, or adds anything else, is not, and neither is one whose range
- * holds a line the base added before, inside or after the reviewed lines (a base hunk there that adds more lines than
- * it removes): dropping it deletes base code rather than taking the base's edit.
+ * A hunk the base merge spliced (GST-2975, ghome#16): the base replaced exactly the lines the branch's hunk replaces, line
+ * for line, and each current line is the base's new line with the very tokens the branch added to the reviewed line, as
+ * when both sides appended an entry to one expected-value list. The branch removes nothing on those lines, so its own change
+ * is the reviewed one and the merge only kept both; the caller still routes the path to a scoped reader (context), never
+ * through silently.
  */
-function baseEditOnly(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null, base: ZeroHunk[]): boolean {
-  const added = (h: ZeroHunk) => h.body.split('\n').filter((l, i, all) => l.startsWith('+') || (l.startsWith('\\') && all[i - 1]?.startsWith('+'))).join('\n');
-  const start = (h: ZeroHunk) => (h.oldCount > 0 ? h.oldStart : h.oldStart + 1);
-  const end = start(r) + r.oldCount;
-  if (base.some(b => b.newCount > b.oldCount && b.oldStart >= start(r) - 1 && b.oldStart < end)) return false;
-  return r.oldCount > 0 && added(r) === added(c) && map(start(r) - 1) === start(c) - 1 && map(end) === start(c) + c.oldCount;
+function splicedHunk(r: ZeroHunk, c: ZeroHunk, base: ZeroHunk[]): boolean {
+  if (!r.oldCount || r.oldCount !== r.newCount || c.oldCount !== r.oldCount || c.newCount !== r.newCount) return false;
+  const b = base.find(h => h.oldStart === r.oldStart && h.oldCount === r.oldCount && h.newCount === r.oldCount && h.newStart === c.oldStart);
+  if (!b) return false;
+  const side = (h: ZeroHunk, sign: string) => h.body.split('\n').filter(l => l.startsWith(sign)).map(l => l.slice(1));
+  const [rm, ra, cm, ca, bm, ba] = [side(r, '-'), side(r, '+'), side(c, '-'), side(c, '+'), side(b, '-'), side(b, '+')];
+  if (rm.join('\n') !== bm.join('\n') || cm.join('\n') !== ba.join('\n')) return false;
+  return rm.every((was, k) => {
+    const mine = insertedTokens(was, ra[k]!);
+    const kept = insertedTokens(cm[k]!, ca[k]!);
+    return !!mine?.length && !!kept && mine.length === kept.length && mine.every((x, j) => x === kept[j]);
+  });
 }
 
 /**
@@ -176,20 +243,22 @@ function hunkTexts(diff: string): string[] {
   return diff.split(/^(?=@@ )/m).slice(1).map(h => h.replace(/^@@ [^@]*@@/, '@@'));
 }
 
-/** The most lines one packet section may hold; a path with a longer section takes the full loop instead. */
+/** The most branch +/- lines one packet section may hold; a path with a longer section takes the full loop instead. */
 export const PACKET_SECTION_CAP = 200;
-/** The most lines the base's change section may hold before its uncounted base lines count again (GST-1226). */
+/** The most lines the base's change section may hold before its uncounted lines count again (GST-1226). */
 export const BASE_SECTION_CEILING = 2000;
 
 /**
  * The scoped-review packet: per context path, the hunks that differ between the two branch patches and the base's own
  * change; per test path, its test hunks. `over` names every path with a section past PACKET_SECTION_CAP: one reviewer
- * cannot be shown all of it, so the caller sends it to the full loop. The base's +/- lines, already merged at base, are
- * shown but do not count toward the cap (GST-1226) until that section passes BASE_SECTION_CEILING lines.
+ * cannot be shown all of it, so the caller sends it to the full loop. Only the branch's own +/- lines count toward the cap:
+ * the context lines and headers of its hunks, which a base merge can move (GST-2229, founderstar#802), and the base's change,
+ * already merged at base (GST-1226), are shown but not counted until the base's change passes BASE_SECTION_CEILING lines.
  */
 export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly string[], tests: readonly string[] = [], bounded: Readonly<Record<string, BoundedKind>> = {}): { text: string; over: string[]; sha256: string } {
   const over = new Set<string>();
   let current = '';
+  const own = (line: string) => /^[+-]/.test(line);
   const fence = (label: string, body: string, counts: (line: string) => boolean = () => true) => {
     if (body.split('\n').filter(counts).length > PACKET_SECTION_CAP) over.add(current);
     return `${label}\n\`\`\`diff\n${body.trimEnd()}\n\`\`\`\n`;
@@ -206,8 +275,8 @@ export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly s
     const r = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3) ?? '');
     const c = hunkTexts(pathDiff(repoRoot, s.currentBase, s.current, rel, 3) ?? '');
     const b = hunkTexts(pathDiff(repoRoot, s.reviewedBase, s.currentBase, rel, 3) ?? '').join('');
-    parts.push(`## ${rel}\n`, ...(rel in bounded ? [fence('Changed since review', pathDiff(repoRoot, s.reviewed, s.current, rel, 3) ?? '')] : []), fence('Reviewed hunks', r.filter(h => !c.includes(h)).join('')), fence('Current hunks', c.filter(h => !r.includes(h)).join('')),
-      fence("The base's change", b, b.split('\n').length > BASE_SECTION_CEILING ? undefined : l => !/^[+-]/.test(l)));
+    parts.push(`## ${rel}\n`, ...(rel in bounded ? [fence('Changed since review', pathDiff(repoRoot, s.reviewed, s.current, rel, 3) ?? '')] : []), fence('Reviewed hunks', r.filter(h => !c.includes(h)).join(''), own), fence('Current hunks', c.filter(h => !r.includes(h)).join(''), own),
+      fence("The base's change", b, b.split('\n').length > BASE_SECTION_CEILING ? undefined : () => false));
   }
   if (late.length) parts.push(`## Targeted brief (${TARGETED_CLASSES.join(', ')})\n\n${packetBrief()}\n`);
   const text = parts.join('\n');

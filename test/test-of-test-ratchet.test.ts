@@ -230,6 +230,7 @@ const BASELINE = [
   'test/shared-libs-source-reads.test.ts', // slices test/skill-e2e-shared-libs-paths.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/shared-libs-stage-actor.test.ts', // slices test/skill-e2e-shared-libs.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
   'test/ship-coverage-audit-af.test.ts', // slices test/skill-e2e-workflow.test.ts source (recorded 2026-10 when the ratchet learned paid-source slicing)
+  'test/ship-finish-fixed-links.test.ts', // GST-1973: runs bin/gstack-ship-release finish through test/helpers/ship-bin-fixture.ts's RELEASE path, like test/ship-release.test.ts
   'test/ship-release.test.ts', // GSTA-167 PR 4: runs bin/gstack-ship-release through test/helpers/ship-bin-fixture.ts's RELEASE path, so it names no bin/ literal itself
   'test/ship-section-fixture.test.ts',
   'test/skill-budget-regression.test.ts',
@@ -264,7 +265,7 @@ function testsOnlyTestCode(file: string): { counted: boolean; helper?: string } 
   if (slicedPaidSources(source).length) return { counted: true, helper };
   if (targets.some(target => !target.startsWith('test/') && !target.startsWith('node_modules/'))) return { counted: false };
   if (/(['"`])[^'"`\n]*(?:\bbin\/|SKILL\.md|CLAUDE\.md|\.tmpl)[^'"`\n]*\1/.test(source)) return { counted: false };
-  if (/(['"`])(?:\.\/)?\.github\b[^'"`\n]*\1|(['"`])bin\2\s*,\s*(?:(['"`])[\w.-]+\3|[A-Za-z_$])/.test(source)) return { counted: false };
+  if (/(['"`])(?:\.\/)?\.github\b[^'"`\n]*\1|(['"`])bin\2\s*(?:\)|,\s*(?:(['"`])[\w.-]+\3|[A-Za-z_$]))/.test(source)) return { counted: false };
   // A repo script run or read by path (`scripts/gen-skill-docs.ts`, `path.join(ROOT, 'setup')`) is product code too.
   if (/(['"`])(?:\.\/)?scripts\/[\w./-]+\1|ROOT\s*,\s*(['"`])setup\2/.test(source)) return { counted: false };
   return { counted: true, helper };

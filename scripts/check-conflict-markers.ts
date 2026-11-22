@@ -17,7 +17,7 @@
  * skipped. Prints one CONFLICT_MARKER: <path>:<line> <marker> per hit and exits 1, or CONFLICT_MARKERS: none
  * and exits 0; a git failure exits 2.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 

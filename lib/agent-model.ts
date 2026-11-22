@@ -14,6 +14,8 @@ import { readConfigKeyWithRoot, type StateRootEnv } from './state-root';
 
 export const AGENT_MODEL_KEY = 'agent_model' as const;
 export const PREFERENCES_FILE_MAX_BYTES = 4096;
+/** Other keys gstack reads from the preferences file: bin/gstack-telemetry-tier reads the telemetry ones. */
+const OTHER_PREFERENCE_KEYS = new Set(['telemetry_capy', 'telemetry_capy_source']);
 const DOCS = 'https://github.com/garrytan/gstack/blob/main/docs/model-policy.md#your-model-preference';
 
 /** Family names a preference may use. When gstack's tier catalog lists a family, its entry here is the same model (test/agent-model.test.ts). */
@@ -94,7 +96,7 @@ function invalid(value: string, where: string, repair: string[]): AgentModelErro
   );
 }
 
-/** Read agent_model from a preferences file: `key: value` lines, # comments, at most 4 KB. Unknown keys warn; a duplicate agent_model is an error. */
+/** Read agent_model from a preferences file: `key: value` lines, # comments, at most 4 KB. Keys gstack reads elsewhere pass silently, unknown keys warn; a duplicate agent_model is an error. */
 export function readPreferencesFile(file: string): { value: string | null; warnings: string[] } {
   let text: string;
   try {
@@ -114,6 +116,7 @@ export function readPreferencesFile(file: string): { value: string | null; warni
     if (trimmed === '' || trimmed.startsWith('#')) return;
     const m = /^([a-z][a-z0-9_]*):(.*)$/.exec(line);
     if (!m) { warnings.push(`${file}:${i + 1} is not a 'key: value' line; ignored`); return; }
+    if (OTHER_PREFERENCE_KEYS.has(m[1])) return;
     if (m[1] !== AGENT_MODEL_KEY) { warnings.push(`${file}:${i + 1} sets '${sanitize(m[1])}', which gstack does not read from preferences; ignored`); return; }
     if (value !== null) throw new AgentModelError(`${file} sets agent_model twice`, 'keep one agent_model line', [`edit ${file}`]);
     value = m[2].replace(/\s#.*$/, '').trim().replace(/^(["'])(.*)\1$/, '$2');

@@ -26,7 +26,7 @@ import { resolveClaudeBinary } from './binary';
 // Used by polling loops as a fallback after N seconds with no terminal
 // classification. On 'waiting' verdict, return outcome='asked' early.
 //
-// Cost: ~$0.0005 per call using claude haiku 4.5. Cached by snapshot hash so
+// Cost: ~$0.0005 per call using claude haiku 5.5 (the warmup default). Cached by snapshot hash so
 // identical TTY frames don't re-charge. All verdicts logged to
 // ~/.gstack/analytics/pty-judge.jsonl for offline analysis.
 // ────────────────────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export function logPtySnapshot(visible: string, ctx: { testName: string; elapsed
 /**
  * Ask Claude Haiku 4.5 to classify a TTY snapshot as waiting/working/hung.
  *
- * Implementation: spawns `claude -p --model claude-haiku-4-5` synchronously
+ * Implementation: spawns `claude -p --model <resolveEvalModel("warmup"), claude-haiku-5-5 by default>` synchronously
  * with the prompt piped via stdin. Uses subscription auth (no API key env
  * required). 30-second timeout; returns 'unknown' on any failure mode
  * (timeout, malformed JSON, missing claude binary). Asynchronous: a PTY

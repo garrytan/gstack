@@ -28,6 +28,7 @@ const SESSION_KIND_INVENTORY: Record<string, string> = {
   'lib/autoplan-run.ts': 'records the kind (:110)',
   'lib/ship-release.ts': 'an unattended push defers the pre-push guard offer (:203)',
   'bin/gstack-brain-enqueue': 'an unattended session never spools for sync (:38)',
+  'hosts/claude/hooks/destructive-guard-hook.ts': 'an Agent SDK host that sets interactive keeps the destructive-command ask (:44)',
   'hosts/claude/hooks/spawned-directive.ts': 'Claude Code only (:57)',
   'hosts/claude/hooks/question-preference-hook.ts': 'Claude Code only (:506)',
   'bin/gstack-capy-install': 'writer: the Capy launcher exports unattended (:658, :677)',
@@ -38,7 +39,7 @@ const SESSION_KIND_INVENTORY: Record<string, string> = {
 const CODE_FILE = /\.(ts|tsx|js|mjs|cjs|sh|bash)$/;
 
 /** Files under root/dirs whose code (not comments) names GSTACK_SESSION_KIND, as root-relative paths. */
-function sessionKindReaders(root: string, dirs = ['bin', 'lib', 'hosts', 'scripts']): string[] {
+function sessionKindReaders(root: string, dirs = ['bin', 'lib', 'hosts', 'scripts', 'crew/bin', 'crew/lib', 'crew/scripts']): string[] {
   const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return e.name === 'node_modules' || e.name === 'dist' ? [] : walk(p);

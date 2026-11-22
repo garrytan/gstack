@@ -130,7 +130,7 @@ export function checkpointNotice(env: NodeJS.ProcessEnv, repo?: string): string 
 
 /** A checkpoint beyond the at-rest ones: after a bound voice, after a phase transition, and the notice at the first next. */
 export type CheckpointMoment = 'bound' | 'transition' | 'init';
-const repoOf = (state: RunState) => { const input = state.plan_input ?? state.plan_source; const root = input ? repoRoot(path.dirname(input)) : undefined; return root ? path.basename(root) : undefined; };
+export const repoOf = (state: Pick<RunState, 'plan_input' | 'plan_source'>) => { const input = state.plan_input ?? state.plan_source; const root = input ? repoRoot(path.dirname(input)) : undefined; return root ? path.basename(root) : undefined; };
 
 /**
  * Publish a generation when a checkpoint directory is set (or Drive opted in) and the run is at rest, or at a

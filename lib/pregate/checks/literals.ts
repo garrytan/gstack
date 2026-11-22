@@ -6,7 +6,7 @@
  * nightly-only test still asserted the old number and went red a week after
  * the merge.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { baseInputs, sha256 } from '../context';
@@ -98,7 +98,8 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
  * continues it (the line before ends open, `(` `,` `.` `=`, or the line
  * starts with `.` `)` `]`), comments excluded (#3492: `$2`, "from revision 2",
  * `export default 2`). A call-site name (`attempts`, `limit`) is an ordinary
- * word, so for it the file must also name the module (gstack-evals#97).
+ * word, so for it the file must also name the module whatever the value's
+ * length (gstack-evals#97, #4478).
  *
  * A version-history row (`[45, "<digest>"]`, the old value first in a
  * bracketed row) is skipped when the same table, a run of consecutive
@@ -134,7 +135,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   for (const rel of testFiles) {
     let text: string;
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
-    if (nameRequired ? !(nameRe.test(text) && (!callSite || moduleRe.test(text))) : !(nameRe.test(text) || moduleRe.test(text))) continue;
+    if (!((nameRequired ? nameRe.test(text) : nameRe.test(text) || moduleRe.test(text)) && (!callSite || moduleRe.test(text)))) continue;
     const lines = text.split('\n');
     const named = (i: number) => {
       if (comment(lines[i]!)) return false;

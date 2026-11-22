@@ -19,7 +19,7 @@ import { resolveStateRoot } from './state-root';
 import { StateError, UnknownShape, parseTranscript, readTranscriptFile, withFinalMessage, type Transcript } from './skill-contract';
 import { appendHookTrace, readStdinBounded, type TraceHook } from './skill-route';
 
-export type GateHook = 'investigate-gate' | 'ceo-review-gate' | 'autoplan-gate';
+export type GateHook = 'ceo-review-gate' | 'autoplan-gate';
 export type GateEvent = 'fired' | 'blocked' | 'released' | 'observed' | 'exhausted' | 'skipped' | 'error';
 export const GATE_DOC = 'docs/skill-gates.md';
 export const DEADLINE_MS = 5000;
@@ -93,6 +93,28 @@ export function settledTranscript(file: string, finalMessage: unknown, opts: { i
   }
 }
 
+/**
+ * A PreToolUse gate's transcript once it holds the tool call being decided,
+ * cut after that call (the text sent with it precedes it), or null when the call is not
+ * there within the settle window: the caller lets the call run (fail open).
+ */
+export function transcriptWithToolUse(file: string, toolUseId: string): Transcript | null {
+  if (!toolUseId) return null;
+  const until = Date.now() + Math.min(SETTLE_MS, remainingMs() / 2);
+  try {
+    for (;;) {
+      const t = parseTranscript(readTranscriptFile(file));
+      const at = t.events.findIndex(e => e.kind === 'tool_use' && e.id === toolUseId);
+      if (at >= 0) return { ...t, events: t.events.slice(0, at + 1) };
+      if (Date.now() >= until) return null;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SETTLE_POLL_MS);
+    }
+  } catch (e) {
+    if (e instanceof StateError || e instanceof UnknownShape) throw new GateError('GATE_TRANSCRIPT', e.message);
+    throw e;
+  }
+}
+
 export const cleanSessionId = (sid: string) => sid.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'unknown';
 const markerValue = (v: string | number) => String(v).replace(/\s+/g, '_').slice(0, 240);
 
@@ -113,6 +135,11 @@ export interface GateRun {
   /** the run's applicable phases and the phases it published (autoplan-gate) */
   phases?: string[];
   published?: string[];
+  /** autoplan-gate: the missing step the last counted Stop blocks were at, and how many (the per-step budget) */
+  step?: string;
+  step_blocks?: number;
+  /** autoplan-gate: publish no-ops refused at PreToolUse */
+  denied?: number;
   blocked: number;
   observed: number;
   exhausted_at?: string;

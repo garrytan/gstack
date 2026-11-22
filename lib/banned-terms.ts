@@ -11,7 +11,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import type { ResultCodeName } from './result-codes';
 import { assertInsideRoot, containedRelative, globToRegExp, matchesAny } from './ship-policy';
 

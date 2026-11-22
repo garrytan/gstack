@@ -356,9 +356,9 @@ describe('tier classification', () => {
 
   test('the REAL external-CLI test files classify as periodic-only', () => {
     // Synthetic guard shapes above can drift from the actual files — the
-    // inert-demotion defect class. Pin the real sources: a guard-shape edit
-    // in either file that silently runs it in gate fails here.
-    for (const file of ['test/codex-e2e.test.ts', 'test/codex-e2e-sol-scope.test.ts']) {
+    // inert-demotion defect class. Pin the real source: a guard-shape edit
+    // that silently runs it in gate fails here.
+    for (const file of ['test/codex-e2e.test.ts']) {
       const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
       expect(classifyPaidTestFile(source, 'gate').included, `${file} leaked into gate tier`).toBe(false);
       expect(classifyPaidTestFile(source, 'periodic').included, `${file} dropped from periodic tier`).toBe(true);

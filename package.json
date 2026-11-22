@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.97.0",
+  "version": "1.102.2",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -70,13 +70,13 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
-    "@huggingface/transformers": "^4.3.1",
+    "@huggingface/transformers": "^4.3.2",
     "@ngrok/ngrok": "^1.7.0",
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
     "html-to-vdom": "0.7.0",
-    "marked": "^18.1.1",
+    "marked": "^18.1.3",
     "playwright": "^1.65.0",
     "sharp": "^0.35.4",
     "socks": "^2.8.10",
@@ -98,7 +98,7 @@
   ],
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.141",
-    "@types/bun": "1.4.3",
+    "@types/bun": "1.4.4",
     "prettier": "3.9.10",
     "typescript": "7.0.2"
   },
@@ -107,7 +107,7 @@
     "@modelcontextprotocol/sdk": "1.32.0",
     "adm-zip": "^0.6.1",
     "fast-uri": "3.1.9",
-    "hono": "4.13.13",
+    "hono": "4.13.16",
     "image-size": "2.0.4",
     "ip-address": "10.7.4",
     "proxy-addr": "2.0.8",

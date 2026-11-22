@@ -115,7 +115,7 @@ describe('Cause B: the current call is not journaled at hook time (payload path)
     expect(codeOf(await f.hook(f.input('b', 'Agent', dispatch(f, { model: 'haiku' }))))).toBe('agent_key');
     const next = await f.hook(f.input('c', 'Read', { file_path: section('design-phase.md') }));
     expect(codeOf(next)).toBe('publication_missing');
-    expect(denial(next)).toContain('true autoplan-published <phase>');
+    expect(denial(next)).toContain('true autoplan-published ceo');
   });
 });
 
@@ -126,7 +126,7 @@ describe('Publication flush: a report counts only once a later journaled record 
     const f = make(); f.report(f.nextMessage()); f.journal();
     const output = await f.hook(next(f));
     expect(codeOf(output)).toBe('publication_unflushed');
-    expect(denial(output)).toContain('`true autoplan-published <phase>`');
+    expect(denial(output)).toContain('`true autoplan-published ceo`');
     expect(denial(output)).not.toMatch(/\bretry\b/i);
   });
 
@@ -156,7 +156,7 @@ describe('Publication flush: a report counts only once a later journaled record 
     f.report(f.nextMessage()); f.journal();
     const output = await f.hook(next(f));
     expect(codeOf(output)).toBe('publication_repeat');
-    expect(denial(output)).toContain('/plan-ceo-review, then /plan-devex-review by hand');
+    expect(denial(output)).toContain('/plan-ceo-review, then /plan-devex-review, then /plan-eng-review');
   });
 
   test('a denied call after the report proves the report was journaled, so the next attempt counts it', async () => {

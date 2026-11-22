@@ -80,7 +80,7 @@ export function fixtureDocs(scenario: DocsScenario, generatedRoot = process.env.
   });
   // Step 14.5's cap gate (bin/gstack-ship-receipt docs-caps) imports ../lib/*; an install without lib/ fails the gate
   // with a module error instead of a DOCS_CAP verdict (gate at 2524ec4: both lifecycle cases blocked on it).
-  fs.cpSync(path.join(DOCSYNC_ROOT, 'lib'), path.join(skills, 'lib'), {
+  for (const dir of ['lib', 'crew/lib']) fs.cpSync(path.join(DOCSYNC_ROOT, dir), path.join(skills, dir), {
     recursive: true,
     filter: source => !fs.statSync(source).isFile() || (/\.(?:ts|json)$/.test(source) && fs.statSync(source).size < 5_000_000),
   });

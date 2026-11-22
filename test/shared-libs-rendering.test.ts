@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ALL_HOST_CONFIGS } from '../hosts';
-import { discoverTemplates, RETIRED_SKILLS } from '../scripts/discover-skills';
+import { discoverTemplates } from '../scripts/discover-skills';
 import { sharedLibsPlanExcerpt } from './helpers/shared-libs-plan-excerpt';
 import { readSkillEffective } from './helpers/skill-startup';
 
@@ -12,7 +12,6 @@ const ROOT = resolve(import.meta.dir, '..');
 let output: string;
 
 function rendered(host: (typeof ALL_HOST_CONFIGS)[number], skill: string): string {
-  if (host.name !== 'claude' && RETIRED_SKILLS.includes(skill)) return readFileSync(join(output, host.hostSubdir, 'skills', 'gstack-autoplan', `${skill}.md`), 'utf8');
   const dir = host.name === 'claude' ? join(output, skill)
     : join(output, host.hostSubdir, 'skills', `gstack-${skill}`);
   const sections = join(dir, 'sections');
@@ -168,10 +167,11 @@ describe('shared-code skill distribution', () => {
     }
   });
 
-  test('standalone catalog entry adds exactly the approved 82 bytes', () => {
+  // 82 approved bytes, plus 36 for the when-to-use clause every Claude catalog entry gained in GST-2774 and the YAML quotes it needs.
+  test('standalone catalog entry adds exactly the approved 118 bytes', () => {
     const skill = readFileSync(join(output, 'deslop-shared-libs/SKILL.md'), 'utf8');
     const description = skill.match(/^description: (.+)$/m)?.[1];
-    expect(description).toBe('Find worthwhile shared-code extractions in recent work. (gstack)');
-    expect(Buffer.byteLength('deslop-shared-libs') + Buffer.byteLength(description!)).toBe(82);
+    expect(description).toBe('"Find worthwhile shared-code extractions in recent work. Use for: find code worth sharing. (gstack)"');
+    expect(Buffer.byteLength('deslop-shared-libs') + Buffer.byteLength(description!)).toBe(118);
   });
 });

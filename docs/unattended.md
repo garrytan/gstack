@@ -7,12 +7,21 @@ kind changes, which files a run writes, how the parent decides whether the run
 finished, and how it reads the result without reading any markdown.
 
 The session kinds are: `interactive` (a human answers prompts), `headless`
-(`GSTACK_HEADLESS`, `CI`, the eval harness; a question BLOCKs), `spawned`
+(`GSTACK_HEADLESS`, `CI`, the eval harness, `codex exec`; a question BLOCKs), `spawned`
 (an orchestrator subagent; the recommended option is auto-chosen) and
 `unattended` (this page). `unattended` is honored only as the explicit
 `GSTACK_SESSION_KIND=unattended` override, which outranks `GSTACK_HEADLESS`
 so a parent can drive a run inside CI. Nothing in the test or eval harness sets
 it, so `headless` keeps its BLOCK semantics.
+
+On Codex CLI, `gstack-session-kind` reports `headless` for a skill started
+under `codex exec` (or its alias `codex e`, or `codex review`) and
+`interactive` in the Codex TUI. Codex gives tool shells the same environment
+(`CODEX_THREAD_ID`, `CODEX_CI=1`, no TTY) in both, so the helper reads the
+subcommand of the nearest `codex` process instead: exec runs tool shells
+itself, and the TUI runs them under its `codex app-server` daemon. Conductor's
+markers still win, as they do for Claude Code. A Codex run that a parent agent
+drives still sets `GSTACK_SESSION_KIND=unattended` itself.
 
 ## What the session kind changes
 
@@ -25,7 +34,10 @@ it, so `headless` keeps its BLOCK semantics.
   onboarding tips and routing blocks are suppressed exactly as they are for
   `spawned`. An unanswered consent is `off`.
 - **No publishing or sync, enforced at the writers.** Usage analytics are not
-  written (`TELEMETRY_WRITE: skipped (unattended session)`), the artifacts
+  written (`TELEMETRY_WRITE: skipped (unattended session)`; the one exception
+  is a Capy session the owner opted in with `telemetry_capy: anonymous`, which
+  sends one anonymous row per skill run labelled `capy` (or `gt`), see
+  [privacy](privacy.md)), the artifacts
   repo is neither pulled nor pushed (`ARTIFACTS_SYNC: skipped (unattended
   session; mode=<m> queue=<n> retained)`), the sync spool is not fed
   (`gstack-brain-enqueue` is a no-op, and `gstack-review-log` says `review-log:
@@ -47,12 +59,15 @@ it, so `headless` keeps its BLOCK semantics.
   `timing: analytics skipped (...)` instead of writing to a disk that vanishes.
   Point `GSTACK_STATE_ROOT` at a durable directory when you want cross-run
   history (see [state-root.md](state-root.md)).
-- **The autoplan publication guard is named, not faked.** On hosts that do not
-  execute Claude Code hooks, and in every unattended session, `gstack-skill-start`
-  prints `autoplan guard: not enforced by this host; publication order is
-  unverified (GUARD_NOT_INSTALLED)` once. `gstack-artifact validate` requires
-  that line in an unattended run's `review-record.md`. Claude Code's
-  deny-on-absent behavior is unchanged.
+- **The autoplan publication guard is named, not faked.** `gstack-skill-start`
+  prints one guard line for /autoplan, chosen by host, not by session kind. On
+  Claude Code with the hook declared in `autoplan/SKILL.md` it prints
+  `autoplan guard: enforced by Claude Code's /autoplan hook ... (GUARD_ENFORCED)`,
+  because the hook denies phase entry there in unattended sessions too. On hosts
+  that do not execute Claude Code hooks it prints `autoplan guard: not enforced
+  by this host; publication order is unverified (GUARD_NOT_INSTALLED)`.
+  `gstack-artifact validate` requires one of the two in an unattended run's
+  `review-record.md`. Claude Code's deny-on-absent behavior is unchanged.
 
 An unknown `GSTACK_SESSION_KIND` value coerces to `interactive` and says so:
 `SESSION_KIND: interactive (unknown kind '<x>')`.
@@ -67,8 +82,11 @@ GSTACK_RESULT: skill=<name> status=<status> run=<dir>
 
 `status` is one of `complete`, `reviewed`, `gate_pending`, `incomplete`,
 `interrupted` or `refused`; `run` is where the run's record is. `/autoplan`
-always ends `gate_pending` when it reaches the final gate, because the gate is
-written and never approved. `/autoplan --ceo-only` ends `reviewed`: it runs the
+ends `gate_pending` when it reaches the final gate with no owner reply, because
+the session never approves the gate on its own judgment; when the owner's own
+reply is relayed to it, the session records it with `gstack-autoplan answer
+--by agent:<id> --owner-reply-file <file>` (see the driver steps below).
+`/autoplan --ceo-only` ends `reviewed`: it runs the
 CEO phase alone, asks nothing, writes no gate and approves nothing (see
 [CEO-only runs](#ceo-only-runs)). Pure queries (`gstack-artifact schema`,
 `gstack-gate render`) print no result line.
@@ -159,13 +177,40 @@ waiting on the base, not failed ([base_red](ship-policy.md#base-red)).
 
 The one publication the unattended rules allow: when an open PR for the branch
 exists and HEAD is its pushed head, Step 18 takes the pr-body section's
-existing-PR path and posts the body (receipt first) and title through
+existing-PR path and posts the body (receipt in its Agent notes section) and title through
 `gstack-post`. It never runs `pr-create`, never pushes a commit and never runs
 `gh pr ready`; a branch with no open PR, or whose PR head is not HEAD, takes
 the handoff section. When the run committed anything (a CHANGELOG entry,
 generated tests), the parent pushes those commits itself, then reruns the
 receipt write, the body post and `result` at the pushed head: a receipt for an
 unpushed head is `QUEUE_RECEIPT_STALE` to the queue.
+
+<a id="push-line"></a>
+### The push line: `PUSH:`
+
+Step 17's `gstack-ship-release push` (early or final) always ends with exactly
+one line saying whether the branch reached the remote, so a parent, a report or
+an outside probe can tell that `/ship` pushed without looking for a
+`git push` call:
+
+```
+PUSH: pushed remote=origin ref=<branch> head=<full sha>
+PUSH: already_pushed remote=origin ref=<branch> head=<full sha>
+PUSH: failed reason=<code>
+```
+
+`pushed` means this run's `git push` updated the branch; `already_pushed`
+means the remote branch already pointed at HEAD, so nothing was sent. `failed`
+means nothing was pushed, with one of three codes:
+[`PUSH_REFUSED`](troubleshooting.md#push-refused) (a check stopped it before
+`git push` ran), [`PUSH_REJECTED`](troubleshooting.md#push-rejected)
+(non-fast-forward, or the remote refused the update) and
+[`PUSH_GIT_FAILED`](troubleshooting.md#push-git-failed) (git could not read
+the remote, or `git push` failed on authentication, a hook or the network).
+The line is the last one printed, after any `STOP:` or `NEXT:` line, on
+stdout (stderr for a usage error), and the exit status keeps its meaning: 0
+for `pushed` and `already_pushed`, 3 for a stop, 2 for a usage error. Match
+`^PUSH: (pushed|already_pushed) ` for "this run's branch is on the remote".
 
 ### The review loop's counters
 
@@ -174,10 +219,10 @@ The receipt's `review_loop` object, written from `gstack-review-scope summary
 (Step 9 full passes this ship ran, 1 or 2; up to 3 under `review_scope: diff-plus-blocking` or `all`),
 `blocking_found` (every blocker the readers found, rows and dispatch ledgers
 both, [review-policy.md](review-policy.md#what-the-receipt-records)), `deferred`
-(blocking findings in unchanged code filed as issues, Step 11's late defers
-included), `noted`, `fixed` and `scope`. The
+(blocking findings in unchanged code, kept on the PR and never filed as
+issues, Step 11's late defers included), `noted`, `fixed` and `scope`. The
 summary line a parent reads prints it as `passes=<n> blocking_found=<k>
-deferred=<m>`; the PR body lists the deferred issues under `## Deferred
+deferred=<m>`; the PR body lists the deferred findings under `## Deferred
 findings` and the below-floor items under `## Review notes`. A pass that finds
 nothing is `NO FINDINGS` from every reviewer and a pass with no edits, which
 is the loop's exit, never a failed review ([review-policy.md](review-policy.md)).
@@ -193,7 +238,7 @@ holds its required lines plus at most 150 words; a completion report holds at
 most 300 words; a subagent brief names the files to read instead of pasting
 them. Evidence goes in files the report points to. Waits go on operations,
 never on polling wakes, except a crew lane's warm wait under about 30 minutes
-([captain.md](captain.md#lane-context)).
+([captain.md](../crew/docs/captain.md#lane-context)).
 
 ### Token caps and fresh-context handoffs
 
@@ -283,7 +328,7 @@ tree no review saw, so /ship runs again;
 | File | Schema | Contents |
 |------|--------|----------|
 | `run.json` | `run` v1 | The manifest: `run` id, `status`, `required_phases`, each phase's `native` and `outside` outcome (`status`, `model`, `provider`), input `snapshot` hashes, `counts`, every artifact's `path` (relative to the run directory) and `sha256`, `session_kind`, `gate_rev`, `deviations`, `consumed_by`. |
-| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`, or `auto_kept` in a [CEO-only run](#ceo-only-runs)), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`, plus how the owner answered: `owner_mode` (`rec`, `rec_except`, `tokens`, `as_is` or `unparsed`, parsed from the owner's own words), `owner_named` (his words named this item), `rec_hash` (the recommendations answered against) and `answered_role` (`human`, or `agent` relaying his words); an agent-relayed answer adds `owner_reply`, his verbatim words, which never leave in a [public copy](#the-public-copy). |
+| `decisions.jsonl` | `decisions` v1 | One row per decision: `id` (`<run>-<label>` at gate revision 1, `<run>-r<rev>-<label>` after a reopen, since labels restart at each gate), `title`, `options`, `recommended`, `kind` (`auto`, `approval`, `user_challenge`), `status` (`pending`, `approved`, `overridden`, `rejected`, or `auto_kept` in a [CEO-only run](#ceo-only-runs)), `gate_rev`, and once answered `chosen`, `answered_at`, `reply`, plus how the owner answered: `owner_mode` (`rec`, `rec_except`, `tokens`, `as_is` or `unparsed`, parsed from the owner's own words), `owner_named` (his words named this item), `rec_hash` (the recommendations answered against, bound to the run and its reviewed plan) and `answered_role` (`human`, or `agent` relaying his words); an agent-relayed answer adds `owner_reply`, his verbatim words, which never leave in a [public copy](#the-public-copy). |
 | `shadow/` | private, not an artifact | [Shadow mode](#shadow-mode) only: `ceo-only.r<rev>.jsonl` (one hidden prediction per gate item, written before the answer), `r<rev>.prompt.md` and one `<call>.reply.txt` per model call, the audit `salt`, and `r<rev>.pending` while a call is in flight. Never in `export --public`, the gate render or the owner brief. |
 | `findings.jsonl` | `findings` v1 | One row per reviewer finding: `id`, `phase`, `voice` (`native`/`outside`), `model`, `severity`, `title`, `disposition`, `plan_items`, `native_counterpart` (string or null), `source`. Rows share the review-log row shape, so `gstack-review-log --findings` derives review status from this file. |
 | `tasks.jsonl` | `tasks` v2 | Implementation tasks with `id`, `title`, `status`, `depends_on`, `findings` (ids in `findings.jsonl`), `blocked_by`, `acceptance`, optional `pr`/`item`/`tier`. |
@@ -306,8 +351,10 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
 - **Whose words.** Every owner reply the private run ever recorded: on
   decision rows, on `run.json`'s gate, and in the journal (`attempts.jsonl`
   keeps a reply that a later answer at the same gate replaced), the words a
-  carried gate reused, and the reason a human gave for `close --deferred --by
-  human`. A reply that parsed as gate grammar is the decision code, not owner
+  carried gate reused, each quote under a `### Owner's words` heading in any
+  plan text the run kept (the active plan, its source copies and each gate's
+  copy, so a quote a later revision removed stays redacted), and the reason a
+  human gave for `close --deferred --by human`. A reply that parsed as gate grammar is the decision code, not owner
   prose. An agent's own words (`answer_words`) and an agent's deferral reason
   stay.
 - **Dropped fields.** `owner_reply` anywhere, a carry record's `words`, and a
@@ -355,6 +402,29 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
   `gstack-artifact validate --public <pub> --private <dir>/run.json` runs the
   same scan, renderings included, on an existing copy.
 
+## Starting a child agent: type the skill first
+
+When a parent starts another agent to run a gstack skill, the child's prompt
+opens with the skill command typed the way a person types it, for example
+`/ship --continue <brief>`, and everything else comes after it. Claude Code
+expands a skill only when the prompt starts with `/<skill>`. A prompt such as
+"Load gstack. … Run /ship …" reaches the model as plain text, and the model
+then has to decide on its own to load the skill. In gstack-evals#366, Opus 5.5
+found a skill from its description in 0 of 60 unattended sessions, while a
+typed command put the skill's text in front of it in 60 of 60.
+
+- **Use the installed name.** With `skill_prefix: true` the command is
+  `/gstack-<skill>`; a typed name that isn't installed expands to nothing.
+- **No Skill tool needed.** Claude Code expands a typed command itself, without
+  a Skill tool call, so the child's `--allowedTools` doesn't have to list
+  `Skill` for this.
+- **Hosts that don't expand a typed skill**, such as a Capy subagent, get the
+  skill's SKILL.md path to read instead.
+
+`gstack-ship-budget launch` (`lib/ship-handoff.ts`), the token-capped /ship
+child on Claude Code, follows this rule, and `test/ship-budget.test.ts`
+checks its prompt.
+
 ## How a parent consumes a run
 
 1. **Decide whether the run finished.** For an `/autoplan` run directory,
@@ -366,8 +436,14 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
    terminal outcome, every listed artifact exists inside the run directory with
    the recorded hash, every JSONL file parses row by row against its schema with
    run-bound unique ids, task dependencies and finding references resolve
-   without cycles, `counts` agree with the files, and (unattended) the guard
-   line is present. Otherwise it exits `1` with one error line per problem and
+   without cycles, `counts` agree with the files, (unattended) the guard
+   line is present, and gstack-autoplan wrote the run: `run.json` carries
+   the fields it writes on every run (`host: gstack-autoplan`, `plan_input`
+   and the rest, `ARTIFACT_NOT_AUTOPLAN_RUN`) and agrees with its
+   `attempts.jsonl` journal, its bound review outputs and its checkpoint
+   (`ARTIFACT_JOURNAL_MISMATCH`). `gstack-artifact ack` runs the same
+   check. A public copy (`validate --public`) carries no journal and is
+   checked against its private run's digests instead. Otherwise it exits `1` with one error line per problem and
    `ARTIFACT_INVALID: <n> error(s)`; `--json` returns the same as
    `{ valid, run, status, run_dir, errors[] }`. A run that was interrupted shows up here as
    `ARTIFACT_RUN_INTERRUPTED`, never as a partial success.
@@ -441,7 +517,12 @@ The example above is the full run. The first `next` also takes `--kind`:
   (`GSTACK_CAPY=1`) that names no kind, is the lean run. The run is the `eng`
   phase alone with one native reviewer, whose prompt merges the CEO and Eng
   lenses (Design and DX only when scope detects them) and always asks "Any
-  outside terms, licences or rights involved?". The reviewer reads the draft
+  outside terms, licences or rights involved?". Each lens is short: the eng
+  lens is a five-question brief plus plan-eng-review's 36-line checklist when
+  the run is unattended or `--light`, the
+  others a one-paragraph role and that skill's checklist (CEO 37 lines, design
+  28, DX 34). The reviewer never gets those skills' own methods
+  (`lib/autoplan-lean.ts` `leanPrompt`). The reviewer reads the draft
   code with the plan: `git diff` from the merge base with `--base <ref>`
   (default `origin/HEAD`), untracked files included and the run directory
   left out, written into the phase's snapshot directory as `draft.diff` and
@@ -471,7 +552,11 @@ The example above is the full run. The first `next` also takes `--kind`:
   without re-review (`APPLIED: … (lean run: one gate revision; …)`) and
   approves. The gate and `gstack-owner-brief render --captain` relay work as
   in the full run. A paid-eval prereg counts as a feature.
-- **`--full`** restores every phase and both voices. Off Capy, and in an
+- **`--full`** restores every phase and both voices. Each phase's native
+  reviewer gets a five-question brief, the plan and that phase's checklist
+  (`--light`, the unattended default); the outside reviewer gets a
+  one-paragraph role and the plan. Neither gets the review skill's own
+  method, which only an interactive `/autoplan` session reads. Off Capy, and in an
   interactive session, the default stays full; `--ceo-only` stays its own run.
 
 1. **Dispatch each `ATTEMPT:`.** The native voice is a subagent on the parent's
@@ -515,6 +600,17 @@ The example above is the full run. The first `next` also takes `--kind`:
    `p1b` (approve with the recommended changes) or an explicit `<id>a` applies
    a fix; a finding carried with `b` stays
    open, so a rerun that raises it again asks again.
+   With an `### Owner's words` section in the plan, only a challenge naming
+   one of its bullets (`owner_quote`) is a user challenge; a reviewer's
+   `changes` to anything else, at any severity and from one voice, is a
+   `proposal` approval item recommending the change, whose `b` keeps the draft
+   (behind a Critical or High finding, as a blocking build task). Without that
+   section the default stays, plus one `confirm_direction` auto item when a
+   one-voice challenge keeps it. An earlier round's open challenge stays until
+   answered or marked fixed (`resolves`). `### Day one` and `### What it won't
+   do yet` add `day_one` and `cut` approval items (a missing day-one page on a
+   UI plan, each `assumed` row, each cut that drops a day-one row or quoted
+   owner line) and one `cuts` auto item for the rest.
 4. **Answer the gate** with the reply grammar and the revision you read:
    ```bash
    $AP answer --out <dir> --gate-rev 1 --reply "rec" --by human            # every recommendation, plan changes included (APPLY: ...; amend_pending)
@@ -531,6 +627,12 @@ The example above is the full run. The first `next` also takes `--kind`:
    are then recorded as `answer_words` with `words_by`, never as
    `owner_reply`; a later gate never carries them (`CARRY: no`), and
    `gstack-approvals import` lists that row under the agent, not the owner.
+   They never settle a `uc` item (a user challenge, a reviewer's proposal, a
+   day-one or cut question, or a round-cap approval):
+   a reply in an agent's own words that would choose one, by `rec`, `as-is`
+   or a token, is refused (`OWNER_REPLY_REQUIRED`) and nothing is applied;
+   such a reply may still answer the `d` items and leave the `uc` items to
+   the owner.
    An unattended run refuses an answer
    without `--by` (`ANSWER_BY_REQUIRED`, exit 3) and records the value as
    `answered_by` on every decision row and in the review record's gate line,
@@ -611,9 +713,13 @@ Each prompt file ends with this contract; `submit` enforces it.
 2. The review is prose, then one fenced block of canonical findings, one JSON
    object per line: `{"id":"F1","severity":"High","title":"...","file":"...","line":12,"fix":"..."}`
    inside a ```` ```gstack-findings ```` fence. `severity` is Critical | High |
-   Medium | Low | Informational; `"user_challenge": true` marks a recommended
-   change to the plan's stated direction and needs `"changes": "scope" |
-   "cost" | "direction"` (what accepting it changes); `"urgent": true` with
+   Medium | Low | Informational; a finding that recommends changing the
+   plan's scope, cost or direction adds `"changes": "scope" | "cost" |
+   "direction"` (or `"packaging" | "ordering"` when only delivery packaging or
+   build order changes), at any severity; `"user_challenge": true` with
+   `"owner_quote": <n>` marks a change against bullet n of the plan's
+   `### Owner's words` (on a plan without that section, `"user_challenge":
+   true` alone marks a change to its stated direction); `"urgent": true` with
    `"suggested_owner"` marks a security or data-loss finding the plan does not
    own. An empty fence means no findings; a missing fence is refused.
 3. The whole result is written to the printed `result=` path.
@@ -658,7 +764,9 @@ by its runner. Result codes: `EXECUTION_UNKNOWN`, `RUN_LOCKED`,
   `answer` prints `PLAN_SOURCE_CHANGED` when the source plan moved since the
   snapshot. A plan without both `## Implementation plan` and `## Review record`
   refuses with `PLAN_SECTIONS_INVALID`; `next --scaffold` reviews a copy with
-  the missing heading added. `resume` completes an interrupted revise.
+  the missing heading added, and `revise` does the same (`SCAFFOLDED:`) when
+  the run's first plan was scaffolded or had no headings. A revise from a
+  different file prints `PLAN_INPUT: <old> -> <new>`. `resume` completes an interrupted revise.
 - **Admission and upgrades.** `next`, `submit`, `answer`, `revise`, `export`
   and `run` refuse on a Capy host (`GSTACK_CAPY=1`) without an ok install
   verdict for this checkout, HEAD and workflow at `$GSTACK_INSTALL_VERDICT`
@@ -847,7 +955,8 @@ predictions with his answers.
   prospective evidence.
 - **The record.** `shadow/ceo-only.r<rev>.jsonl`, one row per gate item: the
   frozen item, `item_class` (`challenge2`, `challenge1`, `disagree`, `agent`,
-  `cap_deferred`, `cap_blocker`, `cap_delta`, `finding`, `p1`), `ceo_eligible`
+  `cap_deferred`, `cap_blocker`, `cap_delta`, `finding`, `proposal`,
+  `confirm_direction`, `day_one`, `cut`, `cuts`, `p1`), `ceo_eligible`
   (false for a `finding` item, which a CEO-only run leaves to the owner), the
   prediction, `rule_pick` (the driver's keep-direction pick, the free
   baseline), `rec_hash`, the plan and prompt hashes, the model, the gstack
@@ -877,7 +986,9 @@ predictions with his answers.
 `gstack-owner-brief render --out <dir>` is what the owner sees at the final
 gate, interactive or unattended: one page built from `gate.json`,
 `decisions.jsonl` and `findings.jsonl` (`BRIEF_INPUT_MISSING` when one is
-absent). It opens with the `URGENT, outside this plan` block, then a
+absent). It opens with the `URGENT, outside this plan` block, then the
+plan's `### Day one` table, its `### What it won't do yet` cuts and the
+owner's words it follows (each only when the plan has it), then a
 plain-language summary (phases closed, findings accepted, how many decisions
 take their default, the cycle time; `--summary <file>` or `<dir>/summary.md`
 replaces the generated sentence with the run's own), then the numbered
@@ -922,8 +1033,13 @@ line, on an ephemeral state root.
 
 ## Reference run
 
-`test/fixtures/multi-agent-wave/reference-run/` is a complete unattended
-`/autoplan` run (the one that produced this wave's plan) and validates clean.
+`test/fixtures/multi-agent-wave/reference-run/` is the hand-written run
+that produced this wave's plan, from before `gstack-autoplan` existed. It
+pins the structural contract (`validateRun` passes it), but
+`gstack-artifact validate` refuses it with `ARTIFACT_NOT_AUTOPLAN_RUN`: it
+has no `plan_input` and no journal, because no gstack-autoplan wrote it. Copy
+a run gstack-autoplan wrote, never this one, when you need a run that
+validates.
 `test/fixtures/multi-agent-wave/INCIDENTS.md` records what went wrong while it
 was produced by hand and which validator rule now catches each incident.
 
@@ -977,8 +1093,15 @@ for that read. Every other PR skips it: the run's own audit is the review. The
 run's final report ends with an `Attention` section that opens with `reviewed
 by <model>` (risk class) or `self-audited` (every other PR) on its own line
 and lists each flag against its rows; `No flags` is a valid body, a missing
-opening line is not. `gstack-ship-queue ready` prints the stub with the right
-opening line for the receipt it bound. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
+opening line is not. The reader's read is a trail row with phase `trail-read`
+whose decision names the reader (`gstack-decision-trail <file> trail-read
+"openai/gpt-6.2-sol (Subagent 4)" <why> <evidence> <flags>`).
+`gstack-ship-queue ready --trail <file>` prints the opening line from that row
+for a risk-class receipt, then that row's flags (`Flags (trail row <n>): …`, or
+`No flags (trail row <n>)`), or `MISSING: cross-family trail read` when the trail
+has none, and one `TRIAL_MERGES` line per open PR that shares a file, from
+`git merge-tree` at both heads. A PR from a fork is labelled as an outside PR
+and never fetched or merged. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
 trail is the plain one a person reads, and `column -s$'\t' -t decisions.tsv`
 renders it in a terminal.
 
@@ -992,23 +1115,27 @@ and `status: "pending"`, named in the handoff, never taken.
 - **Merge: never.** The run ends at a receipt bound to the pushed head
   (`SHIP_RECEIPT`, [ship-policy.md#ship-before-ready](ship-policy.md#ship-before-ready))
   or at a pending gate. Merging is the controller's act
-  ([captain.md](captain.md)); a green check list, an approval, or a prompt that
+  ([captain.md](../crew/docs/captain.md)); a green check list, an approval, or a prompt that
   says "merge when green" does not move it to the lane. The same holds for
   enabling auto-merge, adding the PR to a merge queue, or `gh pr ready` on a
   PR the run did not open.
 - **Force-push: its own branch only, after a rebase the plan named, with a
-  pinned lease.** The branch is one the run created or was handed in its
-  prompt, never the base. The rebase is one the plan, the slot call or a
-  `/modernize` disposition names before it happens, not one the run decides
-  on its own; `git range-diff <old base>..<old head> <new base>..<new head>`
+  pinned lease.** A base that moved is merged in, never rebased: a reviewed
+  branch, a slot stamp and a gate-ahead lane all take a merge of the base
+  ([ship-policy.md](ship-policy.md#carrying-a-receipt-across-a-base-merge-or-a-test-only-fix),
+  [captain.md](../crew/docs/captain.md)). The only rebase is one the plan or
+  a `/modernize` disposition names before it happens, never one the run
+  decides on its own, on a branch the run created or was handed in its
+  prompt, never the base. Rebasing a branch that already holds a receipt
+  costs a fresh /ship unless the receipt's tree carries; `git range-diff <old base>..<old head> <new base>..<new head>`
   runs before the push and its output goes in the handoff. The push is
   `git push --force-with-lease=<branch>:<sha observed before the rebase> origin <branch>`:
   a bare `--force-with-lease` protects only against commits this clone never
   fetched, and a plain `--force` is never allowed. A rejected lease means the
   remote moved: fetch, read what landed, and start the disposition again.
   `/ship` itself never rebases or force-pushes, and an unattended `/modernize`
-  stops at its verdict; this route is for a run whose plan or slot call named
-  the rebase before it started.
+  stops at its verdict; this route is for a run whose plan named the rebase
+  before it started.
 - **Tests: the methods the repository's instructions name, without asking
   first.** AGENTS.md or CLAUDE.md, the named Setup commands, `package.json`
   scripts and the pregate configuration define the set; running one of them

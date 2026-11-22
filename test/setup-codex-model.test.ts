@@ -105,24 +105,3 @@ describe('Codex E2E hermetic model pin', () => {
   });
 });
 
-describe('Sol E2E tree hygiene', () => {
-  const solTest = fs.readFileSync(path.join(ROOT, 'test', 'codex-e2e-sol-scope.test.ts'), 'utf8');
-
-  test('renders Sol in its own output tree without changing the installed profile', () => {
-    // The shared fixture owns generation and cleanup; sol-skill-fixture.test.ts
-    // proves its complete artifact bytes and unchanged installed-cache metadata.
-    const fixture = fs.readFileSync(path.join(ROOT, 'test/helpers/sol-skill-fixture.ts'), 'utf8');
-    expect(solTest).toContain('generatedFixture = await createSolSkillFixture()');
-    expect(solTest).toContain('skillDir = generatedFixture.skillDir');
-    expect(fixture).toContain("host: 'codex', model: 'gpt-5.6-sol', outputRoot, contentLinkRoot: null");
-    expect(fixture).toContain("path.join(outputRoot, '.agents', 'skills', 'gstack-investigate')");
-    expect(solTest).not.toContain('priorAgentsBackup');
-    expect(solTest).not.toContain("path.join(ROOT, '.agents')");
-    // Scope-widening detection must see untracked + staged files, not just
-    // unstaged tracked modifications.
-    expect(solTest).toContain("['status', '--porcelain']");
-    expect(solTest).not.toContain("['diff', '--name-only']");
-    // The fixture seed commit must survive global commit.gpgsign=true.
-    expect(solTest).toContain("['config', 'commit.gpgsign', 'false']");
-  });
-});

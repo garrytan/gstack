@@ -4,7 +4,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseNDJSON } from './session-runner';
+import { browseNavigatedTo, parseNDJSON } from './session-runner';
+import captured_scrape_goto from '../fixtures/scrape-prototype-goto-42571575838.json';
 
 test('runSkillTest launches a child without operator credentials', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-hermetic-session-'));
@@ -254,5 +255,65 @@ describe('parseNDJSON', () => {
     expect(parsed.toolCalls.map(call => call.output)).toEqual(['Parent review verdict', 'Child file content']);
     expect(parsed.toolCallCount).toBe(2);
     expect(parsed.turnCount).toBe(2);
+  });
+});
+
+describe('browseNavigatedTo', () => {
+  const trials = captured_scrape_goto.trials.map(trial => ({
+    url: `file://${trial.cwd}/fixture.html`,
+    calls: parseNDJSON(trial.events.map(event => JSON.stringify(event))).toolCalls,
+  }));
+  const bash = (command: string, output: string) => [{ tool: 'Bash', input: { command }, output }];
+
+  test('credits every captured scrape-prototype-path goto file://$PWD/fixture.html (run 42571575838)', () => {
+    expect(trials).toHaveLength(3);
+    for (const { url, calls } of trials) {
+      expect(calls.some(call => String(call.input.command).includes(url))).toBe(false);
+      expect(browseNavigatedTo(calls, url)).toBe(true);
+    }
+  });
+
+  test('a different file, an echoed URL, another path or a failed navigation is not credited', () => {
+    const { url, calls } = trials[0]!;
+    expect(browseNavigatedTo(calls, url.replace('fixture.html', 'other.html'))).toBe(false);
+    expect(browseNavigatedTo(bash(`echo "${url}"`, url), url)).toBe(false);
+    expect(browseNavigatedTo(bash(`echo "Navigated to ${url} (200)"`, `Navigated to ${url} (200)`), url)).toBe(false);
+    expect(browseNavigatedTo(bash('$B goto file:///tmp/elsewhere/fixture.html', 'Navigated to file:///tmp/elsewhere/fixture.html (200)'), url)).toBe(false);
+    expect(browseNavigatedTo(bash(`$B goto ${url}`, `Error: page.goto: net::ERR_FILE_NOT_FOUND at ${url}`), url)).toBe(false);
+    expect(browseNavigatedTo(bash(`$B goto ${url}`, `Navigated to ${url} (404)`), url)).toBe(false);
+  });
+
+  test('a goto with its stdout sent to /dev/null is credited only when the call proves it exited 0 (PR #4223 outside-voice#1)', () => {
+    const { url } = trials[0]!;
+    const cwd = url.replace(/^file:\/\//, '').replace(/\/fixture\.html$/, '');
+    const html = '<html><body><ul><li>Alpha 12</li></ul></body></html>';
+    const credited = (command: string, output = html) => browseNavigatedTo(bash(command, output), url, cwd);
+    for (const command of ['B=/x/browse; $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
+      `$B goto ${url} >/dev/null 2>&1 && $B text`, `"$B" goto '${url}' > /dev/null &&\n  $B html`,
+      '/x/browse/dist/browse goto "file://${PWD}/fixture.html" &>/dev/null && /x/browse/dist/browse html'])
+      expect(credited(command), command).toBe(true);
+    expect(browseNavigatedTo(bash(`cd ${cwd} && $B goto file://$PWD/fixture.html >/dev/null && $B html`, html), url)).toBe(true);
+    expect(browseNavigatedTo([...bash(`cd ${cwd}`, ''), ...bash('$B goto "file://$PWD/fixture.html" >/dev/null && $B html', html)], url))
+      .toBe(true);
+    for (const command of ['$B goto "file://$PWD/fixture.html" >/dev/null; $B html',
+      '$B goto "file://$PWD/fixture.html" >/dev/null || $B html', '$B goto "file://$PWD/fixture.html" >/dev/null & $B html',
+      '$B goto "file://$PWD/fixture.html" >/dev/null && $B html; echo done', '$B goto "file://$PWD/fixture.html" && $B html',
+      "$B goto 'file://$PWD/fixture.html' >/dev/null && $B html", '$B goto "file://$PWD/other.html" >/dev/null && $B html',
+      'cd /tmp/elsewhere && $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
+      'cd "$HOME" && $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
+      `echo "$B goto ${url}" >/dev/null && $B html`, `$B text goto ${url} >/dev/null && $B html`,
+      '$B status >/dev/null || $B goto "file://$PWD/fixture.html" >/dev/null && $B html',
+      `cd ${cwd} && $B status || $B goto "file://$PWD/fixture.html" >/dev/null && $B html`,
+      'true || echo | $B goto "file://$PWD/fixture.html" >/dev/null && $B html'])
+      expect(credited(command), command).toBe(false);
+    for (const command of [`test -d ${cwd} || exit 1; $B goto "file://$PWD/fixture.html" >/dev/null && $B html`,
+      '[ -x "$B" ] || B=/x/browse && $B goto "file://$PWD/fixture.html" >/dev/null && $B html'])
+      expect(credited(command), command).toBe(true);
+    const http = 'http://127.0.0.1:9/missing';
+    expect(browseNavigatedTo(bash(`$B goto ${http} >/dev/null && $B html`, '<html>Not Found</html>'), http)).toBe(false);
+    const goto = '$B goto "file://$PWD/fixture.html" >/dev/null && $B html';
+    expect(browseNavigatedTo(bash(goto, html), url)).toBe(false);
+    for (const output of [`Exit code 1\n${html}`, `Error: page.goto: net::ERR_FILE_NOT_FOUND at ${url}`, '<tool_use_error>denied</tool_use_error>'])
+      expect(credited(goto, output), output).toBe(false);
   });
 });

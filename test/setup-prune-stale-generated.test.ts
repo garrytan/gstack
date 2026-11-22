@@ -75,6 +75,9 @@ function runPrune(src: string, gen: string, host?: string) {
   const script = [
     'set -e',
     'log() { echo "$@"; }',
+    // A copy that differs from its render, or whose render is gone, is backed up, not deleted (GST-1717).
+    `_SKILL_BACKUP_ROOT="${path.join(path.dirname(src), 'backup')}"`,
+    '_BACKED_UP_SKILL_MDS=()',
     // _cleanup_weak_dir and the helpers it leans on come from main's ownership
     // gate; the prune routes bannered real dirs through it.
     extractFn('_gstack_link_target_abs'),

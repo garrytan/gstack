@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import type { TemplateContext } from './types';
 import { preambleSections } from './preamble';
+import { injectsAtLoad, loadLine } from './load-injection';
 
 /** A skill name no generator special-cases; a section that mentions it names the skill. */
 const SHARED_SKILL = 'gstack-shared-preamble';
@@ -82,9 +83,11 @@ function variantSubsections(own: string, shared: string): string | null {
   return [`${headingOf(own)}\n\n${note}`, ...changed, ...added].join('\n\n');
 }
 
+const claudeSharedPath = (ctx: TemplateContext) => `${ctx.paths.skillRoot}/${path.basename(path.dirname(ctx.tmplPath))}/sections/${SHARED_PREAMBLE_FILE}`;
+
 /** Where the installed SKILL.md finds its copy of the shared file. */
 function sharedPath(ctx: TemplateContext): string {
-  if (ctx.host === 'claude') return `\`${ctx.paths.skillRoot}/${path.basename(path.dirname(ctx.tmplPath))}/sections/${SHARED_PREAMBLE_FILE}\``;
+  if (ctx.host === 'claude') return `\`${claudeSharedPath(ctx)}\``;
   const installed = ctx.skillName.startsWith('gstack-') ? ctx.skillName : `gstack-${ctx.skillName}`;
   return `\`sections/${SHARED_PREAMBLE_FILE}\` relative to the installed \`${installed}\` SKILL.md directory`;
 }
@@ -100,9 +103,15 @@ export function generateSkillPreamble(ctx: TemplateContext): string {
     const base = sharedByHeading.get(headingOf(section));
     return (base && variantSubsections(section, base)) ?? section;
   });
-  const pointer = `## Shared preamble (load first)
+  const id = sharedId(ctx, shared);
+  // On Claude Code the file itself loads with the skill (GST-3157); the Read stays as the fallback.
+  const pointer = injectsAtLoad(ctx) ? `## Shared preamble (load first)
 
-This skill follows gstack shared preamble \`${sharedId(ctx, shared)}\` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read ${sharedPath(ctx)} in full before the command below. A section or subsection here with a shared heading replaces the shared one.`;
+This skill follows gstack shared preamble \`${id}\` (AskUserQuestion format, voice, writing, completeness and completion rules). A section or subsection here with a shared heading replaces the shared one. Unless the next line loaded that file: if your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read ${sharedPath(ctx)} in full before the command below.
+
+${loadLine(ctx, `preamble ${claudeSharedPath(ctx)}`)}` : `## Shared preamble (load first)
+
+This skill follows gstack shared preamble \`${id}\` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read ${sharedPath(ctx)} in full before the command below. A section or subsection here with a shared heading replaces the shared one.`;
   return [pointer, ...inline].join('\n\n');
 }
 

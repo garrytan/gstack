@@ -4,7 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runGeneration } from '../scripts/gen-skill-docs';
-import { acceptedChangedPaths, docsAttemptContracts, docsDispatchIndex, docsDispatchIndices, extractDocsDispatch, parseDocsCompletion, vetDocsCompletion } from './helpers/docsync-contract';
+import { acceptedChangedPaths, docsAttemptContracts, docsAttemptOutputs, docsDispatchIndex, docsDispatchIndices, extractDocsDispatch, parseDocsCompletion, vetDocsCompletion } from './helpers/docsync-contract';
+import { checkDocsRepair, checkDocsResult, docsRepairPrompt } from '../lib/ship-docs-result';
 import { fixtureDocs, repoSnapshot, changedFiles, gitAt, DOC_PATH, preserveDocsEvidence } from './helpers/docsync-fixture';
 import { parseNDJSON, type SkillTestResult } from './helpers/session-runner';
 import { observeDocsWrites, docsWriteFailures, docsCommandAllowed, docsPreambleCommands, docsCompletedRead } from './helpers/docsync-observer';
@@ -676,5 +677,69 @@ describe('completion field failures name the fields', () => {
     expect(() => parseDocsCompletion(JSON.stringify({ ...report, commit_sha: null }), report.audit_id)).toThrow('completion fields: missing none; extra commit_sha');
     const { files_reviewed: _, ...rest } = report;
     expect(() => parseDocsCompletion(JSON.stringify({ ...rest, pushed: false }), report.audit_id)).toThrow('completion fields: missing files_reviewed; extra pushed');
+  });
+});
+
+// Census 44432023197 slice 4 (ship-docsync-current, red on "completion fields: missing documentation_section", green on the
+// in-run rerun): the child audited correctly but its last line dropped documentation_section, result printed FORMAT_REPAIR:
+// format-only, and the fixture interface declared neither repair-prompt nor result --repair-of, so the parent stopped blocked.
+describe('format-only repair of a documentation audit line', () => {
+  const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/docsync-format-repair-public.json'), 'utf8')) as { events: unknown[] };
+  const home = '/tmp/ds-repair';
+  const { toolCalls: calls } = parseNDJSON(captured.events.map(event => JSON.stringify(event).replaceAll('{home}', home).replaceAll('{shard}', path.dirname(path.dirname(home)))));
+  const dispatches = docsDispatchIndices(calls);
+  const writer = calls[dispatches[0]].output;
+  const auditId = JSON.parse(writer.trimEnd().split('\n').at(-1)!).audit_id as string;
+  const candidate = `${home}/.claude/skills/gstack/bin/gstack-docs-candidate`;
+  const output = `${home}/ship-run2/attempt1-output.md`;
+  const reply = (() => {
+    const line = JSON.parse(writer.trimEnd().split('\n').at(-1)!);
+    return JSON.stringify({ ...line, documentation_section: 'Audited the widget command template, README.md and AGENTS.md against the one committed change; all current, no edits. Debt: none.' });
+  })();
+  const problemsOf = (text: string) => {
+    const check = checkDocsResult(text, auditId, () => true);
+    if (check.ok) throw new Error('expected a rejected result line');
+    return check.problems;
+  };
+  const repair = (quoted: string) => ({ tool: 'Agent', input: { description: 'Repair docs result line', subagent_type: 'general-purpose', run_in_background: false,
+    prompt: docsRepairPrompt(quoted, auditId, problemsOf(quoted)) }, output: reply });
+  const result = (repairOf: boolean, printed: string, id = auditId) => ({ tool: 'Bash', input: { command: `${candidate} result ${home}/ship-run2/repair-reply.md --audit-id ${id} --out-dir ${home}/ship-run2${repairOf ? ` --repair-of ${output}` : ''}` }, output: printed });
+  const applied = 'FORMAT_REPAIR: applied (the reply kept every value the repair had to keep)\nDOCS_RESULT: ok status=current files_updated=0';
+
+  test('the captured red is the dropped section, and the product classes it as a format-only repair', () => {
+    expect(dispatches).toHaveLength(1);
+    expect(() => docsAttemptContracts(dispatches.map(index => calls[index].output))).toThrow('completion fields: missing documentation_section; extra none');
+    expect(calls.some(call => call.tool === 'Bash' && /^FORMAT_REPAIR: format-only/m.test(call.output))).toBe(true);
+    const check = checkDocsResult(writer, auditId, () => true);
+    expect(check.ok).toBe(false);
+    expect(!check.ok && check.repairable).toBe(true);
+    expect(checkDocsRepair(reply, writer, auditId, () => true).ok).toBe(true);
+  });
+
+  test('an applied repair stands for the attempt; the repair agent is not a dispatch even when it quotes the skill path', () => {
+    const quoted = writer.replace(/\n(?=[^\n]*$)/, '\nI followed document-release/SKILL.md for this audit.\n');
+    const quotedResult = { tool: 'Bash', input: { command: `'${candidate}' result "${home}/ship-run2/repair-reply.md" --audit-id '${auditId}' --out-dir ${home}/ship-run2 --repair-of '${output}'` }, output: applied };
+    for (const repaired of [[...calls, repair(writer), result(true, applied)], [...calls, repair(quoted), result(true, applied)], [...calls, repair(writer), quotedResult]]) {
+      expect(docsDispatchIndices(repaired)).toEqual(dispatches);
+      const { accepted, attempts } = docsAttemptContracts(docsAttemptOutputs(repaired, dispatches));
+      expect(attempts).toHaveLength(1);
+      expect([accepted.audit_id, accepted.status, accepted.files_updated]).toEqual([auditId, 'current', []]);
+      expect(accepted.documentation_section).toContain('Debt: none.');
+    }
+  });
+
+  test('a repair counts only after result --repair-of applied it, and only for its own dispatch', () => {
+    const refused = 'DOCS_RESULT_INVALID: the format repair changed "status"\nRETRY_NOTE: ...';
+    for (const repaired of [
+      [...calls, repair(writer)],
+      [...calls, repair(writer), result(true, refused)],
+      [...calls, repair(writer), result(false, applied)],
+      [...calls, result(true, applied), repair(writer)],
+      [...calls, repair(writer), result(true, applied, 'other-audit')],
+    ]) expect(() => docsAttemptContracts(docsAttemptOutputs(repaired, dispatches))).toThrow('completion fields: missing documentation_section');
+    const second = [...calls, repair(writer), result(true, applied), calls[dispatches[0]]];
+    const indices = docsDispatchIndices(second);
+    expect(indices).toHaveLength(2);
+    expect(() => docsAttemptContracts(docsAttemptOutputs(second, indices))).toThrow('completion fields: missing documentation_section');
   });
 });

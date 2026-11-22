@@ -90,7 +90,7 @@ async function run(ctx: PregateContext): Promise<CheckResult> {
   for (const r of runs) {
     if (r.carryNone) lines.push(`CI_CARRY: none guard=${r.guard.id} (${r.carryNone})`);
     if (r.prior) { lines.push(`GUARD: ${r.guard.id} ${r.prior}`); continue; }
-    lines.push(r.stalled ? `GUARD: ${r.guard.id} stalled: no output for ${ctx.stallTimeoutMs / 1000} s${STALL_IDLE}; process group killed (log ${r.log})` : r.timedOut ? `GUARD: ${r.guard.id} timed out after ${r.guard.timeout_s ?? ctx.timeoutMs / 1000} s (log ${r.log})` : `GUARD: ${r.guard.id} exit=${r.exit} (log ${r.log})`);
+    lines.push(r.stalled ? `GUARD: ${r.guard.id} stalled: no output for ${ctx.stallTimeoutMs / 1000} s${STALL_IDLE}; process tree killed (log ${r.log})` : r.timedOut ? `GUARD: ${r.guard.id} timed out after ${r.guard.timeout_s ?? ctx.timeoutMs / 1000} s (log ${r.log})` : `GUARD: ${r.guard.id} exit=${r.exit} (log ${r.log})`);
     if (r.exit !== 0) lines.push(...r.tail.map(l => `  ${l}`));
     if (r.environment) lines.push(`  ${r.guard.id} ${environmentLine(r.environment)}`);
   }

@@ -29,7 +29,7 @@ import { BOUNDARY, RESULT_FORMAT, REVIEWER_TRAILER } from './autoplan-prompts';
 import { parseReviewResult } from './autoplan-reconcile';
 import { FILES, RunError, journal, now, readDecisions, readJournal, readState, writeDecisions, writeState, type RunState } from './autoplan-state';
 import { appendTrailRow } from './decision-trail';
-import { decisionId, parseReply, type GateItem, type GateList } from './gate-list';
+import { agentWords, decisionId, parseReply, type GateItem, type GateList } from './gate-list';
 import { readJsonl } from './headless-artifacts';
 import { appendLedger, notEli5Only } from './no-stop';
 import { modelFamily } from './outside-voice-runner';
@@ -120,7 +120,7 @@ function assess(state: RunState, prev: GateList, list: GateList): Plan {
   if (p1.chosen !== 'a' && p1.chosen !== 'b') return { reason: `gate_rev ${from} answer was p1${p1.chosen}, not an approval`, from };
   if (p1.carried_gate_from) return { reason: `gate_rev ${from} was itself carried; the owner answers this one`, from };
   const tokens = parseReply(p1.reply ?? '', prev).mode !== 'rec';
-  if (p1.words_by) return { reason: `gate_rev ${from} was answered in ${p1.words_by}'s own words, not the owner's`, from };
+  if (agentWords(p1)) return { reason: `gate_rev ${from} was answered in ${agentWords(p1)}'s own words, not the owner's`, from };
   const words = p1.owner_reply ?? (p1.answered_by === 'human' ? p1.reply : undefined);
   if (!words?.trim()) return { reason: `no owner words recorded at gate_rev ${from}`, from };
   const amendments = (state.amendments ?? []).filter(a => a.gate_rev === from);

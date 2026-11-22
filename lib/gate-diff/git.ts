@@ -10,7 +10,7 @@
  * `unsupported` files, not zero hunks. Every git call runs with
  * GIT_OPTIONAL_LOCKS=0, no pager, no prompt, a timeout, and `--` before paths.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { defaultBaseBranch, type DefaultBase } from '../default-base';
@@ -212,13 +212,14 @@ export function unquoteGitPath(p: string): string {
   return Buffer.from(bytes).toString('utf-8');
 }
 
+/** A ---/+++ path; the caller drops the tab git appends after an unquoted name holding a space. */
 function stripPrefix(p: string, prefix: 'a/' | 'b/'): string {
   const u = unquoteGitPath(p);
   return u.startsWith(prefix) ? u.slice(2) : u;
 }
 
 /** Split `diff --git a/x b/y` into (x, y); equal paths resolve exactly, renames with spaces fall back to the middle ` b/`. */
-function splitDiffGitLine(rest: string): [string, string] {
+export function splitDiffGitLine(rest: string): [string, string] {
   if (rest.startsWith('"')) {
     const m = /^("(?:[^"\\]|\\.)*") ("(?:[^"\\]|\\.)*")$/.exec(rest);
     if (m) return [stripPrefix(m[1], 'a/'), stripPrefix(m[2], 'b/')];
@@ -284,8 +285,8 @@ function sectionToFile(sec: Section): FileDiff {
     else if (h.startsWith('copy to ')) { newPath = unquoteGitPath(h.slice(8)); status = 'copied'; }
     else if (h.startsWith('new file mode')) status = 'added';
     else if (h.startsWith('deleted file mode')) status = 'deleted';
-    else if (h.startsWith('--- ') && !h.startsWith('--- /dev/null')) oldPath = stripPrefix(h.slice(4), 'a/');
-    else if (h.startsWith('+++ ') && !h.startsWith('+++ /dev/null')) newPath = stripPrefix(h.slice(4), 'b/');
+    else if (h.startsWith('--- ') && !h.startsWith('--- /dev/null')) oldPath = stripPrefix(h.slice(4).replace(/\t$/, ''), 'a/');
+    else if (h.startsWith('+++ ') && !h.startsWith('+++ /dev/null')) newPath = stripPrefix(h.slice(4).replace(/\t$/, ''), 'b/');
     if (/\b120000\b/.test(h) && /mode/.test(h)) unsupported = 'symlink';
     if (/^index [0-9a-f]+\.\.[0-9a-f]+ 160000$/.test(h) || /\b160000\b/.test(h) && /mode/.test(h)) unsupported = 'submodule';
     if (h.startsWith('Binary files ')) unsupported = unsupported ?? 'binary';

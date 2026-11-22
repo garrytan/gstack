@@ -18,6 +18,7 @@ import { PLAN_RESULT_CODES } from './result-codes-plan';
 import { AUTOPLAN_RESULT_CODES } from './result-codes-autoplan';
 import { BROWSE_RESULT_CODES } from './result-codes-browse';
 import { CLEAN_RESULT_CODES } from './result-codes-clean';
+import { PLAIN_RESULT_CODES } from './result-codes-plain';
 
 export interface ResultCode {
   /** Stable `<a id>` in docs/troubleshooting.md. */
@@ -100,8 +101,8 @@ export const RESULT_CODES = {
   },
   ARTIFACT_GUARD_LINE_MISSING: {
     anchor: 'artifact-guard-line-missing',
-    summary: 'an unattended run’s review-record.md does not state that the publication guard was not enforced',
-    fix: 'start the run through gstack-skill-start so the GUARD_NOT_INSTALLED line is recorded',
+    summary: 'an unattended run’s review-record.md does not state whether the publication guard was enforced',
+    fix: 'start the run through gstack-skill-start so its GUARD_ENFORCED or GUARD_NOT_INSTALLED line is recorded',
   },
   GUARD_NOT_INSTALLED: {
     anchor: 'guard-not-installed',
@@ -410,7 +411,7 @@ export const RESULT_CODES = {
   },
   PREGATE_STALLED: {
     anchor: 'pregate-stalled',
-    summary: 'a test command printed nothing for the stall timeout while its process group used under a tenth of one CPU (log growth alone on Windows), so the group was killed; the check is incomplete, never pass',
+    summary: 'a test command printed nothing for the stall timeout while its process tree used under a tenth of one CPU (log growth alone on Windows), so the tree was killed; the check is incomplete, never pass',
     fix: 'read the lane log for the last file started, fix the hang, or raise `--stall-timeout` (`stall_timeout_s`; 0 disables) for a test that waits quietly for longer, then rerun `gstack-pregate --stage tests`',
   },
   PREGATE_RECEIPT_INVALID: {
@@ -557,7 +558,7 @@ export const RESULT_CODES = {
   },
   GATE_REC_STALE: {
     anchor: 'gate-rec-stale',
-    summary: 'a `rec` reply was rendered before `gstack-autoplan recommend` changed the recommendations it takes, or the gate predates `rec` (a gate.json without rec_rev, rendered when `all` left changes pending)',
+    summary: 'a `rec` reply was rendered before `gstack-autoplan recommend` changed the recommendations it takes, its `--rec-hash` came from another run\'s gate, or the gate predates `rec` (a gate.json without rec_rev, rendered when `all` left changes pending)',
     fix: 'render the gate again (`gstack-gate render <dir>/gate.json --all`), relay it, and answer with the printed `--rec-hash`',
   },
   CHECKPOINT_INVALID: {
@@ -577,7 +578,7 @@ export const RESULT_CODES = {
   },
   OWNER_REPLY_REQUIRED: {
     anchor: 'owner-reply-required',
-    summary: 'an agent answered the gate (`--by agent:<id>`) without the owner\'s verbatim reply',
+    summary: 'an agent answered the gate (`--by agent:<id>`) without the owner\'s verbatim reply, or answered a user challenge in its own words (`--words-by`)',
     fix: 'pass the owner\'s words exactly with `--owner-reply "<text>"`, `--owner-reply -` (stdin) or `--owner-reply-file <path>`',
   },
   GATE_OWNER_REPLY_MISMATCH: {
@@ -683,8 +684,8 @@ export const RESULT_CODES = {
   },
   EVAL_MODEL_OLD_GENERATION: {
     anchor: 'eval-model-old-generation',
-    summary: 'an arm names an older generation of a model family the eval model rules order newest first',
-    fix: 'use the newest id of the family the EVAL_MODEL line names, or reorder families in .gstack/eval-models.json in a reviewed PR',
+    summary: 'an arm, judge, reader or simulator is gpt-4o or a model lib/pricing.ts marks superseded_by (R116), or an arm is not the newest id of a family the eval model rules order newest first',
+    fix: 'use the replacement the MODEL_GENERATION or EVAL_MODEL line names; a competitor system tested as its vendor ships it declares its built-in model with a vendor-default: line in ## Models; or reorder families in .gstack/eval-models.json in a reviewed PR',
   },
   EVAL_MODEL_GENERATION_UNRESOLVED: {
     anchor: 'eval-model-generation-unresolved',
@@ -770,6 +771,7 @@ export const RESULT_CODES = {
   ...AUTOPLAN_RESULT_CODES,
   ...BROWSE_RESULT_CODES,
   ...CLEAN_RESULT_CODES,
+  ...PLAIN_RESULT_CODES,
 } as const satisfies Record<string, ResultCode>;
 
 export type ResultCodeName = keyof typeof RESULT_CODES;

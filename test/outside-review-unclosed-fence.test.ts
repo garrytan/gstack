@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { classifyOutsideReview } from '../lib/outside-review-result';
 
-const NO_ISSUES = 'No issues found in changed.ts.';
+const NO_ISSUES = 'No issues found in this change.';
 const RECOMMEND = 'Recommendation: approve because changed.ts keeps its data.';
 
 describe('an unclosed fence does not hide what follows it (GST-436)', () => {
@@ -26,7 +26,7 @@ describe('an unclosed fence does not hide what follows it (GST-436)', () => {
   });
 
   test('a closed fence still hides a quoted severity', () => {
-    const text = [NO_ISSUES, '```', '[P1] quoted from the diff', '```', RECOMMEND].join('\n');
+    const text = [NO_ISSUES, '```', '[P1] quoted from the diff', '```', RECOMMEND, 'VERDICT: CLEAN'].join('\n');
     const r = classifyOutsideReview({ text, gate: 'review' });
     expect(r.verdict).toBe('clean');
     expect(r.findings.highest).toBeNull();

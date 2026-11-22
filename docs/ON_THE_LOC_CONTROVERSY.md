@@ -109,7 +109,7 @@ gstack's core real-code feature — the thing that isn't just markdown prompts �
 
 **Slop scan.** A third party — [Ben Vinegar](https://x.com/bentlegen), founding engineer at Sentry — built a tool called [slop-scan](https://github.com/benvinegar/slop-scan) specifically to measure AI code patterns. Deterministic rules, calibrated against mature OSS baselines. Higher score = more slop. He ran it on gstack and we scored 5.24, the worst he'd measured at the time. I took the findings seriously, refactored, and cut the score by 62% in one session. Run `bun test` and watch 2,000+ tests pass.
 
-**Review rigor.** Every gstack branch goes through CEO review, Codex outside-voice review, DX review, and eng review. Often 2-3 passes of each. The `/plan-tune` skill I just shipped had a scope ROLLBACK from the CEO expansion plan because Codex's outside-voice review surfaced 15+ findings my four Claude reviews missed. The review infrastructure catches the slop. It's visible in the repo. Anyone can read it.
+**Review rigor.** Every gstack branch goes through CEO review, second-model review, DX review, and eng review. Often 2-3 passes of each. The `/plan-tune` skill I just shipped had a scope ROLLBACK from the CEO expansion plan because a second-model review surfaced 15+ findings my four Claude reviews missed. Those reviews and their findings are in the repo. Anyone can read them.
 
 ## What I'll concede
 
@@ -119,7 +119,7 @@ I'm going to steelman harder than the critics steelmanned themselves:
 
 **The 2013 baseline has survivorship bias.** My 2013 public activity was low. This analysis includes Bookface (private, 22 active weeks) which was my biggest project that year, so the bias is smaller than it looks. It's not zero. If the true 2013 rate was 50/day instead of 14, the multiple at current pace is 228x instead of 810x. Still high.
 
-**Quality-adjusted productivity isn't fully proven.** I don't have a clean bug-density comparison between 2013-me and 2026-me. What I can say: revert rate is in the normal band, fix rate is healthy, test coverage is real, and the adversarial review process caught 15+ issues on the most recent plan. That's evidence, not proof. A skeptic can discount it.
+**Quality-adjusted productivity isn't fully proven.** I don't have a clean bug-density comparison between 2013-me and 2026-me. What I can say: revert rate is in the normal band, fix rate is healthy, test coverage is real, and the adversarial review process caught 15+ issues on the most recent plan. That's evidence, not proof. A skeptic can discount it. Update, November 2026: we've since tested whether gstack itself makes a coding agent fix more everyday bugs. It doesn't: on 100 GitHub bugs and features, Claude Opus 5.5 fixed 58 with gstack and 61 of 99 without it ([results](https://github.com/garrytan/gstack-evals/blob/main/wiki/board/2026-11-19-geva-540-skill-pack-h2h-results/README.md), read with [its correction](https://github.com/garrytan/gstack-evals/blob/main/wiki/board/2026-11-20-geva-565-skill-pack-h2h-correction/README.md)). So read this page as what one person ships with AI agents and a workflow, not as gstack making the model better.
 
 **"Shipped" means different things across eras.** Some 2013 products shipped and died. Some 2026 products may share that fate. If two years from now 80% of what I shipped this year is dead, the critique "you built a bunch of unused stuff" will have teeth. I accept that reality check.
 

@@ -55,13 +55,17 @@ from it.
 **Held files.** When the secret scan flags a file, only that file is held
 back (with any file coupled to it, such as a decision log and its active
 snapshot); everything else syncs. The held file stays queued and is
-re-scanned on every sync, so editing it clears the hold automatically.
+re-scanned on every sync, so removing a secret that was never synced clears
+the hold automatically. A secret already committed in `~/.gstack` stays on a
+removed line of the next diff, so that file stays held until you skip it.
 `--status` lists each held file under `held`, with the scanner rule that
 matched (never the matched text), the files held with it (`dependents`) and
 both fixes:
 
-1. **If it's a real secret**: edit the file to remove it. The next skill run
-   re-scans and syncs it.
+1. **If it's a real secret**: edit the file to remove it. If that line was
+   never synced, the next skill run re-scans and syncs it. If it is already
+   committed in `~/.gstack`, skip the file (fix 2) and, if it was pushed,
+   treat the secret as exposed.
 2. **If the match is a false positive** you never want synced:
    ```bash
    ~/.claude/skills/gstack/bin/gstack-brain-sync --skip-file <path>
@@ -458,6 +462,39 @@ gbrain sync --source <id>
 /sync-gbrain
 ```
 If it stays at zero, re-register the source with `gstack-gbrain-source-wireup`.
+
+---
+
+## `artifacts not pushed (push_failed: ...; details: gstack-brain-sync --status)`
+
+**Problem.** `/sync-gbrain`'s brain-sync stage is `ERR`.
+
+**Cause.** The artifacts push failed, was blocked, or stopped before
+committing (`push_failed`, `blocked` or `error`). The commits and queue are
+kept and retried. A failed push stays `push_failed` until a push succeeds,
+even when later runs have nothing new to commit. Before this release the
+stage read only the exit code and said "curated artifacts pushed".
+
+**Fix.** Run `gstack-brain-sync --status` and follow the fix its message
+names (usually `gh auth status`, or a merge conflict to resolve in
+`~/.gstack`).
+
+---
+
+## `BRAIN_SYNC: dropped <N> queued record(s) with a malformed path`
+
+**Problem.** A queued sync record named an absolute path, or a path with an
+empty, `.` or `..` component, such as `projects//timeline.jsonl` from a
+skill started where the project slug was empty (the working directory `/`).
+
+**Cause.** Git stages such a path under another spelling, so the drain used
+to refuse the whole batch and every later record waited behind it. The drain
+now drops the record, syncs the rest, and lists the dropped paths in
+`~/.gstack/.brain-sync-drops.json`. `gstack-brain-enqueue` refuses these
+paths, so new ones are not queued.
+
+**Fix.** Nothing to do. A stray `~/.gstack/projects/timeline.jsonl` left by
+such a run is local only and can be deleted.
 
 ---
 

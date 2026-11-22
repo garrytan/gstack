@@ -3,11 +3,14 @@
  * own process group, stdout and stderr appended to a log file (no pipes, so
  * a backgrounded grandchild holding the output can never keep the check
  * waiting), supervised asynchronously. A stall is `stallMs` with no log growth
- * and no CPU activity in the process group (GST-1095: a quiet parallel suite
- * that is busy working is alive; a hang that keeps burning CPU is left to the
- * deadline); the deadline is the check's `--timeout`. Either kills the whole
- * process group (SIGTERM, then SIGKILL after a grace period) and the run is
- * incomplete. After a normal exit the group's leftover members are killed.
+ * and no CPU activity in the process tree: the runner's process group plus
+ * every descendant by parent links, whatever session it moved to (GST-1095: a
+ * quiet parallel suite that is busy working is alive, #4477: so is a worker
+ * `pnpm exec` starts in its own session; a hang that keeps burning CPU is left
+ * to the deadline); the deadline is the check's `--timeout`. Either kills the
+ * group of every tree member (SIGTERM, then SIGKILL after a grace period) and
+ * the run is incomplete. After a normal exit only the runner's group's leftover
+ * members are killed: a worker in its own session is no longer linked to it.
  *
  * Progress: a runner with a progress adapter (`bun test`: its `<file>:`
  * headers) reports `PREGATE_TEST: <n>/<total> <file> start|pass|fail <s>`
@@ -16,16 +19,17 @@
  * with no progress line; with `lastLine` it names the last line the command printed.
  *
  * Platforms: POSIX signals the negative pid (the group `detached` creates
- * with setsid). Windows has no process groups here: the kill is
+ * with setsid) and each tree member's own group. Windows has no process groups here: the kill is
  * `taskkill /T /F` on the shell's tree, which misses a descendant that was
  * reparented or started detached.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { bashCommandInvocation } from '../script-invocation';
+import { BUN_TEST } from '../test-paths';
 
 export type ProgressAdapter = 'bun';
-export const PROGRESS_ADAPTERS: Record<ProgressAdapter, RegExp> = { bun: /(?:^|[\s;&|(])bun\s+test\b/ };
+export const PROGRESS_ADAPTERS: Record<ProgressAdapter, RegExp> = { bun: BUN_TEST };
 
 export interface Counter { done: number; total: number }
 
@@ -69,12 +73,12 @@ const USER_HZ = 100;
 const CPU_SAMPLE_MS = 1_000;
 const CPU_BUSY_SHARE = 0.1;
 /** What a stall means beyond silence, for the PREGATE_STALLED detail and the guard line; Windows reads no CPU time. */
-export const STALL_IDLE = process.platform === 'win32' ? '' : ' and its process group used under a tenth of one CPU';
+export const STALL_IDLE = process.platform === 'win32' ? '' : ' and its process tree used under a tenth of one CPU';
 
-/** SIGKILL every supervised process group still running (the CLI's SIGINT/SIGTERM handler, before it exits). */
+/** SIGKILL every supervised process tree still running (the CLI's SIGINT/SIGTERM handler, before it exits). */
 export function cancelActive(): number {
   const pids = [...ACTIVE];
-  for (const pid of pids) killGroup(pid, 'SIGKILL');
+  for (const pid of pids) killTree(pid, 'SIGKILL');
   ACTIVE.clear();
   return pids.length;
 }
@@ -87,29 +91,67 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
   try { process.kill(-pid, signal); } catch { /* group already gone */ }
 }
 
-/** CPU time in ms used by the process group `pgid`, reaped children included where the platform reports them; null where it cannot be read (Windows). */
-export function groupCpuMs(pgid: number): number | null {
+export interface Proc { pid: number; ppid: number; pgid: number; cpuMs: number }
+
+/** Every process with its parent, group and CPU time in ms (reaped children included where the platform reports them); null where it cannot be read (Windows, a failed `ps`). */
+export function processTable(): Proc[] | null {
   if (process.platform === 'win32') return null;
+  const out: Proc[] = [];
   if (fs.existsSync('/proc/self/stat')) {
-    let ticks = 0;
     for (const name of fs.readdirSync('/proc')) {
       if (!/^\d+$/.test(name)) continue;
       let stat: string;
       try { stat = fs.readFileSync(`/proc/${name}/stat`, 'utf8'); } catch { continue; }
       const f = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-      if (Number(f[2]) === pgid) ticks += Number(f[11]) + Number(f[12]) + Number(f[13]) + Number(f[14]);
+      out.push({ pid: Number(name), ppid: Number(f[1]), pgid: Number(f[2]), cpuMs: (Number(f[11]) + Number(f[12]) + Number(f[13]) + Number(f[14])) * 1000 / USER_HZ });
     }
-    return ticks * 1000 / USER_HZ;
+    return out;
   }
-  const ps = spawnSync('ps', ['-A', '-S', '-o', 'pgid=,time='], { encoding: 'utf8', timeout: 15_000 });
+  const ps = spawnSync('ps', ['-A', '-S', '-o', 'pid=,ppid=,pgid=,time='], { encoding: 'utf8', timeout: 15_000 });
   if (ps.status !== 0) return null;
-  let ms = 0;
   for (const line of ps.stdout.split('\n')) {
-    const [id, time] = line.trim().split(/\s+/);
+    const [pid, ppid, pgid, time] = line.trim().split(/\s+/);
     const t = time && /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/.exec(time);
-    if (Number(id) === pgid && t) ms += (((Number(t[1] ?? 0) * 24 + Number(t[2] ?? 0)) * 60 + Number(t[3])) * 60 + Number(t[4])) * 1000;
+    if (t) out.push({ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), cpuMs: (((Number(t[1] ?? 0) * 24 + Number(t[2] ?? 0)) * 60 + Number(t[3])) * 60 + Number(t[4])) * 1000 });
   }
-  return ms;
+  return out;
+}
+
+/** The runner `root`'s process tree: the members of its process group plus every descendant by parent links, whatever session or group it moved to. */
+export function processTree(root: number, procs: readonly Proc[]): Proc[] {
+  const children = new Map<number, Proc[]>();
+  for (const p of procs) { const c = children.get(p.ppid); if (c) c.push(p); else children.set(p.ppid, [p]); }
+  const tree = new Map<number, Proc>();
+  const queue = procs.filter(p => p.pgid === root);
+  while (queue.length) {
+    const p = queue.pop()!;
+    if (tree.has(p.pid)) continue;
+    tree.set(p.pid, p);
+    queue.push(...(children.get(p.pid) ?? []));
+  }
+  return [...tree.values()];
+}
+
+/** CPU time in ms used by the runner `root`'s process tree; null where it cannot be read (Windows). */
+export function treeCpuMs(root: number): number | null {
+  const procs = processTable();
+  return procs && processTree(root, procs).reduce((ms, p) => ms + p.cpuMs, 0);
+}
+
+/**
+ * Signal the runner `root`'s process group and the group of each tree member
+ * outside it, so a stall or timeout kill leaves no worker that moved to its own
+ * session running. `known` carries groups an earlier call found, for a runner
+ * that has since exited. Never signals pid 1's group or this process's own
+ * group. Returns every group signalled. Windows: `taskkill /T` on the shell.
+ */
+export function killTree(root: number, signal: NodeJS.Signals, known: Iterable<number> = []): Set<number> {
+  const groups = new Set<number>([root, ...known]);
+  const procs = processTable();
+  const own = procs?.find(p => p.pid === process.pid)?.pgid;
+  if (procs) for (const p of processTree(root, procs)) groups.add(p.pgid);
+  for (const g of groups) if (g > 1 && g !== own && g !== process.pid) killGroup(g, signal);
+  return groups;
 }
 
 /** The adapter that reads per-file progress from this runner's output, or null when it has none. */
@@ -193,18 +235,19 @@ export function supervise(o: SuperviseOptions): Promise<Supervised> {
     let outcome: Supervised['outcome'] | null = null;
     let settled = false;
     let escalate: ReturnType<typeof setTimeout> | null = null;
+    let killed = new Set<number>();
     const stop = (why: Supervised['outcome']) => {
       if (outcome || !child.pid) return;
       outcome = why;
-      killGroup(child.pid, 'SIGTERM');
-      escalate = setTimeout(() => killGroup(child.pid!, 'SIGKILL'), graceMs);
+      killed = killTree(child.pid, 'SIGTERM');
+      escalate = setTimeout(() => { killed = killTree(child.pid!, 'SIGKILL', killed); }, graceMs);
     };
     const finish = (exit: number | null, signal: string | null, error?: string) => {
       if (settled) return;
       settled = true;
       clearInterval(timer);
       if (escalate) clearTimeout(escalate);
-      if (child.pid) { ACTIVE.delete(child.pid); if (process.platform !== 'win32') killGroup(child.pid, 'SIGKILL'); }
+      if (child.pid) { ACTIVE.delete(child.pid); if (process.platform !== 'win32') { if (outcome) killTree(child.pid, 'SIGKILL', killed); else killGroup(child.pid, 'SIGKILL'); } }
       try { size = fs.statSync(o.log).size; } catch { /* log removed */ }
       readNew();
       const done: Supervised['outcome'] = error ? 'spawn-failed' : (outcome ?? 'exited');
@@ -219,7 +262,7 @@ export function supervise(o: SuperviseOptions): Promise<Supervised> {
       if (outcome) return;
       if (now >= o.deadline) { stop('timeout'); return; }
       if (o.stallMs > 0 && process.platform !== 'win32' && now - cpu.at >= CPU_SAMPLE_MS) {
-        const used = groupCpuMs(child.pid!);
+        const used = treeCpuMs(child.pid!);
         if (used !== null && used - cpu.ms >= CPU_BUSY_SHARE * (now - cpu.at)) lastBusy = now;
         cpu = { at: now, ms: used ?? cpu.ms };
       }

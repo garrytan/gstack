@@ -14,7 +14,7 @@
 #                          Rows and ids: bin/gstack-doctor-components.sh.
 #
 # Rows: install root, rescue refs, state root, bun, hooks, windows bash (on
-# Windows only), codex, codex probe, artifacts sync, browse bundle, binaries,
+# Windows only), codex, codex hooks (when hooks.json holds gstack's), codex probe, artifacts sync, browse bundle, binaries,
 # cso, claude code, session journal, guard log, CLAUDE.md. Each row is
 # `ok`, `warn`, `not configured` or `fail`; a row that is not ok carries a fix
 # line, and every gstack helper in a fix line is an absolute path under this
@@ -206,6 +206,34 @@ check_hooks() {
 
 # check_codex — CODEX_MODE from the free checks; sets CODEX_READY=1 when the
 # probe row should follow.
+# check_codex_hooks — gstack's hooks in Codex's hooks.json (GST-3172) and
+# whether config.toml holds a trust entry for each. Codex skips a hook nobody
+# trusted, silently. gstack-settings-hook trust-status never computes Codex's
+# hash, so "trusted" means an entry exists, not that it matches today's hook.
+# No hooks.json, or no gstack hook in it, prints no row.
+check_codex_hooks() {
+  local file="${CODEX_HOME:-$HOME/.codex}/hooks.json" out line src st summary="" waiting=0
+  [ -f "$file" ] || return 0
+  if ! out=$(GSTACK_HOOKS_FORMAT=codex GSTACK_SETTINGS_FILE="$file" "$BIN/gstack-settings-hook" trust-status </dev/null 2>&1); then
+    row warn "codex hooks" "$(printf '%s\n' "$out" | head -1 | clamp ' -~' 200)" "fix the file named above, then cd $SRC && ./setup --host codex"
+    return 0
+  fi
+  [ -n "$out" ] || return 0
+  while IFS= read -r line; do
+    src=${line%%	*}; st=${line##*	}
+    [ "$st" = trusted ] || waiting=$((waiting + 1))
+    [ "$st" = untrusted ] && st="no trust entry"
+    summary="${summary:+$summary, }${src#gstack-} $st"
+  done <<EOF
+$out
+EOF
+  if [ "$waiting" -gt 0 ]; then
+    row warn "codex hooks" "$summary (Codex skips a hook until it is trusted)" "open Codex and trust them at its startup prompt or in /hooks"
+  else
+    row ok "codex hooks" "$summary (trust entry found; hash not checked)"
+  fi
+}
+
 check_codex() {
   local reviews probe="$BIN/gstack-codex-probe" sel rc model src
   CODEX_READY=0
@@ -630,6 +658,7 @@ check_bun
 check_hooks
 [ "$WINDOWS" -eq 1 ] && check_windows_bash
 check_codex
+check_codex_hooks
 [ "$CODEX_READY" -eq 1 ] && check_codex_probe
 check_sync
 check_browse

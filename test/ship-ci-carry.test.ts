@@ -41,7 +41,9 @@ function world(f: ShipFx, over: { run?: Record<string, unknown>; tree?: Record<s
   fs.writeFileSync(file, JSON.stringify(w));
   f.gh(fakeGhScript(file));
 }
-const preflight = (f: ShipFx, lanes = [`free=${FREE}`, `unit=${UNIT}`]) => f.run(PREFLIGHT, ['--tests-only', '--base', 'main', ...lanes.flatMap(l => ['--lane', l])]);
+const preflight = (f: ShipFx, lanes = [`free=${FREE}`, `unit=${UNIT}`], extra: string[] = []) => f.run(PREFLIGHT, ['--tests-only', '--base', 'main', ...extra, ...lanes.flatMap(l => ['--lane', l])]);
+/** --tests-only with --run-uncarried-here: a mapped lane whose carry refuses runs here (GST-3019; without the flag it stops). */
+const UNCARRIED_HERE = ['--run-uncarried-here'];
 const lane = (out: string, label: string) => out.split('\n').find(l => l.startsWith(`LANE: ${label} `)) ?? '';
 
 describe('Step 5 lanes: CI carry and the tree cache', () => {
@@ -75,7 +77,7 @@ describe('Step 5 lanes: CI carry and the tree cache', () => {
     let expected = 0;
     for (const [reason, setup] of cases) {
       setup();
-      const out = preflight(f, [`free=${FREE}`]).stdout;
+      const out = preflight(f, [`free=${FREE}`], UNCARRIED_HERE).stdout;
       expect([reason, out]).toEqual([reason, expect.stringContaining('CI_CARRY: none label=free (')]);
       expect(out).toContain(reason);
       expect(lane(out, 'free')).toMatch(/^LANE: free pass exit=0 tests_ran=3 /);
@@ -424,7 +426,7 @@ describe('GST-1190: a file whose every test skipped on CI is not carried', () =>
     world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
     expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: inventory_skipped: 1 of 2 inventory file\(s\) skipped every test in CI and the lane declares no per_file runner: test\/b\.test\.ts$/m)]);
-    const out = preflight(f, [`free=${FREE}`]);
+    const out = preflight(f, [`free=${FREE}`], UNCARRIED_HERE);
     expect(out.stdout).toContain('CI_CARRY: none label=free (inventory_skipped');
     expect(runs(f, 'free-runs')).toBe(1);
     world(f, { tree: { skipped_files: [] } });
@@ -538,8 +540,19 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     const rec = f.run(path.join(BIN, 'gstack-evidence'), ['record-ci', '--label', 'free', '--base', 'main', '--', FREE]);
     expect([rec.status, rec.stderr]).toEqual([1, expect.stringMatching(/^CARRY_NONE: skipped_failed: the per_file run of test\/b\.test\.ts exited 1 \(label=free\.skipped\)$/m)]);
     expect(rows(f).filter(r => r.source === 'ci')).toEqual([]);
-    expect(preflight(f, [`free=${FREE}`]).stdout).toContain('CI_CARRY: none label=free (skipped_failed');
+    expect(preflight(f, [`free=${FREE}`], UNCARRIED_HERE).stdout).toContain('CI_CARRY: none label=free (skipped_failed');
     expect(runs(f, 'free-runs')).toBe(1);
+  });
+
+  // Value: protects=--tests-only decides its hold before any lane's record-ci runs a per_file remainder here (GST-3019 review: the hold ran
+  //   remainders, then said nothing ran); fails_when=the carrying lane's skipped file runs while another mapped lane refuses; why_new=GST-3019; seam=fake gh, gstack-ci-carry find
+  test('a refused mapped lane stops --tests-only before another lane runs its skipped remainder here', () => {
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': PROFILE }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'", per_file: PER(0) }, [UNIT]: { profiles: ['ci/free'], jobs: ['lint'] } } }, null, 2) + '\n' }); fixtures.push(f);
+    world(f, { tree: { skipped_files: ['test/b.test.ts'] } });
+    const held = preflight(f);
+    expect(held.status, held.stdout + held.stderr).toBe(3);
+    expect(lineOf(held.stdout, 'STOP')).toMatch(/^STOP: SHIP_LANE_NOT_CARRIED: lane unit did not carry /);
+    expect([args(f), runs(f, 'free-runs'), runs(f, 'unit-runs')]).toEqual(['', 0, 0]);
   });
 
   test('a remainder file that registers no test here carries nothing: the lane runs whole', () => {
@@ -599,7 +612,8 @@ describe('GST-1190: a lane carries the covered files and runs only the skipped r
     expect(args(f).trim().split('\n')).toEqual(SIX.map(([p]) => './' + p));
     const ci = rows(f).find(r => r.source === 'ci');
     expect(ci).toMatchObject({ label: 'free', tests_ran: 1, tests_unit: 'files', skipped_here: { label: 'free.skipped', files: SIX.map(([p]) => p), tests_ran: 0, not_owed: SIX.map(([p]) => p) } });
-    expect(lane(preflight(f, [`free=${FREE}`]).stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=1 (files) skipped_here=6 file(s) tests_ran_here=0 not_owed_here=6');
+    expect(lane(preflight(f, [`free=${FREE}`]).stdout, 'free')).toMatch(/^LANE: free carried run=7\/1 tests_ran=1 \(files\) skipped_here=6 file\(s\) tests_ran_here=0 not_owed_here=6 \(reused the CI record at tree [0-9a-f]{12}\)$/);
+    expect(args(f).trim().split('\n')).toHaveLength(SIX.length);
   });
 
   test('GST-1314: a remainder that mixes a file that ran here with one that registers no test still refuses', () => {
@@ -715,3 +729,112 @@ describe('GSTA-258 L6 review fixes: gate inputs, ledger CI rows, simulate consen
     expect(yes.stdout).toContain('SIMULATION: LANE: free would carry run=7/1 tests_ran=2 unit=files');
   });
 });
+
+describe('GST-3019: a commit that changes no file carries the green run of the commit with its tree', () => {
+  // Value: protects=a base merge that changed no file reuses the passed CI run of the identical tree, and every surface says which commit and run it came from
+  //   (gbrain #9662: 0dc0d1d, tree 369fa767, printed no_run beside 5840295's green run); fails_when=find, wait or Step 5 reads HEAD's sha alone, or a changed tree,
+  //   an unmapped command or a red run carries; why_new=GST-3019; seam=fake gh, git rev-list and rev-parse in the fixture
+  test('find, wait and Step 5 carry from the earlier commit and name it; a changed tree, another command or a red run does not', () => {
+    const f = fx();
+    world(f);
+    const before = f.git('rev-parse', 'HEAD').stdout.trim();
+    const tree = f.git('rev-parse', 'HEAD^{tree}').stdout.trim();
+    expect(f.git('commit', '--allow-empty', '-m', 'merge main: no file changes').status).toBe(0);
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    expect([head !== before, f.git('rev-parse', 'HEAD^{tree}').stdout.trim()]).toEqual([true, tree]);
+    const cli = (args: string[]) => f.run(path.join(BIN, 'gstack-ci-carry'), args);
+    const found = cli(['find', '--base', 'main', '--command', FREE, '--allow-repo-commands']);
+    expect([found.status, lineOf(found.stdout, 'CI_CARRY')]).toEqual([0, expect.stringMatching(new RegExp(`^CI_CARRY: accepted ci-carry tree=${tree.slice(0, 12)} files=2 runs=7/1 profiles=ci/free heads=${before.slice(0, 12)} `))]);
+    expect(lineOf(found.stdout, 'CI_CARRY_FROM')).toBe(`CI_CARRY_FROM: run 7/1 at commit ${before.slice(0, 12)}, not HEAD ${head.slice(0, 12)}; git rev-parse reads the same tree ${tree.slice(0, 12)} for both`);
+    expect(cli(['wait', '--base', 'main', '--timeout', '0']).stdout).toContain('CI_WAIT: green ci/free run=7/1');
+    const step5 = preflight(f, [`free=${FREE}`]);
+    expect([step5.status, lane(step5.stdout, 'free')]).toEqual([0, `LANE: free carried run=7/1 tests_ran=2 (files) from=${before.slice(0, 12)} (same tree as HEAD)`]);
+    expect(runs(f, 'free-runs')).toBe(0);
+    expect(cli(['find', '--base', 'main', '--command', 'bun run test', '--allow-repo-commands']).stdout).toContain('CI_CARRY: none (not_mapped');
+    world(f, { run: { head_sha: before, conclusion: 'failure' }, tree: { sha: before } });
+    expect(cli(['find', '--base', 'main', '--command', FREE, '--allow-repo-commands']).stdout).toContain('CI_CARRY: none (no_verified_run: ci/free: run 7: run_not_success');
+    world(f, { run: { head_sha: before, conclusion: 'cancelled' }, tree: { sha: before } });
+    expect(cli(['find', '--base', 'main', '--command', FREE, '--allow-repo-commands']).stdout).toContain('run 7: run_not_success');
+    world(f, { run: { head_sha: before }, tree: { sha: before } });
+    f.write({ 'src/c.ts': 'export const c = 1;\n' });
+    expect(f.git('add', '-A').status).toBe(0);
+    expect(f.git('commit', '-m', 'a real change').status).toBe(0);
+    expect(cli(['find', '--base', 'main', '--command', FREE, '--allow-repo-commands']).stdout).toContain('CI_CARRY: none (no_run: no free.yml run (pull_request, workflow_dispatch) on ');
+  });
+});
+
+describe('GST-3019: --tests-only never starts a lane on its own when its carry refuses', () => {
+  // Value: protects=a refused carry under --tests-only stops with SHIP_LANE_NOT_CARRIED and the next command instead of quietly running the lane here
+  //   (gbrain #9662: a 50-minute unit lane on a 4-CPU box); fails_when=the mapped lane or any other lane runs, the stop has no code, or --run-uncarried-here
+  //   does not run it; why_new=GST-3019; seam=fake gh, gstack-evidence ledger
+  test('a refused carry stops before any lane runs and names the CI dispatch; --run-uncarried-here runs it here', () => {
+    const f = fx();
+    world(f, { run: { head_sha: '0'.repeat(40) } });
+    const branch = f.git('branch', '--show-current').stdout.trim();
+    const held = preflight(f);
+    expect(held.status).toBe(3);
+    expect(held.stdout).toContain('CI_CARRY: none label=free (no_run: ');
+    expect(lineOf(held.stdout, 'STOP')).toBe('STOP: SHIP_LANE_NOT_CARRIED: lane free did not carry from a verified CI run at this tree, and preflight never starts a mapped lane on its own: nothing ran here (docs/troubleshooting.md#ship-lane-not-carried)');
+    expect(held.stdout).toContain(`NEXT: commit and push this tree, then gh workflow run free.yml --ref ${branch} and gstack-ci-carry wait --base main; once it prints CI_WAIT: green, rerun this command`);
+    expect(held.stdout).toContain('NEXT: or rerun this command with --run-uncarried-here to run lane free on this machine');
+    expect([runs(f, 'free-runs'), runs(f, 'unit-runs')]).toEqual([0, 0]);
+    const here = preflight(f, undefined, UNCARRIED_HERE);
+    expect(here.status).toBe(0);
+    expect(here.stdout).toContain('CI_CARRY: none label=free (no_run: ');
+    expect(lane(here.stdout, 'free')).toMatch(/^LANE: free pass exit=0 tests_ran=3 /);
+    expect([runs(f, 'free-runs'), runs(f, 'unit-runs')]).toEqual([1, 1]);
+    expect(f.run(PREFLIGHT, ['--base', 'main', '--run-uncarried-here', '--lane', `free=${FREE}`]).status).toBe(0);
+  });
+});
+
+describe('HARN-118: a run with no artifact carries from the one tree.json line its named step logged', () => {
+  const STEP = 'Print tree.json';
+  const LOGGED = { ...BASE, '.gstack/pregate.json': JSON.stringify({ run_profiles: { 'ci/free': { ...PROFILE, tree_log_step: STEP } }, ship_lanes_from: { [FREE]: { profiles: ['ci/free'], inventory: "printf 'test/a.test.ts\\ntest/b.test.ts\\n'" } } }, null, 2) + '\n' };
+  /** Run 7 green with no artifact; job 70's named step logs `printed` (the real line unless overridden) 1.5 s after the test step ended. */
+  function logWorld(f: ShipFx, printed?: (rec: string) => string[]) {
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const tree = f.git('rev-parse', 'HEAD^{tree}').stdout.trim();
+    const t0 = Math.floor(Date.now() / 1000) * 1000 - 10 * 60_000;
+    const s = (sec: number) => new Date(t0 + sec * 1000).toISOString().replace('.000Z', 'Z');
+    const stamp = (sec: number) => new Date(t0 + sec * 1000).toISOString().replace('Z', '0000Z');
+    const rec = Buffer.from(JSON.stringify({ run_id: 7, run_attempt: 1, event: 'workflow_dispatch', sha: head, tree, files: ['test/a.test.ts', 'test/b.test.ts'], tests: 12, os: 'Linux' })).toString('base64');
+    const steps = [
+      { number: 1, name: 'Run tests', conclusion: 'success', started_at: s(0), completed_at: s(60) },
+      { number: 2, name: STEP, conclusion: 'success', started_at: s(60), completed_at: s(63) },
+    ];
+    const run = { id: 7, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'workflow_dispatch', head_sha: head, path: '.github/workflows/free.yml', created_at: s(-5), run_started_at: s(-5), updated_at: s(64), repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
+    const lines = printed ? printed(rec) : [`${stamp(61.5)} GSTACK_TREE_JSON tested-tree ${rec}`];
+    const w: FakeWorld = { runs: [run] as FakeWorld['runs'], jobs: { 7: [{ id: 70, name: 'suite', conclusion: 'success', started_at: s(0), completed_at: s(63), steps }] }, trees: {},
+      logs: { 70: [`${stamp(0)} ##[group]Run bun test`, ...lines, `${stamp(63.5)} Cleaning up orphan processes`].join('\n') } };
+    const file = path.join(f.root, 'world.json');
+    fs.writeFileSync(file, JSON.stringify(w));
+    f.gh(fakeGhScript(file));
+  }
+
+  // Value: protects=HARN-118: a green run whose artifact upload hit the storage quota carries end to end and says so on LANE, CI_CARRIED and the receipt's entry;
+  //   fails_when=the lane runs here beside a green run, or the carried entry hides where tree.json came from; why_new=harness-evals #501 run 44577938128 (0 artifacts); seam=fake gh, gstack-evidence ledger
+  test('the lane carries with tree_source=job-log, and carried --json records it per run', () => {
+    const f = shipFixture(LOGGED);
+    fixtures.push(f);
+    logWorld(f);
+    const out = preflight(f, [`free=${FREE}`]);
+    expect(out.status).toBe(0);
+    expect(lane(out.stdout, 'free')).toBe('LANE: free carried run=7/1 tests_ran=2 (files) tree_source=job-log');
+    expect(runs(f, 'free-runs')).toBe(0);
+    const carried = f.run(path.join(BIN, 'gstack-evidence'), ['carried', '--base', 'main', '--json']);
+    expect(JSON.parse(carried.stdout)).toEqual([expect.objectContaining({ lane: 'free', run: 7, attempt: 1, tree_source: 'job-log' })]);
+    expect(f.run(path.join(BIN, 'gstack-evidence'), ['carried', '--base', 'main']).stdout).toMatch(/^CI_CARRIED: free run=7\/1 tree=[0-9a-f]{12} tree_source=job-log$/m);
+  });
+
+  // Value: protects=the forged-line control through the real gh-backed reader; fails_when=a line a test printed during the test step carries
+  test('a line a test printed during the test step runs the lane here', () => {
+    const f = shipFixture(LOGGED);
+    fixtures.push(f);
+    logWorld(f, rec => [`${new Date(Math.floor(Date.now() / 1000) * 1000 - 10 * 60_000 + 30_000).toISOString().replace('Z', '0000Z')} GSTACK_TREE_JSON tested-tree ${rec}`]);
+    const out = preflight(f, [`free=${FREE}`], UNCARRIED_HERE);
+    expect(out.stdout).toContain('tree_log_unbound');
+    expect(lane(out.stdout, 'free')).toMatch(/^LANE: free pass exit=0 tests_ran=3 /);
+    expect(runs(f, 'free-runs')).toBe(1);
+  });
+});
+

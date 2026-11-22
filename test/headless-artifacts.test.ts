@@ -2,7 +2,9 @@
  * B0: the unattended artifact contract. Pins the wire contract (schema
  * versions, ids, hashes, the GSTACK_RESULT grammar, exit codes, reason codes)
  * on the plan branch's own hand-written run (test/fixtures/multi-agent-wave/
- * reference-run) and on mutations of it, never on prose.
+ * reference-run) and on mutations of it, never on prose. That run is a
+ * structural fixture: gstack-autoplan never wrote it, so the CLI refuses it
+ * (test/artifact-writer-check.test.ts).
  */
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -14,6 +16,8 @@ import {
   renderUrgentBlock, urgentBlockPrecedes, validateRun, validateFile,
 } from '../lib/headless-artifacts';
 import { RESULT_CODES } from '../lib/result-codes';
+import { GUARD_ENFORCED_LINE } from '../lib/autoplan-guard-status';
+import { autoplan, recCarrying, runPhase, startSmallRun } from './helpers/autoplan-run-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-artifact');
@@ -44,20 +48,23 @@ const codes = (file: string) => validateRun(file).errors.map(e => e.code);
 const sha = (file: string) => require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 describe('reference run (the plan branch artifacts)', () => {
-  test('validates: the hand-written v1 shapes are the contract', () => {
+  test('the hand-written v1 shapes pass the structural contract; the CLI refuses them as a run gstack-autoplan never wrote (GST-3090)', () => {
     const result = validateRun(path.join(REFERENCE, 'run.json'));
     expect(result.errors).toEqual([]);
     expect(result.valid).toBe(true);
     expect(result.manifest!.run).toBe('maw-20261010');
     const r = run(['validate', path.join(REFERENCE, 'run.json')]);
-    expect(r.code).toBe(EXIT.ok);
-    expect(r.out.trim()).toBe('ARTIFACT_VALID: run=maw-20261010 status=complete');
+    expect(r.code).toBe(EXIT.fail);
+    expect(r.err).toContain('(ARTIFACT_NOT_AUTOPLAN_RUN)');
+    expect(r.out.trim()).toMatch(/^ARTIFACT_INVALID: \d+ error\(s\)$/);
   });
 
   test('--json: JSON only on stdout, {valid, errors:[{code,path,message}]}', () => {
     const r = run(['validate', path.join(REFERENCE, 'run.json'), '--json']);
     const parsed = JSON.parse(r.out);
-    expect(parsed).toMatchObject({ valid: true, run: 'maw-20261010', status: 'complete', errors: [] });
+    expect(parsed).toMatchObject({ valid: false, run: 'maw-20261010', status: 'complete' });
+    expect(parsed.errors.length).toBeGreaterThan(0);
+    for (const e of parsed.errors) expect(Object.keys(e).sort()).toEqual(['code', 'message', 'path']);
     expect(r.err).toBe('');
   });
 
@@ -186,6 +193,21 @@ describe('validate fails on', () => {
     expect(r.out.trim()).toBe('ARTIFACT_INVALID: 1 error(s)');
   });
 
+  test('an unattended run whose review-record.md lacks its guard line; GUARD_ENFORCED counts as one (GST-3062)', () => {
+    const enforced = copyRun((m, dir) => {
+      m.session_kind = 'unattended';
+      fs.writeFileSync(path.join(dir, 'review-record.md'), `# Review record\nDeviation: ${GUARD_ENFORCED_LINE}\n`);
+      m.artifacts['review-record.md'] = { path: 'review-record.md', sha256: sha(path.join(dir, 'review-record.md')) };
+    });
+    expect(codes(enforced)).toEqual([]);
+    const bareCode = copyRun((m, dir) => {
+      m.session_kind = 'unattended';
+      fs.writeFileSync(path.join(dir, 'review-record.md'), '# Review record\nThe GUARD_ENFORCED_LINE constant is defined in lib.\n');
+      m.artifacts['review-record.md'] = { path: 'review-record.md', sha256: sha(path.join(dir, 'review-record.md')) };
+    });
+    expect(codes(bareCode)).toEqual(['ARTIFACT_GUARD_LINE_MISSING']);
+  });
+
   test('an unattended run whose review-record.md lacks the GUARD_NOT_INSTALLED line', () => {
     const without = copyRun((m, dir) => {
       m.session_kind = 'unattended';
@@ -267,11 +289,17 @@ describe('ack', () => {
   });
 
   test('bin: records through the state root, says so when the root is ephemeral, refuses an invalid run', () => {
-    const file = copyRun();
+    const out = startSmallRun(path.join(tmp, 'real'));
+    runPhase(out, 'ceo');
+    runPhase(out, 'eng');
+    expect(autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', recCarrying(out)]).status).toBe(0);
+    expect(autoplan(['export', '--out', out]).status).toBe(0);
+    const file = path.join(out, 'run.json');
+    const id = JSON.parse(fs.readFileSync(file, 'utf8')).run;
     const state = path.join(tmp, 'state');
     const r = run(['ack', file, '--consumer', 'thread-a'], { GSTACK_STATE_ROOT: state });
     expect(r.code).toBe(EXIT.ok);
-    expect(r.out.trim()).toBe('ARTIFACT_ACK: run=maw-20261010 consumer=thread-a recorded analytics=appended');
+    expect(r.out.trim()).toBe(`ARTIFACT_ACK: run=${id} consumer=thread-a recorded analytics=appended`);
     expect(fs.existsSync(path.join(state, 'analytics', 'autoplan-timing.jsonl'))).toBe(true);
     const eph = run(['ack', file, '--consumer', 'thread-b', '--json'], { GSTACK_STATE_ROOT: path.join(tmp, 'state2'), GSTACK_EPHEMERAL: '1' });
     expect(eph.code).toBe(EXIT.ok);
@@ -283,6 +311,11 @@ describe('ack', () => {
     expect(refused.code).toBe(EXIT.refused);
     expect(refused.err).toContain('nothing written');
     expect(JSON.parse(fs.readFileSync(invalid, 'utf8')).consumed_by).toBeUndefined();
+    const handWritten = copyRun();
+    const forged = run(['ack', handWritten, '--consumer', 'thread-d'], { GSTACK_STATE_ROOT: state });
+    expect(forged.code).toBe(EXIT.refused);
+    expect(forged.err).toContain('(ARTIFACT_NOT_AUTOPLAN_RUN)');
+    expect(JSON.parse(fs.readFileSync(handWritten, 'utf8')).consumed_by).toBeUndefined();
   });
 });
 

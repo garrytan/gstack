@@ -57,6 +57,9 @@ SEC_CONFIDENCE=""
 SEC_LAYER=""
 SEC_VERDICT=""
 NO_SWEEP=""
+# Next-telemetry fields (docs/privacy.md): fixed lists, a random session id, versions.
+HOST=""; MODEL_FAMILY=""; INVOKED=""; EXIT_REASON=""; CHECKS=""; ROUTING=""
+HARNESS_SESSION=""; FROM_VERSION=""; UPGRADE_ERROR=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -77,15 +80,35 @@ while [ $# -gt 0 ]; do
     --confidence)    SEC_CONFIDENCE="$2"; shift 2 ;;
     --layer)         SEC_LAYER="$2"; shift 2 ;;
     --verdict)       SEC_VERDICT="$2"; shift 2 ;;
+    --host)            HOST="$2"; shift 2 ;;
+    --model-family)    MODEL_FAMILY="$2"; shift 2 ;;
+    --invoked)         INVOKED="$2"; shift 2 ;;
+    --exit-reason)     EXIT_REASON="$2"; shift 2 ;;
+    --checks)          CHECKS="$2"; shift 2 ;;
+    --routing)         ROUTING="$2"; shift 2 ;;
+    --harness-session) HARNESS_SESSION="$2"; shift 2 ;;
+    --from-version)    FROM_VERSION="$2"; shift 2 ;;
+    --upgrade-error)   UPGRADE_ERROR="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
 
-# Source: flag > env > default 'live'
-SOURCE="${SOURCE:-${GSTACK_TELEMETRY_SOURCE:-live}}"
+# Source: flag > GSTACK_TELEMETRY_SOURCE > an eval run (the eval harness sets
+# EVALS_RUN_ID or GSTACK_EVAL_DIR) > CI > Capy (GSTACK_CAPY=1, gstack's own
+# use on Capy: capy, or gt from the owner's preferences file, never free text)
+# > live. An explicit value always wins, so CI=true never relabels a row a test
+# marked source=test, and an eval lane on Capy stays eval.
+if [ -z "$SOURCE" ]; then
+  if [ -n "${GSTACK_TELEMETRY_SOURCE:-}" ]; then SOURCE="$GSTACK_TELEMETRY_SOURCE"
+  elif [ -n "${EVALS_RUN_ID:-}" ] || [ -n "${GSTACK_EVAL_DIR:-}" ]; then SOURCE="eval"
+  elif [ "${CI:-}" = "true" ]; then SOURCE="ci"
+  elif [ "${GSTACK_CAPY:-}" = "1" ]; then SOURCE="$("$GSTACK_DIR/bin/gstack-telemetry-tier" --source 2>/dev/null || echo capy)"
+  else SOURCE="live"; fi
+fi
 
 # ─── Read telemetry tier ─────────────────────────────────────
-TIER="$("$CONFIG_CMD" get telemetry 2>/dev/null || true)"
+# gstack-telemetry-tier adds the Capy opt-in to this machine's setting.
+TIER="$("$GSTACK_DIR/bin/gstack-telemetry-tier" 2>/dev/null || "$CONFIG_CMD" get telemetry 2>/dev/null || true)"
 TIER="${TIER:-off}"
 
 # Validate tier
@@ -98,6 +121,17 @@ if [ "$TIER" = "off" ]; then
   # Still clear pending markers for this session even if telemetry is off
   [ -n "$SESSION_ID" ] && rm -f "$PENDING_DIR/.pending-$SESSION_ID" 2>/dev/null || true
   exit 0
+fi
+
+# One row per onboarding step and outcome per install a day: setup sends its step on
+# every run, so anything rerunning ./setup in a loop repeated it hundreds of times an hour.
+# The day's marker is claimed with noclobber (O_EXCL), so concurrent runs send it once.
+if [ "$EVENT_TYPE" = "onboarding" ]; then
+  OB_NAME="$(printf '%s' "$SKILL" | tr -cd 'A-Za-z0-9_-')--$(printf '%s' "$OUTCOME" | tr -cd 'A-Za-z0-9_-')"
+  OB_MARKER="$ANALYTICS_DIR/.onboarding-$OB_NAME-$(date -u +%Y-%m-%d)"
+  mkdir -p "$ANALYTICS_DIR" 2>/dev/null
+  ( set -C; : > "$OB_MARKER" ) 2>/dev/null || exit 0 # best-effort: another run already recorded this step today
+  for _ob in "$ANALYTICS_DIR"/.onboarding-"$OB_NAME"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do [ "$_ob" = "$OB_MARKER" ] || rm -f "$_ob"; done
 fi
 
 # ─── Finalize stale .pending markers ────────────────────────
@@ -272,12 +306,34 @@ SEC_LAYER_FIELD="null"
 SEC_VERDICT_FIELD="null"
 [ -n "$SEC_VERDICT" ] && SEC_VERDICT_FIELD="\"$SEC_VERDICT\""
 
-printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"error_message":%s,"failed_step":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"source":"%s","security_url_domain":%s,"security_payload_hash":%s,"security_confidence":%s,"security_layer":%s,"security_verdict":%s,"_repo_slug":"%s","_branch":"%s"}\n' \
+# Next-telemetry fields: an empty value is null; a value off its fixed list is
+# "unknown", so nothing free-form ever leaves the machine.
+enum_field() { # <value> <allowed values...>
+  local v="$1"; shift
+  [ -z "$v" ] && { printf 'null'; return; }
+  local a; for a in "$@"; do [ "$v" = "$a" ] && { printf '"%s"' "$v"; return; }; done
+  printf '"unknown"'
+}
+HOST_FIELD="$(enum_field "$HOST" claude_code codex cursor openclaw hermes other)"
+MODEL_FIELD="$(enum_field "$MODEL_FAMILY" claude_opus claude_sonnet claude_haiku claude_other gpt gemini other)"
+INVOKED_FIELD="$(enum_field "$INVOKED" user model chained)"
+EXIT_FIELD="$(enum_field "$EXIT_REASON" completed user_stopped blocked tool_error test_failed context_limit gave_up)"
+CHECKS_FIELD="$(enum_field "$CHECKS" passed failed not_run)"
+ROUTING_FIELD="$(enum_field "$ROUTING" none block hooks both)"
+UPGRADE_ERR_FIELD="$(enum_field "$UPGRADE_ERROR" none refused_dirty busy fetch_failed setup_failed other)"
+HSESS_FIELD="null"
+case "$HARNESS_SESSION" in *[!0-9a-f]*|'') ;; *) [ ${#HARNESS_SESSION} -eq 16 ] && HSESS_FIELD="\"$HARNESS_SESSION\"" ;; esac
+FROM_FIELD="null"
+if printf '%s' "$FROM_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then FROM_FIELD="\"$FROM_VERSION\""; fi
+
+printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"error_message":%s,"failed_step":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"source":"%s","security_url_domain":%s,"security_payload_hash":%s,"security_confidence":%s,"security_layer":%s,"security_verdict":%s,"host":%s,"model_family":%s,"invoked":%s,"exit_reason":%s,"checks":%s,"routing":%s,"harness_session_id":%s,"from_version":%s,"upgrade_error":%s,"_repo_slug":"%s","_branch":"%s"}\n' \
   "$TS" "$EVENT_TYPE" "$SKILL" "$SESSION_ID" "$GSTACK_VERSION" "$OS" "$ARCH" \
   "$DUR_FIELD" "$OUTCOME" "$ERR_FIELD" "$ERR_MSG_FIELD" "$STEP_FIELD" \
   "$BROWSE_BOOL" "${SESSIONS:-1}" \
   "$INSTALL_FIELD" "$SOURCE" \
   "$SEC_DOMAIN_FIELD" "$SEC_HASH_FIELD" "$SEC_CONF_FIELD" "$SEC_LAYER_FIELD" "$SEC_VERDICT_FIELD" \
+  "$HOST_FIELD" "$MODEL_FIELD" "$INVOKED_FIELD" "$EXIT_FIELD" "$CHECKS_FIELD" "$ROUTING_FIELD" \
+  "$HSESS_FIELD" "$FROM_FIELD" "$UPGRADE_ERR_FIELD" \
   "$REPO_SLUG" "$BRANCH" >> "$JSONL_FILE" 2>/dev/null || true
 
 # ─── Trigger sync if tier is not off ─────────────────────────

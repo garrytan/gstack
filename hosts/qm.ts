@@ -1,5 +1,5 @@
 /**
- * QM edition: three gstack skills in QM's own skill format.
+ * QM edition: one gstack skill (gstack-plan) in QM's own skill format.
  *
  * QM (a work assistant) lists skills in a name-and-description index with a
  * 12,000-char budget and loads a body only when the agent asks for it through
@@ -10,7 +10,7 @@
  * install hook, so every command a skill names is a POSIX utility, git, or a
  * POSIX sh script shipped inside the skill.
  *
- * This is not a HostConfig in hosts/index.ts: it renders three skills by
+ * This is not a HostConfig in hosts/index.ts: it renders its skills by
  * section selection, without the shared preamble, instead of the whole
  * catalog through gen-skill-docs. scripts/gen-qm-edition.ts reads this spec
  * and writes qm/sandbox/skills/<id>/ plus qm/edition.json; test/qm-edition.test.ts enforces the
@@ -89,107 +89,7 @@ export const QM_EDITION = {
   skills: [] as QmSkill[],
 };
 
-/**
- * QM rewrites the literal text `skills/<name>/` in SKILL.md to the absolute
- * folder its `skill` tool synced the files into (materialize.ts:22-33), and
- * the shell starts in the workspace root with scripts not executable, so a
- * skill runs its script as `sh skills/<id>/scripts/<file>`.
- */
-export const qmScriptCommand = (id: string, script: string, args = ''): string =>
-  ['sh', `skills/${id}/scripts/${script}`, args].filter(Boolean).join(' ');
-
-
 QM_EDITION.skills.push(
-  {
-    id: 'gstack-investigate',
-    source: 'investigate',
-    description: 'Use when a test fails, code errors or output is wrong: find and prove the root cause before any fix, then fix it with a regression test. (gstack)',
-    header: [
-      '# Investigate: root cause before any fix',
-      '',
-      '**Start here, before reading code.** In the repository (`cd` into it first: the shell starts in the workspace root), run with `execute`, adding the failing file or directory if you know it:',
-      '',
-      '```sh',
-      'git status --short',
-      'git log --oneline -20 -- <path>',
-      '```',
-      '',
-      'Then reproduce the symptom with the project\'s own test or run command, and write down what you saw, before you form a hypothesis.',
-    ].join('\n'),
-    parts: [
-      { file: 'investigate/SKILL.md.tmpl', heading: 'Iron Law', level: 2 },
-      { file: 'investigate/SKILL.md.tmpl', heading: 'How to work', level: 2 },
-      { file: 'investigate/sections/race.md.tmpl', heading: 'Race recipe', level: 2 },
-      {
-        file: 'investigate/SKILL.md.tmpl', heading: 'Report', level: 2,
-        dropBlocks: ['Scope Lock', 'Log the investigation as a learning', 'gstack-learnings-log'],
-      },
-      { file: 'investigate/SKILL.md.tmpl', heading: 'Important Rules', level: 2 },
-    ],
-    firstStep: { command: 'git log --oneline -20 -- <path>', marker: '\\bgit\\s+log\\b' },
-    scripts: {},
-  },
-  {
-    id: 'gstack-review',
-    source: 'review',
-    description: 'Use before merging a branch or PR: review the diff for bugs that pass CI but break production, fix the obvious ones and ask about the rest. (gstack)',
-    header: [
-      '# Review: find what passes CI but breaks in production',
-      '',
-      '**Start here.** In the repository (`cd` into it first: the shell starts in the workspace root), run with `execute` (pass the base branch if you know it):',
-      '',
-      '```sh',
-      qmScriptCommand('gstack-review', 'diff-base.sh', '<base>'),
-      '```',
-      '',
-      'It prints the base, the merge base, the commits since the base and the diff stat, then `NEXT: git diff <merge base>`; run that and read the whole diff and every untracked file before you comment (on `UNTRACKED_MORE:`, list the rest with the command it names). On `NOTHING_TO_REVIEW`, say so and stop. On `BASE: none`, ask the user for the base branch or review the uncommitted changes it shows.',
-      '',
-      'QM fills in the absolute path of the folder its `skill` tool synced (it prints that path too). If the script is missing, run this instead:',
-      '',
-      '```sh',
-      'git merge-base origin/main HEAD',
-      'git diff --stat <merge-base>',
-      '```',
-      '',
-      '## How to review',
-      '',
-      '1. Read the full diff, then the unchanged callers of anything it changes.',
-      '2. Apply the CRITICAL categories, then the INFORMATIONAL ones, below. Respect the suppressions.',
-      '3. Classify each finding with the Fix-First Heuristic: fix AUTO-FIX items directly; for ASK items, ask the user in one message (a numbered list, each with a recommended fix) and stop until they answer.',
-      '4. Verify each claim (below), then report: `CRITICAL` and `INFORMATIONAL` lists, one line problem and one line fix each, with file:line, then what you fixed. `NO FINDINGS` is a complete result.',
-    ].join('\n'),
-    parts: [
-      {
-        file: 'review/checklist.md', heading: 'Review Categories', level: 2,
-        dropBlocks: ['gstack-timing-ok', 'CC+gstack'],
-        replaceText: [["route it to /investigate's flake recipe (timing flakes)", 'find its cause first (gstack-investigate)']],
-        skipHeadings: [
-          'Gate Integrity', 'Approval Classes and Data Repairs', 'Dead Code & Consistency (version/changelog only — other items handled by maintainability specialist)',
-          'Keyboard-Count Test Loops', 'Distribution & CI/CD Pipeline', 'Repo Conventions & Platform Fit (runs on every PR type)',
-        ],
-      },
-      {
-        file: 'review/checklist.md', heading: 'Fix-First Heuristic', level: 2,
-        dropBlocks: ['This heuristic is referenced by', 'Severity glossary', '**blocker**', '**should**', '**nit**'],
-        replaceText: [
-          ['├─ Anything changing user-visible', '└─ Anything changing user-visible'],
-          ['│  behavior\n                                           └─ Gate Integrity (always ASK; four\n                                              gate options, never Fix/Skip)', '   behavior'],
-        ],
-      },
-      {
-        file: 'review/checklist.md', heading: 'Suppressions — DO NOT flag these', level: 2,
-        dropBlocks: ['Eval threshold changes', 'gstack-shortcut'],
-      },
-      { file: 'review/SKILL.md.tmpl', heading: 'Verification of claims', level: 2 },
-      {
-        file: 'review/SKILL.md.tmpl', heading: 'Important Rules', level: 2,
-        dropBlocks: ['greptile-triage.md', 'Optional extractions stay advisory'],
-        replaceText: [["that's /ship's job", 'leave that to the user']],
-      },
-    ],
-    firstStep: { command: qmScriptCommand('gstack-review', 'diff-base.sh', '<base>'), marker: 'diff-base\\.sh|\\bgit\\s+(diff|merge-base)\\b' },
-    scripts: { 'diff-base.sh': 'diff-base.sh' },
-  },
   {
     id: 'gstack-plan',
     source: 'plan-eng-review',

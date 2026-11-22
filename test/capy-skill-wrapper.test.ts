@@ -51,7 +51,7 @@ const STUB_INSTALLER = [
 
 /** What bin/gstack-capy-session's self-upgrade runs: bin/gstack-upgrade and its sourced helpers. */
 const UPGRADE_DEPS = [
-  'bin/gstack-upgrade', 'bin/gstack-bun-version.sh', 'bin/gstack-paths', 'bin/gstack-state-root.sh',
+  'bin/gstack-upgrade', 'bin/gstack-bun-version.sh', 'bin/gstack-paths', 'bin/gstack-state-root.sh', 'bin/gstack-lock.sh',
   'bin/gstack-egress-lib.sh', 'bin/gstack-egress-receipt', 'lib/egress-receipt.ts', 'lib/state-root.ts',
   'bin/gstack-lease', 'bin/gstack-harness-pid.sh',
   // Sourced by gstack-upgrade: without gstack-config in the fixture it resolves main unless GSTACK_UPDATE_CHANNEL says stable.
@@ -680,11 +680,21 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     return [...new Set(problems)];
   }
 
-  test('it fits the 3,450-byte budget, and every citation, heading and skill it names resolves', () => {
+  test('it fits the 4,400-byte budget, and every citation, heading and skill it names resolves', () => {
     const text = fs.readFileSync(FACTORY, 'utf8');
     // 3,300 since #3634; raised to 3,450 (the page's new size, rounded up to the next 25 bytes) for point 12's
     // R68 clause (Garry, 2026-11-03: crew threads ask their Captain for new threads). Raise it only by what a rule needs.
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(3450);
+    // 3,475 for the crew/ prefix on its four Captain-manual citations (GST-1833 moved docs/captain.md to crew/docs/; no rule text changed).
+    // 3,650 for point 2's one-open-PR-per-lane rule and point 12's no-orphan and close-reason rule (GST-2077, Garry's "do it" 2026-11-09: lessons from gbrain's merge queue).
+    // 4,200 for point 12's keep-the-PR-to-the-end and standing-thread rotation clause and point 14's cap of 10 finished PRs before a new fix thread (Garry's "do it" 2026-11-09, relayed by FOUN-32).
+    // 4,400 for point 10's report shape, Failed or skipped / Unverified / Also changed lines first, and its pointer to ETHOS.md section 8 for
+    // findings write-ups (GST-1455, Garry's "do it" 2026-11-05 on R73; the clause is the wording GEVA-2's dev climb measured, so it is not trimmed).
+    // 4,875 for the token lines halved (500M check-in, 250M standing rotation, 50M subagent look; Capy's token counts read about
+    // half since 2026-11-15), point 4's go-forward rule, point 6's relay clause and point 15's subagent rule (crew rules R70, R104,
+    // R105 and R109, each the owner's standing rule).
+    // 5,050 for point 7's two clauses that a green fake or dry run isn't done and that a check must see the change and count
+    // what its name says (the second batch of crew rules, G4 and G10, each reached by three crews on their own).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(5050);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });
@@ -700,7 +710,7 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
 
   test('negative controls: a missing file, a missing heading and an unknown skill are each caught', () => {
     expect(citationProblems('[docs/no-such-page.md: Anything]')).toEqual(['missing file docs/no-such-page.md']);
-    expect(citationProblems('[docs/captain.md: No Such Heading]')).toEqual(['missing heading docs/captain.md: No Such Heading']);
+    expect(citationProblems('[crew/docs/captain.md: No Such Heading]')).toEqual(['missing heading crew/docs/captain.md: No Such Heading']);
     expect(citationProblems('[/no-such-skill]')).toEqual(['unknown skill /no-such-skill']);
     expect(citationProblems('see capy/no-such.md')).toEqual(['missing file capy/no-such.md']);
   });
@@ -784,9 +794,9 @@ describe('capy skill: a checkout more than 24 hours behind origin (R75)', () => 
     return f;
   };
 
-  // Value: protects=a checkout whose oldest missing commit is over 24h old is flagged stale on --check with the fast-forwarding install as its fix (no longer
-  // a bare informational behind=), and the install at the workflow boundary fast-forwards it; an hour behind stays plain behind=; fails_when=--check
-  // leaves a day-old checkout informational, or the boundary install does not move it; why_new=R75; seam=C's commit date; no_claim=GitHub's main
+  // Value: protects=a checkout whose oldest missing commit is over 24h old is flagged stale on --check with the fast-forwarding install as its fix,
+  // and the install at the workflow boundary fast-forwards it; an hour behind stays plain behind=; fails_when=--check
+  // leaves a day-old checkout unflagged, or the boundary install does not move it; why_new=R75; seam=C's commit date; no_claim=GitHub's main
   test('25 hours behind: --check notes stale=25h with the install as its fix and moves nothing; the install fast-forwards; an hour behind is not stale', () => {
     const f = behindBy(25);
     const check = f.run(['--check', '--for', 'autoplan']);

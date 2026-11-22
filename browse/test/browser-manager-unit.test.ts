@@ -54,14 +54,14 @@ describe('shouldEnableChromiumSandbox', () => {
     setPlatform('darwin');
     process.getuid = (() => 501) as typeof process.getuid;
     const { shouldEnableChromiumSandbox } = await import('../src/browser-manager');
-    expect(shouldEnableChromiumSandbox()).toBe(true);
+    expect(shouldEnableChromiumSandbox(() => false)).toBe(true);
   });
 
   it('linux, no CI/CONTAINER/root → true', async () => {
     setPlatform('linux');
     process.getuid = (() => 1000) as typeof process.getuid;
     const { shouldEnableChromiumSandbox } = await import('../src/browser-manager');
-    expect(shouldEnableChromiumSandbox()).toBe(true);
+    expect(shouldEnableChromiumSandbox(() => false)).toBe(true);
   });
 
   it('win32 → false (sandbox fails in Bun→Node→Chromium chain)', async () => {
@@ -116,7 +116,7 @@ describe('shouldEnableChromiumSandbox', () => {
     process.env.GSTACK_CHROMIUM_NO_SANDBOX = '0';
     process.getuid = (() => 1000) as typeof process.getuid;
     const { shouldEnableChromiumSandbox } = await import('../src/browser-manager');
-    expect(shouldEnableChromiumSandbox()).toBe(true);
+    expect(shouldEnableChromiumSandbox(() => false)).toBe(true);
   });
 });
 

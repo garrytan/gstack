@@ -225,7 +225,7 @@ function generateBaseControl(ctx: TemplateContext): string {
 # runner for one file (e.g. "bun test $TEST"); BUDGET = seconds for this run (default 90).
 ROOT=$(git rev-parse --show-toplevel)
 CTL_TMP=$(mktemp -d "\${TMPDIR:-/tmp}/gstack-base-control.XXXXXX")
-cleanup() { git -C "$ROOT" worktree remove --force "$CTL_TMP/wt" >/dev/null 2>&1; rm -rf "$CTL_TMP"; [ -e "$CTL_TMP" ] && echo "BASE_CONTROL_LEFTOVER: $CTL_TMP (run: git worktree prune)"; }
+cleanup() { git -C "$ROOT" worktree remove --force "$CTL_TMP/wt" >/dev/null 2>&1; rm -r -- "$CTL_TMP" </dev/null; [ -e "$CTL_TMP" ] && echo "BASE_CONTROL_LEFTOVER: $CTL_TMP (run: git worktree prune)"; }
 trap cleanup EXIT INT TERM
 (
   [ -f "$ROOT/package.json" ] || { echo "BASE_CONTROL: unavailable (ecosystem)"; exit 0; }

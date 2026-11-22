@@ -61,9 +61,6 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # off = only run skills you type explicitly.
 #                           # (true and false still work: true means all, false means off.)
 #
-# routing_declined: false   # Set to true to skip the CLAUDE.md routing injection
-#                           # prompt. Set back to false to be asked again.
-#
 # ─── Telemetry ───────────────────────────────────────────────────────
 # telemetry: off            # off | anonymous | community
 #                           #   off       — no data sent, no local analytics (default)
@@ -93,6 +90,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # false = short names /qa, /ship
 # disabled_skills:          # comma-separated skills to leave unregistered,
 #                           # e.g. make-pdf,pair-agent ("" = all enabled)
+# verify_before_commit: on  # on | off. on: when the agent runs /verify right
+#                           #   before a commit (Claude Code asks it to), /verify
+#                           #   runs a quick check-only pass. off: that pass prints
+#                           #   "VERIFY skipped" and runs nothing. Typing /verify
+#                           #   yourself always runs the full skill.
 #
 # ─── Writing style (V1) ──────────────────────────────────────────────
 # explain_level: default    # default = jargon-glossed, outcome-framed prose
@@ -214,7 +216,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   (a one-line note on every turn to run the start
 #                           #   command of a skill; edits openclaw.json or config.yaml via the
 #                           #   harness CLI). off: takes it out. Absent = each
-#                           #   registration keeps its saved choice (default off).
+#                           #   registration keeps its saved choice, else on (the default).
 #                           #   GSTACK_HARNESS_START_HOOK=1|0 overrides it. Docs: docs/hosts.md
 #
 # ─── Advanced ────────────────────────────────────────────────────────
@@ -255,6 +257,12 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   off = no probe, no scan, no hint, no /impeccable
 #                           #   handoff lines. An invalid value is REJECTED (existing
 #                           #   value preserved) so a typo cannot silently disable it.
+# plan_record:              # off | warn | require. The plan check on this machine
+#                           #   (docs/ship-policy.md#plan-record) for a repo that
+#                           #   commits no .gstack/ship-policy.json; a tracked
+#                           #   plan_record of warn or require wins, and
+#                           #   GSTACK_PLAN_RECORD wins over this. Unset: warn in
+#                           #   a Capy session, else off.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -322,12 +330,12 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 lookup_default() {
   case "$1" in
     proactive) echo "core" ;; # core | all | off (true = all, false = off); core suggests only /office-hours, /review, /qa, /ship
-    routing_declined) echo "false" ;;
     telemetry) echo "off" ;;
     auto_upgrade) echo "false" ;;
     update_check) echo "true" ;;
     update_channel) echo "auto" ;; # auto | stable | main — bin/gstack-update-channel.sh resolves auto (docs/releases.md)
     skill_prefix) echo "false" ;;
+    verify_before_commit) echo "on" ;; # on | off — off: /verify's pre-commit quick pass runs nothing (lib/checks.ts)
     explain_level) echo "default" ;;
     plan_mode_preamble) echo "on" ;; # on | off — off drops the plan-mode preamble on the next ./setup (#3168)
     claude_loadout) echo "full" ;; # a modules/loadouts.json name — written by ./setup --loadout (docs/loadouts.md)
@@ -347,11 +355,12 @@ lookup_default() {
     timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
     skill_routing) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default skill_routing ;; # on | off — the skill-routing UserPromptSubmit hook; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
     skill_contracts) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default skill_contracts ;; # on | off — the skill-contract Stop hook; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
-    investigate_gate) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default investigate_gate ;; # on | off — the /investigate enforcement hooks; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-gates.md)
+    destructive_guard) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default destructive_guard ;; # on | off — the destructive-command check (PreToolUse on Bash and PowerShell, /careful's check in every session); default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-routing-and-contracts.md)
     ceo_review_gate) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default ceo_review_gate ;; # on | off — the /plan-ceo-review enforcement hooks; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-gates.md)
     autoplan_gate) bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(dirname "$0")/gstack-skill-route" --default autoplan_gate ;; # on | off — the /autoplan stop gate; default: SWITCH_DEFAULT in lib/skill-route.ts (docs/skill-gates.md)
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
+    plan_record) echo "" ;; # empty → warn in a Capy session, else off; a tracked plan_record of warn or require wins (lib/plan-record.ts)
     redact_prepush_hook) echo "false" ;;
     pair_agent) echo "off" ;; # remote tunnel consent — fail-closed until /pair-agent asks
     memorable_recall) echo "off" ;; # on | off — Memorable bridge gate, fail-closed until `gstack-memorable enable`
@@ -398,7 +407,7 @@ lookup_default() {
     agent_model) echo "" ;; # empty = host (agents keep their own model); gstack-models resolve --role agent
     codex_effort) echo "" ;; # empty = each gate's own effort; /codex --effort, then GSTACK_CODEX_EFFORT, win (gstack-codex-probe run-with-timeout --effort)
     review_effort_tiers) echo "on" ;; # on | off — gstack-review-plan effort tiers (docs/model-policy.md#reasoning-effort)
-    harness_start_hook) echo "" ;; # on | off — empty = each harness registration keeps its saved choice (docs/hosts.md#start-hook)
+    harness_start_hook) echo "" ;; # on | off — empty = each harness registration keeps its saved choice, else on (docs/hosts.md#start-hook)
     ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
     pr_wait_gating_bots) echo "greptile,macroscope" ;; # review bots gstack-pr-wait --until ready waits for
     pr_wait_advisory_bots) echo "coderabbit" ;; # review bots gstack-pr-wait reports but never waits for
@@ -409,7 +418,7 @@ lookup_default() {
     # VAR empty and the written default unreachable.
     # Deliberately *only* the unknown-key path: the keys above whose default is
     # intentionally empty (cross_project_learnings, salience_allowlist,
-    # user_slug_at_*, redact_repo_visibility) keep exit 0, because "" is their
+    # user_slug_at_*, redact_repo_visibility, plan_record) keep exit 0, because "" is their
     # real answer and their callers rely on it.
     *) return 1 ;;
   esac
@@ -546,18 +555,21 @@ read_config_value() {
 
 # ── Config writes: one lock, one read-modify-write rename ──────────────────
 # Every mutation of config.yaml (set, unset, the transcript_repos pair, the
-# user-slug writer) holds an atomic mkdir lock and replaces the file with one
+# user-slug writer) holds one lock directory and replaces the file with one
 # rename, so concurrent writers never lose each other's keys and an
-# interrupted write leaves the old file. The pid file holds "<pid> <epoch>";
-# a lock whose holder is dead or older than 10 s is taken over. No flock(1):
-# stock macOS does not ship it.
+# interrupted write leaves the old file. The lock is taken with
+# gstack_lock_take (bin/gstack-lock.sh), which creates the pid file with
+# O_EXCL because mkdir's exit status is not a lock on Ubuntu 26.04's uutils
+# mkdir. The pid file holds "<pid> <epoch>"; a lock whose holder is dead or
+# older than 10 s is taken over. No flock(1): stock macOS does not ship it.
 CONFIG_LOCK="$STATE_DIR/.config-yaml.lock"
 _config_locked=""
 
 config_lock() {
   mkdir -p "$STATE_DIR"
+  . "$(dirname "$0")/gstack-lock.sh" 2>/dev/null || { echo "Error: $(dirname "$0")/gstack-lock.sh is missing. Existing value left unchanged. fix: reinstall with ./setup or /gstack-upgrade" >&2; exit 1; }
   local waited=0 held pid ts stale
-  while ! mkdir "$CONFIG_LOCK" 2>/dev/null; do
+  while ! gstack_lock_take "$CONFIG_LOCK" pid "$$ $(date +%s)"; do
     if [ ! -w "$STATE_DIR" ]; then
       echo "Error: cannot write to $STATE_DIR (its config lock could not be created). Existing value left unchanged." >&2
       exit 1
@@ -583,7 +595,6 @@ config_lock() {
     fi
     sleep 0.05
   done
-  printf '%s %s\n' "$$" "$(date +%s)" > "$CONFIG_LOCK/pid"
   _config_locked=1
   trap 'config_unlock' EXIT
 }
@@ -862,6 +873,12 @@ $_gstack_legacy_root"
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    # plan_record decides whether ship-queue ready and /ship finish refuse a PR with no approved plan: reject a
+    # typo instead of coercing it, so a misspelt require never silently turns the check off.
+    if [ "$KEY" = "plan_record" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "warn" ] && [ "$VALUE" != "require" ]; then
+      echo "Error: plan_record '$VALUE' not recognized. Valid values: off, warn, require. Existing value left unchanged." >&2
+      exit 1
+    fi
     # codex_effort feeds model_reasoning_effort on paid Codex calls: reject a
     # typo instead of coercing it (the probe refuses an invalid stored value too).
     if [ "$KEY" = "review_effort_tiers" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
@@ -958,6 +975,12 @@ $_gstack_legacy_root"
     # rather than coerce it: "of" must not silently re-enable or disable the scan.
     if [ "$KEY" = "design_detector" ] && [ "$VALUE" != "auto" ] && [ "$VALUE" != "off" ]; then
       echo "Error: design_detector '$VALUE' not recognized. Valid values: auto, off. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # verify_before_commit: gstack-checks quick skips only on the literal "off",
+    # so a typo such as "of" would silently leave the pre-commit pass on.
+    if [ "$KEY" = "verify_before_commit" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
+      echo "Error: verify_before_commit '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
       exit 1
     fi
     # cross_project_learnings: empty get is the first-run prompt sentinel.
@@ -1136,17 +1159,17 @@ $_gstack_legacy_root"
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
     report_root_disagreement
-    for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
+    for KEY in proactive telemetry auto_upgrade update_check update_channel \
                skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
-               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall verify_before_commit \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
-               skill_routing skill_contracts investigate_gate ceo_review_gate autoplan_gate; do
+               skill_routing skill_contracts destructive_guard ceo_review_gate autoplan_gate plan_record; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -1162,17 +1185,17 @@ $_gstack_legacy_root"
     ;;
   defaults)
     echo "# gstack-config defaults"
-    for KEY in proactive routing_declined telemetry auto_upgrade update_check update_channel \
+    for KEY in proactive telemetry auto_upgrade update_check update_channel \
                skill_prefix explain_level plan_mode_preamble claude_loadout \
                codex_reviews autoplan_shadow autoplan_shadow_model gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted artifacts_sync_removals plan_tune_hooks \
-               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall verify_before_commit \
                browse_extension_id ship_measure_rule_trials ship_measure_behavior_panels \
                ship_measure_judge_outputs ship_measure_ask_per_trial_usd ship_measure_budget_usd \
                ship_measure_max_rounds ship_measure_sweep_cases ship_measure_sweep_budget_usd ship_rerun_backend test_backend \
                plan_review_tier implementation_tier model_frontier_claude model_frontier_openai \
                model_smart_claude model_smart_openai codex_effort review_effort_tiers agent_model harness_start_hook \
-               skill_routing skill_contracts investigate_gate ceo_review_gate autoplan_gate; do
+               skill_routing skill_contracts destructive_guard ceo_review_gate autoplan_gate plan_record; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
@@ -1266,7 +1289,9 @@ $_gstack_legacy_root"
           gstack_claude_overlay "$INSTALL_DIR" "$0"
           RENDER_TMP="$RENDER_DIR.tmp.$$"
           rm -rf "$RENDER_TMP"
-          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} >/dev/null 2>&1 ); then
+          _skill_prefix="$("$0" get skill_prefix 2>/dev/null || echo false)"
+          if ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_PLAN_MODE_ARG:+"$_PLAN_MODE_ARG"} ${_LOADOUT_ARG:+"$_LOADOUT_ARG"} >/dev/null 2>&1 \
+            && "$INSTALL_DIR/bin/gstack-patch-names" "$RENDER_TMP" "$_skill_prefix" >/dev/null ); then
             gstack_render_lock "$RENDER_DIR"
             _swap_in_render "$RENDER_DIR" "$RENDER_TMP"
             gstack_render_unlock "$RENDER_DIR"

@@ -13,7 +13,7 @@ import { startTestServer } from './test-server';
 import { BrowserManager, type BrowserState } from '../src/browser-manager';
 import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
 import { handleMetaCommand } from '../src/meta-commands';
-import { spawnXvfb, pickFreeDisplay, isOurXvfb, type XvfbHandle } from '../src/xvfb';
+import { spawnFreeXvfb, isOurXvfb, type XvfbHandle } from '../src/xvfb';
 
 // Per-FILE Chromium profile: this file launches an in-process persistent
 // context (BrowserManager.launch()), and sharing a profile dir with the
@@ -210,9 +210,7 @@ const HEADED_BROKEN_ON_DARWIN = process.platform === 'darwin';
 
 describe('handoff integration', () => {
   test.skipIf(process.platform !== 'linux')('restore failure after candidate assignment leaves the original manager and pages usable', async () => {
-    const displayNum = pickFreeDisplay();
-    expect(displayNum).not.toBeNull();
-    const display = await spawnXvfb(displayNum!);
+    const display = await spawnFreeXvfb();
     const originalDisplay = process.env.DISPLAY;
     process.env.DISPLAY = display.display;
     const hbm = new BrowserManager();

@@ -30,7 +30,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
-import { runSkillTest } from './helpers/session-runner';
+import { browseNavigatedTo, runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId,
   describeIfSelected, testConcurrentIfSelected,
@@ -63,7 +63,7 @@ interface Workdir {
  *   - bin/ scripts referenced by the preamble
  *   - A scoped GSTACK_HOME under the workdir so on-disk artifacts are
  *     contained and assertable
- *   - A CLAUDE.md with the ## Skill routing section gstack ships
+ *   - A CLAUDE.md with the ## Skill routing section gstack offered (older projects still carry it)
  *
  * `installSkills` lets each test pick the minimum surface (e.g., the
  * provenance-refusal scenario doesn't need /scrape).
@@ -109,6 +109,9 @@ function setupSkillifyWorkdir(suffix: string, installSkills: string[] = ['scrape
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
   }
+  // gstack-timeline-log and gstack-learnings-log import ../lib/redact-engine.ts
+  // from beside bin/. A copy, not a symlink: the agent runs inside workDir.
+  fs.cpSync(path.join(ROOT, 'lib'), path.join(workDir, 'lib'), { recursive: true });
 
   fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), `# Project Instructions
 
@@ -277,7 +280,7 @@ This run is non-interactive; AskUserQuestion is unavailable.`,
     logCost('scrape-prototype-path', result);
 
     const cmds = bashCommands(result);
-    const wentToFixture = cmds.some(c => c.includes(fileUrl));
+    const wentToFixture = browseNavigatedTo(result.toolCalls, fileUrl, workDir);
     const fetchedHtml = cmds.some(c => /\bgoto\b|\bhtml\b|\btext\b/.test(c));
     const surface = fullSurface(result);
     const mentionsSkillify = /skillify/i.test(surface);

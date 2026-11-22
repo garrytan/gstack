@@ -193,6 +193,23 @@ with open(path, "w") as f:
 PYEOF
 }
 
+# Status for a drain that pushed nothing. While local commits are still not on
+# origin, push_failed replaces ok and idle: writing those instead erased a
+# failed push one run later, so a push that never recovered went silent
+# (#4418). held and collision keep their code (their attention line names the
+# files to fix) and carry the unpushed count in the message.
+# $1 code, $2 message, $3 unpushed local commits.
+write_drain_status() {
+  local unpushed="$3 local commit(s) are not pushed yet; the push retries at a skill start at most every 10 minutes (commits made outside gstack-brain-sync are never auto-pushed: push them with 'git -C $GSTACK_HOME push origin HEAD')"
+  if [ "${3:-0}" -eq 0 ]; then
+    write_status "$1" "$2"
+  elif [ "$1" = held ] || [ "$1" = collision ]; then
+    write_status "$1" "$2; $unpushed"
+  else
+    write_status "push_failed" "$unpushed; this drain: $2"
+  fi
+}
+
 # Read config; return 0 if sync active, 1 otherwise.
 sync_active() {
   if [ ! -d "$GSTACK_HOME/.git" ]; then
@@ -204,73 +221,25 @@ sync_active() {
   return 0
 }
 
-# Secret scan over a staged diff file. Pattern families are the
-# pre-commit hook's; only the family name ever leaves this function, never the
-# matched text. The diff is read as bytes and decoded with replacement, so
-# undecodable bytes cannot crash the scan into a false "clean".
-#   secret_scan gate <diff>                     exit 0 clean, 3 hit (prints the
+# Secret scan over a staged diff file: bin/gstack-brain-secret-scan.py, the
+# same scanner the artifacts repo's pre-commit hook runs. It scans the whole
+# diff as written, each added line with its JSON string literals decoded and
+# each hunk's new text, and prints only family names, never the matched text.
+# It reads two diffs of the same index: the plain diff (the user's
+# diff.context and textconv drivers apply) and one with --text --no-textconv
+# -U3, so binary files arrive as bytes and a small diff.context cannot hide
+# the unchanged lines. Every finding from either reading counts.
+#   secret_scan gate <diff> [<text-diff>]       exit 0 clean, 3 hit (prints the
 #                                               family names); anything else is
 #                                               a scanner failure (fail closed)
-#   secret_scan attribute <diff> <names> <out>  one pass: splits the diff on its
-#                                               `diff --git` headers, pairs each
-#                                               section with the NUL-separated
-#                                               names from `git diff --name-only
-#                                               -z` (same order), writes
-#                                               "<family>\t<path>" per flagged
-#                                               path; exit 0, or 4 when sections
-#                                               and names disagree
+#   secret_scan attribute <diff> <names> <out> [<text-diff>]
+#                                               writes "<family>\t<path>" per
+#                                               flagged path; exit 0, or 4 when
+#                                               the diff's sections and the
+#                                               `git diff --name-only -z` names
+#                                               disagree
 secret_scan() {
-  python3 - "$@" <<'PYEOF'
-import re, sys
-patterns = [
-    ('aws-access-key', re.compile(r'AKIA[0-9A-Z]{16}')),
-    ('github-token', re.compile(r'\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})')),
-    ('openai-key', re.compile(r'\bsk-[A-Za-z0-9_-]{20,}')),
-    ('pem-block', re.compile(r'-----BEGIN [A-Z ]{3,}-----')),
-    ('jwt', re.compile(r'\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b')),
-    ('bearer-token-json',
-     # JSON-embedded auth headers. The optional Bearer/Basic/Token prefix
-     # matters: real auth values include a literal space after the scheme
-     # name, but the value charset below does not include spaces, so
-     # without the optional prefix every Bearer token in a JSON blob slips
-     # past the scanner.
-     re.compile(r'"(authorization|api[_-]?key|apikey|token|secret|password)"\s*:\s*"(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}"',
-                re.IGNORECASE)),
-]
-
-def families(text):
-    return [name for name, rx in patterns if rx.search(text)]
-
-def read(path):
-    with open(path, "rb") as f:
-        return f.read()
-
-mode = sys.argv[1]
-if mode == "gate":
-    hits = families(read(sys.argv[2]).decode("utf-8", "replace"))
-    if hits:
-        print(",".join(hits))
-        sys.exit(3)
-    sys.exit(0)
-
-diff_path, names_path, out_path = sys.argv[2:5]
-names = [n.decode("utf-8", "surrogateescape") for n in read(names_path).split(b"\0") if n]
-sections = []
-for line in read(diff_path).split(b"\n"):
-    if line.startswith(b"diff --git "):
-        sections.append([])
-    elif sections:
-        sections[-1].append(line)
-if len(sections) != len(names):
-    sys.exit(4)
-with open(out_path, "w", encoding="utf-8", errors="surrogateescape", newline="\n") as out:
-    for name, body in zip(names, sections):
-        if "\n" in name or "\t" in name:
-            sys.exit(4)
-        hits = families(b"\n".join(body).decode("utf-8", "replace"))
-        if hits:
-            out.write(hits[0] + "\t" + name + "\n")
-PYEOF
+  python3 "$SCRIPT_DIR/gstack-brain-secret-scan.py" "$@"
 }
 
 # True (0) if the spool holds at least one record file.
@@ -512,8 +481,11 @@ for p in sorted(queue_paths):
     if p in skip_lines or any(m in skip_lines for m in members):
         classified["dropped"]["skipped"].append(p)
         continue
-    # Must be under GSTACK_HOME root. Reject absolute + reject ../ escape.
-    if p.startswith("/") or ".." in p.split("/"):
+    # Must be under GSTACK_HOME root and spelled the way git stages it: an
+    # absolute path, a ../ escape, or an empty or "." component (#4445:
+    # projects//timeline.jsonl from an empty slug, staged by git as
+    # projects/timeline.jsonl, made the index check refuse the whole batch).
+    if any(c in ("", ".", "..") for c in p.split("/")):
         classified["dropped"]["invalid"].append(p)
         continue
     # Must match at least one allowlist glob.
@@ -598,6 +570,46 @@ transcripts_consented() {
 # stays in the kept stash entry, which the status names with the command
 # that restores it.
 MERGE_ERR=""
+# decisions.active.json is derived from decisions.jsonl (rebuildSnapshot in
+# lib/gstack-decision.ts), so two machines' snapshots are never merged as
+# bytes (#4174). When a stopped merge's only conflicts are snapshots whose
+# logs merged cleanly and only grew on both sides, each is rebuilt from its
+# merged log and the merge is concluded. The jsonl-append driver takes the
+# union of base, ours and theirs, so a log that lost lines on one side
+# (--compact expunging a redacted decision) would get them back; that merge
+# is left to abort as before. Anything else returns 1 and the caller aborts
+# the merge, which also undoes a partial rebuild. Works without the
+# .gitattributes line, so repositories initialized before it recover too.
+rebuild_conflicted_snapshots() {
+  local -a lit=(git --literal-pathspecs -C "$GSTACK_HOME") slugs=()
+  local p slug base side
+  "${lit[@]}" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 || return 1
+  base=$("${lit[@]}" merge-base HEAD MERGE_HEAD 2>/dev/null) || return 1
+  command -v bun >/dev/null 2>&1 || return 1
+  while IFS= read -r -d '' p; do
+    case "$p" in projects/*/decisions.active.json) ;; *) return 1 ;; esac
+    slug="${p#projects/}"; slug="${slug%/decisions.active.json}"
+    case "$slug" in ''|*/*|.|..) return 1 ;; esac
+    slugs+=("$slug")
+  done < <("${lit[@]}" diff -z --name-only --diff-filter=U 2>/dev/null)
+  [ "${#slugs[@]}" -gt 0 ] || return 1
+  for slug in "${slugs[@]}"; do
+    p="projects/$slug/decisions.jsonl"
+    "${lit[@]}" cat-file -e ":0:$p" 2>/dev/null || return 1
+    "${lit[@]}" diff --quiet -- "$p" 2>/dev/null || return 1
+    if "${lit[@]}" cat-file -e "$base:$p" 2>/dev/null; then
+      for side in HEAD MERGE_HEAD; do
+        [ -z "$(LC_ALL=C comm -23 <("${lit[@]}" show "$base:$p" 2>/dev/null | LC_ALL=C sort -u) \
+          <("${lit[@]}" show "$side:$p" 2>/dev/null | LC_ALL=C sort -u))" ] || return 1
+      done
+    fi
+    GSTACK_STATE_ROOT="$GSTACK_HOME" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" \
+      "$SCRIPT_DIR/gstack-decision-log" --rebuild-snapshot "$slug" >/dev/null 2>&1 || return 1
+    "${lit[@]}" add -f -- "projects/$slug/decisions.active.json" >/dev/null 2>&1 || return 1
+  done
+  "${lit[@]}" commit -q --no-edit >/dev/null 2>&1
+}
+
 merge_origin_keeping_local_edits() {
   local branch="$1" out rc=0 p stash_before="" stash_sha=""
   local -a lit=(git --literal-pathspecs -C "$GSTACK_HOME") blocking=()
@@ -614,6 +626,7 @@ merge_origin_keeping_local_edits() {
     [ "$stash_sha" != "$stash_before" ] || stash_sha=""
   fi
   out=$("${lit[@]}" merge --no-edit "origin/$branch" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] && rebuild_conflicted_snapshots && rc=0
   if [ "$rc" -ne 0 ]; then
     MERGE_ERR=$(printf '%s\n' "$out" | grep -m1 -E '^(CONFLICT|error|fatal)' || printf '%s\n' "$out" | head -1)
     "${lit[@]}" merge --abort >/dev/null 2>&1 || true
@@ -684,7 +697,8 @@ finalize_queue() {
   # Fail-open by design (a failed finalize self-corrects next run: re-stage →
   # nothing-to-commit), but say so — a silent failure here would let the
   # subsequent "ok/idle" status claim a drain that did not happen.
-  python3 - "$QUEUE_DIR" "$snapshot_file" "$class_file" "$paths_file" "$GSTACK_HOME/.brain-sync-drops.json" <<'PYEOF' || echo "BRAIN_SYNC: warning: queue finalize failed — entries retained; next run re-drains" >&2
+  local finalized=1
+  python3 - "$QUEUE_DIR" "$snapshot_file" "$class_file" "$paths_file" "$GSTACK_HOME/.brain-sync-drops.json" <<'PYEOF' || { finalized=0; echo "BRAIN_SYNC: warning: queue finalize failed — entries retained; next run re-drains" >&2; }
 import json, os, sys, time
 spool_dir, snapshot_file, class_file, paths_file, drops_file = sys.argv[1:6]
 
@@ -769,6 +783,16 @@ if dropped:
         json.dump({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                    "dropped": classified.get("dropped", {})}, f)
 PYEOF
+  [ "$finalized" = 1 ] || return 0
+  # #4445: report malformed records once finalize has dropped them; an early
+  # exit before finalize keeps them queued and must not claim the drop.
+  local malformed
+  malformed=$(python3 -c 'import json, sys; print(len((json.load(open(sys.argv[1])).get("dropped") or {}).get("invalid") or []))' "$class_file" 2>/dev/null || echo 0)
+  case "$malformed" in ''|*[!0-9]*) malformed=0 ;; esac
+  if [ "$malformed" -gt 0 ]; then
+    ST_NOTE="$ST_NOTE; dropped $malformed queued record(s) with a malformed path (absolute, or an empty, '.' or '..' component), listed in $GSTACK_HOME/.brain-sync-drops.json"
+    echo "BRAIN_SYNC: dropped $malformed queued record(s) with a malformed path; see $GSTACK_HOME/.brain-sync-drops.json" >&2
+  fi
 }
 
 # Human-readable classification counts for status messages.
@@ -1050,9 +1074,11 @@ hold_flagged_paths() {
   WAITING=0
   : > "$scan.hits"
   : > "$scan.blobs"
-  git -C "$GSTACK_HOME" diff --cached --no-renames > "$scan.diff" 2>/dev/null || rc=1
+  (umask 077 && : > "$scan.diff" && : > "$scan.text") || rc=1
+  git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff > "$scan.diff" 2>/dev/null || rc=1
+  git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff --text --no-textconv -U3 > "$scan.text" 2>/dev/null || rc=1
   git -C "$GSTACK_HOME" diff --cached --no-renames -z --name-only > "$scan.names" 2>/dev/null || rc=1
-  [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" || rc=1; }
+  [ "$rc" -eq 0 ] && { secret_scan attribute "$scan.diff" "$scan.names" "$scan.hits" "$scan.text" || rc=1; }
   [ "$rc" -eq 0 ] && { append_invalid_json_hits "$scan.names" "$scan.hits" || rc=1; }
   # A successful add need not stage the requested spelling or current bytes
   # (case-insensitive indexes and assume-unchanged can both report success).
@@ -1088,11 +1114,12 @@ hold_flagged_paths() {
     { grep -vxF -f "$scan.unstage" "$paths_file" || true; } > "$paths_file.kept"
     mv -f "$paths_file.kept" "$paths_file"
   fi
-  if ! git -C "$GSTACK_HOME" diff --cached --no-renames > "$scan.diff" 2>/dev/null; then
+  if ! git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff > "$scan.diff" 2>/dev/null \
+    || ! git -C "$GSTACK_HOME" diff --cached --no-renames --no-color --no-ext-diff --text --no-textconv -U3 > "$scan.text" 2>/dev/null; then
     block_drain "git could not read the staged diff for the re-scan"
     return 1
   fi
-  gate_out=$(secret_scan gate "$scan.diff") || gate_rc=$?
+  gate_out=$(secret_scan gate "$scan.diff" "$scan.text") || gate_rc=$?
   [ "$gate_rc" -eq 0 ] && return 0
   if [ "$gate_rc" -eq 3 ]; then
     block_drain "a re-scan after holding back the flagged files still matched ($gate_out)"
@@ -1320,14 +1347,9 @@ subcmd_once() {
   # the queue is empty.) The lock-release trap installed at acquisition
   # covers this exit.
   if ! spool_has_records && [ ! -s "$QUEUE" ] && [ ! -s "$QUEUE.migrating" ]; then
-    # Stranded local commits that this run did not push keep the status at
-    # push_failed: an "idle" here used to erase the failure one boundary later,
-    # so a push that never recovered went silent.
-    if [ "$det_total" -gt 0 ]; then
-      write_status "push_failed" "$det_total local commit(s) are not pushed yet; the push retries at a skill start at most every 10 minutes (commits made outside gstack-brain-sync are never auto-pushed: push them with git -C $GSTACK_HOME push origin HEAD)"
-      exit 0
-    fi
-    if [ "$REMOVALS_PUSHED" = 1 ]; then write_status "ok" "queue empty"; else write_status "idle" "queue empty"; fi
+    local empty_code=idle
+    [ "$REMOVALS_PUSHED" = 1 ] && empty_code=ok
+    write_drain_status "$empty_code" "queue empty" "$det_total"
     exit 0
   fi
 
@@ -1366,7 +1388,7 @@ subcmd_once() {
     local summary idle_code=idle
     summary=$(queue_summary "$class_file")
     [ "$ST_CASE_HELD" -gt 0 ] && idle_code=collision
-    write_status "$idle_code" "no stageable changes${summary:+ ($summary)}"
+    write_drain_status "$idle_code" "no stageable changes${summary:+ ($summary)}" "$det_total"
     exit 0
   fi
   local n_stageable
@@ -1423,9 +1445,9 @@ subcmd_once() {
   if [ "$cached_rc" -eq 0 ]; then
     finalize_queue "$snapshot_file" "$class_file" "$paths_file"
     if [ "$ok_code" != "ok" ]; then
-      write_status "$ok_code" "nothing else to sync"
+      write_drain_status "$ok_code" "nothing else to sync" "$det_total"
     else
-      write_status "idle" "queue drained but no new changes to commit"
+      write_drain_status "idle" "queue drained but no new changes to commit" "$det_total"
     fi
     exit 0
   fi

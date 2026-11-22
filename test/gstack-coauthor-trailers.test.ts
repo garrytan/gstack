@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
 import { runScriptSync } from '../lib/script-invocation';
 
-const BIN = path.resolve(import.meta.dir, '../bin/gstack-coauthor-trailers');
+const BIN = path.resolve(import.meta.dir, '../crew/bin/gstack-coauthor-trailers');
 const temps: string[] = [];
 afterAll(() => { for (const dir of temps) fs.rmSync(dir, { recursive: true, force: true }); });
 const ENV = {

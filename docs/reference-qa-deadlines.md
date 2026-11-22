@@ -73,6 +73,10 @@ including later report Writes and cleanup; it is not a completed-session measure
   or new-session descendants are outside that guarantee, so detached probes are
   unsupported. Force-killing the guard itself with SIGKILL also prevents its POSIX
   cleanup handler from running.
+- A cleanup kill that fails with anything other than "no such process" is a guard
+  error (2), with one macOS exception: an EPERM while the group is being torn
+  down counts as clean only when every remaining member is a zombie or exiting
+  (ps state Z or flag E). A live member, or a failed check, still returns 2.
 - On Windows, dedicated nested Jobs contain the probe worker and its descendants,
   including children whose immediate parent exits. Failure to initialize this
   containment prevents the command from starting.

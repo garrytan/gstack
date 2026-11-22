@@ -348,19 +348,87 @@ describe("inlineLocalImages", () => {
     expect(out).toContain('data-gstack-px-height="44"');
   });
 
-  test("out-of-tree image reads warn (never silent) and still inline", async () => {
+  test("out-of-tree image is not inlined: visible placeholder + warning", async () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), "prepass-outside-"));
-    fs.writeFileSync(path.join(outside, "ext.png"), tinyPng(10, 10));
+    const png = tinyPng(10, 10);
+    fs.writeFileSync(path.join(outside, "ext.png"), png);
     try {
       const warnings: string[] = [];
       const out = await inlineLocalImages(`<img src="${path.join(outside, "ext.png")}">`, {
         ...base, warn: (m) => warnings.push(m),
       });
-      expect(out).toContain("data:image/png;base64,");
+      expect(out).not.toContain(png.toString("base64"));
+      expect(out).not.toContain("data:image/png;base64,");
+      expect(out).toContain("image-missing");
       expect(warnings.some((w) => w.includes("OUTSIDE the input directory"))).toBe(true);
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
     }
+  });
+
+  test("relative reference to a file outside the document directory leaves its bytes out of the output", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "prepass-tree-"));
+    const docDir = path.join(root, "doc");
+    const outsideDir = path.join(root, "outside");
+    fs.mkdirSync(docDir);
+    fs.mkdirSync(outsideDir);
+    const secret = Buffer.from("PRIVATE-MARKER-7f3c9a\n");
+    fs.writeFileSync(path.join(outsideDir, "secret.txt"), secret);
+    try {
+      const warnings: string[] = [];
+      const out = await inlineLocalImages(`<img src="../outside/secret.txt" alt="x">`, {
+        ...base, inputDir: docDir, warn: (m) => warnings.push(m),
+      });
+      expect(out).not.toContain(secret.toString("base64"));
+      expect(out).not.toContain("PRIVATE-MARKER-7f3c9a");
+      expect(out).not.toContain("data:");
+      expect(out).toContain("image-missing");
+      expect(warnings.some((w) => w.includes("OUTSIDE the input directory"))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("non-image file inside the input dir is not inlined", async () => {
+    const text = Buffer.from("plain text, not an image\n");
+    fs.writeFileSync(path.join(dir, "notes.txt"), text);
+    const warnings: string[] = [];
+    const out = await inlineLocalImages(`<img src="notes.txt">`, { ...base, warn: (m) => warnings.push(m) });
+    expect(out).not.toContain(text.toString("base64"));
+    expect(out).not.toContain("data:");
+    expect(out).toContain("image-missing");
+    expect(warnings.some((w) => w.includes("not a recognized image"))).toBe(true);
+  });
+
+  test("markdown at the filesystem root still inlines images beneath it", async () => {
+    const file = path.join(dir, "rooted.png");
+    fs.writeFileSync(file, tinyPng(12, 12));
+    const out = await inlineLocalImages(`<img src="${file}">`, { ...base, inputDir: path.parse(dir).root, warn: () => {} });
+    expect(out).toContain("data:image/png;base64,");
+  });
+
+  test("non-image bytes under an image extension are not inlined", async () => {
+    const text = Buffer.from("plain text named like an image\n");
+    fs.writeFileSync(path.join(dir, "fake.png"), text);
+    fs.writeFileSync(path.join(dir, "fake.svg"), text);
+    for (const name of ["fake.png", "fake.svg"]) {
+      const warnings: string[] = [];
+      const out = await inlineLocalImages(`<img src="${name}">`, { ...base, warn: (m) => warnings.push(m) });
+      expect(out).not.toContain(text.toString("base64"));
+      expect(out).not.toContain("data:");
+      expect(out).toContain("image-missing");
+      expect(warnings.some((w) => w.includes("not a recognized image"))).toBe(true);
+      await expect(
+        inlineLocalImages(`<img src="${name}">`, { ...base, strict: true, warn: () => {} }),
+      ).rejects.toThrow(StrictModeError);
+    }
+  });
+
+  test("non-image file + --strict → StrictModeError", async () => {
+    fs.writeFileSync(path.join(dir, "notes2.txt"), "plain text\n");
+    await expect(
+      inlineLocalImages(`<img src="notes2.txt">`, { ...base, strict: true, warn: () => {} }),
+    ).rejects.toThrow(StrictModeError);
   });
 
   test("out-of-tree image + --strict → StrictModeError", async () => {

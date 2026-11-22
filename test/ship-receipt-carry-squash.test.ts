@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt, landedStackParent, renderReceiptBlock } from '../lib/ship-receipt';
 import { bindShippedReceipt } from '../lib/ship-receipt-depth';
+import { baseMergeOnly } from '../lib/ship-receipt-patch';
 import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -304,4 +305,93 @@ describe('carry after a stack parent lands, the child having merged main before 
     expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)');
     expect(receiptIn(body).head).toBe(reviewed);
   }, 90_000);
+});
+
+// yc-software/qm#3457 (GST-3315): the parent squash-landed on main and the child merged main before its receipt was
+// written against main. A later main merge moved context next to one of the child's hunks, so the carry looked for a
+// landed parent, found the parent's commits (which the reviewed base already held) and measured from them, refusing
+// RECEIPT_CARRY_PRODUCT_CHANGED on the parent's files.
+/** Main moves, the parent squash-lands, the child merges main, its receipt is written against main, then main moves `files` and the child merges it. */
+function landedFirst(files: Record<string, string>) {
+  const repo = makeFixtureRepo({ baseFiles: { 'lib/config.js': CONFIG } }); repos.push(repo);
+  repo.git('checkout', '-q', '-b', 'parent');
+  const parent = commit(repo, { 'lib/util.js': SUB }, 'parent: sub');
+  repo.git('checkout', '-q', 'feature');
+  repo.git('reset', '-q', '--hard', parent);
+  commit(repo, { 'lib/config.js': configWith({ 'd = 4': 'd = 40' }) }, 'child: d');
+  repo.git('checkout', '-q', 'main');
+  commit(repo, { 'lib/other.js': 'exports.other = 1;\n' }, 'main moves before the parent lands');
+  commit(repo, { 'lib/util.js': SUB }, 'squash: parent (#7)');
+  repo.git('push', '-q', 'origin', 'main');
+  repo.git('checkout', '-q', 'feature');
+  repo.git('merge', '-q', '--no-edit', 'origin/main');
+  const reviewed = repo.git('rev-parse', 'HEAD');
+  const body = path.join(repo.root, 'body.md');
+  expect(runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '8', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]).status).toBe(EXIT.ok);
+  const rangeBase = repo.git('merge-base', 'origin/main', 'HEAD');
+  repo.git('checkout', '-q', 'main');
+  commit(repo, files, 'main moves on');
+  repo.git('push', '-q', 'origin', 'main');
+  repo.git('checkout', '-q', 'feature');
+  repo.git('merge', '-q', '--no-edit', 'origin/main');
+  return { repo, parent, reviewed, rangeBase, body };
+}
+
+describe('a stack parent the reviewed base already held is no landed parent (qm#3457, GST-3315)', () => {
+  // Value: protects=qm#3457: base context moved beside the child's own hunk takes one scoped review of that file, not a
+  //   refusal naming the parent's files; fails_when=landedStackParent counts a parent the reviewed base already held and the
+  //   carry measures from it; seam=gstack-ship-receipt carry; no_claim=the scoped review itself
+  test('#3457: context moved next to the child\'s hunk routes to a scoped review of that file alone', () => {
+    const { repo, reviewed, rangeBase, body } = landedFirst({ 'lib/config.js': configWith({ 'f = 6': 'f = 60' }) });
+    expect(landedStackParent(repo.work, { rangeBase, reviewed, currentBase: repo.git('merge-base', 'origin/main', 'HEAD') }, ['.', ':(exclude,glob)test/**'])).toBeNull();
+    const out = carry(repo, body);
+    expect([out.status, out.out]).toEqual([EXIT.refused, expect.stringContaining('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)')]);
+    expect(out.err).toContain('lib/config.js');
+    expect(out.err).not.toContain('lib/util.js');
+    expect(receiptIn(body).head).toBe(reviewed);
+  }, 90_000);
+
+  // Value: protects=the patch-id keeps three lines of context whatever the user's git config says; fails_when=diff.context=0
+  //   drops the moved context from both hashes and the carry passes unread base edits; seam=patchId; no_claim=-
+  test('diff.context=0 in the user\'s git config still routes moved context to a scoped review', () => {
+    const { repo, body } = landedFirst({ 'lib/config.js': configWith({ 'f = 6': 'f = 60' }) });
+    repo.git('config', 'diff.context', '0');
+    const out = carry(repo, body);
+    expect([out.status, out.out]).toEqual([EXIT.refused, expect.stringContaining('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)')]);
+  }, 90_000);
+
+  test('an unrelated main change carries', () => {
+    const { repo, body } = landedFirst({ 'docs/README.md': '# main moves on\n' });
+    const out = carry(repo, body);
+    expect(out.status, out.err).toBe(EXIT.ok);
+    expect(receiptIn(body).carry!.reason).toBe('base merge');
+  }, 90_000);
+
+  // Value: protects=fail closed: an own edit after the merge still refuses, naming the child's file; fails_when=dropping the
+  //   parent hides an own edit; seam=gstack-ship-receipt carry; no_claim=-
+  test('an own edit after the merge refuses with RECEIPT_CARRY_PRODUCT_CHANGED on the child\'s file', () => {
+    const { repo, reviewed, body } = landedFirst({ 'docs/README.md': '# main moves on\n' });
+    commit(repo, { 'lib/config.js': configWith({ 'd = 4': 'd = 41' }) }, 'child: d again');
+    const out = carry(repo, body);
+    expect([out.status, out.out]).toEqual([EXIT.refused, expect.stringContaining('CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)')]);
+    expect(out.err).toContain('lib/config.js');
+    expect(receiptIn(body).head).toBe(reviewed);
+  }, 90_000);
+});
+
+// Step 11.5 measures a reviewed range the way the carry does (GST-3315): a child reviewed while stacked whose parent then
+// squash-landed is CURRENT after merging main, from that parent; the qm#3457 shape is not.
+describe('Step 11.5\'s base-merge check uses the carry\'s stack-parent rule (GST-3315)', () => {
+  const at = (repo: FixtureRepo, ref: string) => repo.git('rev-parse', `${ref}^{tree}`);
+  test('a parent that landed after the review is measured from; one the reviewed base held is not', () => {
+    const repo = makeFixtureRepo(); repos.push(repo);
+    const { parent, child } = stack(repo, undefined, undefined, 'main');
+    landOnMain(repo, { 'lib/util.js': SUB });
+    const ok = baseMergeOnly(repo.work, 'main', child, at(repo, child), at(repo, 'HEAD'));
+    expect(ok).toEqual({ ok: true, note: expect.stringContaining(`, its stack parent ${parent.slice(0, 12)} having landed on origin/main, and the branch's patch is unchanged`) });
+    expect(ok.ok && ok.note.endsWith(`save the reviewed base ${parent} for finish's --reviewed-base`)).toBe(true);
+
+    const { repo: qm, reviewed } = landedFirst({ 'lib/config.js': configWith({ 'f = 6': 'f = 60' }) });
+    expect(baseMergeOnly(qm.work, 'main', reviewed, at(qm, reviewed), at(qm, 'HEAD'))).toEqual({ ok: false, why: expect.stringMatching(/^the branch's product patch changed/) });
+  }, 120_000);
 });

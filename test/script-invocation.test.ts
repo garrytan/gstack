@@ -226,3 +226,32 @@ describe('wtreeFingerprint', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(shim, { recursive: true, force: true }); }
   });
 });
+
+describe('runScriptSync and runBashSync with output past maxBuffer (GST-3104)', () => {
+  // A child that ignores SIGTERM outlives Bun's overflow kill and exits 0, so raw spawnSync would
+  // report status 0 with ENOBUFS and cut-off stdout (GST-3086); these runners must report status null.
+  // The write fits the Unix socket send buffer, so the child really exits 0 (see test/spawn-sync.test.ts).
+  const OVERFLOW = "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(32768)); setTimeout(() => {}, 300);";
+  const expectIncomplete = (r: { status: number | null; error?: Error; stderr: string }) => {
+    expect(r.status).toBeNull();
+    expect((r.error as NodeJS.ErrnoException | undefined)?.code).toBe('ENOBUFS');
+    expect(r.stderr.trimEnd().split('\n').pop() ?? '').toEndWith('(SPAWN_OUTPUT_INCOMPLETE)');
+  };
+
+  test('a bun-shebang script that overflows and exits 0 is not a finished read', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'script-invocation-overflow-'));
+    try {
+      const script = path.join(dir, 'gstack-overflow');
+      fs.writeFileSync(script, `#!/usr/bin/env bun\n${OVERFLOW}\n`, { mode: 0o755 });
+      expectIncomplete(runScriptSync(script, [], { encoding: 'utf8', maxBuffer: 1024, timeout: 20_000 }));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // POSIX only: the command needs a POSIX bash with trap and /dev/zero.
+  test.skipIf(process.platform === 'win32')('a bash -c string that overflows and exits 0 is not a finished read', () => {
+    expectIncomplete(runBashSync("trap '' TERM; head -c 200000 /dev/zero | tr '\\0' x; sleep 0.3; exit 0", { encoding: 'utf8', maxBuffer: 1024, timeout: 20_000 }));
+  });
+});
+

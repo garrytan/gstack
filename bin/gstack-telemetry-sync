@@ -45,7 +45,8 @@ if [ -f "$RATE_FILE" ]; then
 fi
 
 # ─── Read tier ───────────────────────────────────────────────
-TIER="$("$CONFIG_CMD" get telemetry 2>/dev/null || true)"
+# gstack-telemetry-tier adds the Capy opt-in to this machine's setting.
+TIER="$("$GSTACK_DIR/bin/gstack-telemetry-tier" 2>/dev/null || "$CONFIG_CMD" get telemetry 2>/dev/null || true)"
 TIER="${TIER:-off}"
 [ "$TIER" = "off" ] && exit 0
 
@@ -105,6 +106,10 @@ while IFS= read -r LINE; do
       CLEAN="$(echo "$CLEAN" | sed 's/,"installation_id":"[^"]*"//g; s/,"installation_id":null//g')"
     fi
   fi
+
+  # Ingest refuses a body over 50,000 bytes (413) and the cursor would never
+  # move, so each POST stays under 45,000 bytes (LC_ALL=C: ${#} counts bytes).
+  [ "$COUNT" -gt 0 ] && [ "$(LC_ALL=C; echo $(( ${#BATCH} + ${#CLEAN} + 2 )))" -gt 45000 ] && break
 
   if [ "$FIRST" = "true" ]; then
     FIRST=false

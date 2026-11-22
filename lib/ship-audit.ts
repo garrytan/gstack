@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { classifyPath } from './review-depth';
+import { parsePlanLine } from './plan-record';
 import { resolveStateRoot } from './state-root';
 import { bin, gh, git, hostedOrigin, Report, short } from './ship-bin-common';
 
@@ -36,11 +37,14 @@ export function todosHits(text: string, touched: readonly string[]): string[] {
   return out;
 }
 
+/** The PR body's plan-file binding: the first `Plan:` line that is not a plan record line (lib/plan-record.ts parsePlanLine). */
+export const planBinding = (body: string) => [...body.replace(/[\r`]/g, '').matchAll(/^[ \t]*Plan:[ \t]*(\S+).*$/gm)].find(m => !parsePlanLine(m[0]))?.[1];
+
 /** Step 8's discovery: the PR body's Plan: binding, docs/designs/ files this branch changed or that name it, then personal plan files naming it. */
 function planCandidates(cwd: string, fork: string, branch: string): string[] {
   const found: string[] = [];
   if (hostedOrigin(cwd)) {
-    const bound = /^\s*Plan:\s*(\S+)/m.exec(gh(cwd, ['pr', 'view', '--json', 'body', '-q', '.body']).stdout.replace(/[\r`]/g, ''))?.[1];
+    const bound = planBinding(gh(cwd, ['pr', 'view', '--json', 'body', '-q', '.body']).stdout);
     if (bound) found.push(`PLAN_BINDING: ${bound}`);
   }
   const designs = new Set([
@@ -59,13 +63,24 @@ function planCandidates(cwd: string, fork: string, branch: string): string[] {
   return found;
 }
 
+/**
+ * The commit --base names: a commit sha this checkout holds, tried first, else origin/<base>; null when neither resolves
+ * (GST-3019: --base <sha> was read as origin/<sha>, which diffed as files=0).
+ */
+export function resolveAuditBase(cwd: string, base: string): string | null {
+  const commit = (rev: string) => git(cwd, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]).stdout.trim() || null;
+  return (/^[0-9a-f]{7,64}$/i.test(base) ? commit(base) : null) ?? commit(`refs/remotes/origin/${base}`);
+}
+
 export function audit(cwd: string, base: string, out: string): Report {
   const r = new Report();
-  const fork = git(cwd, ['merge-base', `origin/${base}`, 'HEAD']).stdout.trim() || `origin/${base}`;
+  const resolved = resolveAuditBase(cwd, base);
+  if (!resolved) return r.stop(`SHIP_BASE_UNKNOWN: --base ${base} names no commit here (not a commit this checkout holds, and no origin/${base}); pass the base branch fetched into origin/<name>, or a commit sha after git fetch origin <sha>, then rerun (docs/troubleshooting.md#ship-base-unknown)`);
+  const fork = git(cwd, ['merge-base', resolved, 'HEAD']).stdout.trim() || resolved;
   fs.mkdirSync(out, { recursive: true, mode: 0o700 });
   const diff = git(cwd, ['diff', fork]).stdout;
   const files = git(cwd, ['diff', '--name-only', fork]).stdout.split('\n').filter(Boolean);
-  const commits = git(cwd, ['log', '--oneline', `origin/${base}..HEAD`]).stdout;
+  const commits = git(cwd, ['log', '--oneline', `${resolved}..HEAD`]).stdout;
   fs.writeFileSync(path.join(out, 'diff.patch'), diff, { mode: 0o600 });
   fs.writeFileSync(path.join(out, 'commits.txt'), commits, { mode: 0o600 });
   r.add(`CONTEXT: diff=${path.join(out, 'diff.patch')} bytes=${Buffer.byteLength(diff)} files=${files.length} commits=${commits.split('\n').filter(Boolean).length} log=${path.join(out, 'commits.txt')}`);

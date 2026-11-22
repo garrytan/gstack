@@ -39,11 +39,7 @@
       "llmJudge": []
     },
     "careful/bin/hook-extract.sh": {
-      "e2e": [
-        "investigate-owned-abort",
-        "investigate-owned-completion",
-        "investigate-owned-ending-error"
-      ],
+      "e2e": [],
       "llmJudge": []
     },
     "hosts/claude/hooks/question-log-hook.ts": {

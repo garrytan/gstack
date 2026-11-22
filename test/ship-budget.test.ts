@@ -301,8 +301,29 @@ describe('delegation', () => {
 });
 
 describe('Claude Code child launch', () => {
-  test('launch runs the child in the background with explicit permission flags and the return file named', async () => {
-    const h = fresh();
+  /**
+   * The argv rules of `claude --help` (2.1.292 pinned in CI, 2.1.326): a `<values...>` option takes
+   * every following argument up to the next one that starts with '-', and '--' ends the options.
+   */
+  function parseLikeClaudeCli(argv: string[]): { options: Record<string, string[]>; prompts: string[] } {
+    const variadic = new Set(['--allowedTools', '--allowed-tools', '--disallowedTools', '--disallowed-tools', '--add-dir', '--tools']);
+    const valued = new Set(['--session-id', '--permission-mode', '--model', '--settings', '--output-format']);
+    const options: Record<string, string[]> = {};
+    const prompts: string[] = [];
+    for (let i = 0; i < argv.length; i++) {
+      const arg = argv[i]!;
+      if (arg === '--') { prompts.push(...argv.slice(i + 1)); break; }
+      if (variadic.has(arg)) {
+        const values = options[arg] ??= [];
+        while (i + 1 < argv.length && !argv[i + 1]!.startsWith('-')) values.push(argv[++i]!);
+      } else if (valued.has(arg)) options[arg] = [argv[++i]!];
+      else if (!arg.startsWith('-')) prompts.push(arg);
+    }
+    return { options, prompts };
+  }
+
+  /** Launches a child through a fake claude that records its argv. */
+  async function launchChild(h: Harness) {
     const s = started(h, ['--token-cap', '80M', '--meter', 'estimate']);
     const ho = h.sb(['handoff', '--run', s.run, '--from', '12', '--to', '22', '--base', 'origin/main']);
     const file = ho.out.match(/^HANDOFF: (\S+)/m)![1]!;
@@ -311,12 +332,31 @@ describe('Claude Code child launch', () => {
     fs.writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}.tmp" && mv "${argsFile}.tmp" "${argsFile}"\n`, { mode: 0o755 });
     const r = h.sb(['launch', '--in', file], { GSTACK_CLAUDE_BIN: fake });
     expect(r.code).toBe(0);
-    const session = h.field(r.out, 'CHILD', 'session');
-    expect(h.field(r.out, 'CHILD', 'return')).toBe(ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!);
     for (let i = 0; i < 50 && !fs.existsSync(argsFile); i++) await Bun.sleep(100);
-    const args = fs.readFileSync(argsFile, 'utf8').split('\n');
+    const args = fs.readFileSync(argsFile, 'utf8').split('\n').slice(0, -1);
+    return { ho, file, r, session: h.field(r.out, 'CHILD', 'session'), args, parsed: parseLikeClaudeCli(args) };
+  }
+
+  test('launch runs the child in the background with explicit permission flags and the return file named', async () => {
+    const h = fresh();
+    const { ho, file, r, session, args, parsed } = await launchChild(h);
+    expect(h.field(r.out, 'CHILD', 'return')).toBe(ho.out.match(/^RETURN_FILE: (\S+)$/m)![1]!);
     expect(args.slice(0, 7)).toEqual(['-p', '--session-id', session, '--permission-mode', 'acceptEdits', '--allowedTools', 'Bash,Read,Edit,Write,Grep,Glob']);
-    expect(args[7]).toContain(`verify-handoff --in ${file} --session ${session}`);
+    expect(parsed.options['--allowedTools']).toEqual(['Bash,Read,Edit,Write,Grep,Glob']);
+    expect(parsed.prompts).toHaveLength(1);
+    expect(parsed.prompts[0]).toContain(`verify-handoff --in ${file} --session ${session}`);
+  });
+
+  // Value: protects=the Claude Code child loads /ship: Claude Code expands a skill only when the prompt starts with the typed command, and unattended Opus found a skill from its description 0 of 60 times (gstack-evals#366); fails_when=the prompt opens with prose ("Load gstack. … Run /ship") or types /ship under a gstack- prefixed install;
+  //   why_new=the test above checks only that verify-handoff appears somewhere in the prompt; seam=GSTACK_CLAUDE_BIN fake; no_claim=that a real claude expands it
+  test('the child prompt opens with the typed /ship --continue <brief>, under the installed skill name', async () => {
+    const plain = await launchChild(fresh());
+    expect(plain.parsed.prompts[0]).toStartWith(`/ship --continue ${plain.file} `);
+    const h = fresh();
+    fs.mkdirSync(h.state, { recursive: true });
+    fs.writeFileSync(path.join(h.state, 'config.yaml'), 'skill_prefix: true\n');
+    const prefixed = await launchChild(h);
+    expect(prefixed.parsed.prompts[0]).toStartWith(`/gstack-ship --continue ${prefixed.file} `);
   });
 });
 
@@ -406,7 +446,7 @@ describe('meter epochs', () => {
   test('estimate spend survives a change of meter (estimate -> capy -> estimate)', () => {
     const l = { meter: { contract: METER_CONTRACTS.estimate, epoch: 0, baseline: 0, last: 0 }, epochs: [], carried_used: 0, estimate_used: 20_000_000, unknown: 0, reservations: [] } as unknown as Ledger;
     expect(tally(l).used).toBe(20_000_000);
-    newEpoch(l, METER_CONTRACTS.capy, 100_000_000);
+    newEpoch(l, METER_CONTRACTS.capy, 100_000_000); // pregate-literal: SUBAGENT_DEFAULT_CAP=100_000_000 a meter baseline reading, not the cap
     expect(tally(l).used).toBe(20_000_000);
     l.meter.last = 103_000_000;
     newEpoch(l, METER_CONTRACTS.estimate, 0);

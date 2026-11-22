@@ -283,7 +283,7 @@ EOF_OWN
     report_behind "$RERUN"
     export GSTACK_CAPY_BEHIND_BLOCKED="$REASON"
   elif [ -n "$SWITCH" ] && ! { SETUP_LOCK="$("$ROOT/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null)/.setup-lock"; [ "$SETUP_LOCK" != /.setup-lock ] \
-    && mkdir -p "$(dirname "$SETUP_LOCK")" 2>/dev/null && mkdir "$SETUP_LOCK" 2>/dev/null && echo "$$" > "$SETUP_LOCK/pid"; }; then
+    && mkdir -p "$(dirname "$SETUP_LOCK")" 2>/dev/null && . "$ROOT/bin/gstack-lock.sh" && gstack_lock_take "$SETUP_LOCK" pid "$$"; }; then
     # The switch and the fast-forward happen under gstack-upgrade's setup lock,
     # taken here and handed over in GSTACK_SETUP_LOCK_OWNER, so a concurrent
     # updater never sees the checkout between the two.

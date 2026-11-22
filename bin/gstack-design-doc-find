@@ -9,6 +9,9 @@
 # Precedence:
 #   1. newest $GSTACK_STATE_ROOT/projects/<slug>/*-<branch>-design-*.md
 #   2. else newest $GSTACK_STATE_ROOT/projects/<slug>/*-design-*.md
+#      Neither step returns an office-hours decision memo (*-memo-*) or a
+#      /design-review audit summary (*-design-audit-*), unless "design-" follows
+#      that word because the branch name holds it (#4615).
 #   3. the newest repo doc under $TOP/docs/designs/ wins when no state-root doc
 #      exists or it is newer than the state-root doc. A root DESIGN.md is the
 #      design system /design-consultation writes, never a design doc (#2839).
@@ -36,9 +39,17 @@ newest() {
   ls -t "$@" 2>/dev/null | head -1
 }
 
+newest_design() {
+  ls -t "$@" 2>/dev/null | while IFS= read -r f; do
+    b=${f##*/}
+    case "${b##*-memo-}" in "$b"|*design-*) ;; *) continue ;; esac
+    case "${b##*-design-audit-}" in "$b"|*design-*) printf '%s\n' "$f"; break ;; esac
+  done
+}
+
 PROJECT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG"
-LOCALDOC=$(newest "$PROJECT_DIR"/*-"$BRANCH"-design-*.md)
-[ -z "$LOCALDOC" ] && LOCALDOC=$(newest "$PROJECT_DIR"/*-design-*.md)
+LOCALDOC=$(newest_design "$PROJECT_DIR"/*-"$BRANCH"-design-*.md)
+[ -z "$LOCALDOC" ] && LOCALDOC=$(newest_design "$PROJECT_DIR"/*-design-*.md)
 
 REPODOC=""
 TOP=$(git rev-parse --show-toplevel 2>/dev/null || true)

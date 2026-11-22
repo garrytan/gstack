@@ -21,7 +21,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const SCAN_ROOTS = ['bin', 'lib', 'scripts'];
+const SCAN_ROOTS = ['bin', 'lib', 'scripts', 'crew/bin', 'crew/lib', 'crew/scripts'];
 /** The policy owner itself sleeps the rate-limit wait it computes. */
 const OWNER = path.join('lib', 'gh-poll.ts');
 

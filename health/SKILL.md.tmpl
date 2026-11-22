@@ -105,7 +105,7 @@ Run each detected tool. For each tool:
     exit 125
   }
   health_log=$(mktemp "${TMPDIR:-/tmp}/gstack-health.XXXXXX") || health_capture_error log_creation
-  trap 'rm -f -- "$health_log"' EXIT
+  trap 'rm -- "$health_log" 2>/dev/null || true' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   health_start=$(date +%s) || health_capture_error timing

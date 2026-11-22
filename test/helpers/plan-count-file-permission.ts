@@ -285,22 +285,22 @@ function croppedEditTarget(screen: string, cwd: string, expected: string): strin
   return !headerPath || path.resolve(cwd, headerPath) === target ? target : undefined;
 }
 
-/** Bind either native Create footer to the owned Write when its heading is cropped. */
-function croppedCreatePane(screen: string, expected: string): { basename: string; preview: string } | undefined {
+/** Bind either native Create (or Write overwrite) footer to the owned Write when its heading is cropped. */
+function croppedWritePane(screen: string, expected: string, verb: 'create' | 'overwrite'): { basename: string; preview: string } | undefined {
   const text=screen.replace(/\r+\n?/g,'\n');
-  const pane=/^([\s\S]+)\n[╌─━]{3,}[ \t]*\n {0,3}Do you want to create ([^\n?\/\\]+)\?[ \t]*\n {0,3}❯[ \t]*1\.[ \t]*Yes[ \t]*\n\s*2\.[ \t]*Yes,\s+and\s+switch\s+to\s+accept\s+edits\s+\(auto-approve\s+file\s+edits\s+and\s+common\s+file\s+commands\)\s+for\s+this\s+session(?:;\s+Yes,\s+and\s+always\s+allow\s+access\s+to\s+([^\r\n]+?)\s+for\s+this\s+session)?(?:\s*\(shift\+tab\))?\s*\n\s*3\.[ \t]*No[ \t]*\n\s*Esc to cancel [·•] Tab to amend\s*$/.exec(text);
+  const pane=/^([\s\S]+)\n[╌─━]{3,}[ \t]*\n {0,3}Do you want to (create|overwrite) ([^\n?\/\\]+)\?[ \t]*\n {0,3}❯[ \t]*1\.[ \t]*Yes[ \t]*\n\s*2\.[ \t]*Yes,\s+and\s+switch\s+to\s+accept\s+edits\s+\(auto-approve\s+file\s+edits\s+and\s+common\s+file\s+commands\)\s+for\s+this\s+session(?:;\s+Yes,\s+and\s+always\s+allow\s+access\s+to\s+([^\r\n]+?)\s+for\s+this\s+session)?(?:\s*\(shift\+tab\))?\s*\n\s*3\.[ \t]*No[ \t]*\n\s*Esc to cancel [·•] Tab to amend\s*$/.exec(text);
   // As in croppedEditPane, a wrapped continuation row (five or more columns) may begin with '>'.
-  if (!pane || /[☐□]|^ {0,4}(?:>|`{3}|~{3})/m.test(pane[1]!)) return undefined;
+  if (!pane || pane[2] !== verb || /[☐□]|^ {0,4}(?:>|`{3}|~{3})/m.test(pane[1]!)) return undefined;
   // Native option 2 can combine accept-edits with directory access. It remains
   // unselected: its directory must agree, and the pending Write still owns every
   // preview row. Never infer ownership from this optional directory alone.
-  const directory=pane[3]?.trim();
+  const directory=pane[4]?.trim();
   if (directory!==undefined && (!path.isAbsolute(directory)||directory!==path.dirname(expected))) return undefined;
-  return {basename:pane[2]!.trim(),preview:pane[1]!};
+  return {basename:pane[3]!.trim(),preview:pane[1]!};
 }
 
-/** Bind every displayed source row to the sole pending native Write, not its basename alone. */
-function currentCreatePreview(preview: string, r: any, config: string, cwd: string, startedAt: number, file: string): boolean {
+/** Content of the sole pending owned native Write, published or witnessed by its own PreToolUse hook. */
+function pendingOwnedWriteContent(r: any, config: string, cwd: string, startedAt: number, file: string): string | undefined {
   const pending=new Map<string,NativePublicToolEvent>(), seen=new Map<string,NativePublicToolEvent>();
   const completed=new Set<string>();
   let conflict=false;
@@ -320,24 +320,36 @@ function currentCreatePreview(preview: string, r: any, config: string, cwd: stri
   let event=[...pending.values()][0];
   const witness=r.writeInputSha256 ? readPendingWriteInput(file,r.expected,cwd,config,startedAt) : undefined;
   if(conflict||transcript.status!=='ready'||pending.size>1||
-    (r.writeInputSha256 && (!witness||witness.pendingId!==r.pendingId||witness.sha256!==r.writeInputSha256))) return false;
+    (r.writeInputSha256 && (!witness||witness.pendingId!==r.pendingId||witness.sha256!==r.writeInputSha256))) return undefined;
   if(!event) {
     const id=r.pendingId.slice(r.sessionId.length+1);
     // A current PreToolUse witness breaks only the publication delay. A result,
     // an overlapping hook or another native use can never borrow that witness.
-    if(!witness||r.overlappingWriteInput||completed.has(id)||seen.has(id)) return false;
+    if(!witness||r.overlappingWriteInput||completed.has(id)||seen.has(id)) return undefined;
     event={sessionId:r.sessionId,toolUseId:id,kind:'use',name:'Write',timestamp:witness.timestamp,input:witness.input};
-  } else if(witness && !isDeepStrictEqual(event.input,witness.input)) return false;
+  } else if(witness && !isDeepStrictEqual(event.input,witness.input)) return undefined;
   if(event.name!=='Write'||`${event.sessionId}:${event.toolUseId}`!==r.pendingId||event.input?.file_path!==r.expected||
     Date.parse(event.timestamp)<startedAt||typeof event.input.content!=='string'||
-    Buffer.byteLength(event.input.content)>MAX_WRITE_INPUT_BYTES) return false;
+    Buffer.byteLength(event.input.content)>MAX_WRITE_INPUT_BYTES) return undefined;
+  return event.input.content;
+}
+
+/** The preview rows below an optional file row and rule, or below a lone cropped rule. */
+function writePreviewBody(preview: string, cwd: string, expected: string): string | undefined {
   // A crop can keep the pane's file row and rule above the preview while its
   // "Create file" title scrolls away. That row must name the owned path.
   // It can also start on that single rule, as croppedEditPane allows.
   const header=/^ {0,3}(?![1-9]\d*(?:[ \t]|\n))(\S[^\n]*)\n[╌─━]{3,}[ \t]*\n/.exec(preview);
-  if(header && path.resolve(cwd,header[1]!.trim())!==r.expected) return false;
-  const body=header ? preview.slice(header[0].length) : preview.replace(/^[╌─━]{3,}[ \t]*\n/,'');
-  const source=event.input.content.split(/\r?\n/), rows=body.split('\n');
+  if(header && path.resolve(cwd,header[1]!.trim())!==expected) return undefined;
+  return header ? preview.slice(header[0].length) : preview.replace(/^[╌─━]{3,}[ \t]*\n/,'');
+}
+
+/** Bind every displayed source row to the sole pending native Write, not its basename alone. */
+function currentCreatePreview(preview: string, r: any, config: string, cwd: string, startedAt: number, file: string): boolean {
+  const content=pendingOwnedWriteContent(r,config,cwd,startedAt,file);
+  const body=content===undefined ? undefined : writePreviewBody(preview,cwd,r.expected);
+  if(content===undefined||body===undefined) return false;
+  const source=content.split(/\r?\n/), rows=body.split('\n');
   const numbered:Array<{line:number;text:string}>=[];
   let leading='';
   for(const row of rows) {
@@ -354,6 +366,72 @@ function currentCreatePreview(preview: string, r: any, config: string, cwd: stri
   if(leading && !compact(source[numbered[0]!.line-2]??'').endsWith(compact(leading))) return false;
   return numbered.every((row,i)=>Number.isSafeInteger(row.line)&&row.line>0&&row.line<=source.length&&
     (!i||row.line===numbered[i-1]!.line+1)&&compact(row.text)===compact(source[row.line-1]!));
+}
+
+/** A Write overwrite's visible rows are one contiguous window of its diff: '-' rows carry
+ * current-file line numbers, '+' and unchanged rows carry the pending content's numbers,
+ * and an unchanged row also consumes one current-file line. Wrapped rows continue under
+ * the gutter of their numbered row; a crop may begin inside one, anchored by the next row
+ * that shares its coordinate. */
+function overwritePreviewMatches(preview: string, before: string, after: string): boolean {
+  if(before===after) return false;
+  const lines={'-':before.split(/\r?\n/),'+':after.split(/\r?\n/),' ':after.split(/\r?\n/)} as Record<string,string[]>;
+  const rows:Array<{line:number;kind:string;text:string;gutter:number}>=[];
+  const leadingRows:string[]=[];
+  for(const row of preview.split('\n')) {
+    if(!row.trim()||/^[╌─━]{3,}[ \t]*$/.test(row)) continue;
+    const numbered=/^( {0,3}([1-9]\d*) )([ +\-])(.*)$/.exec(row) ?? /^( {0,3}([1-9]\d*))()[ \t]*$/.exec(row);
+    if(numbered) { rows.push({line:Number(numbered[2]),kind:numbered[3]||' ',text:numbered[4]??'',gutter:numbered[1]!.length}); continue; }
+    const last=rows.at(-1);
+    if(!last) { leadingRows.push(row); continue; }
+    const indent=' '.repeat(last.gutter)+(last.kind===' '?' ':last.kind);
+    if(!row.startsWith(indent)) return false;
+    last.text+=row.slice(indent.length);
+  }
+  if(rows.length<2||!rows.some(row=>row.kind!==' ')) return false;
+  const compact=(value:string)=>value.replace(/\s/g,'');
+  const at:Record<string,number|undefined>={};
+  if(leadingRows.length) {
+    const gutter=rows[0]!.gutter, kinds=new Set<string>();
+    let text='';
+    for(const row of leadingRows) {
+      const kind=row.startsWith(' '.repeat(gutter)+'-')?'-':row.startsWith(' '.repeat(gutter)+'+')?'+':row.startsWith(' '.repeat(gutter+1))?' ':undefined;
+      if(!kind) return false;
+      kinds.add(kind); text+=row.slice(gutter+1);
+    }
+    const kind=[...kinds][0]!;
+    const anchor=rows.findIndex(row=>kind==='-'?row.kind==='-':row.kind!=='-');
+    if(kinds.size!==1||anchor<0||!compact(text)) return false;
+    const line=rows[anchor]!.line-1-(kind==='-'?rows.slice(0,anchor).filter(row=>row.kind===' ').length:0);
+    if(line<1||!compact(lines[kind]![line-1]??'').endsWith(compact(text))) return false;
+    if(kind==='-') at.old=line+1; else at.new=line+1;
+  }
+  for(const row of rows) {
+    if(row.kind==='-') {
+      if(at.old!==undefined&&row.line!==at.old) return false;
+      at.old=row.line+1;
+    } else {
+      if(at.new!==undefined&&row.line!==at.new) return false;
+      at.new=row.line+1;
+      if(row.kind===' '&&at.old!==undefined) {
+        if(compact(lines['-']![at.old-1]??'\0')!==compact(row.text)) return false;
+        at.old++;
+      }
+    }
+    if(row.line>lines[row.kind]!.length||compact(row.text)!==compact(lines[row.kind]![row.line-1]!)) return false;
+  }
+  return true;
+}
+
+/** Bind a cropped overwrite to the sole pending owned Write and the current owned file bytes. */
+function currentOverwritePreview(preview: string, r: any, config: string, cwd: string, startedAt: number, file: string): boolean {
+  try {
+    const content=pendingOwnedWriteContent(r,config,cwd,startedAt,file);
+    const body=content===undefined ? undefined : writePreviewBody(preview,cwd,r.expected);
+    if(content===undefined||body===undefined) return false;
+    const bytes=boundedRegular(r.expected,MAX_WRITE_INPUT_BYTES), before=bytes.toString('utf8');
+    return Buffer.from(before).equals(bytes) && overwritePreviewMatches(body,before,content);
+  } catch { return false; }
 }
 
 /** One Edit's exact visible diff against the current owned file bytes. */
@@ -462,15 +540,16 @@ export function currentFilePermissionEpoch(file: string | undefined, expected: s
   cwd: string, config: string | null, startedAt: number, transcript: PlanCountTranscript,
   screen: string): FilePermissionEpoch | null | undefined {
   if (!file || !expected || !config) return undefined;
-  const panel = [...screen.matchAll(/(?:^|\n) {0,3}(?:Create|Edit|Write) file[ \t]*\n {0,3}([^\n]+)\n/g)].at(-1);
-  const create = panel ? undefined : croppedCreatePane(screen, expected);
+  const panel = [...screen.matchAll(/(?:^|\n) {0,3}(?:Create|Edit|Write|Overwrite) file[ \t]*\n {0,3}([^\n]+)\n/g)].at(-1);
+  const create = panel ? undefined : croppedWritePane(screen, expected, 'create');
+  const overwrite = panel ? undefined : croppedWritePane(screen, expected, 'overwrite');
   const edit = panel ? undefined : croppedEditPane(screen);
   const target = panel ? path.resolve(cwd,panel[1]!.trim()) : croppedEditTarget(screen, cwd, expected) ??
-    (create?.basename===path.basename(expected) ? expected : undefined);
+    ((create ?? overwrite)?.basename===path.basename(expected) ? expected : undefined);
   if (target !== expected) {
     // A foreign path with this report's basename cannot fall back to a stale
     // owned grant. An incomplete owned menu also waits for full path identity.
-    const prompt = [...screen.matchAll(/^ {0,3}Do you want to (?:make this edit to|create) ([^\n?\/\\]+)\?[ \t]*$/gm)].at(-1);
+    const prompt = [...screen.matchAll(/^ {0,3}Do you want to (?:make this edit to|create|overwrite) ([^\n?\/\\]+)\?[ \t]*$/gm)].at(-1);
     return (target && path.basename(target) === path.basename(expected)) ||
       prompt?.[1]?.trim() === path.basename(expected) ? null : undefined;
   }
@@ -493,6 +572,7 @@ export function currentFilePermissionEpoch(file: string | undefined, expected: s
         r.completedIds.some((id: string) => id === r.pendingId || !r.seenIds.includes(id)) ||
         (r.completedId === null ? r.completedIds.length !== 0 : r.completedIds.at(-1) !== r.completedId)) return null;
     if(create && !currentCreatePreview(create.preview,r,config,cwd,startedAt,file)) return null;
+    if(overwrite && !currentOverwritePreview(overwrite.preview,r,config,cwd,startedAt,file)) return null;
     const editId = edit && edit.directory === undefined ? currentEditPreview(edit.preview,r,config,cwd,startedAt,file) : undefined;
     if(editId === null) return null;
     return {pendingId:editId ?? r.pendingId,completedId:r.completedId,completedIds:r.completedIds};

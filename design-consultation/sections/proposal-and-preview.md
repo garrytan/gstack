@@ -176,10 +176,9 @@ fi
 
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
 _OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
-trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+trap 'rm -r "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
-
 _CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
 _CODEX_OUT=$("$_CODEX_PROBE" select-model exec) || exit 1
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
@@ -355,7 +354,7 @@ Write this round's board images (printed paths that passed checks, in order) as 
 $D compare --images-file "$_DESIGN_DIR/board-images.json" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
-This publishes to a persistent daemon, opens the board and exits. Read captured stderr for the startup marker; a PID is not readiness. Exit 0 with `BOARD_URL` means the daemon is serving. Save its full `http://127.0.0.1:N/boards/<id>/` URL. Only legacy `--no-daemon` needs a host background task; `SERVE_STARTED: port=N` gives root URL `http://127.0.0.1:N/`.
+This publishes to a persistent daemon, opens the board and exits. Read captured stderr for the startup marker; a PID is not readiness. Exit 0 with `BOARD_URL` means the daemon is serving. Save its full `http://127.0.0.1:N/<secret>/boards/<id>/` URL. Only legacy `--no-daemon` needs a host background task; `SERVE_STARTED: port=N` gives root URL `http://127.0.0.1:N/`.
 
 **Wait with AskUserQuestion:** "Review <BOARD_URL>, Submit or request new variants, then tell me; or paste preferences here." The board chooses; the question waits. Do not poll.
 

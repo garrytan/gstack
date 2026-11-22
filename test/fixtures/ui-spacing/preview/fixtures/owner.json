@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "routes": {
+    "GET /api/members": {
+      "status": 200,
+      "json": [
+        {
+          "name": "Dana Whitfield",
+          "role": "Owner"
+        },
+        {
+          "name": "Omar Haddad",
+          "role": "Editor"
+        },
+        {
+          "name": "Lena Park",
+          "role": "Reader"
+        }
+      ]
+    },
+    "GET /api/audit": {
+      "status": 200,
+      "json": []
+    },
+    "DELETE /api/members/:id": {
+      "status": 409,
+      "json": {
+        "error": "The only owner cannot be removed."
+      }
+    }
+  }
+}

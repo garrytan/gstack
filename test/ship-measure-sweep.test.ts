@@ -22,9 +22,9 @@ const tmp = (prefix: string) => { const dir = fs.mkdtempSync(path.join(os.tmpdir
 afterAll(() => { for (const dir of temps) fs.rmSync(dir, { recursive: true, force: true }); });
 
 const A = 'ship-skipped-queued-finding';
-const B = 'investigate-owned-completion';
-const C = 'investigate-owned-abort';
-const Q = 'investigate-owned-ending-error';
+const B = 'ship-unmanaged-hook-consent';
+const C = 'ship-managed-hook-refresh';
+const Q = 'ship-local-hook-preservation';
 
 function record(id: string, run: number, failed: boolean, extra: Partial<TrialOutcomeRecord> = {}): TrialOutcomeRecord {
   return {

@@ -77,7 +77,7 @@ describe('a sentence that denies a severity never collects at it (GST-1628)', ()
       'Neither finding reaches the CRITICAL bar.', 'Nothing here meets the CRITICAL threshold.', 'None of these qualifies as CRITICAL.', 'No finding rises to CRITICAL.',
       'No issues reach High or CRITICAL.', 'Nothing in this diff rises to the level of CRITICAL.'])
       expect([line, labels(line)]).toEqual([line, []]);
-    for (const line of ['The leak in log.ts:3 is fixed. Nothing reaches CRITICAL.', 'I checked docs/captain.md:313-336 and brief.md:36. Nothing reaches the CRITICAL floor.',
+    for (const line of ['The leak in log.ts:3 is fixed. Nothing reaches CRITICAL.', 'I checked crew/docs/captain.md:313-336 and brief.md:36. Nothing reaches the CRITICAL floor.',
       'No auth check guards the admin route, so nothing rises to CRITICAL.'])
       expect([line, labels(line), summaryCandidate(line)]).toEqual([line, ['CRITICAL'], true]);
     for (const line of ['The race in queue.ts:40 rises to CRITICAL.', 'Nothing in auth.ts:9 reaches CRITICAL.', 'Nothing reaches CRITICAL except the token leak.'])

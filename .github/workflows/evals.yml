@@ -34,7 +34,7 @@ on:
         default: ''
       # Merge trains (docs/ship-policy.md#run-a-merge-train): only under a train
       # block in the default branch's .gstack/ship-policy.json. The route job
-      # validates them before any paid work (scripts/train-gate.ts route).
+      # validates them before any paid work (crew/scripts/train-gate.ts route).
       cases:
         description: 'Train bisect: comma-separated case ids from the full gate plan (gstack-ship-queue train bisect sets it)'
         type: string
@@ -69,6 +69,37 @@ env:
   EVALS_FRESH: ${{ ((github.event_name == 'workflow_dispatch' && inputs.pr_receipts == '') || contains(github.event.pull_request.labels.*.name, 'evals-fresh')) && '1' || '' }}
 
 jobs:
+  # Trunk Dynamic CI, LEARNING ONLY (GST-1847; free-tests.yml has the full
+  # rationale). Trunk records whether it would have run or skipped build-image and eval-slices
+  # on same-repository pull requests; every job still runs. Trunk keys verdicts
+  # by workflow file, so each observed workflow carries its own observer. No job
+  # needs it, no condition reads it and it exports no outputs, so a mode change
+  # in Trunk's dashboard cannot skip anything. It checks out nothing, runs no
+  # pull-request code, holds no GITHUB_TOKEN scopes, never fails the run, and
+  # skips fork pull requests, pushes and dispatches. docs/TESTING_INTERNALS.md.
+  trunk-dynamic-ci:
+    name: Trunk Dynamic CI (learning only, evals)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions: {}
+    env:
+      TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+    steps:
+      - name: Record Trunk's verdicts for build-image and eval-slices (nothing reads them)
+        if: env.TRUNK_API_TOKEN != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: trunk-io/dynamic-ci@5bcddbf3615c2b032c21eed1b514c91164bda4a8 # v0.1.7
+        env:
+          TRUNK_DISABLE_TELEMETRY: 'true'
+        with:
+          token: ${{ env.TRUNK_API_TOKEN }}
+          job-keys: build-image,eval-slices
+          github-token: ''
+          enable-annotation: 'true'
+
   # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
   build-image:
     # Dependabot-triggered pull_request runs get a read-only GITHUB_TOKEN, so
@@ -105,7 +136,7 @@ jobs:
         # overwrites /workspace and node_modules comes from the lockfile.
         run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -163,7 +194,7 @@ jobs:
   # changes. Under a train block a PR push is `pr-summary` (screen-summary
   # prints the screening selection and its estimated cost; no paid slice
   # starts), and gstack-ship-queue's dispatches are `screen`, `train` or
-  # `bisect` once scripts/train-gate.ts has validated their inputs. A refused
+  # `bisect` once crew/scripts/train-gate.ts has validated their inputs. A refused
   # dispatch fails here, before any paid work.
   route:
     runs-on: ubuntu-24.04
@@ -259,10 +290,10 @@ jobs:
             if [ "$TRAIN_POLICY" = true ]; then mode=pr-summary; fi
             echo "mode=${mode}" >> "$GITHUB_OUTPUT"
             echo "- Run mode: ${mode}" >> "$GITHUB_STEP_SUMMARY"
-          elif [ -f scripts/train-gate.ts ]; then
-            bun --no-env-file --config=/dev/null --no-install run scripts/train-gate.ts route --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f crew/scripts/train-gate.ts ]; then
+            bun --no-env-file --config=/dev/null --no-install run crew/scripts/train-gate.ts route --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
           elif [ -n "${CASES}${PREFIX_SHAS}${SCREEN_PR}${SCREEN_MERGE_SHA}${SCREEN_POLICY}" ]; then
-            echo "::error::${GITHUB_REF_NAME} has no scripts/train-gate.ts to validate the train or screen inputs; dispatch from a ref that has it"
+            echo "::error::${GITHUB_REF_NAME} has no crew/scripts/train-gate.ts to validate the train or screen inputs; dispatch from a ref that has it"
             exit 1
           else
             echo "mode=dispatch" >> "$GITHUB_OUTPUT"
@@ -292,7 +323,7 @@ jobs:
           PREFIXES: ${{ steps.route.outputs.prefixes }}
           NONCE: ${{ inputs.nonce }}
         run: |
-          bun --no-env-file --config=/dev/null --no-install run scripts/train-gate.ts bisect-plan --cases "$CASES" --prefixes "$PREFIXES" --nonce "$NONCE" \
+          bun --no-env-file --config=/dev/null --no-install run crew/scripts/train-gate.ts bisect-plan --cases "$CASES" --prefixes "$PREFIXES" --nonce "$NONCE" \
             --out /tmp/train-bisect/bisect.json --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Hand the bisect plan to its executors
@@ -429,11 +460,11 @@ jobs:
           RECOVERY_MODE: ${{ github.event_name == 'workflow_dispatch' && 'dispatch' || 'pr' }}
         run: |
           mkdir -p /tmp/gstack-eval-input-cache
-          if [ ! -f scripts/recover-receipts.ts ]; then
-            echo "- Receipt recovery unavailable: the base ref has no scripts/recover-receipts.ts; reuse stays off this run" >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -f crew/scripts/recover-receipts.ts ]; then
+            echo "- Receipt recovery unavailable: the base ref has no crew/scripts/recover-receipts.ts; reuse stays off this run" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          bun --no-install run scripts/recover-receipts.ts collect --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" \
+          bun --no-install run crew/scripts/recover-receipts.ts collect --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" \
             --head-repo "$HEAD_REPO" --branch "$HEAD_BRANCH" --run-id "$GITHUB_RUN_ID" \
             --store /tmp/gstack-eval-input-cache --store-key "$STORE_KEY" --mode "$RECOVERY_MODE" --budget-seconds 60 >> "$GITHUB_STEP_SUMMARY" \
             || echo "- Receipt recovery crashed; reuse stays off this run" >> "$GITHUB_STEP_SUMMARY"
@@ -462,11 +493,11 @@ jobs:
           TESTED_SHA: ${{ inputs.screen_merge_sha || github.sha }}
           SCREEN_POLICY: ${{ inputs.screen_policy }}
         run: |
-          if [ ! -f scripts/gate-reuse.ts ]; then
-            echo "- Gate verdict reuse unavailable: the base ref has no scripts/gate-reuse.ts; the full gate runs" >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -f crew/scripts/gate-reuse.ts ]; then
+            echo "- Gate verdict reuse unavailable: the base ref has no crew/scripts/gate-reuse.ts; the full gate runs" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          bun --no-install run scripts/gate-reuse.ts find --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --head-repo "$HEAD_REPO" \
+          bun --no-install run crew/scripts/gate-reuse.ts find --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --head-repo "$HEAD_REPO" \
             --branch "$HEAD_BRANCH" --run-id "$GITHUB_RUN_ID" --head-sha "$HEAD_SHA" --tested-sha "$TESTED_SHA" \
             ${SCREEN_POLICY:+--screen-policy "$SCREEN_POLICY"} --out /tmp/gate-reuse --budget-seconds 90 >> "$GITHUB_STEP_SUMMARY" \
             || echo "- Gate verdict reuse crashed; the full gate runs" >> "$GITHUB_STEP_SUMMARY"
@@ -517,7 +548,7 @@ jobs:
           EVALS_SCREEN_POLICY: narrow
         run: |
           EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slices 1
-          bun --no-env-file --config=/dev/null --no-install run scripts/train-gate.ts screen-summary /tmp/paid-plan/manifest.json --pr "$PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
+          bun --no-env-file --config=/dev/null --no-install run crew/scripts/train-gate.ts screen-summary /tmp/paid-plan/manifest.json --pr "$PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
           bun --no-install run scripts/test-pr-profile.ts summary /tmp/paid-plan/manifest.json >> "$GITHUB_STEP_SUMMARY"
 
   # ── Sliced lane (the ONLY paid lane; legacy 17-row matrix deleted) ──────────
@@ -602,7 +633,7 @@ jobs:
         if: github.event_name == 'pull_request' || inputs.pr_receipts != ''
         run: |
           mkdir -p /tmp/gstack-eval-input-cache
-          bun --no-install run scripts/recover-receipts.ts decide /tmp/gstack-eval-input-cache --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+          bun --no-install run crew/scripts/recover-receipts.ts decide /tmp/gstack-eval-input-cache --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Emit run manifest
         env:
@@ -630,7 +661,7 @@ jobs:
         if: github.event_name == 'pull_request' || needs.route.outputs.mode == 'screen'
         run: |
           mkdir -p /tmp/gate-reuse
-          bun --no-install run scripts/gate-reuse.ts confirm /tmp/gate-reuse /tmp/paid-plan/manifest.json --out /tmp/paid-plan \
+          bun --no-install run crew/scripts/gate-reuse.ts confirm /tmp/gate-reuse /tmp/paid-plan/manifest.json --out /tmp/paid-plan \
             --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
       # CEO-13: the mode, case counts and, on fallback, every file that
@@ -839,7 +870,7 @@ jobs:
   # The rerun runs fresh (no receipts, no reuse) and never changes a trial
   # count, kind or threshold; slices-report decides FLAKY (green, annotated,
   # flake record) or red. Train runs use the same path; bisects rerun inside
-  # scripts/train-gate.ts.
+  # crew/scripts/train-gate.ts.
   rerun-plan:
     runs-on: ubuntu-24.04
     needs: [plan-slices, eval-slices]
@@ -1136,7 +1167,10 @@ jobs:
           EVALS_JOBS: "1"
           EVALS_CONCURRENCY: "1"
           SLICE: ${{ matrix.slice }}
-        run: EVALS_TIER=gate bun --no-env-file --config=/dev/null run scripts/train-gate.ts bisect-prefix --plan /tmp/train-bisect/bisect.json --index "$SLICE" --out /tmp/train-bisect/out
+        run: |
+          # A prefix from before the crew/ move (GST-1833) has the executor at scripts/train-gate.ts.
+          gate=crew/scripts/train-gate.ts; [ -f "$gate" ] || gate=scripts/train-gate.ts
+          EVALS_TIER=gate bun --no-env-file --config=/dev/null run "$gate" bisect-prefix --plan /tmp/train-bisect/bisect.json --index "$SLICE" --out /tmp/train-bisect/out
 
       - name: Upload the prefix record
         if: always() && steps.prefix.outputs.short != ''
@@ -1274,7 +1308,7 @@ jobs:
         if: needs.plan-slices.outputs.gate_reuse == 'true'
         run: |
           set +e
-          bun --no-install run scripts/gate-reuse.ts report /tmp/paid-report/gate-reuse.json --repo "$GITHUB_REPOSITORY" > /tmp/report.txt
+          bun --no-install run crew/scripts/gate-reuse.ts report /tmp/paid-report/gate-reuse.json --repo "$GITHUB_REPOSITORY" > /tmp/report.txt
           code=$?
           cat /tmp/report.txt
           echo "exit=$code" >> "$GITHUB_OUTPUT"
@@ -1347,7 +1381,7 @@ jobs:
           SCREEN_POLICY: ${{ inputs.screen_policy }}
           RECONCILE_EXIT: ${{ steps.reconcile.outputs.exit }}
         run: |
-          bun --no-install run scripts/gate-reuse.ts bind /tmp/paid-report --out /tmp/gate-binding --repo "$GITHUB_REPOSITORY" \
+          bun --no-install run crew/scripts/gate-reuse.ts bind /tmp/paid-report --out /tmp/gate-binding --repo "$GITHUB_REPOSITORY" \
             --pr "$PR_NUMBER" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --head-sha "$HEAD_SHA" \
             --tested-sha "$TESTED_SHA" --profile "$EVALS_PROFILE" --reconcile-exit "$RECONCILE_EXIT" \
             ${SCREEN_POLICY:+--purpose screen --screen-policy "$SCREEN_POLICY"} >> "$GITHUB_STEP_SUMMARY"
@@ -1382,7 +1416,7 @@ jobs:
           RECORD: ${{ needs.plan-slices.outputs.record_artifact }}
           RECONCILE_EXIT: ${{ steps.reconcile.outputs.exit }}
         run: |
-          bun --no-env-file --config=/dev/null --no-install run scripts/train-gate.ts train-record /tmp/paid-report --nonce "$NONCE" --head "$HEAD_SHA" \
+          bun --no-env-file --config=/dev/null --no-install run crew/scripts/train-gate.ts train-record /tmp/paid-report --nonce "$NONCE" --head "$HEAD_SHA" \
             --reconcile-exit "$RECONCILE_EXIT" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --repo "$GITHUB_REPOSITORY" \
             --out "/tmp/train-record/${RECORD}.json" >> "$GITHUB_STEP_SUMMARY"
 

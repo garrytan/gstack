@@ -12,6 +12,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { readConfigKey } from '../lib/state-root';
 import { repoPolicyTier, repoPolicyTierBatch } from '../lib/gbrain-repo-policy-client';
+import { CAPY_LAUNCH_MARKERS } from '../scripts/lib/shard-engine';
+import { shipFixture } from './helpers/ship-bin-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const CONFIG = path.join(ROOT, 'bin', 'gstack-config');
@@ -162,6 +164,39 @@ describe('test preload hermeticity', () => {
     expect(r.stderr).toContain('test-setup: stripped inherited GSTACK_STATE_ROOT; tests isolate state via GSTACK_HOME');
     expect(r.stderr).toContain('test-setup: stripped inherited GSTACK_STATE_DIR; tests isolate state via GSTACK_HOME');
     expect(r.stderr.match(/test-setup: stripped/g)?.length).toBe(2);
+  });
+
+  test('bun test strips every variable the Capy launch file exports and the plugin state root (GSTA-666)', () => {
+    const exported = [...fs.readFileSync(path.join(ROOT, 'bin', 'gstack-capy-install'), 'utf-8').matchAll(/echo "export (GSTACK_[A-Z_]+)=/g)].map(m => m[1]);
+    expect(exported).toEqual(expect.arrayContaining(['GSTACK_STATE_ROOT', 'GSTACK_CAPY', 'GSTACK_PREFERENCES_FILE', 'GSTACK_LOADOUT_SKILL_ROOT']));
+    const leaked = [...new Set([...exported, 'CLAUDE_PLUGIN_DATA'])].filter(k => k !== 'GSTACK_HOME');
+    const probe = path.join(tmp, 'launch-probe.test.ts');
+    fs.writeFileSync(probe, [
+      "import { test, expect } from 'bun:test';",
+      "import { resolveStateRoot } from '" + path.join(ROOT, 'lib', 'state-root.ts').replace(/\\/g, '/') + "';",
+      "test('probe', () => {",
+      `  expect(${JSON.stringify(leaked)}.filter(k => process.env[k] !== undefined)).toEqual([]);`,
+      "  expect(resolveStateRoot()).toBe(process.env.GSTACK_HOME);",
+      "});",
+    ].join('\n'));
+    const r = spawnSync('bun', ['test', '--preload', path.join(ROOT, 'test-setup.ts'), probe], {
+      cwd: tmp,
+      env: { ...env, ...Object.fromEntries(leaked.map(k => [k, path.join(tmp, 'real-root')])), GSTACK_HOME: resolved, CLAUDE_PLUGIN_ROOT: path.join(tmp, 'plugins', 'gstack') },
+      encoding: 'utf-8',
+      timeout: 60_000,
+    });
+    expect([r.status, r.stderr.match(/\(fail\)|error:.*$/gm)], r.stderr).toEqual([0, null]);
+  });
+
+  test.skipIf(process.platform === 'win32')('the ship bin fixture hands its children no launch marker, even without the preload (GSTA-666)', () => {
+    const saved = Object.fromEntries(CAPY_LAUNCH_MARKERS.map(k => [k, process.env[k]]));
+    for (const k of CAPY_LAUNCH_MARKERS) process.env[k] = 'leaked';
+    let f: ReturnType<typeof shipFixture>;
+    try { f = shipFixture(); } finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+    try {
+      const r = f.run(process.execPath, ['-e', `console.log(${JSON.stringify(CAPY_LAUNCH_MARKERS)}.filter(k => process.env[k] === 'leaked').join(','))`]);
+      expect(r.stdout.trim()).toBe('');
+    } finally { f.cleanup(); }
   });
 
   test('bun test strips an inherited live-brain URL, so a temp-HOME gbrain child never sees it (#3466)', () => {

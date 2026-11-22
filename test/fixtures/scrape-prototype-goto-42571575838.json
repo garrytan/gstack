@@ -1,0 +1,115 @@
+{
+ "run": "42571575838",
+ "sha": "b5c690ce",
+ "case": "scrape-prototype-path",
+ "trials": [
+  {
+   "trial": 1,
+   "source": "paid-slice-32-a1/skill-e2e-skillify--scrape-prototype-path.t1",
+   "cwd": "/home/runner/.cache/gstack-paid-shard-HfCKXD/tmp/skill-e2e-skillify-prototype-rfJ8rF",
+   "events": [
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "message": {
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_011iBmQ9aZEhyGr1Mg32VUd8",
+        "name": "Bash",
+        "input": {
+         "command": "export GSTACK_HOME=\"$PWD/.gstack-home\"; B=/__w/gstack/gstack/browse/dist/browse; $B goto \"file://$PWD/fixture.html\"; $B html 2>&1 | head -80"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "message": {
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "toolu_011iBmQ9aZEhyGr1Mg32VUd8",
+        "content": "Navigated to file:///home/runner/.cache/gstack-paid-shard-HfCKXD/tmp/skill-e2e-skillify-prototype-rfJ8rF/fixture.html (200)"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "trial": 2,
+   "source": "paid-slice-33-a1/skill-e2e-skillify--scrape-prototype-path.t2",
+   "cwd": "/home/runner/.cache/gstack-paid-shard-iFDuSx/tmp/skill-e2e-skillify-prototype-JLM2yo",
+   "events": [
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "message": {
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_017pVuU1H9ruNJNAKZxn1ZXZ",
+        "name": "Bash",
+        "input": {
+         "command": "B=/__w/gstack/gstack/browse/dist/browse; export GSTACK_HOME=\"$PWD/.gstack-home\"; $B goto \"file://$PWD/fixture.html\" && $B html"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "message": {
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "toolu_017pVuU1H9ruNJNAKZxn1ZXZ",
+        "content": "Navigated to file:///home/runner/.cache/gstack-paid-shard-iFDuSx/tmp/skill-e2e-skillify-prototype-JLM2yo/fixture.html (200)"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "trial": 3,
+   "source": "paid-slice-34-a1/skill-e2e-skillify--scrape-prototype-path.t3",
+   "cwd": "/home/runner/.cache/gstack-paid-shard-Pwqhyx/tmp/skill-e2e-skillify-prototype-dwxDIM",
+   "events": [
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "message": {
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_012iUcATxHXfCfkxEqungvKZ",
+        "name": "Bash",
+        "input": {
+         "command": "cd /home/runner/.cache/gstack-paid-shard-Pwqhyx/tmp/skill-e2e-skillify-prototype-dwxDIM\nexport GSTACK_HOME=\"$PWD/.gstack-home\"; B=/github/home/.claude/skills/gstack/browse/dist/browse\n$B goto file://$PWD/fixture.html; $B html"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "message": {
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "toolu_012iUcATxHXfCfkxEqungvKZ",
+        "content": "Navigated to file:///home/runner/.cache/gstack-paid-shard-Pwqhyx/tmp/skill-e2e-skillify-prototype-dwxDIM/fixture.html (200)"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

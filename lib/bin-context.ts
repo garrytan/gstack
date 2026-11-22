@@ -12,7 +12,7 @@ import { resolveStateRoot } from "./state-root";
 import { legacyRemoteSlug, remoteSlug } from "./remote-identity";
 
 /** Keep the slug inside the [a-zA-Z0-9._-] alphabet gstack-slug promises (`tr -cd`). */
-function sanitizeSlug(s: string): string {
+export function sanitizeSlug(s: string): string {
   return s.replace(/[^a-zA-Z0-9._-]/g, "");
 }
 
@@ -386,10 +386,12 @@ function markerSlug(stateRoot: string, cwd: string, root: string): string {
  * no entry, the entry predates the versioned format, or its value is unusable
  * (empty, "." or ".." after sanitizing). Never spawns git: hot-path readers
  * (the AskUserQuestion preference hook) rely on gstack-slug, which every skill
- * preamble runs, having already written the entry.
+ * preamble runs, having already written the entry. Scope "repository" skips the
+ * project marker's entry, as slugFromEnvironment's does, so approvals readers and
+ * writers agree on the slug.
  */
-export function readVersionedSlugCache(stateRoot: string, cwd: string): string | undefined {
-  const marker = projectMarkerRoot(cwd);
+export function readVersionedSlugCache(stateRoot: string, cwd: string, opts: { scope?: "memory" | "repository" } = {}): string | undefined {
+  const marker = opts.scope === "repository" ? "" : projectMarkerRoot(cwd);
   const file = marker ? markerCacheFile(stateRoot, marker) : slugCacheReadOrder(stateRoot, cwd).find((f) => existsSync(f));
   if (!file) return undefined;
   let raw: string;

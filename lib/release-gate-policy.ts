@@ -1,9 +1,9 @@
 /**
  * The `release_gate` block of .gstack/ship-policy.json
  * (docs/ship-policy.md#release-gate): the full paid gate on the base branch
- * every few hours, run by bin/gstack-release-gate from
+ * every few hours, run by crew/bin/gstack-release-gate from
  * .github/workflows/release-gate.yml, instead of a gate per train or
- * per push. The gate never writes the stable branch: scripts/release-cut.ts
+ * per push. The gate never writes the stable branch: crew/scripts/release-cut.ts
  * stays its only writer, reads a green gate as "gated" and holds every cut
  * while the newest gate is red. Validated here so lib/ship-policy.ts stays
  * one schema file.
@@ -17,7 +17,7 @@ export interface ReleaseGatePolicy {
   gate_workflow: string;
   /** The branch the gate tests (its head at each run). */
   branch: string;
-  /** The branch scripts/release-cut.ts moves; the gate only reads it to count pending commits. */
+  /** The branch crew/scripts/release-cut.ts moves; the gate only reads it to count pending commits. */
   stable_ref: string;
   /** The check run published on a gated commit, read by release-cut as gated. */
   check_name: string;
@@ -27,7 +27,7 @@ export interface ReleaseGatePolicy {
   bisect_spend_cap_usd: number;
 }
 
-/** The cron step of release-gate.yml's schedule (test/release-gate-workflow.test.ts pins it): no cadence gates more often. */
+/** The cron step of release-gate.yml's schedule (crew/test/release-gate-workflow.test.ts pins it): no cadence gates more often. */
 export const RELEASE_GATE_SCHEDULE_HOURS = 8;
 const REF = /^(?!.*\.\.)(?!\/)(?!.*\/$)[A-Za-z0-9._/-]{1,100}$/;
 const FIELDS: Record<keyof ReleaseGatePolicy, (v: unknown) => string | null> = {
@@ -40,7 +40,7 @@ const FIELDS: Record<keyof ReleaseGatePolicy, (v: unknown) => string | null> = {
   bisect_spend_cap_usd: v => (typeof v === 'number' && v >= 0 && v <= 500 ? null : 'must be dollars from 0 to 500'),
 };
 
-export const RELEASE_GATE_EXPLANATION = '{ cadence_hours, gate_workflow, branch, stable_ref, check_name, on_red, bisect_spend_cap_usd } or null: the release gate (docs/ship-policy.md#release-gate). bin/gstack-release-gate dispatches the full paid gate (gate_workflow) on the head of branch at most once per cadence_hours, only when branch moved since the last gate, records the verdict as a release note in refs/notes/gstack-trains and publishes check_name on the gated commit; a red gate bisects its red cases (bisect_spend_cap_usd, 0 skips) and, with on_red hold-release, keeps scripts/release-cut.ts from moving stable_ref until a later gate is green. It never writes stable_ref. While the block is set, the per-push main backstop stands down. null keeps the per-push backstop.';
+export const RELEASE_GATE_EXPLANATION = '{ cadence_hours, gate_workflow, branch, stable_ref, check_name, on_red, bisect_spend_cap_usd } or null: the release gate (docs/ship-policy.md#release-gate). crew/bin/gstack-release-gate dispatches the full paid gate (gate_workflow) on the head of branch at most once per cadence_hours, only when branch moved since the last gate, records the verdict as a release note in refs/notes/gstack-trains and publishes check_name on the gated commit; a red gate bisects its red cases (bisect_spend_cap_usd, 0 skips) and, with on_red hold-release, keeps crew/scripts/release-cut.ts from moving stable_ref until a later gate is green. It never writes stable_ref. While the block is set, the per-push main backstop stands down. null keeps the per-push backstop.';
 
 export function releaseGateErrors(raw: unknown): PolicyError[] {
   const g = raw as Record<string, unknown> | null;

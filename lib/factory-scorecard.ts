@@ -1,7 +1,7 @@
 /**
  * factory-scorecard — one window of a repository's shipping numbers, read from
  * GitHub through `gh` (bin/gstack-factory-scorecard; /retro Step 7.5;
- * docs/recommended-harness.md#the-factory-scorecard). Every line prints its
+ * crew/docs/recommended-harness.md#the-factory-scorecard). Every line prints its
  * counting rule next to the number, and a line whose input cannot be read says
  * so ("unavailable: <reason>") instead of printing 0.
  *
@@ -26,7 +26,7 @@
  *                        that failed once and passed its one rerun) and flake-ledger-* artifacts
  *                        of <free workflow> runs on <base> (free-suite serial retries); the same
  *                        two sources the daily flaky pass reads; a main push that reused its PR's
- *                        run (no artifacts, `reuse` job green; reuseChecker) is left out
+ *                        run (no shard artifacts, `reuse` job green; reuseChecker) is left out
  *   issues               search/issues created / closed inside the window
  *   releases             releases published inside the window (drafts excluded)
  *
@@ -36,6 +36,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { prReviewHistory } from './pr-review-history';
+import { extractReceipt } from './ship-receipt';
 import {
   GH_CLIENT, createdFilter, downloadRunArtifacts, filesUnder, historyFetcher, listWorkflowRuns, readFlakeLedgerDir, reuseChecker, unavailableReason,
   type GhClient,
@@ -181,7 +183,7 @@ export function readMergedPrs(source: ScorecardSource, o: ScorecardOptions, w: S
       const author = String(pr.user?.login ?? '');
       const association = String(pr.author_association ?? 'NONE');
       const comments = readComments(source, o.repo, Number(pr.number), { readyMarker: o.readyMarker, passMarker: o.passMarker, mergedAt });
-      const bodyPasses = passCount(String(pr.body ?? ''), o.passMarker);
+      const bodyPasses = receiptRounds(String(pr.body ?? '')) ?? passCount(String(pr.body ?? ''), o.passMarker);
       out.push({ number: Number(pr.number), author, association, title: String(pr.title ?? ''),
         crew: crewLogins ? crewLogins.has(author.toLowerCase()) : CREW_ASSOCIATIONS.has(association),
         createdAt: String(pr.created_at), mergedAt, readyAt: comments.readyAt, commentCostUsd: comments.costUsd,
@@ -191,6 +193,13 @@ export function readMergedPrs(source: ScorecardSource, o: ScorecardOptions, w: S
     if (pulls.length < PAGE || (typeof oldest === 'string' && oldest < w.start)) break;
   }
   return out.sort((a, b) => a.mergedAt.localeCompare(b.mergedAt));
+}
+
+/** R51 rounds summed across a PR body's receipt and its runs block (GST-2673), null when no receipt records a review run. */
+export function receiptRounds(body: string): number | null {
+  if (!extractReceipt(body).found) return null;
+  const h = prReviewHistory(body);
+  return h.runs + h.stubs > 0 ? h.rounds : null;
 }
 
 /** The largest pass count the marker captures in a text, null when it never matches. */
@@ -394,7 +403,7 @@ export function fmtHours(h: number | null): string {
 const pct = (num: number, den: number) => (den === 0 ? 'n/a' : `${Math.round((num / den) * 100)}%`);
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
-/** What one of the best software factories would show on each line; the honest comparison lives in docs/recommended-harness.md. */
+/** What one of the best software factories would show on each line; the honest comparison lives in crew/docs/recommended-harness.md. */
 export const BENCHMARKS: Record<string, string> = {
   merged: 'several merges a day, every day; outside contributions land in the same week',
   lead_time: 'median under 24h, p90 under 3 days (DORA elite: change lead time under a day)',

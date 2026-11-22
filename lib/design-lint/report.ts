@@ -26,6 +26,16 @@ export interface Finding {
   source: Source;
   /** Set when a waiver answered the finding: the reason it recorded. */
   waiver?: string;
+  /** An app-profile finding's measurement (--scope app): kept whole, never truncated. */
+  app?: AppMeasure;
+}
+
+export interface AppMeasure {
+  state: string;
+  viewport: string;
+  locator: string;
+  measured: number;
+  threshold: number;
 }
 
 export interface ReportOptions {
@@ -47,13 +57,14 @@ export const relPath = (file: string, cwd = process.cwd()): string =>
 export class Reporter {
   readonly findings: Finding[] = [];
 
-  constructor(readonly scope: 'page' | 'component' = 'page', readonly cwd = process.cwd()) {}
+  constructor(readonly scope: 'page' | 'component' | 'app' = 'page', readonly cwd = process.cwd()) {}
 
   /** Records one finding and returns it; null when the rule is page-only and the scope is component. */
   report(rule: string, file: string, line: number | null | undefined, evidence: string, opts: ReportOptions = {}): Finding | null {
     const meta = ruleMeta(rule);
     if (!meta) throw new Error(`design-lint: unknown rule id ${rule}`);
     if (this.scope === 'component' && meta.pageOnly) return null;
+    if (meta.app && this.scope !== 'app') return null;
     const tier: Tier = opts.suspected && meta.tier === 'blocks' ? 'ask' : meta.tier;
     const finding: Finding = {
       rule, tier, grade: tier,
@@ -76,7 +87,7 @@ const GRADE_RANK: Record<Grade, number> = { blocks: 0, ask: 1, waived: 2, polish
 export function finalize(findings: Finding[]): Finding[] {
   const seen = new Set<string>();
   const unique = findings.filter((f) => {
-    const k = `${f.rule}|${f.grade}|${f.file}|${f.line}|${f.evidence}`;
+    const k = `${f.rule}|${f.grade}|${f.file}|${f.line}|${f.evidence}` + (f.app ? `|${f.app.state}|${f.app.viewport}|${f.app.locator}` : '');
     if (seen.has(k)) return false;
     seen.add(k);
     return true;

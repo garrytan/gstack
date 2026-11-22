@@ -13,12 +13,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { buildContext, withFingerprint } from '../lib/pregate/context';
-import { adapterFor, supervise, type SuperviseOptions } from '../lib/pregate/supervise';
+import { adapterFor, processTree, supervise, type SuperviseOptions } from '../lib/pregate/supervise';
 import { BASE_PREGATE, BIN, cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 const dirs: string[] = [];
 const repos: FixtureRepo[] = [];
-afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); while (repos.length) cleanup(repos.pop()!); });
+const workers: number[] = [];
+afterEach(() => { while (workers.length) { try { process.kill(workers.pop()!, 'SIGKILL'); } catch { /* already gone */ } } while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); while (repos.length) cleanup(repos.pop()!); });
 
 function scratch(): string { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-supervise-')); dirs.push(d); return d; }
 function alive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch { return false; } }
@@ -40,6 +41,27 @@ function run(dir: string, command: string, o: Partial<SuperviseOptions> = {}) {
   const started = Date.now();
   return supervise({ command, cwd: dir, env: process.env, log, deadline: Date.now() + 30_000, stallMs: 0, graceMs: 300, pollMs: 50, label: 'fixture', progress: l => lines.push(l), ...o })
     .then(r => ({ ...r, lines, wall: Date.now() - started, log: fs.readFileSync(log, 'utf8') }));
+}
+
+/** A runner that starts one worker in a new session (a detached spawn, as `pnpm exec` starts Vitest under pnpm 11), prints nothing while the worker runs and exits with it. `<mode>.pids` holds the worker's pid, the worker's group and the runner's group. */
+function ownSessionRunner(dir: string, mode: 'busy' | 'forever' | 'idle'): string {
+  const work = { busy: 'const end = Date.now() + 3500; while (Date.now() < end) {}', forever: 'for (;;) {}', idle: 'setTimeout(() => {}, 1e9)' }[mode];
+  const script = path.join(dir, `${mode}-runner.js`);
+  fs.writeFileSync(script, [
+    "const { spawn, execFileSync } = require('node:child_process');",
+    "const group = pid => execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }).trim();",
+    `const w = spawn(process.execPath, ['-e', ${JSON.stringify(work)}], { detached: true, stdio: 'ignore' });`,
+    `require('node:fs').writeFileSync(${JSON.stringify(path.join(dir, `${mode}.pids`))}, [w.pid, group(w.pid), group(process.pid)].join(' '));`,
+    "w.on('exit', code => { console.log('worker done'); process.exit(code ?? 1); });",
+    '',
+  ].join('\n'));
+  return `${process.execPath} ${script}`;
+}
+async function pidsFrom(file: string): Promise<number[]> {
+  await pidFrom(file);
+  const pids = fs.readFileSync(file, 'utf8').trim().split(' ').map(Number);
+  workers.push(pids[0]!);
+  return pids;
 }
 
 describe('supervise: process group, log file, stall and deadline', () => {
@@ -79,6 +101,55 @@ describe('supervise: process group, log file, stall and deadline', () => {
     const forever = await run(dir, `${process.execPath} -e 'for (;;) {}'`, { stallMs: 1500, deadline: Date.now() + 4000 });
     expect(forever.outcome).toBe('timeout');
     expect(forever.exit).toBeNull();
+  }, 20_000);
+
+  // Value: protects=a quiet suite whose runner starts its workers in their own session (pnpm 11's `pnpm exec` running Vitest) is measured
+  //   as busy, and a hung tree of that shape is still killed as stalled at the same stall timeout, worker included; fails_when=the stall check
+  //   reads CPU of the runner's process group alone and kills the busy lane, or the kill signals only that group and orphans the worker;
+  //   why_new=PR #4477: a monorepo suite ended PREGATE_STALLED three times at one tree while green outside pregate; seam=none;
+  //   no_claim=a worker reparented away from the tree (a double fork) is not measured
+  test('the process tree is the runner group plus every descendant by parent links; a process reparented away is not in it', () => {
+    const procs = [
+      { pid: 100, ppid: 1, pgid: 100, cpuMs: 10 },
+      { pid: 101, ppid: 100, pgid: 100, cpuMs: 20 },
+      { pid: 200, ppid: 101, pgid: 200, cpuMs: 300 },
+      { pid: 201, ppid: 200, pgid: 200, cpuMs: 400 },
+      { pid: 300, ppid: 1, pgid: 300, cpuMs: 5000 },
+      { pid: 400, ppid: 1, pgid: 400, cpuMs: 7 },
+    ];
+    expect(processTree(100, procs).map(p => p.pid).sort()).toEqual([100, 101, 200, 201]);
+    expect(processTree(999, procs)).toEqual([]);
+  });
+
+  test('a silent worker the runner starts in its own session keeps the run alive while it uses CPU', async () => {
+    const dir = scratch();
+    const busy = await run(dir, ownSessionRunner(dir, 'busy'), { stallMs: 1500 });
+    const [worker, workerGroup, runnerGroup] = await pidsFrom(path.join(dir, 'busy.pids'));
+    expect(workerGroup).toBe(worker);
+    expect(workerGroup).not.toBe(runnerGroup);
+    expect(busy.outcome).toBe('exited');
+    expect(busy.exit).toBe(0);
+    expect(busy.log).toContain('worker done');
+  }, 20_000);
+
+  test('an own-session worker that never stops working is killed at the deadline with its runner', async () => {
+    const dir = scratch();
+    const forever = await run(dir, ownSessionRunner(dir, 'forever'), { stallMs: 1500, deadline: Date.now() + 4000 });
+    const [worker] = await pidsFrom(path.join(dir, 'forever.pids'));
+    expect(forever.outcome).toBe('timeout');
+    expect(forever.exit).toBeNull();
+    expect(forever.wall).toBeLessThan(9000);
+    expect(await goneSoon(worker!)).toBe(true);
+  }, 20_000);
+
+  test('a tree whose runner and own-session worker both sit idle is killed as stalled at the stall timeout, worker included', async () => {
+    const dir = scratch();
+    const idle = await run(dir, ownSessionRunner(dir, 'idle'), { stallMs: 700 });
+    const [worker] = await pidsFrom(path.join(dir, 'idle.pids'));
+    expect(idle.outcome).toBe('stalled');
+    expect(idle.wall).toBeGreaterThanOrEqual(700);
+    expect(idle.wall).toBeLessThan(5000);
+    expect(await goneSoon(worker!)).toBe(true);
   }, 20_000);
 
   test('a group that ignores SIGTERM is SIGKILLed after the grace period', async () => {

@@ -62,7 +62,7 @@ function entryFor(file: FileDiff, h: Hunk, floor: PathClass | null, allPaths: Re
   const path = file.status === 'deleted' ? file.oldPath : file.newPath;
   const old = h.lines.filter((l) => l.kind === 'del').map((l) => l.text.replace(/\r$/, ''));
   const added = h.lines.filter((l) => l.kind === 'add').map((l) => l.text.replace(/\r$/, ''));
-  const tagged = tagHunk({ header: h.header, lines: h.lines.map((l) => ({ kind: l.kind, text: l.text.replace(/\r$/, '') })) }, { floor, path, allPaths });
+  const tagged = tagHunk({ header: h.header, lines: h.lines.map((l) => ({ kind: l.kind, text: l.text.replace(/\r$/, '') })) }, { floor, path, oldPath: file.oldPath, allPaths });
   const admitted = floor !== null || tagged.tags.length > 0 || hunkHasRemovedTestDeclaration(old);
   if (!admitted) return null;
   const bytes = [...old, ...added].reduce((n, l) => n + Buffer.byteLength(l) + 1, 0);

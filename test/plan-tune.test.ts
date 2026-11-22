@@ -166,7 +166,6 @@ describe('one-way door safety', () => {
       'cso-finding-fix',                   // security finding
       'land-and-deploy-merge-confirm',     // actual merge
       'land-and-deploy-rollback',          // rollback decision
-      'investigate-fix-apply',             // applying a fix
       'plan-ceo-review-premise-revise',    // changing agreed premise
       'plan-eng-review-arch-finding',      // architecture change
       'office-hours-landscape-privacy-gate',// sending data to search provider
@@ -202,7 +201,6 @@ describe('registry breadth', () => {
       'plan-design-review',
       'plan-devex-review',
       'qa',
-      'investigate',
       'land-and-deploy',
       'cso',
     ];
@@ -211,10 +209,10 @@ describe('registry breadth', () => {
     }
   });
 
-  test('preamble one-time prompts are registered (telemetry, proactive, routing)', () => {
+  test('preamble one-time prompts are registered (telemetry, proactive)', () => {
     expect(getQuestion('preamble-telemetry-consent')).toBeDefined();
     expect(getQuestion('preamble-proactive-behavior')).toBeDefined();
-    expect(getQuestion('preamble-routing-injection')).toBeDefined();
+    expect(getQuestion('preamble-routing-injection')).toBeUndefined();
   });
 
   test('/plan-tune itself registers its enable + setup + mutation-confirm', () => {

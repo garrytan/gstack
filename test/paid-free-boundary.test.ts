@@ -11,7 +11,7 @@ import { normalizeRelativePath as freeNormalize } from '../scripts/test-free-sha
 import { PAID_TEST_GLOBS } from './helpers/paid-test-set';
 import { E2E_TIERS, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
 import { selectTests } from './helpers/test-selection';
-import { sourceDependencyClosure } from '../scripts/eval-input-cache';
+import { sourceDependencyClosure } from '../crew/scripts/eval-input-cache';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 

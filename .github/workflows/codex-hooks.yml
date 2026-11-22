@@ -1,0 +1,45 @@
+name: Codex hooks
+
+# A real Codex CLI reads the hooks.json gstack writes (GST-3172). Codex 0.170
+# skips the whole file when it holds a key it does not know, which would also
+# switch off the user's own hooks, so the free check runs against the real
+# binary: test/codex-hooks-real-codex.test.ts points Codex at a closed local
+# port, so its hooks fire and no model is called. Secretless: no API key, and
+# GSTACK_REQUIRE_CODEX=1 makes a missing codex fail instead of skipping.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - bin/gstack-settings-hook
+      - hosts/codex/hooks/**
+      - hosts/claude/hooks/skill-route-hook.ts
+      - hosts/claude/hooks/destructive-guard-hook.ts
+      - lib/skill-route.ts
+      - test/codex-hooks-real-codex.test.ts
+      - .github/workflows/codex-hooks.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-codex:
+    name: Real Codex reads gstack's hooks.json
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install the Codex CLI the hooks are tested on
+        run: npm install -g @openai/codex@0.170.0 && codex --version
+      - name: Codex runs the merged hooks.json (no model call)
+        env:
+          GSTACK_REQUIRE_CODEX: "1"
+        run: bun test test/codex-hooks-real-codex.test.ts

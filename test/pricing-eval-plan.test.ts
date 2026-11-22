@@ -39,7 +39,7 @@ describe('lib/pricing', () => {
   });
 
   test('the default eval-arms tier (smart) is priced out of the box', () => {
-    for (const model of ['claude-opus-5-5', 'gpt-6.1-sol']) expect(hasPricing(model)).toBe(true);
+    for (const model of ['claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.2-sol', 'gpt-6.2-astra']) expect(hasPricing(model)).toBe(true);
   });
 
   test('claude-haiku-5-5, gpt-6-luna and gemini-4-argon are priced (#3640)', () => {
@@ -57,7 +57,12 @@ describe('preregistration', () => {
     expect(check.empty.length).toBe(PREREG_SECTIONS.length);
     expect(check.ok).toBe(false);
     expect(PREREG_SECTIONS).toContain('Comparison');
-    const filled = t.replace(/^(##\s+.+)$/gm, '$1\n- filled in').replace('## Comparison\n- filled in', '## Comparison\nstack: none\nwhy: one arm, no skill stack');
+    const filled = t.replace(/^(##\s+.+)$/gm, '$1\n- filled in').replace('## Comparison\n- filled in', '## Comparison\nstack: none\nwhy: one arm, no skill stack')
+      .replace('## Decisions\n- filled in', '## Decisions\nif the bar is met: run the full set\nif the bar is missed: stop and fix the scorer')
+      .replace('## Scoring\n- filled in', '## Scoring\njudge: none')
+      .replace('## Pilot\n- filled in', '## Pilot\nshare: 10%\ncounted: no\nran: shown in each arm\'s outputs\nsupply: three rows per arm\nunits: every task type\nseed: 7')
+      .replace('## Cost\n- filled in', '## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger')
+      .replace('## Held-out exposure\n- filled in', '## Held-out exposure\nanswers: other git refs and build caches checked');
     expect(checkPrereg(filled)).toMatchObject({ ok: true, missing: [], empty: [] });
     expect(checkPrereg('# nothing here\n').missing).toEqual([...PREREG_SECTIONS]);
   });
@@ -133,14 +138,14 @@ describe('dry run', () => {
     const rows = path.join(d, 'rows.jsonl');
     fs.writeFileSync(rows, [JSON.stringify({ prompt: 'hello world' }), JSON.stringify({ prompt: 'second row' })].join('\n') + '\n');
     const retry = path.join(d, 'retry.txt'); fs.writeFileSync(retry, 'retry\n');
-    const small = dryRun({ input: rows, arms: ['claude-haiku-4-5', 'claude-sonnet-5-5#no-gstack'], retryPrompt: retry });
+    const small = dryRun({ input: rows, arms: ['claude-haiku-5-5', 'claude-sonnet-5-5#no-gstack'], retryPrompt: retry });
     expect(small.pass).toBe(false);
-    expect(small.checks.frontier).toMatchObject({ ok: false, small_tier: ['claude-haiku-4-5', 'claude-sonnet-5-5#no-gstack'], tier_question: null });
+    expect(small.checks.frontier).toMatchObject({ ok: false, small_tier: ['claude-haiku-5-5', 'claude-sonnet-5-5#no-gstack'], tier_question: null });
     const avgIn = Math.ceil((estimateTokens('hello world') + estimateTokens('second row')) / 2);
     expect(small.checks.frontier.recost_usd['claude-opus-5-5']).toBe(2 * 2 * estimateCostUsd({ input: avgIn, output: REASONING_OUTPUT_FLOOR }, 'claude-opus-5-5'));
-    expect(small.checks.frontier.recost_usd['gpt-6.1-sol']).toBeGreaterThan(0);
+    expect(small.checks.frontier.recost_usd['gpt-6.2-sol']).toBeGreaterThan(0);
     expect(renderDryRun(small)).toContain('CHECK: frontier refused');
-    const asked = dryRun({ input: rows, arms: ['claude-haiku-4-5'], retryPrompt: retry, tierQuestion: 'does the diet hold on Haiku' });
+    const asked = dryRun({ input: rows, arms: ['claude-haiku-5-5'], retryPrompt: retry, tierQuestion: 'does the diet hold on Haiku' });
     expect(asked.pass).toBe(true);
     expect(renderDryRun(asked)).toContain('CHECK: frontier ok (tier question');
     const mixed = dryRun({ input: rows, arms: ['claude-opus-5-5', 'claude-sonnet-5-5'], retryPrompt: retry });
@@ -151,10 +156,10 @@ describe('dry run', () => {
     expect(renderDryRun(frontier)).not.toContain('CHECK: frontier');
     expect(['claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6-luna', 'gemini-3.8-flash'].some(isSmallTierModel)).toBe(false);
     const dryFile = (name: string, r: unknown) => { const f = path.join(d, name); fs.writeFileSync(f, JSON.stringify(r)); return f; };
-    const swapped = startPilot({ out: path.join(d, 'swapped'), cap: 5, n: 1, arms: ['claude-haiku-4-5'], dryRun: dryFile('frontier.json', frontier) });
+    const swapped = startPilot({ out: path.join(d, 'swapped'), cap: 5, n: 1, arms: ['claude-haiku-5-5'], dryRun: dryFile('frontier.json', frontier) });
     expect(swapped.error?.code).toBe('EVAL_DRY_RUN_FAILED');
     expect(fs.existsSync(path.join(d, 'swapped'))).toBe(false);
-    expect(startPilot({ out: path.join(d, 'asked'), cap: 5, n: 1, arms: ['claude-haiku-4-5'], dryRun: dryFile('asked.json', asked) }).error).toBeUndefined();
+    expect(startPilot({ out: path.join(d, 'asked'), cap: 5, n: 1, arms: ['claude-haiku-5-5'], dryRun: dryFile('asked.json', asked) }).error).toBeUndefined();
     expect(startPilot({ out: path.join(d, 'mixed'), cap: 5, n: 1, arms: ['claude-opus-5-5', 'claude-sonnet-5-5'], dryRun: dryFile('frontier2.json', frontier) }).error).toBeUndefined();
   });
 
@@ -163,7 +168,7 @@ describe('dry run', () => {
     try {
       const rows = path.join(host.base, 'rows.jsonl'); fs.writeFileSync(rows, JSON.stringify({ prompt: 'hello world' }) + '\n');
       const retry = path.join(host.base, 'retry.txt'); fs.writeFileSync(retry, 'retry\n');
-      const run = (...extra: string[]) => spawnSync(BIN, ['dry-run', '--input', rows, '--arms', 'claude-haiku-4-5', '--retry-prompt', retry, ...extra], { cwd: host.base, env: host.env, encoding: 'utf8', timeout: 30_000 });
+      const run = (...extra: string[]) => spawnSync(BIN, ['dry-run', '--input', rows, '--arms', 'claude-haiku-5-5', '--retry-prompt', retry, ...extra], { cwd: host.base, env: host.env, encoding: 'utf8', timeout: 30_000 });
       const flagAnswer = run('--tier-question', '--json');
       expect(flagAnswer.status).not.toBe(0);
       expect(flagAnswer.stderr).toContain('--tier-question needs the question');
@@ -226,23 +231,23 @@ describe('priced pilot', () => {
   test('#3653: each arm is projected on its own, so arms at different prices that fit the cap are not told they exceed it', () => {
     const d = tmp();
     const out = path.join(d, 'mixed');
-    const s = startPilot({ out, cap: 2, n: 3, arms: ['gpt-6-astra', 'gpt-5.4-mini'], dryRun: passingDryRun(d) });
+    const s = startPilot({ out, cap: 2, n: 3, arms: ['gpt-6-astra', 'gpt-6-luna'], dryRun: passingDryRun(d) });
     expect(s.error).toBeUndefined();
-    const usd: Record<string, number[]> = { 'gpt-6-astra': [0.001, 0.001, 0.001], 'gpt-5.4-mini': [0.10, 0.11, 0.12] };
+    const usd: Record<string, number[]> = { 'gpt-6-astra': [0.001, 0.001, 0.001], 'gpt-6-luna': [0.10, 0.11, 0.12] };
     for (const a of s.record.attempts) settlePilot(out, a.attempt, usd[a.model]![a.row - 1]!);
     const r = pilotReport(out, { total: 10, workers: 1 });
     expect(r.projection.projected_usd).toBeCloseTo(1.11, 6);
     expect(r.projection.band_usd![0]).toBeCloseTo(1.11 - 4.303 * 0.01 / Math.sqrt(3) * 10, 4);
     expect(r.projection.band_usd![1]).toBeCloseTo(1.11 + 4.303 * 0.01 / Math.sqrt(3) * 10, 4);
     expect(r.projection.verdict).toBe('within');
-    expect(r.projection.arms.map(a => [a.arm, a.n])).toEqual([['gpt-6-astra', 3], ['gpt-5.4-mini', 3]]);
-    expect(renderPilotReport(r)).toContain('PILOT_ARM: arm=gpt-5.4-mini n=3 per_item=$0.1100');
+    expect(r.projection.arms.map(a => [a.arm, a.n])).toEqual([['gpt-6-astra', 3], ['gpt-6-luna', 3]]);
+    expect(renderPilotReport(r)).toContain('PILOT_ARM: arm=gpt-6-luna n=3 per_item=$0.1100');
   });
 
   test('#3653: a priced arm mean is never multiplied across an arm settled unknown', () => {
     const d = tmp();
     const out = path.join(d, 'partial');
-    const s = startPilot({ out, cap: 10, n: 3, arms: ['gpt-6-astra', 'gpt-5.4-mini'], dryRun: passingDryRun(d) });
+    const s = startPilot({ out, cap: 10, n: 3, arms: ['gpt-6-astra', 'gpt-6-luna'], dryRun: passingDryRun(d) });
     for (const a of s.record.attempts) settlePilot(out, a.attempt, a.model === 'gpt-6-astra' ? 0.0003 : 'unknown');
     const r = pilotReport(out, { total: 400 });
     expect(r.projection.projected_usd).toBeCloseTo(0.12, 6);
@@ -256,12 +261,12 @@ describe('priced pilot', () => {
   test('#3653: a declared seat-metered arm holds none of the cap, stays out of the verdict and gets its own line', () => {
     const d = tmp();
     const dry = passingDryRun(d);
-    const est = startPilot({ out: path.join(d, 'probe'), cap: 100, n: 1, arms: ['gpt-6-astra', 'gpt-5.4-mini'], dryRun: dry }).record.attempts;
-    const astra = est.find(a => a.model === 'gpt-6-astra')!.estimate_usd, mini = est.find(a => a.model === 'gpt-5.4-mini')!.estimate_usd;
+    const est = startPilot({ out: path.join(d, 'probe'), cap: 100, n: 1, arms: ['gpt-6-astra', 'gpt-6-luna'], dryRun: dry }).record.attempts;
+    const astra = est.find(a => a.model === 'gpt-6-astra')!.estimate_usd, mini = est.find(a => a.model === 'gpt-6-luna')!.estimate_usd;
     const cap = Number((3 * mini + 2 * astra).toFixed(4));
-    expect(startPilot({ out: path.join(d, 'undeclared'), cap, n: 3, arms: ['gpt-5.4-mini', 'gpt-6-astra'], dryRun: dry }).error?.code).toBe('EVAL_BUDGET_EXHAUSTED');
+    expect(startPilot({ out: path.join(d, 'undeclared'), cap, n: 3, arms: ['gpt-6-luna', 'gpt-6-astra'], dryRun: dry }).error?.code).toBe('EVAL_BUDGET_EXHAUSTED');
     const out = path.join(d, 'seat');
-    const s = startPilot({ out, cap, n: 3, arms: ['gpt-5.4-mini', 'gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
+    const s = startPilot({ out, cap, n: 3, arms: ['gpt-6-luna', 'gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
     expect(s.error).toBeUndefined();
     expect(s.record.seat_metered).toEqual(['gpt-6-astra']);
     expect(s.record.attempts.filter(a => a.model === 'gpt-6-astra').map(a => a.estimate_usd)).toEqual([0, 0, 0]);
@@ -287,7 +292,7 @@ describe('priced pilot', () => {
     expect(charged.seat_metered).toEqual([]);
     expect(charged.projection.arms.map(a => [a.arm, a.n])).toEqual([['gpt-6-astra', 1]]);
     expect(charged.projection.verdict).toBe('unknown');
-    expect(() => startPilot({ out: path.join(d, 'stray'), cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-5.4-mini'], dryRun: dry })).toThrow('--seat-metered');
+    expect(() => startPilot({ out: path.join(d, 'stray'), cap: 10, n: 1, arms: ['gpt-6-astra'], seatMetered: ['gpt-6-luna'], dryRun: dry })).toThrow('--seat-metered');
     const switched = path.join(d, 'switched');
     startPilot({ out: switched, cap: 1, n: 3, arms: ['gpt-6-astra'], seatMetered: ['gpt-6-astra'], dryRun: dry });
     expect(() => startPilot({ out: switched, cap: 1, n: 3, arms: ['gpt-6-astra'], dryRun: dry })).toThrow('needs a new --out');
@@ -312,14 +317,14 @@ describe('priced pilot', () => {
 
   test('#3653: a seat-metered arm still needs a price row, as the dry run does', () => {
     const d = tmp();
-    const s = startPilot({ out: path.join(d, 'seat'), cap: 1, n: 2, arms: ['gpt-5.4-mini', 'seat-only-model'], seatMetered: ['seat-only-model'], dryRun: passingDryRun(d) });
+    const s = startPilot({ out: path.join(d, 'seat'), cap: 1, n: 2, arms: ['gpt-6-luna', 'seat-only-model'], seatMetered: ['seat-only-model'], dryRun: passingDryRun(d) });
     expect(s.error?.code).toBe('EVAL_PRICE_MISSING');
   });
 
   test('#3653: pilot start --seat-metered reaches the ledger through the CLI', () => {
     const d = tmp();
     const out = path.join(d, 'cli');
-    const r = spawnSync(BIN, ['pilot', 'start', '--out', out, '--cap', '10', '--arms', 'gpt-5.4-mini,gpt-6-astra', '--seat-metered', 'gpt-6-astra', '--dry-run', passingDryRun(d)], { cwd: d, encoding: 'utf8', timeout: 30_000 });
+    const r = spawnSync(BIN, ['pilot', 'start', '--out', out, '--cap', '10', '--arms', 'gpt-6-luna,gpt-6-astra', '--seat-metered', 'gpt-6-astra', '--dry-run', passingDryRun(d)], { cwd: d, encoding: 'utf8', timeout: 30_000 });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('PILOT_ATTEMPT: pilot-gpt-6-astra-1 model=gpt-6-astra estimate=$0.0000');
     expect(JSON.parse(fs.readFileSync(path.join(out, 'pilot.json'), 'utf8')).seat_metered).toEqual(['gpt-6-astra']);

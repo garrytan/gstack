@@ -8,7 +8,9 @@
  * uiRequired, DX when dxRequired) published its report, and the Phase 4 Final
  * Approval Gate is written. A phase publishes as phase-close.md step 6 says:
  * assistant text with its "Phase N complete" line, then a successful Bash no-op
- * "true autoplan-published <phase>". The gate is a successful gstack-gate render
+ * "true autoplan-published <phase>". A no-op counts only when that report came
+ * after the previous no-op and every earlier applicable phase already counted
+ * (GST-1814); publishCheck refuses the others before they run. The gate is a successful gstack-gate render
  * or a Write of a gate.json. A --ceo-only run is met when Phase 1 published and
  * its text holds the "GSTACK_RESULT: skill=autoplan status=reviewed" end line.
  * A run that drives the gstack-autoplan runner is mode runner: the runner keeps
@@ -26,7 +28,7 @@ export const PHASE_NAME: Record<Phase, string> = { ceo: 'CEO', design: 'Design',
 export type Missing = 'scope' | Phase | 'gate' | 'end';
 
 const SNAPSHOT = /gstack-autoplan-snapshot(?:\.ts)?["']?\s+(init|scope)(?:\s|$)/;
-const PUBLISHED = /^\s*true\s+autoplan-published\s+(ceo|design|dx|eng)\s*$/;
+export const PUBLISHED = /^\s*true\s+autoplan-published\s+(ceo|design|dx|eng)\s*$/;
 const PHASE_READ = /(?:^|[\\/])autoplan[\\/]sections[\\/](ceo|design|dx|eng)-phase\.md$/;
 const GATE_RENDER = /gstack-gate["']?\s+render(?:\s|$)/;
 const GATE_FILE = /(?:^|[\\/])gate\.json$/;
@@ -40,8 +42,14 @@ export interface RunCheck {
   phases: Phase[] | null;
   /** phases whose driver section was Read */
   entered: Phase[];
-  /** phases that published, in the order they did */
+  /** phases that published, in phase order, each after its own report */
   published: Phase[];
+  /** publish no-ops that did not count: no report since the previous no-op, or not the phase due */
+  uncounted: Array<{ phase: Phase; why: 'no-report' | 'out-of-order'; due?: Phase }>;
+  /** phases with a report line anywhere in the run */
+  reported: Phase[];
+  /** phases with a report line since the last successful publish no-op */
+  reportedSinceLast: Phase[];
   gate: boolean;
   missing: Missing | null;
   /** Agent or Task calls launched in the background that have not reported back */
@@ -99,15 +107,23 @@ export function checkRun(t: Transcript, load: SkillLoad): RunCheck {
 
   const entered = [...new Set(uses.flatMap(u => (u.name === 'Read' && ok(u) ? [PHASE_READ.exec(String(u.input.file_path ?? ''))?.[1] as Phase | undefined] : []).filter((p): p is Phase => !!p)))];
 
+  const reportsIn = (events: TranscriptEvent[]) => PHASE_ORDER.filter(p => {
+    const said = new RegExp(`Phase\\s+${PHASE_NUMBER[p].replace('.', '\\.')}(?![\\d.])[^\\n]*?\\bcomplete\\b`, 'i');
+    return events.some(e => e.kind === 'text' && said.test(e.text));
+  });
   const published: Phase[] = [];
+  const uncounted: RunCheck['uncounted'] = [];
   let from = 0;
   for (const u of bash) {
     const m = PUBLISHED.exec(u.input.command);
     if (!m) continue;
     const p = m[1] as Phase;
     const at = run.indexOf(u);
-    const said = new RegExp(`Phase\\s+${PHASE_NUMBER[p].replace('.', '\\.')}(?![\\d.])[^\\n]*?\\bcomplete\\b`, 'i');
-    if (run.slice(from, at).some(e => e.kind === 'text' && said.test(e.text)) && !published.includes(p)) published.push(p);
+    if (!published.includes(p)) {
+      if (!reportsIn(run.slice(from, at)).includes(p)) uncounted.push({ phase: p, why: 'no-report' });
+      else if (p !== dueNext(phases, published, p)) uncounted.push({ phase: p, why: 'out-of-order', due: dueNext(phases, published, p) });
+      else published.push(p);
+    }
     from = at + 1;
   }
 
@@ -132,7 +148,43 @@ export function checkRun(t: Transcript, load: SkillLoad): RunCheck {
     if (!missing && mode === 'full' && !gate) missing = 'gate';
     if (!missing && mode === 'ceo-only' && !run.some(e => e.kind === 'text' && CEO_ONLY_END.test(e.text))) missing = 'end';
   }
-  return { mode, phases, entered, published, gate, missing, pendingAgents };
+  return { mode, phases, entered, published, uncounted, reported: reportsIn(run), reportedSinceLast: reportsIn(run.slice(from)), gate, missing, pendingAgents };
+}
+
+/**
+ * The phase that may publish next: the first applicable phase not yet published.
+ * Before scope is known, CEO (which always applies) comes first; after it any
+ * phase later in PHASE_ORDER than every published one may (returned as `p`
+ * itself), so an unread scope never refuses a later phase.
+ */
+function dueNext(phases: Phase[] | null, published: Phase[], p: Phase): Phase | undefined {
+  if (phases) return phases.find(q => !published.includes(q));
+  if (!published.includes('ceo')) return 'ceo';
+  return published.every(q => PHASE_ORDER.indexOf(q) < PHASE_ORDER.indexOf(p)) ? p : published.at(-1);
+}
+
+const label = (p: Phase) => `Phase ${PHASE_NUMBER[p]} (${PHASE_NAME[p]})`;
+const dueLine = (p: Phase) => `Next due: the ${label(p)} report.`;
+const howToPublish = (p: Phase) => `its report as text starting "**Phase ${PHASE_NUMBER[p]} complete.**" (autoplan/sections/phase-close.md step 6) in a message whose only tool call is: true autoplan-published ${p}`;
+
+/**
+ * The refusal for a publish no-op of `p` about to run, or null to let it run:
+ * a phase publishes only when it is the phase due and its report was sent since
+ * the previous publish no-op (the same message counts). Republishing a phase
+ * that already counted, runner mode, and a phase scope makes inapplicable pass.
+ */
+export function publishCheck(c: RunCheck, p: Phase): { why: 'no-report' | 'out-of-order'; due: Phase; reason: string } | null {
+  if (c.mode === 'runner' || c.published.includes(p) || (c.phases && !c.phases.includes(p))) return null;
+  const due = dueNext(c.phases, c.published, p) ?? p;
+  if (due !== p) {
+    const before = (c.phases ? c.phases.slice(0, c.phases.indexOf(p)).filter(q => !c.published.includes(q)) : [due]).map(label);
+    return { why: 'out-of-order', due, reason: [dueLine(due),
+      `/autoplan publishes phases in order (${(c.phases ?? PHASE_ORDER).join(', ')}): ${label(p)} cannot publish before ${before.join(' and ')}.`,
+      `When ${label(due)}'s review is finished, send ${howToPublish(due)}`].join('\n') };
+  }
+  if (c.reportedSinceLast.includes(p)) return null;
+  return { why: 'no-report', due, reason: [dueLine(p),
+    `${label(p)} cannot publish without its report. Send ${howToPublish(p)}`].join('\n') };
 }
 
 /** The block text for a run's missing step: what is not done and the next thing to do. */
@@ -142,9 +194,11 @@ export function missingStep(c: RunCheck): string {
   if (m === 'gate') return '/autoplan is not done: every applicable phase published, but the Phase 4 Final Approval Gate is not written. Read autoplan/sections/tasks-aggregator.md, write $_AP/gate.json and run gstack-gate render on it, then present the gate.';
   if (m === 'end') return '/autoplan --ceo-only is not done: Phase 1 published, but the run has not finished. Write $_AP/ceo-review.md as the --ceo-only section says and end with: GSTACK_RESULT: skill=autoplan status=reviewed run=<absolute $_AP>';
   if (!m) return '';
-  const label = `Phase ${PHASE_NUMBER[m]} (${PHASE_NAME[m]})`;
-  if (c.entered.includes(m)) {
-    return `/autoplan is not done: ${label} has not published its report. Finish its close procedure (autoplan/sections/phase-close.md), then send its report starting "**Phase ${PHASE_NUMBER[m]} complete.**" in a message whose only tool call is the Bash no-op: true autoplan-published ${m}`;
-  }
-  return `/autoplan is not done: ${label} has not run. Continue the pipeline at its driver Read (autoplan/sections/${m}-phase.md) and run it through its close in this turn.`;
+  const uncounted = c.uncounted.length
+    ? [`Not counted: ${c.uncounted.map(u => `true autoplan-published ${u.phase} (${u.why === 'no-report' ? 'no report before it' : `out of order: ${u.due ? label(u.due) : 'another phase'} was due`})`).join(', ')}.`]
+    : [];
+  const step = c.entered.includes(m) || c.reported.includes(m) || c.uncounted.some(u => u.phase === m)
+    ? `/autoplan is not done: ${label(m)} has not published its report. Finish its close procedure (autoplan/sections/phase-close.md), then send its report starting "**Phase ${PHASE_NUMBER[m]} complete.**" in a message whose only tool call is the Bash no-op: true autoplan-published ${m}`
+    : `/autoplan is not done: ${label(m)} has not run. Continue the pipeline at its driver Read (autoplan/sections/${m}-phase.md) and run it through its close in this turn, then send its report starting "**Phase ${PHASE_NUMBER[m]} complete.**" in a message whose only tool call is: true autoplan-published ${m}`;
+  return [dueLine(m), step, ...uncounted].join('\n');
 }

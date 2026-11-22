@@ -4,9 +4,10 @@
  */
 import { spawnSync } from 'node:child_process';
 import { cancelActive } from '../lib/pregate/supervise';
-import { MAX_FAIL_LINES, TESTS, healthDimensions, isTrusted, ledgerPath, load, nothingToRun, readLedger, recordTrust, runChecks, status, type Loaded } from '../lib/checks';
+import { MAX_FAIL_LINES, TESTS, healthDimensions, isTrusted, ledgerPath, load, nothingToRun, quickLine, readLedger, recordTrust, runChecks, status, type Loaded } from '../lib/checks';
+import { readConfigKey } from '../lib/state-root';
 
-const USAGE = `Usage: gstack-checks <detect|trust|run|status> [options]
+const USAGE = `Usage: gstack-checks <detect|trust|run|status|quick> [options]
 
   detect                 list the checks run would execute and whether they are trusted (reads files only)
   detect --for health    /health's dimensions: DIMENSION <name> <command>  (<source>), or DIMENSION <name> none
@@ -18,6 +19,11 @@ const USAGE = `Usage: gstack-checks <detect|trust|run|status> [options]
                          CHECK <name> PASS|FAIL|ZERO_RUN|UNMAPPED|TOO_BROAD|ENV|TIMEOUT|INCOMPLETE <secs>
   status                 READY_FOR_SHIP when the last run passed every check at this tree, else NOT_READY;
                          runs nothing
+  quick [--timeout <s>]  the pre-commit pass: run's checks and tests with no consent prompt, ending with one line,
+                         VERIFY PASS|FAIL|skipped: <what>; untrusted commands, no pregate context or
+                         verify_before_commit=off skip instead of stopping; exit 1 only on FAIL, and a TIMEOUT
+                         is a FAIL; --timeout (default 540) is one budget the checks share, and the test
+                         stage starts with what is left
 
   --base <branch>        the branch pregate selects against (default: origin/HEAD's branch, else main)
 
@@ -41,10 +47,33 @@ function loadOrRefuse(root: string, args: string[], timeoutMs: number): Loaded |
   return l;
 }
 
+const QUICK_RED_LINES = 10;
+
+async function quick(root: string | null, args: string[], timeoutMs: number): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  const skip = (why: string) => { process.stdout.write(`VERIFY skipped: ${why}\n`); return 0; };
+  if (readConfigKey('verify_before_commit') === 'off') return skip('verify_before_commit is off (gstack-config set verify_before_commit on)');
+  if (!root) return skip('not inside a git repository');
+  const l = load(root, flag(args, '--base'), timeoutMs);
+  if ('refused' in l) {
+    const code = /\(([A-Z_]+)\)\s*$/.exec(l.refused)?.[1];
+    const ref = /\((origin\/\S+) is not a resolvable commit\)/.exec(l.refused)?.[1];
+    return skip(`${ref ? `no ${ref} to compare against (no remote, or it is not fetched)` : l.refused.replace(/^gstack-checks: /, '').split(':')[0]}, so no checks ran${code ? ` (${code})` : ''}`);
+  }
+  if (nothingToRun(l)) return skip('the repo declares no checks or tests');
+  if (!isTrusted(root, l.set)) return skip("the repo's check commands are not trusted yet; type /verify once to review them");
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { cancelActive(); process.exit(signal === 'SIGINT' ? 130 : 143); });
+  const { outcomes } = await runChecks(l, { root, timeoutMs, deadline });
+  const { line, red } = quickLine(outcomes);
+  for (const o of red) for (const text of o.lines.slice(-QUICK_RED_LINES)) process.stdout.write(`  | ${text}\n`);
+  process.stdout.write(line + '\n');
+  return red.length ? 1 : 0;
+}
+
 async function main(argv: string[]): Promise<number> {
   const [verb, ...args] = argv;
   if (!verb || verb === '--help' || verb === '-h') { process.stdout.write(USAGE); return verb ? 0 : 64; }
-  if (!['detect', 'trust', 'run', 'status'].includes(verb)) { process.stderr.write(USAGE); return 64; }
+  if (!['detect', 'trust', 'run', 'status', 'quick'].includes(verb)) { process.stderr.write(USAGE); return 64; }
   const mode = flag(args, '--for');
   if (args.includes('--for')) {
     if (verb !== 'detect' || mode !== 'health') { process.stderr.write(USAGE); return 64; }
@@ -54,9 +83,10 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   const root = repoRoot();
-  if (!root) { process.stderr.write('gstack-checks: not inside a git repository\n'); return 3; }
-  const timeoutS = Number(flag(args, '--timeout') ?? 600);
+  if (!root && verb !== 'quick') { process.stderr.write('gstack-checks: not inside a git repository\n'); return 3; }
+  const timeoutS = Number(flag(args, '--timeout') ?? (verb === 'quick' ? 540 : 600));
   if (!Number.isFinite(timeoutS) || timeoutS <= 0) { process.stderr.write('gstack-checks: --timeout needs a positive number of seconds\n'); return 64; }
+  if (verb === 'quick') return quick(root, args, timeoutS * 1000);
   const l = loadOrRefuse(root, args, timeoutS * 1000);
   if (!l) return 3;
   const trusted = isTrusted(root, l.set);

@@ -316,3 +316,36 @@ export function extractDesignResearchContract(skill: string): string {
     'For each Aside research call, include this prelude before invoking `_aside_exec` with the requested query:',
     '```bash', prelude, '```'].join('\n\n');
 }
+
+/**
+ * /codex review E2E excerpt: the skeleton's intro and setup steps plus the
+ * review-mode section, skipping the Section index and STOP pointers whose
+ * install paths don't exist in a temp fixture. The fixture seeds no install, so
+ * every ~/.claude/skills/gstack/ path (bin/ helpers and lib/ scripts alike)
+ * points at this checkout, as review-design-lite does.
+ */
+export function extractCodexReviewExcerpt(root: string): string {
+  const full = fs.readFileSync(path.join(root, 'codex', 'SKILL.md'), 'utf-8');
+  const introStart = full.indexOf('# /codex — Multi-AI Second Opinion');
+  const introEnd = full.indexOf('## Section index', introStart);
+  const stepsStart = full.indexOf('## Step 0.4', introStart);
+  const stepsEnd = full.indexOf('> **STOP.**', stepsStart);
+  if (!(introStart > -1 && introEnd > introStart && stepsStart > introEnd && stepsEnd > stepsStart)) {
+    throw new Error('skill fixture: codex/SKILL.md review excerpt markers moved');
+  }
+  const reviewMode = fs.readFileSync(path.join(root, 'codex', 'sections', 'review-mode.md'), 'utf-8');
+  if (!reviewMode.includes('## Step 2A: Review Mode')) throw new Error('skill fixture: codex review-mode section missing');
+  return [full.slice(introStart, introEnd), full.slice(stepsStart, stepsEnd), reviewMode].join('\n')
+    .replaceAll('~/.claude/skills/gstack/', `${root}/`);
+}
+
+/**
+ * Every helper path in an excerpt that a fixture with no install cannot run: any path under an installed
+ * .claude/skills/gstack/ (a Capy machine or laptop may have one, a CI runner does not), and any gstack bin/ helper or
+ * lib/*.ts script that does not resolve to a file (bare bin/ and lib/ resolve under root).
+ */
+export function unresolvedBinRefs(excerpt: string, root: string): string[] {
+  const refs = new Set(excerpt.match(/[^\s`'"()=]*(?:\.claude\/skills\/gstack\/[^\s`'"()]*|\b(?:bin\/gstack-[\w.-]*\w|lib\/[\w./-]*\.ts)\b)/g) ?? []);
+  return [...refs].filter(ref => ref.includes('.claude/skills/gstack/')
+    || !fs.existsSync(/^(?:bin|lib)\//.test(ref) ? path.join(root, ref) : ref));
+}

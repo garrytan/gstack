@@ -21,7 +21,7 @@
  * (name, digest and an install lock) beyond the newest KEEP by last use are
  * removed once unused for PRUNE_GRACE_MS.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';

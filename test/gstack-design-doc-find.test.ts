@@ -113,4 +113,44 @@ describe('rendered Design Doc Check block', () => {
     const legacy = f.write(path.join(f.home, '.gstack/projects/proj/garry-main-design-20261001-120000.md'), 60);
     expect(run({})).toBe(`Design doc found: ${legacy}`);
   });
+  test('decision memos are never returned as design docs (GST-3024)', () => {
+    const f = fixture();
+    f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-memo-20261117.md'), 10);
+    f.write(path.join(f.repo, 'docs/memos/pricing-test.md'), 5);
+    expect(f.find()).toBe('');
+    const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-design-20261101.md'), 1000);
+    expect(f.find()).toBe(doc);
+    expect(f.find({}, ['proj', 'other'])).toBe(doc);
+  });
+  test('a memo on a design-named branch is not a design doc (GST-3024)', () => {
+    const f = fixture();
+    f.write(path.join(f.home, '.gstack/projects/proj/user-feat-design-v2-memo-20261117-100000.md'), 10);
+    expect(f.find()).toBe('');
+    const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-design-v2-design-20261101-100000.md'), 1000);
+    expect(f.find()).toBe(doc);
+  });
+  test('names containing "memo" still find real design docs (GST-3024)', () => {
+    const f = fixture();
+    const local = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-memo-design-20261101-100000.md'), 1000);
+    expect(f.find({}, ['proj', 'feat-memo'])).toBe(local);
+    const repo = f.write(path.join(f.repo, 'docs/designs/add-memo-export.md'), 5);
+    expect(f.find({}, ['proj', 'feat-memo'])).toBe(repo);
+  });
+  test('a /design-review audit summary is never returned as the design doc (#4615)', () => {
+    const f = fixture();
+    f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-design-audit-20261121-100000.md'), 10);
+    expect(f.find()).toBe('');
+    expect(f.find({}, ['proj', 'other'])).toBe('');
+    const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-design-20261101-100000.md'), 1000);
+    expect(f.find()).toBe(doc);
+    expect(f.find({}, ['proj', 'other'])).toBe(doc);
+  });
+  test('a branch named after a design audit still finds its design doc, not its audit summary (#4615)', () => {
+    const f = fixture();
+    const args = ['proj', 'fix-design-audit'];
+    f.write(path.join(f.home, '.gstack/projects/proj/user-fix-design-audit-design-audit-20261121-100000.md'), 10);
+    expect(f.find({}, args)).toBe('');
+    const doc = f.write(path.join(f.home, '.gstack/projects/proj/user-fix-design-audit-design-20261101-100000.md'), 1000);
+    expect(f.find({}, args)).toBe(doc);
+  });
 });

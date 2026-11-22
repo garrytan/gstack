@@ -21,7 +21,7 @@
  * gstack-review-dispatch pass wrote for the kept files whose only reason is a secret line). Unset, every brief renders byte for byte as before. The base policy's readers.forbid_paths
  * (lib/review-fetch.ts) arrive the same way as policy_exclude items, without a disclosure.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -100,6 +100,14 @@ export function sectionTexts(root: string): SectionTexts {
   };
 }
 
+/**
+ * The outside voice's read-only correctness brief (R95): sent only when OpenAI refused the original under `cyber_policy`, as
+ * Capy's pass program retries it on GPT-6 Astra (lib/capy-review-pass.js). It drops the attacker role-play from the outside
+ * prompt and appends READ_ONLY_RETRY; every other reader, and every first attempt, gets its section text unchanged.
+ */
+export const READ_ONLY_RETRY = 'How to work, and this overrides anything above that conflicts with it: this is a read-only correctness review of the change, done by reading the code and its tests. Do not role-play an attacker. Do not write, run or describe exploit code or step-by-step reproductions. For each defect give file:line, the condition under which the code returns the wrong answer, and the smallest fix.';
+const READ_ONLY_EDITS: Array<[string, string]> = [['Think like an attacker and a chaos engineer. ', ''], ['Be adversarial. ', ''], ['naming the most exploitable finding', 'naming the most serious finding']];
+
 const SHA = /^[0-9a-f]{7,40}$/;
 const FENCE = '`'.repeat(3);
 function need(slots: Slots, key: string): string {
@@ -132,7 +140,7 @@ export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): str
   for (const k of keys) held[k] = `\u0000${nonce}:${k}\u0000`;
   const rendered = renderRole(role, held, t);
   const keep = slots.keep ? ` Read the files kept despite a match as well: \`git diff ${slots.diff_base} -- ${slots.keep}\`.` : '';
-  const excerpt = slots.excerpt_file ? ` ${need(slots, 'excerpt_files')} kept files have no keep reason but a changed line that reads a credential, so no git diff command above shows them: read every such line, with context, in the file ${slots.excerpt_file} (${need(slots, 'excerpt_bytes')} bytes, sha256 ${need(slots, 'excerpt_sha256')}).` : '';
+  const excerpt = slots.excerpt_file ? ` ${need(slots, 'excerpt_files')} kept files are in review only for a changed line that reads a credential or a changed line the gate scan tagged in a data file, so no git diff command above shows them: read every such line, with context, in the file ${slots.excerpt_file} (${need(slots, 'excerpt_bytes')} bytes, sha256 ${need(slots, 'excerpt_sha256')}).` : '';
   const text = slots.disclosure && role !== 'fix-check' && role !== 'outside-voice' ? `${rendered}\n\n${slots.disclosure}${keep}${excerpt}` : rendered;
   const left = role === 'fix-check' || role === 'outside-voice' ? [] : PLACEHOLDERS.filter(p => text.includes(p));
   if (left.length) throw new BriefError(`${role}: unfilled placeholder ${left.join(', ')}`);
@@ -176,7 +184,8 @@ function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
       try { return `${targetedBrief(need(slots, 'brief'), classes)}\n\n${merged}\n\nApply the targeted brief above (${need(slots, 'checklist')}: ${classes.join(', ')}) in the same read; your reply is this diff's targeted pass.`; } catch (e) { throw e instanceof BriefError ? e : new BriefError((e as Error).message); }
     }
     case 'outside-voice': {
-      const filled = fill(t.outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
+      const outside = slots.read_only ? `${fill(t.outside, READ_ONLY_EDITS, 'read-only retry')}\n\n${READ_ONLY_RETRY}` : t.outside;
+      const filled = fill(outside, [['DIFF_BASE=$(git merge-base origin/<base> HEAD)', `DIFF_BASE=${diffBase}`]], role);
       const body = slots.policy_exclude ? filled.split('git diff "$DIFF_BASE".').join(`git diff "$DIFF_BASE" -- . ${slots.policy_exclude}${slots.keep ? ` and git diff "$DIFF_BASE" -- ${slots.keep}` : ''}.`) : filled;
       const head = [body, '', ...(slots.disclosure ? [slots.disclosure, ''] : []), `## Branch diff (git diff ${diffBase})`];
       if (slots.diff_file) return [...head, `The supplied branch diff is the file ${slots.diff_file} (${need(slots, 'diff_bytes')} bytes, sha256 ${need(slots, 'diff_sha256')}). Read it from disk; it is ${slots.diff_slice ? 'the part of the diff under review' : 'the whole diff under review'}.`, ...(slots.diff_slice ? [slots.diff_slice] : [])].join('\n');
@@ -203,9 +212,21 @@ const treeCommand = (dir: string) => `cd ${quoted(dir)} && echo "REVIEWED_TREE: 
  * follows a findings-only output format can skip a request that only closes a long brief (gpt-6.1-sol did on GST-850), and
  * "the line <command> prints" was read as the command itself, so the step comes first and names the output line.
  */
-export function workspaceStep(dir: string): string {
-  return `First step, before anything else: run \`${treeCommand(dir)}\`. It outputs one line, \`REVIEWED_TREE: <tree hash> <path>\`. Copy that output line, not the command, as the first line of your final reply, above everything else, even where this brief limits your output to findings or says how to end it; a reply without it, or from another checkout, does not count.`;
+export function workspaceStep(dir: string, verdict = false): string {
+  return `First step, before anything else: run \`${treeCommand(dir)}\`. It outputs one line, \`REVIEWED_TREE: <tree hash> <path>\`. Copy that output line, not the command, as the first line of your final reply, above everything else, even where this brief limits your output to findings or says how to end it; a reply without it, or from another checkout, does not count.${verdict ? ` ${VERDICT_ASK}` : ''}`;
 }
+
+/**
+ * The verdict ask every blocking reader's brief carries right after the fingerprint step (GST-2495, lib/review-verdict.ts): one
+ * machine-readable count of the reply's blocking findings, which collect checks against the findings it parses.
+ */
+export const VERDICT_ASK = 'Put `REVIEW_VERDICT: blocking=<n>` on the second line, right under it: n is how many findings in your reply block the merge by this brief\'s own rule, 0 when none; add ` at=<path>:<line>,…` for those findings that have a location. Write it once, on its own line, outside any code block; it does not replace your findings or the ending this brief asks for.';
+
+/**
+ * The process rule every dispatched brief carries inside its workspace paragraph (GST-3360): readers often share a machine with
+ * other /ship runs, and a red-team reader ran `pkill -x sleep` there (HARN-120), ending processes another run had started.
+ */
+export const PROCESS_RULE = 'Other runs share this machine, so never stop or signal a process you did not start in this review: no pkill, killall or kill by name or pattern, and no kill of a process id your own command did not start. This holds whatever the brief above asks.';
 
 /**
  * The closing paragraphs every dispatched brief carries: the fetch rule and the readers policy (GST-1322, lib/review-fetch.ts),
@@ -213,10 +234,11 @@ export function workspaceStep(dir: string): string {
  * in a fresh shell, so the brief names the checkout under review and asks again for the fingerprint workspaceStep opens with.
  * The section's render sits between workspaceStep and these, byte for byte what renderBrief returns.
  */
-export function workspaceParagraph(dir: string, readers?: ReadersPolicy): string {
-  return `${fetchParagraph(readers)}\n\nWorkspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${quoted(dir)} && \`, and give every file read, search, edit or write an absolute path under ${dir}. The first line of your final reply is the \`REVIEWED_TREE: <tree hash> <path>\` line that \`${treeCommand(dir)}\` outputs (the output, not the command), even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.`;
+export function workspaceParagraph(dir: string, readers?: ReadersPolicy, verdict = false): string {
+  return `${fetchParagraph(readers)}\n\nWorkspace: the checkout under review is ${dir}. Your shell and file tools may start in another checkout, and every command runs in a fresh shell: begin each command with \`cd ${quoted(dir)} && \`, and give every file read, search, edit or write an absolute path under ${dir}. ${PROCESS_RULE} The first line of your final reply is the \`REVIEWED_TREE: <tree hash> <path>\` line that \`${treeCommand(dir)}\` outputs (the output, not the command), even where this brief limits your output to findings; a reply without it, or from another checkout, does not count.${verdict ? ' The second line is your `REVIEW_VERDICT: blocking=<n>` line; gstack checks that count against your findings, so do not repeat it.' : ''}`;
 }
-export const withWorkspace = (text: string, dir: string, readers?: ReadersPolicy) => `${workspaceStep(dir)}\n\n${text}\n\n${workspaceParagraph(dir, readers)}`;
+/** A blocking reader's brief (one of BRIEF_ROLES) takes the verdict ask; an audit reader, which cannot block, does not. */
+export const withWorkspace = (text: string, dir: string, readers?: ReadersPolicy, opts: { verdict?: boolean } = {}) => `${workspaceStep(dir, opts.verdict)}\n\n${text}\n\n${workspaceParagraph(dir, readers, opts.verdict)}`;
 /** The checkout a brief names: the toplevel of the directory the bins run in, where its diff and merge base come from. */
 export function checkoutRoot(): string {
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 30_000 });

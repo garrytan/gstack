@@ -17,6 +17,13 @@
  * Read of /autoplan's own files (the close packet and the Phase 2 reviewer's
  * input in the project's .gstack/tmp/autoplan/, the installed Phase 2 section)
  * must still raise no permission card.
+ *
+ * The actor stays on Claude Haiku 4.5. It acts out a scripted turn shape the
+ * guard depends on and is not a model under test. On Haiku 5.5 (#4630) the actor
+ * read the close packet and dispatched Phase 2 before the CEO reviewer's notice
+ * arrived, so the notice-turn path never ran: 8 of 8 attempts failed in release
+ * gate runs 44952328945, 44955253712 and 44956497475, against 11 of 11 passes on
+ * Haiku 4.5 at bisect prefixes up to 79eea6d5 in runs 44954167348 and 44956497475.
  */
 import { expect } from 'bun:test';
 import * as path from 'node:path';

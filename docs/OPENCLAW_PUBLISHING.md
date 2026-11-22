@@ -2,6 +2,11 @@
 
 Moved verbatim from CLAUDE.md (token-load reduction).
 
+**Status:** gstack's user docs no longer send anyone to ClawHub (#4421). Native
+registration (`./setup --host openclaw`) gives OpenClaw's agent the current
+/office-hours, /plan-ceo-review and /retro, and the gstack skills were removed
+from ClawHub on 2026-11-17.
+
 ## Workflow
 
 Native OpenClaw skills live in `openclaw/skills/gstack-openclaw-*/SKILL.md`. These are
@@ -16,7 +21,7 @@ clawhub publish openclaw/skills/gstack-openclaw-office-hours \
   --version 1.0.0 --changelog "description of changes"
 ```
 
-Repeat for each skill: `gstack-openclaw-ceo-review`, `gstack-openclaw-investigate`,
+Repeat for each skill: `gstack-openclaw-ceo-review`,
 `gstack-openclaw-retro`. Bump `--version` on each update.
 
 **Auth:** `clawhub login` (opens browser for GitHub auth). `clawhub whoami` to verify.

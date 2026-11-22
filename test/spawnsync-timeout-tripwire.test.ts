@@ -35,6 +35,7 @@ const SCAN_ROOTS = [
   'ios-qa/daemon/test',
   'ios-qa/scripts',
   'browser-skills',
+  'crew/test',
 ];
 
 const SYNC_SPAWN = /\b(?:spawnSync|execSync|execFileSync|Bun\.spawnSync)\s*\(/;

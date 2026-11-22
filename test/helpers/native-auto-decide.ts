@@ -284,6 +284,14 @@ function currentModeStatement(text: string, questionSummary?: string): { option:
   return null;
 }
 
+/** The output Claude Code put in place of the injected start line, or null when the text has no single such slot. */
+function loadedStartOutput(text: string): string | null {
+  const head = '\n## Preamble (run first)\n\n', tail = '\n\nIf the line above is not the start output, run this once; otherwise it already ran:';
+  const from = text.indexOf(head), to = text.indexOf(tail);
+  if (from < 0 || to < from + head.length || text.indexOf(head, from + 1) >= 0 || text.indexOf(tail, to + 1) >= 0) return null;
+  return text.slice(from + head.length, to);
+}
+
 /** A native slash expansion need not produce a Skill tool call. Its completed
  * preamble → preference check → decision log → current public mode provides
  * the alternative evidence, without attributing a synthetic Skill event. */
@@ -308,7 +316,12 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
     return result && result.isError === false && timely(result.timestamp) && time(result.timestamp) >= time(use.timestamp) ? result : null;
   };
   const bash = owned.filter(e => e.kind === 'use' && e.name === 'Bash' && timely(e.timestamp) && typeof e.input?.command === 'string');
-  const starts = bash.flatMap(use => {
+  const startSession = (output: string) => {
+    const status = output.split('GSTACK_INSTRUCTION_BEGIN:')[0]!;
+    const sessions = [...status.matchAll(/^SESSION_ID: ([A-Za-z0-9-]+)$/gm)];
+    return sessions.length === 1 && /^SKILL_START_PROTO: 1$/m.test(status) && /^QUESTION_TUNING: true$/m.test(status) ? sessions[0]![1]! : null;
+  };
+  const shellStarts = bash.flatMap(use => {
     const args = preambleArgs(use.input!.command as string), result = successful(use);
     if (!args || !result || args.length % 2 || args.length < 2) return [];
     const pairs = new Map<string, string>();
@@ -317,11 +330,17 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
       pairs.set(args[i]!, args[i + 1]!);
     }
     if (pairs.get('--skill') !== opts.skillName || typeof result.content !== 'string') return [];
-    const status = result.content.split('GSTACK_INSTRUCTION_BEGIN:')[0]!;
-    const sessions = [...status.matchAll(/^SESSION_ID: ([A-Za-z0-9-]+)$/gm)];
-    if (sessions.length !== 1 || !/^SKILL_START_PROTO: 1$/m.test(status) || !/^QUESTION_TUNING: true$/m.test(status)) return [];
-    return [{ use, result, session: sessions[0]![1]! }];
+    const session = startSession(result.content);
+    return session ? [{ toolUseId: use.toolUseId, at: result.timestamp, session }] : [];
   });
+  // Claude Code runs the start while the skill loads and puts its output in the
+  // loaded text (GST-3157); that load counts as the session's one start.
+  const loadStarts = (transcript.skillLoads ?? []).flatMap(load => {
+    if (load.sessionId !== opts.sessionId || load.skill !== opts.skillName || !timely(load.timestamp)) return [];
+    const output = loadedStartOutput(load.text), session = output === null ? null : startSession(output);
+    return session ? [{ toolUseId: undefined, at: load.timestamp, session }] : [];
+  });
+  const starts = [...shellStarts, ...loadStarts];
   if (starts.length !== 1) return null;
   const start = starts[0]!, questionId = `${opts.skillName}-mode`;
   // The handoff helper's printed AUTO_DECIDE line is the current declaration
@@ -350,17 +369,17 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
       if (row.skill === opts.skillName && row.session_id === start.session && row.source === 'agent' &&
           row.auto_decided === true && modeValue(row.user_choice) && modeValue(row.user_choice) === modeValue(row.recommended) &&
           typeof row.question_summary === 'string' && row.question_summary.trim() &&
-          loggedAt >= time(start.result.timestamp) && loggedAt <= opts.now) {
-        const handoff = autoHandoff(time(start.result.timestamp), modeValue(row.user_choice)!, row.question_summary);
-        if (handoff) return { ...handoff, summary: row.question_summary, preambleToolUseId: start.use.toolUseId, stateRecord: row };
-        if (autoHandoffs(time(start.result.timestamp), modeValue(row.user_choice)!).length) return null;
+          loggedAt >= time(start.at) && loggedAt <= opts.now) {
+        const handoff = autoHandoff(time(start.at), modeValue(row.user_choice)!, row.question_summary);
+        if (handoff) return { ...handoff, summary: row.question_summary, preambleToolUseId: start.toolUseId, stateRecord: row };
+        if (autoHandoffs(time(start.at), modeValue(row.user_choice)!).length) return null;
         for (const message of current) {
           const declared = currentModeStatement(message.text, row.question_summary);
           if (time(message.timestamp) < loggedAt || !declared || declared.option !== modeValue(row.user_choice)) continue;
           const after = current.filter(m => time(m.timestamp) >= time(message.timestamp)).map(m => m.text).join('\n\n');
           if (withdrawn(after, declared.option, row.question_summary)) continue;
           return { sessionId: opts.sessionId, timestamp: message.timestamp, summary: row.question_summary,
-            option: declared.option, annotation: message.text, preambleToolUseId: start.use.toolUseId, stateRecord: row };
+            option: declared.option, annotation: message.text, preambleToolUseId: start.toolUseId, stateRecord: row };
         }
       }
     }
@@ -368,7 +387,7 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   }
   const checks = bash.flatMap(use => {
     let command = (use.input!.command as string).trim();
-    const result = successful(use); if (time(use.timestamp) < time(start.result.timestamp)) return [];
+    const result = successful(use); if (time(use.timestamp) < time(start.at)) return [];
     const status = '; echo "EXIT: $?"', hasStatus = command.endsWith(status);
     if (hasStatus) command = command.slice(0, -status.length);
     const pipe = /^printf\s+(?:'%s'|"%s")\s+(?:'[^']*'|"[^"$`\\]*")\s*\|\s*/.exec(command);
@@ -406,7 +425,7 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   if (logs.length !== 1 || !logs[0]!.result) return null;
   const logged = logs[0]!;
   const handoff = autoHandoff(time(check.result!.timestamp), modeValue(logged.log.user_choice)!, logged.log.question_summary);
-  if (handoff) return { ...handoff, summary: logged.log.question_summary, preambleToolUseId: start.use.toolUseId,
+  if (handoff) return { ...handoff, summary: logged.log.question_summary, preambleToolUseId: start.toolUseId,
     preferenceToolUseId: check.use.toolUseId, questionLogToolUseId: logged.use.toolUseId };
   if (autoHandoffs(time(check.result!.timestamp), modeValue(logged.log.user_choice)!).length) return null;
   for (const message of current) {
@@ -417,7 +436,7 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
     if (withdrawn(after, declared.option, logged.log.question_summary) || current.some(m => time(m.timestamp) >= time(message.timestamp) &&
         currentModeStatement(m.text, logged.log.question_summary)?.option !== undefined && currentModeStatement(m.text, logged.log.question_summary)!.option !== declared.option)) continue;
     return { sessionId: opts.sessionId, timestamp: message.timestamp, summary: logged.log.question_summary,
-      option: declared.option, annotation: message.text, preambleToolUseId: start.use.toolUseId,
+      option: declared.option, annotation: message.text, preambleToolUseId: start.toolUseId,
       preferenceToolUseId: check.use.toolUseId, questionLogToolUseId: logged.use.toolUseId };
   }
   return null;

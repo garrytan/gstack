@@ -153,6 +153,106 @@ describe("env.kv: a name-shaped literal inside a call is a file or dict key, not
   );
 });
 
+describe("env.kv: reading an environment variable in code names a secret without holding one (GST-1894)", () => {
+  const FAKE_KEY = "Zx9Qw8Er7Ty6Ui5Op4As3Df2";
+  const GH = ["ghp", "_", "Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh7Jk8Lm9Np0"].join("");
+  table(
+    "env.kv",
+    "MEDIUM",
+    [
+      String.raw`    token = opts?.env?.AGENT_API_TOKEN;`,
+      String.raw`token = ctx.env.AGENT_API_TOKEN;`,
+      String.raw`token = env?.AGENT_API_TOKEN;`,
+      String.raw`token = env.AGENT_API_TOKEN,`,
+      String.raw`token = import.meta.env.VITE_API_TOKEN;`,
+      String.raw`token = Bun.env.AGENT_API_TOKEN;`,
+      String.raw`token = this.env!.AGENT_API_TOKEN;`,
+      String.raw`token = process.env.AGENT_API_TOKEN;`,
+      String.raw`token = process.env["AGENT_API_TOKEN"];`,
+      String.raw`token = opts?.env?.["AGENT_API_TOKEN"];`,
+      String.raw`token = os.environ["OPENROUTER_API_KEY_V2"]`,
+      String.raw`token = os.getenv("OPENROUTER_API_KEY_V2")`,
+      String.raw`token = System.getenv("AGENT_API_TOKEN");`,
+    ],
+    [
+      String.raw`token = "${FAKE_KEY}"`,
+      `AGENT_API_TOKEN=${FAKE_KEY}`,
+      `export AGENT_API_TOKEN=${FAKE_KEY}`,
+      String.raw`token = opts?.env?.AGENT_API_TOKEN ?? "${FAKE_KEY}"`,
+      String.raw`token = env.AGENT_API_TOKEN||"${FAKE_KEY}"`,
+      String.raw`token = process.env["AGENT_API_TOKEN"] || "${FAKE_KEY}"`,
+      String.raw`token = os.getenv("AGENT_API_TOKEN", "${FAKE_KEY}")`,
+      String.raw`token = process.env["${FAKE_KEY}"]`,
+      String.raw`token = os.environ["${FAKE_KEY}"]`,
+      `token = env.${FAKE_KEY}`,
+      String.raw`token = myenv.AGENT_API_TOKEN;`,
+    ],
+  );
+
+  test("a known key prefix beside an env name still reports HIGH", () => {
+    for (const input of [`AGENT_API_TOKEN=${GH}`, String.raw`token = opts?.env?.AGENT_API_TOKEN ?? "${GH}"`]) {
+      expect(findings(input).some((f) => f.severity === "HIGH")).toBe(true);
+    }
+  });
+});
+
+describe("env.kv: the env-read exemption needs a finished expression with no fallback; otherwise the line reads as on main (GST-1894)", () => {
+  const FAKE_KEY = "Zx9Qw8Er7Ty6Ui5Op4As3Df2";
+  const kv = (text: string) => findings(text).some((f) => f.id === "env.kv");
+  test.each([
+    ["comment after ??", String.raw`token = opts?.env?.AGENT_API_TOKEN ?? // fallback` + "\n" + String.raw`  "${FAKE_KEY}";`],
+    ["blank line after ??", String.raw`token = opts?.env?.AGENT_API_TOKEN ??` + "\n\n" + String.raw`  "${FAKE_KEY}";`],
+    ["fallback wrapped after ??", String.raw`token = opts?.env?.AGENT_API_TOKEN ??` + "\n" + String.raw`  "${FAKE_KEY}";`],
+    ["fallback on the next line", String.raw`token = opts?.env?.AGENT_API_TOKEN` + "\n" + String.raw`  ?? "${FAKE_KEY}";`],
+    ["|| on the next line", String.raw`token = env.AGENT_API_TOKEN` + "\n" + String.raw`  || "${FAKE_KEY}"`],
+    ["backtick fallback", "token = opts?.env?.AGENT_API_TOKEN ?? `" + FAKE_KEY + "`;"],
+    ["backtick concatenation", "token = ctx.env.AGENT_API_TOKEN + `" + FAKE_KEY + "`;"],
+    ["ternary", "token = opts?.env?.AGENT_API_TOKEN ? opts.env.AGENT_API_TOKEN : `" + FAKE_KEY + "`;"],
+    ["python or", String.raw`token = ctx.env.AGENT_API_TOKEN or FALLBACK_TOKEN_VALUE`],
+    ["getenv default", String.raw`token = System.getenv("AGENT_API_TOKEN", "${FAKE_KEY}");`],
+    ["call left open", String.raw`token = System.getenv("AGENT_API_TOKEN")`],
+  ])("fires as on main: %s", (_, input) => {
+    expect(kv(input)).toBe(true);
+  });
+  test.each([
+    ["multi-line call", ["client = OpenAI(", String.raw`    api_key=os.getenv("OPENAI_API_KEY"),`, String.raw`    base_url="https://api.openai.com/v1",`, ")"].join("\n")],
+    ["object property", String.raw`  token: opts?.env?.AGENT_API_TOKEN,`],
+    ["code span in a comment", "token = make_token(user)  // `process.env.AGENT_API_TOKEN` fallback"],
+    ["getenv with an empty default", String.raw`token = os.getenv("OPENROUTER_API_KEY_V2", "")`],
+  ])("still exempt, as on main: %s", (_, input) => {
+    expect(kv(input)).toBe(false);
+  });
+});
+
+describe("env.kv: a lowercase fixture label that names itself a secret, in a test file only (GST-1894)", () => {
+  const kv = (text: string, sourcePath?: string) => scan(text, { repoVisibility: "private", sourcePath }).findings.some((f) => f.id === "env.kv");
+  test.each([
+    ["memory-registry-pg.test.ts", '      clientSecret: "personal-secret",'],
+    ["memory-registry-pg.test.ts", '  signingSecret: "memory-authority-signing-secret",'],
+    ["auth.spec.tsx", "    apiKey: 'staging-api-key',"],
+    ["test_auth.py", '    password = "admin_password_fixture"'],
+    ["auth_test.go", '  token: "refresh-token-value",'],
+  ])("clean in %s: %s", (file, input) => {
+    expect(kv(input, file)).toBe(false);
+  });
+  test.each([
+    ["memory-registry.ts", '      clientSecret: "personal-secret",'],
+    [undefined, '      clientSecret: "personal-secret",'],
+    ["deploy.env", "CLIENT_SECRET=personal-secret"],
+    ["memory-registry-pg.test.ts", '      clientSecret: "correct-horse-battery-staple",'],
+    ["memory-registry-pg.test.ts", '      clientSecret: "Personal-Secret-9x",'],
+    ["memory-registry-pg.test.ts", '      clientSecret: "secretive-horse",'],
+    ["memory-registry-pg.test.ts", '      clientSecret: "Zx9Qw8Er7Ty6Ui5Op4As3Df2",'],
+    ["memory-registry-pg.test.ts.bak", '      clientSecret: "personal-secret",'],
+    ["src/ab-test.ts", '      clientSecret: "personal-secret",'],
+    ["scripts/load-test.ts", '      clientSecret: "personal-secret",'],
+    ["src/test_helpers.ts", '      clientSecret: "personal-secret",'],
+    ["spec/auth_spec.rb", '      clientSecret: "personal-secret",'],
+  ])("still MEDIUM in %s: %s", (file, input) => {
+    expect(kv(input, file)).toBe(true);
+  });
+});
+
 describe("internal.hostname: per-machine config filenames are not hosts (#2962, #2740)", () => {
   table(
     "internal.hostname",
@@ -206,6 +306,42 @@ describe("pii.ip_public: a four-part version needs a version declaration (#2784)
       "## [1.128.1.0 mirror]",
     ],
   );
+});
+
+describe("pii.ip_public: a four-part version beside a VERSION file or a semver is not an address (GST-2047)", () => {
+  table(
+    "pii.ip_public",
+    "MEDIUM",
+    [
+      'fs.writeFileSync(path.join(dir, "VERSION"), "1.98.0.0\\n");',
+      "echo 1.98.0.0 > VERSION",
+      "cat pkg/VERSION -> 1.98.0.0",
+      "write('1.98.0.0', 'VERSION')",
+      "bumps 1.98.0.0 (1.98.0 on npm)",
+      "from v1.97.2 to 1.98.0.0",
+      "1.98.0.0 / 1.98.0-rc.1",
+    ],
+    [
+      "resolver = 8.8.8.8",
+      'fs.writeFileSync(path.join(dir, "HOSTS"), "8.8.8.8\\n");',
+      "VERSION bumped; the DNS server 8.8.8.8 answered",
+      "8.8.8.8 is in VERSION notes",
+      "echo 8.8.8.8 > VERSIONS",
+      "cat MY_VERSION_HOST 8.8.8.8",
+      "node 22.11.0 talks to 8.8.8.8 over the egress proxy",
+      "1.1.1.1, 8.8.8.8",
+    ],
+  );
+
+  test("a VERSION file holding only a quad is a version; the same quad in any other file, or in a VERSION file with other lines, still reports", () => {
+    const ids = (text: string, sourcePath: string) => scan(text, { repoVisibility: "private", sourcePath }).findings.map((f) => f.id);
+    expect(ids("1.98.0.0\n", "VERSION")).not.toContain("pii.ip_public");
+    expect(ids("1.98.0.0\n", "/repo/pkg/VERSION")).not.toContain("pii.ip_public");
+    expect(ids("1.98.0.0\n", "HOSTS")).toContain("pii.ip_public");
+    expect(ids("1.98.0.0\n", "NOT_VERSION")).toContain("pii.ip_public");
+    expect(ids("host 8.8.8.8\n", "VERSION")).toContain("pii.ip_public");
+    expect(scan("1.98.0.0\nupstream 8.8.8.8\n", { repoVisibility: "private", sourcePath: "VERSION" }).findings.filter((f) => f.id === "pii.ip_public").map((f) => f.line)).toEqual([1, 2]);
+  });
 });
 
 describe("pii.ip_public: a four-part version gstack names is not an address (GST-1204)", () => {

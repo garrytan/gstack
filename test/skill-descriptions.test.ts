@@ -13,7 +13,7 @@ import { HOST_PATHS } from '../scripts/resolvers/types';
  */
 
 const ROOT = join(import.meta.dir, '..');
-const SKILLS = ['investigate', 'review', 'qa', 'verify'];
+const SKILLS = ['review', 'qa', 'verify'];
 // splitCatalogDescription cuts a longer Claude lead with "...", which drops the end of the when-clause.
 const LEAD_CAP = 200;
 // test/catalog-budget.test.ts PER_SKILL_BYTE_CAP: name + Claude description bytes.
@@ -75,10 +75,11 @@ describe('discovery-target descriptions (GST-1088)', () => {
     });
   }
 
-  const PROMPTS: Array<[string, string]> = [
-    ['this test fails, fix it', 'investigate'],
-    ['why is this broken?', 'investigate'],
-    ['the build is broken, here is the stack trace', 'investigate'],
+  // A bug report routes to no skill since /investigate was cut (GST-1717): the router's Failures rule fixes it test-first.
+  const PROMPTS: Array<[string, string | null]> = [
+    ['this test fails, fix it', null],
+    ['why is this broken?', null],
+    ['the build is broken, here is the stack trace', null],
     ['review this PR', 'review'],
     ['can you look over my diff', 'review'],
     ['review my changes before I merge', 'review'],
@@ -88,10 +89,10 @@ describe('discovery-target descriptions (GST-1088)', () => {
     ['verify my change', 'verify'],
   ];
   for (const [prompt, want] of PROMPTS) {
-    test('untold prompt "' + prompt + '" carries a ' + want + ' trigger and no other target trigger', () => {
+    test('untold prompt "' + prompt + '" carries ' + (want ? 'a ' + want + ' trigger and no other' : 'no') + ' target trigger', () => {
       const p = prompt.toLowerCase();
       const hits = SKILLS.filter(s => triggersOf(s).some(t => p.includes(t)));
-      expect(hits, '"' + prompt + '" matches [' + hits.join(', ') + '], want [' + want + ']. ' + fix(want)).toEqual([want]);
+      expect(hits, '"' + prompt + '" matches [' + hits.join(', ') + '], want [' + (want ?? '') + ']. ' + fix(want ?? hits[0])).toEqual(want ? [want] : []);
     });
   }
 });
@@ -102,8 +103,8 @@ describe('contract blocks (frozen v1 schema)', () => {
     .map(d => d.name)
     .sort();
 
-  test('investigate and review declare contracts', () => {
-    for (const skill of ['investigate', 'review']) {
+  test('review declares a contract', () => {
+    for (const skill of ['review']) {
       const tmpl = skill + '/SKILL.md.tmpl';
       expect(contractFromTemplate(read(tmpl), tmpl), tmpl + ': no contract block. ' + fix(skill)).not.toBeNull();
     }
@@ -148,7 +149,6 @@ describe('contract-done-means renderer', () => {
     version: 1,
     items: [
       { id: 'debug-report', kind: 'report_labels', heading: 'DEBUG REPORT', labels: ['Symptom', 'Root cause', 'Status'] },
-      { id: 'check-after-last-edit', kind: 'check_after_last_edit' },
       { id: 'specialists-dispatched', kind: 'selected_specialists_dispatched', marker: 'Dispatching N specialists:' },
       { id: 'adversarial-pass', kind: 'agent_dispatch', match: 'chaos engineer' },
     ],
@@ -158,7 +158,6 @@ describe('contract-done-means renderer', () => {
   test('names each item kind in plain words', () => {
     expect(out).toContain('## Done means');
     expect(out).toContain('- ' + BT + 'debug-report' + BT + ': a ' + BT + 'DEBUG REPORT' + BT + ' with Symptom, Root cause and Status filled in (' + BT + 'none: <why>' + BT + " where the skill's own stop rule leaves one empty).");
-    expect(out).toContain('- ' + BT + 'check-after-last-edit' + BT + ': a test or repro command run after your last edit.');
     expect(out).toContain('- ' + BT + 'specialists-dispatched' + BT + ': the specialist selection printed (' + BT + 'Dispatching N specialists:' + BT + ' ...), then one Agent dispatch per specialist it names (none when a small diff skips them).');
     expect(out).toContain('- ' + BT + 'adversarial-pass' + BT + ': an Agent dispatch for the adversarial pass, its prompt including "chaos engineer".');
   });
@@ -173,18 +172,21 @@ describe('contract-done-means renderer', () => {
   const one = (item: Record<string, unknown>) => ({ version: 1, items: [item] });
   const MALFORMED: Array<[string, unknown, RegExp]> = [
     ['not a mapping', 'yes', /must be a mapping/],
-    ['wrong version', { version: 2, items: [{ id: 'a', kind: 'check_after_last_edit' }] }, /version must be 1/],
+    ['wrong version', { version: 2, items: [{ id: 'a', kind: 'agent_dispatch', match: 'x' }] }, /version must be 1/],
     ['no items', { version: 1, items: [] }, /items must be a non-empty list/],
-    ['unknown top-level key', { version: 1, items: [{ id: 'a', kind: 'check_after_last_edit' }], extra: 1 }, /unknown key "extra"/],
+    ['unknown top-level key', { version: 1, items: [{ id: 'a', kind: 'agent_dispatch', match: 'x' }], extra: 1 }, /unknown key "extra"/],
     ['unknown kind', one({ id: 'a', kind: 'vibes' }), /kind "vibes" is not one of/],
-    ['bad id', one({ id: 'Debug Report', kind: 'check_after_last_edit' }), /id must be lowercase kebab-case/],
-    ['duplicate id', { version: 1, items: [{ id: 'a', kind: 'check_after_last_edit' }, { id: 'a', kind: 'agent_dispatch', match: 'x' }] }, /duplicate id "a"/],
+    ['removed kind', one({ id: 'a', kind: 'check_after_last_edit' }), /kind "check_after_last_edit" is not one of/],
+    ['bad id', one({ id: 'Debug Report', kind: 'agent_dispatch', match: 'x' }), /id must be lowercase kebab-case/],
+    ['duplicate id', { version: 1, items: [{ id: 'a', kind: 'agent_dispatch', match: 'y' }, { id: 'a', kind: 'agent_dispatch', match: 'x' }] }, /duplicate id "a"/],
     ['labels missing', one({ id: 'a', kind: 'report_labels', heading: 'R' }), /labels must be a non-empty list/],
     ['placeholder label', one({ id: 'a', kind: 'report_labels', heading: 'R', labels: ['[what the user observed]'] }), /placeholder/],
     ['heading missing', one({ id: 'a', kind: 'report_labels', labels: ['Symptom'] }), /heading must be a non-empty string/],
     ['marker missing', one({ id: 'a', kind: 'selected_specialists_dispatched' }), /marker must be a non-empty string/],
     ['match missing', one({ id: 'a', kind: 'agent_dispatch' }), /match must be a non-empty string/],
-    ['field from another kind', one({ id: 'a', kind: 'check_after_last_edit', match: 'x' }), /unknown key "match"/],
+    ['field from another kind', one({ id: 'a', kind: 'agent_dispatch', match: 'x', heading: 'R' }), /unknown key "heading"/],
+    ['task_name on another kind', one({ id: 'a', kind: 'report_labels', heading: 'R', labels: ['S'], task_name: 'x' }), /unknown key "task_name"/],
+    ['task_name not a plain name', one({ id: 'a', kind: 'agent_dispatch', match: 'x', task_name: 'Two Words' }), /task_name must be lowercase/],
   ];
   for (const [name, value, want] of MALFORMED) {
     test('a malformed block fails loudly: ' + name, () => {
@@ -199,7 +201,7 @@ describe('contract-done-means renderer', () => {
   test('check and waive appear only once bin/gstack-skill-contract ships', () => {
     const shipped = existsSync(join(ROOT, 'bin', 'gstack-skill-contract'));
     expect(CONTRACT_CHECKER_SHIPPED, 'CONTRACT_CHECKER_SHIPPED in scripts/resolvers/contract-done-means.ts must be ' + shipped + ' while bin/gstack-skill-contract ' + (shipped ? 'exists' : 'is missing') + '. Fix: set it, then bun run gen:skill-docs').toBe(shipped);
-    for (const skill of ['investigate', 'review']) {
+    for (const skill of ['review']) {
       expect(read(skill + '/SKILL.md').includes('gstack-skill-contract'), skill + '/SKILL.md names gstack-skill-contract while bin/gstack-skill-contract ' + (shipped ? 'exists' : 'is missing') + '. Fix: bun run gen:skill-docs').toBe(shipped);
     }
     if (shipped) expect(existsSync(join(ROOT, 'docs', 'skill-routing-and-contracts.md')), 'docs/skill-routing-and-contracts.md is missing').toBe(true);
@@ -207,7 +209,7 @@ describe('contract-done-means renderer', () => {
   });
 
   test('check and waive run the checker through the host-resolved bin path, like every other gstack bin', () => {
-    for (const skill of ['investigate', 'review']) {
+    for (const skill of ['review']) {
       for (const [host, paths] of Object.entries(HOST_PATHS)) {
         const out = generateContractDoneMeans({ skillName: skill, tmplPath: join(ROOT, skill, 'SKILL.md.tmpl'), host, paths } as unknown as Parameters<typeof generateContractDoneMeans>[0]);
         for (const command of ['check', 'waive']) {
@@ -226,6 +228,8 @@ describe('contract-done-means renderer', () => {
     expect(ids('claude')).toEqual(['specialists-dispatched', 'adversarial-pass', 'review-report']);
     expect(ids('codex')).toEqual(['adversarial-pass', 'review-report']);
     expect(ids('hermes')).toEqual(['review-report']);
+    expect(render('codex')).toContain('- ' + BT + 'adversarial-pass' + BT + ': a ' + BT + 'spawn_agent' + BT + ' (' + BT + 'task_name: adversarial' + BT + '), its prompt including "Think like an attacker and a chaos engineer".');
+    expect(render('claude')).toContain('- ' + BT + 'adversarial-pass' + BT + ': an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".');
     expect(renderDoneMeans({ version: 1, items: [] }, HOST_PATHS.claude.binDir)).toBe('');
   });
 

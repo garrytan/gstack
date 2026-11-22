@@ -45,7 +45,7 @@ const evalCollector = createEvalCollector('e2e-hermetic');
 
 // Cheap + deterministic: the canaries assert environment facts, not model
 // quality, so the smallest model is the right tool.
-const CANARY_MODEL = 'claude-haiku-4-5-20251001';
+const CANARY_MODEL = 'claude-haiku-5-5';
 
 /** Extract concatenated tool_result text from the stream-json transcript. */
 function toolResultText(transcript: any[]): string {

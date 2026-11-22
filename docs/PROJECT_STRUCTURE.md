@@ -49,7 +49,7 @@ gstack/
 │   └── skill-e2e-*.test.ts       # Tier 2: E2E via claude -p (~$3.85/run, split by category)
 ├── qa/, qa-only/    # Surface-aware browser/functional QA; /qa-only reports and proposes tests without product edits
 ├── plan-design-review/  # /plan-design-review skill (report-only design audit)
-├── design-review/    # /design-review skill (design audit + fix loop)
+├── design-review/    # /design-review skill (design audit + fix loop; --build loop for UI in progress, templates/preview-fixtures.mjs = the loopback preview with canned API answers, docs/howto-preview-a-frontend.md)
 ├── ship/            # Ship workflow skill
 ├── review/          # PR review skill (checklist.md is hand-written; design-checklist.md is GENERATED from lib/design-catalog.ts)
 ├── deslop-shared-libs/ # Recommendations-only audit for worthwhile shared-code extractions
@@ -58,7 +58,7 @@ gstack/
 ├── eval-plan/       # Preregistered paid evals: prereg, arms, $0 dry run, priced pilot (bin/gstack-eval-plan)
 ├── captain/         # /captain (also /crew): one controller, many lanes; templates/ holds CREW.md, AGENTS.md, NOTES.md, DIGEST.md, the flaky ledger, the lane report, the READY block, slot call, the lane brief, asks and the daily automation prompt
 ├── plan-ceo-review/ # /plan-ceo-review skill
-├── plan-eng-review/ # /autoplan's eng-phase methodology (retired as a skill, GST-1698)
+├── plan-eng-review/ # /plan-eng-review skill
 ├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → DX → eng, eng always last)
 ├── benchmark/       # /benchmark skill (performance regression detection)
 ├── runaway-stopper/ # /runaway-stopper skill (runaway thread/subagent detect, stop, rotate, prevent; bin/gstack-runaway, templates/)
@@ -68,7 +68,6 @@ gstack/
 ├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
 ├── modernize/       # /modernize skill (aging PR → MODERNIZE / REWORK / CLOSE disposition, range-diff proof, pinned-lease push)
 ├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
-├── investigate/     # /investigate skill (systematic root-cause debugging)
 ├── verify/          # /verify skill (build-and-verify loop over bin/gstack-checks + lib/checks.ts; tests come from lib/pregate)
 ├── spec/            # /spec skill (five-phase spec → GitHub issue, optional agent spawn, /ship auto-closes)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
@@ -76,7 +75,7 @@ gstack/
 ├── freeze/          # /freeze skill; bin/check-freeze.sh (PreToolUse edit-boundary hook; sources careful/bin/hook-extract.sh, fails closed)
 ├── guard/, unfreeze/  # /guard (careful + freeze in one), /unfreeze
 ├── gstack-upgrade/  # /gstack-upgrade skill + migrations/ (run after ./setup during an upgrade)
-├── bin/             # CLI utilities (gstack-render.ts = render a local HTML file through Aside or the engine, gstack-design-detect.ts = probe/scan through a user-installed impeccable engine; gstack-design-md.ts = open DESIGN.md check/convert/tokens/mark; gstack-design-lint = the free deterministic design lint over HTML/CSS/components, --render measures in the browser (docs/design-lint.md); gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, gstack-relink, gstack-memorable, etc.)
+├── bin/             # CLI utilities (gstack-render.ts = render a local HTML file through Aside or the engine, gstack-design-detect.ts = probe/scan through a user-installed impeccable engine; gstack-design-md.ts = open DESIGN.md check/convert/tokens/mark; gstack-design-lint = the free deterministic design lint over HTML/CSS/components, --render measures in the browser, --scope app measures one app section's spacing (docs/design-lint.md); gstack-design-build = the /design-review --build receipt (preflight, admit, plan, verify-start, receipt, check); gstack-repo-mode, gstack-slug, gstack-config, gstack-wtree, gstack-evidence, gstack-issue-guard, gstack-relink, gstack-memorable, etc.)
 ├── document-release/ # /document-release skill (every-ship pre-verification audit; standalone doc updates + Diataxis coverage map)
 ├── document-generate/ # /document-generate skill (Diataxis doc generator: tutorial/how-to/reference/explanation)
 ├── cso/             # /cso skill (OWASP Top 10 + STRIDE security audit)
@@ -96,7 +95,7 @@ gstack/
 ├── agents-digest/   # Committed 2KB instruction-tier rules digest (gstack-AGENTS.md) for rules-reading hosts
 ├── modules/         # loadouts.json (+ loadouts.schema.json): model rungs, the model map, pinned modules and named loadouts; read by scripts/modules.ts and lib/model-detect.ts, rendered by bin/gstack-modules (docs/loadouts.md)
 ├── extension/       # Chrome extension (side panel + activity feed + CSS inspector)
-├── lib/             # Shared libraries (aside-render.ts = local-HTML rendering, Aside first, engine fallback; design-catalog.ts = the typed design anti-pattern catalog every design skill renders from; design-lint/ = the static and render tiers behind bin/gstack-design-lint, ported from hallmark's sloplint; design-detect-contract.ts = detector sentinel vocabulary; design-md.ts = open DESIGN.md reader/writer; dom-dump-script.ts + generated dom-dump.js = rendered-DOM dump for the detector; review-evidence.ts = review-start receipt binding, computed freshness and shared-code snapshot eligibility; frontend-scope.ts; claude-bin.ts, error-handling.ts, worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
+├── lib/             # Shared libraries (aside-render.ts = local-HTML rendering, Aside first, engine fallback; design-catalog.ts = the typed design anti-pattern catalog every design skill renders from; design-lint/ = the static and render tiers behind bin/gstack-design-lint, ported from hallmark's sloplint; design-build.ts = the outcome logic behind bin/gstack-design-build; design-detect-contract.ts = detector sentinel vocabulary; design-md.ts = open DESIGN.md reader/writer; dom-dump-script.ts + generated dom-dump.js = rendered-DOM dump for the detector; review-evidence.ts = review-start receipt binding, computed freshness and shared-code snapshot eligibility; frontend-scope.ts; claude-bin.ts, error-handling.ts, worktree.ts, egress-receipt.ts, context-bill.ts, redact-engine.ts, tracker-guard.ts, version-source.ts, code-intelligence/)
 │   └── diagram-render/  # Vendored mermaid + excalidraw runtimes, built into one offline bundle the renderer loads
 ├── patches/         # bun `patchedDependencies` patches (playwright-core windowsHide)
 ├── docs/designs/    # Design documents (incl. IMPECCABLE_INTEROP.md = the design detector / catalog / open DESIGN.md record, and fork-port-residual-2026-09/ evaluation evidence)

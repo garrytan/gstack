@@ -6,16 +6,18 @@
  * new neighbours in pre-existing code, fixed them, and the fixes drew another
  * pass until the cycle cap. Under `review_scope: frozen` (the default) the
  * scope is fixed after pass 1: findings in the diff are fixed, findings in
- * code the PR did not change are filed as issues (deferred), and later passes
- * read only the range since the previous pass and fix only blocking findings.
+ * code the PR did not change are deferred and stay on the PR, never filed as
+ * issues, and later passes read only the range since the previous pass and fix
+ * only blocking findings.
  * Everything below the blocking floor is a named note in the PR body and never
  * triggers a pass. `review_scope: all` keeps the old behaviour.
  *
- * Pure functions here; bin/gstack-review-scope runs git and gh.
+ * Pure functions here; bin/gstack-review-scope runs git.
  */
 import * as path from 'node:path';
 import { SPECIALISTS } from './review-depth';
 import { quarantinedIds, rank, readLedger, type LedgerBlocker } from './review-ledger';
+import { isSecurityFinding, opaqueFindingId, REDACTED_REASON } from './security-findings';
 import { parseSpecialistOutput } from './state-matrix';
 
 export type Locus = 'diff' | 'fix-range' | 'outside';
@@ -97,7 +99,7 @@ export function parseHunks(diff: string, untracked: readonly string[] = []): Hun
   return map;
 }
 
-function normalizePath(p: string): string {
+export function normalizePath(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\.\//, '');
 }
 
@@ -124,7 +126,7 @@ export function locusOf(finding: ScopeFinding, diffHunks: HunkMap, rangeHunks: H
   return 'outside';
 }
 
-function fingerprintPath(fp: unknown): string | undefined {
+export function fingerprintPath(fp: unknown): string | undefined {
   if (typeof fp !== 'string' || fp.startsWith('shared-libs:')) return undefined;
   const [path] = fp.split(':');
   return path || undefined;
@@ -234,9 +236,8 @@ export function scopeLine(policy: ReviewScopePolicy, pass: number, scoped: reado
 }
 
 // ---------------------------------------------------------------------------
-// deferral: one issue per blocking finding in code the PR did not change
+// deferral: a blocking finding in code the PR did not change stays on the PR
 // ---------------------------------------------------------------------------
-export const DEFERRED_MARKER = 'gstack-deferred-finding';
 const oneLine = (s: unknown) => String(s ?? '').replace(/[\x00-\x1f\x7f\u2028\u2029]+/g, ' ').trim();
 
 export function findingIdentity(f: ScopeFinding): string {
@@ -250,48 +251,30 @@ function findingText(f: ScopeFinding): string {
   return oneLine(f.summary ?? f.problem ?? f.category ?? 'review finding');
 }
 
-export interface DeferContext { repo?: string; pr?: number; branch?: string; head?: string }
+export interface DeferredRecord { fingerprint: string; path: string; severity: string; stated?: string; summary: string; security?: true }
 
-/** Issue title and body for a deferred finding; the marker keeps a rerun from filing it twice. */
-export function renderDeferredIssue(f: ScopedFinding, ctx: DeferContext): { title: string; body: string; marker: string } {
-  const text = findingText(f);
-  const title = `Deferred review finding: ${findingWhere(f)} — ${text}`.slice(0, 120);
-  const origin = ctx.pr ? `${ctx.repo ? `${ctx.repo}#${ctx.pr}` : `PR #${ctx.pr}`}` : ctx.branch ? `branch \`${ctx.branch}\`` : 'a /ship run';
-  const marker = `<!-- ${DEFERRED_MARKER}: ${oneLine(findingIdentity(f))} -->`;
+/** The PR's record of a deferred finding: `severity` stays the collected label, `stated` carries what the reviewer wrote beside it. */
+export function deferredRecord(f: ScopedFinding): DeferredRecord {
   const said = [typeof f.stated?.severity === 'string' ? `Severity: ${oneLine(f.stated.severity)}` : '', typeof f.stated?.blocks === 'string' ? `Blocks: ${oneLine(f.stated.blocks)}` : ''].filter(Boolean);
-  const body = [
-    `Filed by /ship's pre-landing review of ${origin}${ctx.head ? ` (head ${ctx.head.slice(0, 12)})` : ''}. The finding is in code that PR did not change, so it was deferred here instead of being fixed there (review scope frozen after pass 1).`,
-    '',
-    `- **Severity:** ${oneLine(f.severity ?? 'unrated')}${said.length ? ` (the reviewer wrote ${said.join(', ')})` : ''}`,
-    `- **Where:** \`${findingWhere(f)}\``,
-    `- **Finding:** ${text}`,
-    ...(f.fix ? [`- **Suggested fix:** ${oneLine(f.fix)}`] : []),
-    ...(f.specialist ? [`- **Found by:** ${oneLine(f.specialist)}`] : []),
-    '',
-    marker,
-    '',
-  ].join('\n');
-  return { title, body, marker };
+  return { fingerprint: findingIdentity(f), path: findingWhere(f), severity: String(f.severity ?? 'unrated'), ...(said.length ? { stated: said.join(', ') } : {}), summary: String(f.summary ?? f.problem ?? f.category ?? ''), ...(isSecurityFinding(f) ? { security: true as const } : {}) };
 }
 
-export interface DeferredRecord { fingerprint: string; path: string; severity: string; summary: string; issue: number | null; url?: string; reason?: string }
-/** `defer`'s reason when the marker search found the finding's issue already open; the section renders such a record as a plain `#N`. */
-export const ALREADY_FILED_REASON = 'already filed';
-
-/** The PR-body section for deferred findings: references, never closing keywords, so a merge closes nothing. Only `frozen` defers. */
+/**
+ * The PR-body section for deferred findings, which stay on the PR: no issue is filed and no closing keyword is written. Only `frozen` defers.
+ * A security-class finding lists only an opaque id and lib/security-findings.ts's REDACTED_REASON; its path and summary stay in the local
+ * deferred and classified files (GST-3076).
+ */
 export function renderDeferredSection(deferred: readonly DeferredRecord[], noted: readonly ScopeFinding[] = []): string {
   const out: string[] = [];
   if (deferred.length) {
-    out.push('## Deferred findings', '', 'Blocking findings in code this PR did not change (review scope: frozen); filed as issues and not closed by this PR.', '');
-    for (const d of deferred) {
-      const ref = d.issue ? `#${d.issue}${d.reason && d.reason !== ALREADY_FILED_REASON ? ` (${oneLine(d.reason)})` : ''}` : `unfiled${d.reason ? ` (${oneLine(d.reason)})` : ''}`;
-      out.push(`- Deferred: ${ref} — ${oneLine(d.severity)} \`${oneLine(d.path)}\` ${oneLine(d.summary)}`);
-    }
+    out.push('## Deferred findings', '', 'Blocking findings in code this PR did not change (review scope: frozen). They stay on this PR and are not filed as issues.', '');
+    for (const d of deferred) out.push(d.security || isSecurityFinding(d) ? `- Deferred: ${oneLine(d.severity)} \`${opaqueFindingId(d.fingerprint, d.summary)}\` ${REDACTED_REASON}`
+      : `- Deferred: ${oneLine(d.severity)}${d.stated ? ` (the reviewer wrote ${oneLine(d.stated)})` : ''} \`${oneLine(d.path)}\` ${oneLine(d.summary)}`);
     out.push('');
   }
   if (noted.length) {
     out.push('## Review notes', '', 'Below the blocking floor (advisory, informational, test-gap or wording items); recorded here and not fixed in this PR.', '');
-    for (const n of noted) out.push(`- ${oneLine(n.severity ?? 'INFORMATIONAL')}${n.advisory ? ' [ADVISORY]' : ''} \`${findingWhere(n)}\` ${findingText(n)}`);
+    for (const n of noted) out.push(`- ${oneLine(n.severity ?? 'INFORMATIONAL')}${n.advisory ? ' [ADVISORY]' : ''} ${isSecurityFinding(n) ? `\`${opaqueFindingId(findingIdentity(n), findingText(n))}\` ${REDACTED_REASON}` : `\`${findingWhere(n)}\` ${findingText(n)}`}`);
     out.push('');
   }
   return out.join('\n');
@@ -304,7 +287,9 @@ export interface ReviewLoopSummary {
   passes: number; blocking_found: number; deferred: number; noted: number; fixed: number; scope: ReviewScopePolicy | 'unknown';
   /** One-reviewer re-checks of a fix (docs/review-policy.md#transitions); never passes. */
   fix_checks?: number;
-  /** Review rounds (R51): passes plus fix-checks; the loop caps them at 2. */
+  /** Passes that were scoped repeats (`"scope":"scoped"` rows): rounds, not full rounds (GST-2673). */
+  scoped?: number;
+  /** Review rounds (R51): full and scoped passes. A fix-check reads only a round's fixes, so like any re-check of what changed it is no round; fix_checks counts it. */
   rounds?: number;
   /** Reviewer dispatches of this invocation by role (specialist, red-team, adversarial-native, outside-voice, fix-check, targeted). */
   dispatches?: Record<string, number>;
@@ -312,6 +297,8 @@ export interface ReviewLoopSummary {
   est_input_tokens?: number;
   /** Blocking findings no row gives a disposition (fixed, deferred, noted, skipped or a gate answer): found, outcome unrecorded. */
   unrecorded?: number;
+  /** Blocking findings a row holds whose newest action is `open`, gate findings aside (GST-3075): the loop stopped with them unfixed, so write refuses the receipt (RECEIPT_BLOCKER_OPEN). Each is its ledger id or fingerprint, or both as `{ id, fingerprint }` so a ruling on either closes it. Only a later row's action clears it: an earlier `fixed`, a fix trailer or a fix-check ledger never does, since none of them shows the finding was fixed after it was raised again. */
+  open?: Array<string | { id: string; fingerprint: string }>;
   /** Dispatch ledgers whose collected and judged findings were counted (gstack-review-dispatch). */
   ledgers_read?: number;
   /** What could not bind (GST-1168), each named with its reason: a row with no start token or readable time, a row finding's ledger_id no ledger holds, a Review-Finding trailer naming no finding. Never counted as zero silently. */
@@ -345,7 +332,9 @@ function rowTime(row: Record<string, any>): number {
 export const LATE_DEFER_SKILL = 'review-late-defer';
 /** A fix-check (one reviewer reading the touched hunks and the fix list) logs under its own skill, so it is never a pass. */
 export const FIX_CHECK_SKILL = 'review-fix-check';
-const DISPATCH_SKILLS = ['review', LATE_DEFER_SKILL, FIX_CHECK_SKILL, 'adversarial-review'];
+/** Step 11's row (one per voice attempt): its findings count like a pass's (GST-3075), but it is never a pass or a round. */
+export const VOICES_SKILL = 'adversarial-review';
+const DISPATCH_SKILLS = ['review', LATE_DEFER_SKILL, FIX_CHECK_SKILL, VOICES_SKILL];
 
 /** Dispatch records of one row: its `dispatches` array, else the specialists and Red Team its stats say ran (older rows). */
 function rowDispatches(row: Record<string, any>): Array<{ role: string; bytes: number | null }> {
@@ -421,7 +410,7 @@ export function parseFixTrailers(commit: string, values: readonly string[]): Fix
  */
 export function summarizeReviewLoop(rows: readonly Record<string, any>[], since: string, allLedgers: readonly (readonly LedgerBlocker[])[] = [], allPasses: readonly LedgerPass[] = [], trailers: readonly FixTrailer[] = []): ReviewLoopSummary {
   const sinceMs = Date.parse(since);
-  const loopSkill = (r: Record<string, any>) => r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL;
+  const loopSkill = (r: Record<string, any>) => r.skill === 'review' || r.skill === LATE_DEFER_SKILL || r.skill === FIX_CHECK_SKILL || r.skill === VOICES_SKILL;
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
   const unbound: string[] = rows.filter(r => r && r.via === 'ship' && loopSkill(r) && !Number.isFinite(rowTime(r)))
     .map(r => `row ${String(r.skill)} pass=${String(r.pass ?? '?')}: no start token and no readable timestamp, so it cannot be placed in this run`);
@@ -436,7 +425,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const voided = [...voidedAt].map(i => `pass ${allPasses[i]!.name}: its ledger was never judged and no review-log row names it (an abandoned pass), so its ${allPasses[i]!.ids!.length} collected findings are left out`);
   const ledgers = allLedgers.filter((_, i) => !voidedAt.has(i));
   const ledgerPasses = allPasses.filter((_, i) => !voidedAt.has(i));
-  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; ledgerId?: string; fingerprint?: string };
+  type Seen = { locus: string | null; raiser: string | null; classified: boolean; blocks: boolean; candidate: boolean; disposed: boolean; action?: string; gate: boolean; ledgerId?: string; fingerprint?: string };
   const seen = new Map<string, Seen>();
   const deferred = new Set<string>();
   const noted = new Set<string>();
@@ -459,6 +448,8 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
         blocks: classified ? f.blocking : prior?.classified ? prior.blocks : !!prior?.blocks || rowBlocks(f),
         candidate: !!prior?.candidate || f.severity === undefined || rank(f.severity) === 4 || rank(f.raw_severity) === 4 || f.blocking === true,
         disposed: !!prior?.disposed || DISPOSITIONS.includes(f.action),
+        action: typeof f.action === 'string' ? f.action : prior?.action,
+        gate: !!prior?.gate || f.gate !== undefined,
         ...(ledgerId ?? prior?.ledgerId ? { ledgerId: ledgerId ?? prior?.ledgerId } : {}),
         ...(prior?.fingerprint ?? findingIdentity(f) ? { fingerprint: prior?.fingerprint ?? findingIdentity(f) } : {}),
       });
@@ -468,8 +459,8 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
     }
   }
   for (const p of ledgerPasses) {
-    const n = /^p(\d+)$/.exec(p.name ?? '')?.[1];
-    if (n && !passes.some(r => String(r.pass) === n)) unbound.push(`pass ${n} (ledger ${p.name}): no review-log row, so its fixes and dispositions cannot be counted`);
+    const n = passNo(p);
+    if (n !== undefined && Number.isFinite(n) && !passes.some(r => String(r.pass) === String(n))) unbound.push(`pass ${n} (ledger ${p.name}): no review-log row, so its fixes and dispositions cannot be counted`);
   }
   const known = ledgerPasses.some(p => p.ids) ? new Set(ledgerPasses.flatMap(p => p.ids ?? [])) : null;
   if (known) for (const [, s] of seen) if (s.ledgerId && !known.has(s.ledgerId)) unbound.push(`ledger_id ${s.ledgerId}: no dispatch ledger of this run collected it`);
@@ -505,12 +496,17 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const unrecorded = ledgerOnlyKeys.length - ledgerOnlyFixed + blockers.filter(([, s]) => !s.disposed).length;
   const out: ReviewLoopSummary = { passes: passes.length, blocking_found: blockers.length + ledgerOnlyKeys.length, deferred: deferred.size, noted: noted.size, fixed: fixed.size + ledgerOnlyFixed, scope };
   if (unrecorded) out.unrecorded = unrecorded;
+  const open = blockers.filter(([, s]) => !s.gate && s.action === 'open')
+    .map(([k, s]) => s.ledgerId && s.fingerprint && s.ledgerId !== s.fingerprint ? { id: s.ledgerId, fingerprint: s.fingerprint } : s.ledgerId ?? s.fingerprint ?? k);
+  if (open.length) out.open = open;
   if (ledgers.length) out.ledgers_read = ledgers.length;
   if (unbound.length) out.unbound = unbound;
   if (voided.length) out.voided = voided;
   const fixChecks = Math.max(rowFixChecks, fixCheckStarts.length);
   if (fixChecks) out.fix_checks = fixChecks;
-  out.rounds = passes.length + fixChecks;
+  out.rounds = passes.length;
+  const scopedPasses = passes.filter(r => r.scope === 'scoped').length;
+  if (scopedPasses) out.scoped = scopedPasses;
   const byRole: Record<string, number> = {};
   let bytes = 0; let measured = false;
   for (const row of rows.filter(r => inRun(r) && DISPATCH_SKILLS.includes(r.skill))) {
@@ -528,6 +524,6 @@ export function dispatchTotal(d: Record<string, number> | undefined): number | u
 export function reviewLoopLine(s: ReviewLoopSummary): string {
   const total = dispatchTotal(s.dispatches);
   return `REVIEW_LOOP: passes=${s.passes} blocking_found=${s.blocking_found} deferred=${s.deferred} noted=${s.noted} fixed=${s.fixed} scope=${s.scope}`
-    + (s.unrecorded ? ` unrecorded=${s.unrecorded}` : '') + (s.unbound?.length ? ` unbound=${s.unbound.length}` : '') + (s.ledgers_read ? ` ledgers_read=${s.ledgers_read}` : '')
+    + (s.unrecorded ? ` unrecorded=${s.unrecorded}` : '') + (s.open?.length ? ` open=${s.open.length}` : '') + (s.unbound?.length ? ` unbound=${s.unbound.length}` : '') + (s.ledgers_read ? ` ledgers_read=${s.ledgers_read}` : '')
     + (s.fix_checks ? ` fix_checks=${s.fix_checks}` : '') + (total !== undefined ? ` dispatches=${total}` : '') + (s.est_input_tokens !== undefined ? ` est_input_tokens=${s.est_input_tokens}` : '');
 }

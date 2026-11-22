@@ -20,7 +20,7 @@ cuts to the coverage audit, review army, or voice directive have real quality co
 
 A second, harder ceiling guards the DISCOVERY surface: `test/catalog-budget.test.ts`
 caps the aggregate frontmatter `name` + `description` across all skills at
-`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (1,452 today; each new skill ratchets it)
+`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (2,290 today; each new skill ratchets it)
 token-equivalents (260-byte per-skill sub-cap), counted through the shared census
 in `test/helpers/skill-census.ts`. This one is enforced, not a warning — every
 host loads the full catalog every session, so growth here taxes every
@@ -48,14 +48,17 @@ send off the machine MUST write a hash-chained receipt to
 `writeReceipt` from `lib/egress-receipt.ts`; shell scripts source
 `bin/gstack-egress-lib.sh` and use `_receipted_curl` / `_receipted_git`. Failure
 polarity is per-class: fail-closed for sensitive sinks (brain-sync, memory-ingest,
-gbrain-sync, telemetry, ngrok tunnels, mcp-verify, supabase-provision, and the
-Memorable bridge's per-prompt memorable-recall hand-off), fail-open
+gbrain-sync, telemetry, ngrok tunnels, mcp-verify, supabase-provision, the
+/plan-tune dream-cycle distiller (distill-free-text), and the Memorable bridge's per-prompt memorable-recall hand-off), fail-open
 + stderr warning for user-facing ones (design OpenAI and Gemini calls, update-check,
 dashboards, git-class ops). The new-sink scanner in
 `test/egress-receipt-wiring.test.ts` fails CI on an unreceipted `curl` /
-`git push` / `fetch` to a non-loopback host unless the file carries a reasoned
+`git push` / `fetch` to a non-loopback host, or on a model-provider SDK request
+or a file that loads a provider SDK or calls a provider API host with no
+receipt, unless the file carries a reasoned
 entry in its `SCANNER_EXEMPT` list (user-directed page fetches, reachability
-probes, instruction strings, skill prose) — if you add a new off-machine sink,
+probes, instruction strings, skill prose, developer-invoked test and eval
+tooling) — if you add a new off-machine sink,
 wire it through the helpers and add it to the enumerated sink list. `aside exec`
 (a gstack-composed prompt sent to Aside's agent) is a fail-open user-facing
 sink: skills call it through the `_aside_exec` wrapper that

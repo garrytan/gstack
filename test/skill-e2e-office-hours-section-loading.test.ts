@@ -100,10 +100,8 @@ Completion delivery, after the full workflow and design approval:
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(new Error('Review preservation judge exceeded 45 seconds')), 45_000);
       try {
-        // Nine missing findings exhausted the shared 1024-token default and
-        // truncated JSON. Keep this output allowance local to the comparison.
         await validateOfficeHoursReviewPreservation(reviewEvidence,
-          prompt => callJudge(prompt, undefined, { max_tokens: 2048, signal: abort.signal }));
+          prompt => callJudge(prompt, undefined, { signal: abort.signal }));
       } finally {
         clearTimeout(timer);
       }

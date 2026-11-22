@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project settings: replica of qm#3186</title>
+<link rel="stylesheet" href="replica.css">
+</head>
+<body>
+<main>
+<section class="panel sharing">
+  <h2>Sharing</h2>
+  <h3>Credentials</h3>
+  <div class="rows">
+    <div class="row"><div class="text"><div class="name">Deploy key</div><div class="desc">Read-only access to the repository, added by Dana on March 3</div></div><button class="x" aria-label="Remove Deploy key">×</button></div>
+    <div class="row"><div class="text"><div class="name">Registry token</div><div class="desc">Pushes release images, added by Omar on April 18</div></div><button class="x" aria-label="Remove Registry token">×</button></div>
+  </div>
+  <p class="help">Credentials are encrypted at rest and never shown again after you add them.</p>
+  <h3>Slack channels</h3>
+  <div class="rows">
+    <div class="row"><div class="text"><div class="name">#deploys</div><div class="flag">The bot is not in this channel yet, so posts will fail.</div></div><button class="x" aria-label="Remove #deploys">×</button></div>
+    <div class="row"><div class="text"><div class="name">#release-notes</div><div class="flag">Posting paused by a workspace admin.</div></div><button class="x" aria-label="Remove #release-notes">×</button></div>
+  </div>
+  <p class="help">Channels get a message when a deploy starts and when it finishes.</p>
+  <h3>Who has access</h3>
+  <div class="rows">
+    <div class="row"><div class="text"><span class="name">Dana Whitfield</span><span class="role">Owner</span></div><button class="x" aria-label="Remove Dana Whitfield">×</button></div>
+    <div class="row"><div class="text"><span class="name">Omar Haddad</span><span class="role">Editor</span></div><button class="x" aria-label="Remove Omar Haddad">×</button></div>
+    <div class="row"><div class="text"><span class="name">Lena Park</span><span class="role">Reader</span></div><button class="x" aria-label="Remove Lena Park">×</button></div>
+  </div>
+  <p class="help">Readers see deploys and logs; editors can change settings.</p>
+</section>
+</main>
+</body>
+</html>

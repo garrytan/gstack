@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project settings: the replica with its spacing fixed</title>
+<style>
+:root { --ink: #1d2433; --muted: #6b7385; --line: #dfe3ea; --paper: #ffffff; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #f5f6f8; }
+main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+.panel h2 { font-size: 18px; line-height: 24px; margin: 0 0 12px; }
+.panel h3 { font-size: 15px; line-height: 20px; margin: 24px 0 8px; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .text { flex: 1; min-width: 0; }
+.row .name { font-weight: 600; }
+.row .desc { color: var(--muted); font-size: 13px; }
+.row .flag { display: flex; gap: 6px; align-items: center; color: #8a5a00; font-size: 13px; }
+.row .flag svg { flex: none; width: 14px; height: 14px; }
+.row .role { color: var(--muted); font-size: 13px; margin-left: 8px; }
+.x { flex: none; width: 32px; height: 32px; margin: -7px -7px -7px 0; border: 0; padding: 0; background: transparent; color: var(--muted); font-size: 14px; line-height: 18px; cursor: pointer; }
+.help { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+</style>
+</head>
+<body>
+<main>
+<section class="panel sharing">
+  <h2>Sharing</h2>
+  <h3>Credentials</h3>
+  <div class="rows">
+    <div class="row"><div class="text"><div class="name">Deploy key</div><div class="desc">Read-only access to the repository, added by Dana on March 3</div></div><button class="x" aria-label="Remove Deploy key">×</button></div>
+    <div class="row"><div class="text"><div class="name">Registry token</div><div class="desc">Pushes release images, added by Omar on April 18</div></div><button class="x" aria-label="Remove Registry token">×</button></div>
+  </div>
+  <p class="help">Credentials are encrypted at rest and never shown again after you add them.</p>
+  <h3>Slack channels</h3>
+  <div class="rows">
+    <div class="row"><div class="text"><div class="name">#deploys</div><div class="flag"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 15 14H1z" fill="currentColor"/></svg><span>The bot is not in this channel yet, so posts will fail.</span></div></div><button class="x" aria-label="Remove #deploys">×</button></div>
+    <div class="row"><div class="text"><div class="name">#release-notes</div><div class="flag"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 15 14H1z" fill="currentColor"/></svg><span>Posting paused by a workspace admin.</span></div></div><button class="x" aria-label="Remove #release-notes">×</button></div>
+  </div>
+  <p class="help">Channels get a message when a deploy starts and when it finishes.</p>
+  <h3>Who has access</h3>
+  <div class="rows">
+    <div class="row"><div class="text"><span class="name">Dana Whitfield</span><span class="role">Owner</span></div><button class="x" aria-label="Remove Dana Whitfield">×</button></div>
+    <div class="row"><div class="text"><span class="name">Omar Haddad</span><span class="role">Editor</span></div><button class="x" aria-label="Remove Omar Haddad">×</button></div>
+    <div class="row"><div class="text"><span class="name">Lena Park</span><span class="role">Reader</span></div><button class="x" aria-label="Remove Lena Park">×</button></div>
+  </div>
+  <p class="help">Readers see deploys and logs; editors can change settings.</p>
+</section>
+</main>
+</body>
+</html>

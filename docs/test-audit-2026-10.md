@@ -206,7 +206,7 @@ selector and dependency graph:
 
 ```bash
 gh run list -R garrytan/gstack --workflow evals.yml --json databaseId,headSha,event,createdAt,conclusion -L 200 > runs.json
-bun run scripts/replay-pr-selection.ts --runs runs.json
+bun run crew/scripts/replay-pr-selection.ts --runs runs.json
 ```
 
 Over 168 PR pushes with plan manifests (2026-09-25 to 2026-10-04):

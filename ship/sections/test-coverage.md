@@ -31,7 +31,7 @@ permission is not approval. Preserve the 30-path/5-tests-per-pass/2-minute per-t
 
 ```bash
 git worktree prune
-find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'gstack-base-control.*' -mmin +10 2>/dev/null | while IFS= read -r d; do git worktree remove --force "$d/wt" >/dev/null 2>&1; rm -rf "$d"; done
+find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'gstack-base-control.*' -mmin +10 2>/dev/null | while IFS= read -r d; do git worktree remove --force "$d/wt" >/dev/null 2>&1; rm -r -- "$d" </dev/null; done
 ```
 
 ````text
@@ -198,7 +198,7 @@ When uncertain whether a change is a regression, err on the side of writing the 
 # runner for one file (e.g. "bun test $TEST"); BUDGET = seconds for this run (default 90).
 ROOT=$(git rev-parse --show-toplevel)
 CTL_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-base-control.XXXXXX")
-cleanup() { git -C "$ROOT" worktree remove --force "$CTL_TMP/wt" >/dev/null 2>&1; rm -rf "$CTL_TMP"; [ -e "$CTL_TMP" ] && echo "BASE_CONTROL_LEFTOVER: $CTL_TMP (run: git worktree prune)"; }
+cleanup() { git -C "$ROOT" worktree remove --force "$CTL_TMP/wt" >/dev/null 2>&1; rm -r -- "$CTL_TMP" </dev/null; [ -e "$CTL_TMP" ] && echo "BASE_CONTROL_LEFTOVER: $CTL_TMP (run: git worktree prune)"; }
 trap cleanup EXIT INT TERM
 (
   [ -f "$ROOT/package.json" ] || { echo "BASE_CONTROL: unavailable (ecosystem)"; exit 0; }
@@ -368,9 +368,9 @@ Write the text into each printed file with your file-write tool (Claude Code's W
    while IFS= read -r f; do
      [ -n "$f" ] || continue
      case "$f" in /*|..|../*|*/..|*/../*) echo "SKIPPED (outside repo): $f"; continue ;; esac
-     if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then echo "REVERT_HUNK: $f"; else rm -f -- "$f" && echo "REMOVED: $f"; fi
+     if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then echo "REVERT_HUNK: $f"; else { [ ! -e "$f" ] && [ ! -L "$f" ] || rm -- "$f"; } && echo "REMOVED: $f"; fi
    done < "$REJECTED_FILE"
-   rm -f "$REJECTED_FILE"
+   rm -- "$REJECTED_FILE"
    ```
 
    No `tests_rejected` path may remain on disk as a new file. If every test written in

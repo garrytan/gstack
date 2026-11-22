@@ -12,7 +12,7 @@ every row with its thread and an age. Codes are the thread codes the host assign
 - B: …
 
 "do it" takes every recommendation above; a named option ("A2") takes that option instead. The
-ask format is gstack docs/captain.md, The ask format.
+ask format is gstack crew/docs/captain.md, The ask format.
 
 ## New
 

@@ -420,13 +420,14 @@ export function isCiRunIdentifier(span: string, match: RegExpExecArray): boolean
 
 /**
  * The owner's grant of one scoped fix-check is recorded as `review_loop_grant <stop head sha>`, and an accepted stop as
- * `review_loop_exception <sha>` (docs/review-policy.md). About one 12-character sha in 300 is all digits
+ * `review_loop_exception <sha>` (docs/review-policy.md), and a lane's review round grant as `review_round_grant <sha>`
+ * or `review_round_grant <kind> at <sha>` (GST-2673). About one 12-character sha in 300 is all digits
  * (`367120488513`), and pii.phone.e164 read it as a phone number, so gstack-approvals refused the owner's grant
  * (APPROVAL_RECORD_SECRET; Free Tests 41667825418, 41766865679). Only the position decides: a digits-only span right
  * after one of those two tokens and a space, `=` or `:`. The same digits anywhere else, or a number with a `+`,
  * spaces or dashes after the token, still report.
  */
-const REVIEW_LOOP_SHA_BEFORE = /\breview_loop_(?:grant|exception)(?:[ \t]+|[ \t]*[:=][ \t]*)$/;
+const REVIEW_LOOP_SHA_BEFORE = /\breview_(?:loop_(?:grant|exception)|round_grant(?:[ \t]+extra-round[ \t]+at)?)(?:[ \t]+|[ \t]*[:=][ \t]*)$/;
 function isReviewLoopSha(span: string, match: RegExpExecArray): boolean {
   if (!/^\d+$/.test(span)) return false;
   const input = match.input ?? "";
@@ -472,6 +473,29 @@ function declaredAt(input: string, start: number, end: number, range: boolean): 
 export function isDeclaredVersion(match: RegExpExecArray): boolean {
   const { start, end } = spanBounds(match);
   return declaredAt(match.input ?? "", start, end, true);
+}
+
+/**
+ * A quad written to or read from a VERSION file, or set beside a semver (GST-2047): the file's name, alone or ending a
+ * path, or a three-part version (`v1.97.2`, `1.98.0-rc.1`) within a short gap of the quad on the same line
+ * (`path.join(dir, "VERSION"), "1.98.0.0\n"`, `echo 1.98.0.0 > VERSION`, `v1.97.2 to 1.98.0.0`). The gap holds only
+ * quotes, brackets, commas, arrows, spaces, a `\n` escape or the word `to`, so a quad set apart by any other word
+ * (`VERSION bumped; the DNS server 8.8.8.8`, `node 22.11.0 talks to 8.8.8.8`) still reports, and so does a quad
+ * next to another quad. A file named VERSION that holds only the quad is one too; a VERSION file with any other line is
+ * not a whole-file version (#2856), so each of its quads reports.
+ */
+const VERSION_GAP = String.raw`(?:[^A-Za-z0-9\n]|\\[nrt]|\bto\b){0,12}`;
+const VERSION_NEIGHBOUR = String.raw`(?:(?<![\w.-])(?:[\w.-]+\/)*VERSION(?![\w.-])|(?<![\w.])v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?(?![\w.-]))`;
+const VERSION_NEIGHBOUR_BEFORE = new RegExp(VERSION_NEIGHBOUR + VERSION_GAP + "$");
+const VERSION_NEIGHBOUR_AFTER = new RegExp("^" + VERSION_GAP + VERSION_NEIGHBOUR);
+export function isVersionContext(match: RegExpExecArray, sourcePath?: string): boolean {
+  const input = match.input ?? "";
+  const { start, end } = spanBounds(match);
+  const lineStart = input.lastIndexOf("\n", start - 1) + 1;
+  const lineEnd = input.indexOf("\n", end);
+  const line = input.slice(lineStart, lineEnd < 0 ? input.length : lineEnd);
+  if (sourcePath && /(?:^|[\\/])VERSION$/.test(sourcePath) && input.trim() === input.slice(start, end)) return true;
+  return VERSION_NEIGHBOUR_BEFORE.test(input.slice(Math.max(lineStart, start - 80), start)) || VERSION_NEIGHBOUR_AFTER.test(line.slice(end - lineStart, end - lineStart + 80));
 }
 
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────
@@ -690,12 +714,43 @@ function urlPasswordIsPlaceholder(span: string): boolean {
 const POSTGRES_LOOPBACK_DEFAULT =
   /^postgres(?:ql)?:\/\/postgres:postgres@(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?![\w.:@%-])/;
 
-/** A value span that is only an environment-variable read expression (#2912). */
+/**
+ * A value span that is only an environment-variable read expression (#2912):
+ * `process.env.X`, an `env` member of any object chain read by an ALL-CAPS
+ * name (`opts?.env?.AGENT_API_TOKEN`, `import.meta.env.VITE_X`, GST-1894),
+ * or the opening of an indexed or call read (`process.env[`, `os.environ[`,
+ * `os.getenv(`, `System.getenv(`). `env` must be a whole segment, so
+ * `myenv.X` is a value.
+ */
 const ENV_READ_SPAN =
+  /^(?:os\.environ\[|os\.environ\.get\(|(?:[A-Za-z_$][\w$]*\.)?getenv\(|ENV\[|process\.env\.[A-Za-z_$][\w$]*[;,)]?|(?:[A-Za-z_$][\w$]*[!?]?\.)*env(?:[!?]?\.[A-Z_][A-Z0-9_]*[;,)]?|(?:\?\.)?\[))$/;
+/** The reads #2912 exempted before GST-1894; a line with a fallback keeps exactly this exemption. */
+const ENV_READ_SPAN_2912 =
   /^(?:os\.environ\[|os\.environ\.get\(|os\.getenv\(|getenv\(|ENV\[|process\.env\.[A-Za-z_$][\w$]*[;,)]?)$/;
+/** The quoted ALL-CAPS variable name an indexed or call read opens with (`"AGENT_API_TOKEN"]`, `'DB_PASSWORD',`). */
+const ENV_NAME_ARGUMENT = /^(["'])[A-Z_][A-Z0-9_]*\1/;
+/** A fallback or default after the read: `??`, `||`, `or` or a ternary `:`, anywhere on the line. */
+const ENV_READ_FALLBACK = /\?\?|\|\||(?<![\w$])or(?![\w$])|:/;
+/**
+ * The rest of the line is read from the span's end, so a quote the match took
+ * is still seen: a literal fallback (`os.getenv("X", "<secret>")`) or a
+ * literal used as the name (`os.environ["<secret>"]`) keeps the finding.
+ * GST-1894's wider reads (`opts?.env?.X`, `process.env["X"]`,
+ * `System.getenv("X")`) are exempt only when the line holds no fallback, no
+ * second argument, and ends the expression with `;`, `,` or `)`. Any other
+ * line reads exactly as #2912 did, so a fallback after a comment, a blank line
+ * or on the next line is never exempted by the wider reads. The next line is
+ * never read.
+ */
 function isBareEnvRead(span: string, match: RegExpExecArray): boolean {
-  if (!ENV_READ_SPAN.test(span)) return false;
-  return !carriesSecretLiteral(match.input.slice(match.index + match[0].length).split("\n", 1)[0]);
+  const opensArgument = /[[(]$/.test(span);
+  const line = match.input.slice(spanBounds(match).end).split("\n", 1)[0];
+  const rest = opensArgument ? line.replace(ENV_NAME_ARGUMENT, "") : line;
+  if (ENV_READ_FALLBACK.test(rest) || (opensArgument && /^[ \t]*,/.test(rest)))
+    return ENV_READ_SPAN_2912.test(span) && !carriesSecretLiteral(rest);
+  if (!ENV_READ_SPAN.test(span) || carriesSecretLiteral(rest)) return false;
+  const after = opensArgument ? rest.replace(/^[\])]/, "") : rest;
+  return ENV_READ_SPAN_2912.test(span) || /[;,)]$/.test(span) || /^[ \t]*[;,)]/.test(after);
 }
 
 /** True when `text` holds a quoted, non-placeholder, high-entropy literal. */
@@ -733,6 +788,20 @@ function isSchemaFieldIdentifier(span: string, match: RegExpExecArray): boolean 
   return SCHEMA_FIELD_NAME.test(match[0]) && SCHEMA_FIELD_VALUE.test(span);
 }
 /**
+ * GST-1894: in a test file, a value made only of lowercase words joined by `-`
+ * or `_`, one of them a credential word (`personal-secret`,
+ * `staging-api-key`), is a fixture label that says what it stands for.
+ * Decided by the file name (`*.test.ts`, `*.spec.tsx`, `test_*.py`,
+ * `*_test.go`). Outside a test file, without a path, or with a digit, an
+ * uppercase letter or no credential word, the value is checked as before.
+ */
+const TEST_SOURCE = /(?:^|[\\/])(?:[^\\/]+(?:\.test|\.spec|_test)\.(?:[cm]?[jt]sx?|py|go|rb|dart)|test_[^\\/]+\.py)$/;
+const FIXTURE_LABEL = /^[a-z]+(?:[-_][a-z]+)+$/;
+const FIXTURE_CREDENTIAL_WORD = /(?:^|[-_])(?:secret|token|password|passwd|key|credential)s?(?:[-_]|$)/;
+function isTestFixtureLabel(span: string, sourcePath: string | undefined): boolean {
+  return !!sourcePath && TEST_SOURCE.test(sourcePath) && FIXTURE_LABEL.test(span) && FIXTURE_CREDENTIAL_WORD.test(span);
+}
+/**
  * GST-1064: the first argument of a lookup call (`get`, `getenv`, `read`,
  * `load`, `loads`, `open`, `pop`, `fetch`) that is a lowercase file name
  * (`files.get("key.json")`) or a snake_case key of two or three words
@@ -764,8 +833,9 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
  * `API_KEY=VelvetRiverOrbitSunset;` in a .env or YAML file is still a literal.
  * #3630 (#3418, #3419): Dart and Python (.py, .pyi) qualify on the same grammar
  * fact, no unquoted string literal, so `'password': request.password` and
- * `session: HttpSession,` are names. Python's `=` forms
- * (`password=request.password`) still fire: the separator must be `:`.
+ * `session: HttpSession,` are names. Python's keyword form
+ * (`password=request.password,`) still fires: the separator must be `:`. A
+ * plain `=` assignment of a dotted name is isAttributeReference's (#4209).
  * Without a known source path nothing is exempt.
  */
 const CODE_SOURCE = /\.(?:[cm]?tsx?|jsx|dart|pyi?)$/i;
@@ -995,6 +1065,33 @@ function expressionTail(line: string, comment: string): string | null {
   return depth > 0 || /(?:[=+\\]|\?\?|\|\||&&|\b(?:or|and))\s*$/.test(rest) ? null : rest;
 }
 
+/**
+ * GST-3004: the value capture stops at a type's first space, so an annotation
+ * with spaced generic arguments (`session: Awaited<ReturnType<typeof launch>>;`)
+ * never reached the name-chain test as a closed type. Read on its line, the
+ * type is names, `<>`, `[]`, `|`, `&`, `,` and `?` only; it ends at a `,`
+ * `;`, `)` or `=` outside the brackets, or at the line end, and the rest of
+ * the line carries no secret literal or template. A string-literal type
+ * (CAPY-1's `Pick<Session, "id" | "forkedFrom">`) still reports: an entropy
+ * test on the literal alone let random hex through, so that shape is a known
+ * limit, allowlisted by value.
+ */
+const GENERIC_TYPE_HEAD = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*</;
+function isGenericType(line: string): boolean {
+  let depth = 0;
+  let i = 0;
+  for (; i < line.length; i += 1) {
+    const c = line[i]!;
+    if (c === "<") depth += 1;
+    else if (c === ">") {
+      if (--depth < 0) return false;
+    } else if (depth === 0 && /[,;)=]/.test(c)) break;
+    else if (!/[\w$.\s|&[\],?]/.test(c)) return false;
+  }
+  const rest = line.slice(i);
+  return depth === 0 && !carriesSecretLiteral(rest) && !rest.includes("`");
+}
+
 function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
   if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
   const { start, end } = spanBounds(match);
@@ -1008,7 +1105,8 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
   } else {
     const head = match[0].slice(0, match[0].length - span.length).trimEnd();
     const separator = head.slice(-1);
-    if (separator !== ":" || !CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return false;
+    if (separator !== ":") return false;
+    if (!CODE_NAME_CHAIN.test(span.replace(/[,;)=|]+$/, ""))) return GENERIC_TYPE_HEAD.test(span) && isGenericType(match.input.slice(start).split("\n", 1)[0]!) && !insideString(match.input, start, sourcePath);
     const rest = (span.endsWith("=") ? "=" : "") + match.input.slice(end).split("\n", 1)[0];
     if (!/[,;]$/.test(span)) {
       const tail = expressionTail(rest, /\.pyi?$/i.test(sourcePath) ? "#" : "//");
@@ -1016,6 +1114,149 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
     }
   }
   return !insideString(match.input, start, sourcePath);
+}
+
+/**
+ * #4209: in Python and Dart source, an unquoted dotted name chain that is the
+ * whole right-hand side of an `=` assignment (`session = self.client.session`,
+ * `token = request.auth`) reads an attribute; it holds no credential. Only
+ * Python and Dart, where the whole file's strings are known (insideString), so
+ * the same line inside a `"""`/`'''` block still reports. Every segment must be
+ * name-shaped (snake_case, camelCase, PascalCase or CONSTANT_CASE), so a dotted
+ * random token still reports, and only a `;` and a comment may follow it on
+ * the line: a literal after it (`or "…"`, `, "…"`) or a continuation still
+ * reports. A keyword argument's closing `,` or `)` is allowed only when the
+ * last segment is a CONSTANT_CASE setting
+ * (`aws_secret_access_key=settings.S3_SECRET_KEY,`, #4289), so
+ * `password=request.password,` still reports. A quoted value, a bare name, a
+ * config, .env or TS file, and a scan without a path are unchanged.
+ */
+const ATTRIBUTE_SEGMENT = /^_*(?:[a-z][a-z0-9]*(?:_+[a-z0-9]+)*|[A-Z][A-Z0-9]*(?:_+[A-Z0-9]+)*|[A-Za-z][a-z0-9]*(?:[A-Z][a-z0-9]+)*)_*$/;
+const CONSTANT_SEGMENT = /^_*[A-Z][A-Z0-9]*(?:_+[A-Z0-9]+)*_*$/;
+function isAttributeReference(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !STRING_SPAN_SOURCE.test(sourcePath)) return false;
+  const read = span.replace(/[,;)]+$/, "");
+  const chain = read.split(".");
+  if (chain.length < 2 || !chain.every((segment) => ATTRIBUTE_SEGMENT.test(segment))) return false;
+  const closer = span.slice(read.length);
+  if (closer !== "" && closer !== ";" && !CONSTANT_SEGMENT.test(chain.at(-1)!)) return false;
+  const { start, end } = spanBounds(match);
+  if (!/=[ \t]*$/.test(match.input.slice(match.index, start))) return false;
+  const rest = match.input.slice(end).split("\n", 1)[0];
+  if (!(/\.dart$/i.test(sourcePath) ? /^[ \t]*(?:\/\/.*)?\r?$/ : /^[ \t]*(?:#.*)?\r?$/).test(rest)) return false;
+  return !insideString(match.input, start, sourcePath);
+}
+
+/**
+ * GST-3004: text that names or builds a key rather than holding one. Read with
+ * its whitespace removed, so a password with spaces is read whole, it must be
+ * short (under 8), a placeholder, under 3.0 bits, or letters-only words,
+ * lowercase or camelCase with an optional leading capital, joined by
+ * `_ . - | : / #` (`over_tough`, `secretsOperations`, `|over_tough|`). A
+ * generated credential carries digits or adjacent capitals, so it keeps
+ * reporting; a letters-only passphrase in this shape (`correctHorseBattery`)
+ * is the accepted residue. Comment prose is read run by run instead
+ * (isCommentText).
+ */
+const KEY_TEXT = /^[_.\-|:/#]*[A-Za-z][a-z]+(?:[A-Z][a-z]+)*(?:[_.\-|:/#]+[A-Za-z][a-z]+(?:[A-Z][a-z]+)*)*[_.\-|:/#]*$/;
+function isSecretRun(run: string): boolean {
+  return run.length >= 8 && !isPlaceholderSpan(run) && shannonEntropy(run) >= 3.0 && !KEY_TEXT.test(run);
+}
+function holdsSecretText(text: string): boolean {
+  return isSecretRun(text.replace(/\s+/g, ""));
+}
+
+/** The text of the `"…"` or `'…'` literal whose quote is at `i` and the index after it, or null when it does not close on the line. */
+function quotedAt(line: string, i: number): { text: string; end: number } | null {
+  for (let j = i + 1; j < line.length; j += line[j] === "\\" ? 2 : 1) if (line[j] === line[i]) return { text: line.slice(i + 1, j), end: j + 1 };
+  return null;
+}
+
+/**
+ * #4289: `KEY = "form.x" + "<secret>"` builds the value from pieces, and the
+ * value capture read only the first. When the value is a `+` chain of quoted
+ * literals and names on its line, the literals' text is joined, so a secret
+ * placed after a short piece or split across pieces is whole again, and checked
+ * with holdsSecretText. Names add no text. A chain that breaks off at a call,
+ * template or other operand is checked as far as it reads.
+ */
+const CHAIN_NAME = /[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*/y;
+const CHAIN_PLUS = /[ \t]*\+[ \t]*/y;
+function concatenationHoldsSecret(match: RegExpExecArray): boolean {
+  const { start } = spanBounds(match);
+  const line = match.input.slice(/["']/.test(match.input[start - 1] ?? "") ? start - 1 : start).split("\n", 1)[0]!;
+  let joined = "";
+  let pieces = 0;
+  for (let i = 0; ; i = CHAIN_PLUS.lastIndex) {
+    const literal = line[i] === '"' || line[i] === "'" ? quotedAt(line, i) : null;
+    CHAIN_NAME.lastIndex = i;
+    if (!literal && !CHAIN_NAME.exec(line)) break;
+    pieces += 1;
+    if (literal) joined += literal.text;
+    CHAIN_PLUS.lastIndex = literal ? literal.end : CHAIN_NAME.lastIndex;
+    if (!CHAIN_PLUS.exec(line)) break;
+  }
+  return pieces > 1 && holdsSecretText(joined);
+}
+
+/**
+ * #4289: the regex also starts a name right after a comment marker, and
+ * comments are prose: `# Auth: authentication, authorization, sessions`. A
+ * match that starts after other text on its line is a comment's, and its value,
+ * less trailing punctuation, reports only when it is a secret run by
+ * isSecretRun. Code before the comment is matched from the line start and
+ * checked as before. GST-3297: a match that starts after a path's `/` is not
+ * a comment's (`a/token=…`), so it is checked like a line-start match; one
+ * after a comment marker that opens a quoted string or bracket (`"// key: …"`)
+ * is still a comment's.
+ */
+const COMMENT_MARKER_BEFORE = /(?:^|[ \t"'`([])(?:#{1,6}|\/{2,3}|\/\*{1,2}|<!--)$/;
+
+/**
+ * GST-3297: a name that starts after a `/` can be the start of a regex
+ * literal (`content.match(/authtoken:\s*(.+)/)`), whose "value" is pattern
+ * text. It is one only when the `/` follows an operator or opening bracket
+ * (never a path segment) and the body before the closing `/` holds regex
+ * syntax (an escape, a character class, a group or a {n,m} quantifier), so a
+ * Markdown link or a YAML value whose path holds a key=value secret still
+ * reports.
+ * Matches from the line start or a comment marker never qualify.
+ */
+const REGEX_LITERAL_OPENER = /(?:[(,=:[!&|?{};]|\breturn)[ \t]*\/$/;
+const REGEX_LITERAL_SYNTAX = /\\|\[[^\]]*\]|\([^)]*\)|\{\d+(?:,\d*)?\}/;
+function isRegexLiteralBody(span: string, match: RegExpExecArray): boolean {
+  const close = span.indexOf("/");
+  if (close < 0 || !REGEX_LITERAL_SYNTAX.test(span.slice(0, close))) return false;
+  const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;
+  return REGEX_LITERAL_OPENER.test(match.input.slice(lineStart, match.index));
+}
+function isCommentText(span: string, match: RegExpExecArray): boolean {
+  const lineStart = match.input.lastIndexOf("\n", match.index - 1) + 1;
+  const before = match.input.slice(lineStart, match.index);
+  if (/^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*$/.test(before)) return false;
+  if (!COMMENT_MARKER_BEFORE.test(before)) return false;
+  return !isSecretRun(span.replace(/[,;.)]+$/, ""));
+}
+
+/**
+ * #4289: a quoted dotted path of three or more letters-only segments, each
+ * lowercase or camelCase and at least one camelCase
+ * (`KEY = "form.section.fieldName"`), names a form field. A segment with a
+ * digit, a capital first letter or adjacent capitals (`"form.<secret>"`)
+ * reports, and so do a path of one or two segments and an all-lowercase one,
+ * which #4209 keeps reporting as a quoted literal (`session = "self.client.session"`).
+ * Only source files qualify, and the rest of the line must carry no secret
+ * literal or template, so `PASSWORD="form.section.fieldName"` in a config
+ * file and `password = "form.section.fieldName" or "<secret>"` still report.
+ */
+const DOTTED_FIELD_PATH = /^[a-z]+(?:[A-Z][a-z]+)*(?:\.[a-z]+(?:[A-Z][a-z]+)*){2,}$/;
+function isDottedFieldPath(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !CODE_SOURCE.test(sourcePath)) return false;
+  const { start, end } = spanBounds(match);
+  const quote = match.input[start - 1];
+  if ((quote !== '"' && quote !== "'") || match.input[end] !== quote || !DOTTED_FIELD_PATH.test(span) || !/[A-Z]/.test(span)) return false;
+  const rest = match.input.slice(end + 1).split("\n", 1)[0]!;
+  return !carriesSecretLiteral(rest) && !rest.includes("`");
 }
 
 /** The files isPropertyRead exempts in: TS, Dart and Python. JSX text in .tsx and .jsx can hold a host on any line, so those report as before. */
@@ -1161,8 +1402,8 @@ export const PATTERNS: RedactPattern[] = [
     id: "aws.access_key",
     tier: "HIGH",
     category: "secret",
-    description: "AWS access key ID (AKIA…)",
-    regex: /\b(AKIA[0-9A-Z]{16})\b/,
+    description: "AWS access key ID (AKIA… long-term, ASIA… temporary)",
+    regex: /\b((?:AKIA|ASIA)[0-9A-Z]{16})\b/,
   },
   {
     id: "aws.secret_key",
@@ -1193,6 +1434,20 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "GitHub server-to-server token",
     regex: /\b(ghs_[A-Za-z0-9]{36})\b/,
+  },
+  {
+    id: "github.user_to_server",
+    tier: "HIGH",
+    category: "secret",
+    description: "GitHub App user-to-server token",
+    regex: /\b(ghu_[A-Za-z0-9]{36})\b/,
+  },
+  {
+    id: "github.refresh",
+    tier: "HIGH",
+    category: "secret",
+    description: "GitHub App refresh token",
+    regex: /\b(ghr_[A-Za-z0-9]{36,})\b/,
   },
   {
     id: "github.fine_grained",
@@ -1290,6 +1545,13 @@ export const PATTERNS: RedactPattern[] = [
       /\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,})\b/,
   },
   {
+    id: "openrouter.key",
+    tier: "HIGH",
+    category: "secret",
+    description: "OpenRouter API key",
+    regex: /\b(sk-or-v1-[a-f0-9]{64})\b/,
+  },
+  {
     id: "sendgrid.key",
     tier: "HIGH",
     category: "secret",
@@ -1302,6 +1564,27 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "Stripe live SECRET key",
     regex: /\b(sk_live_[A-Za-z0-9]{24,})\b/,
+  },
+  {
+    id: "stripe.restricted",
+    tier: "HIGH",
+    category: "secret",
+    description: "Stripe live restricted key",
+    regex: /\b(rk_live_[A-Za-z0-9]{24,})\b/,
+  },
+  {
+    id: "supabase.secret",
+    tier: "HIGH",
+    category: "secret",
+    description: "Supabase secret API key",
+    regex: /\b(sb_secret_[A-Za-z0-9_-]{20,})\b/,
+  },
+  {
+    id: "supabase.pat",
+    tier: "HIGH",
+    category: "secret",
+    description: "Supabase personal access token",
+    regex: /\b(sbp_[a-f0-9]{40})\b/,
   },
   {
     id: "slack.token",
@@ -1429,7 +1712,20 @@ export const PATTERNS: RedactPattern[] = [
     // and text is a Markdown bullet or YAML list item, not a marker, so those
     // read as they did before. ENV_KV_NAME and SCHEMA_FIELD_NAME take the same
     // marker so the name-shape and schema exemptions hold on a diff line.
-    regex: /^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,})["']?/i,
+    // GST-3004 (#4289): a name may also start right after a comment marker
+    // (`#`, `//`, `/*`, `<!--`) at the line start or after a space, so a
+    // secret in a trailing or whole-line comment reports; that start is a
+    // bounded lookbehind (a run of spaces is matched after it, not inside it,
+    // so a long run stays linear), and the code before the comment is still
+    // matched on its own from the line start. A short first piece followed by
+    // `+` is captured so concatenationHoldsSecret can read the rest of the
+    // chain.
+    // GST-3297: a name may also start right after a `/`, so a key=value
+    // secret at the end of a path (`../password=…`, `cfg/api_key=…`) reports
+    // wherever it sits: a symlink target in `git log -p`, a diff header, a
+    // quoted string, mid-line. The name class excludes `/`, so each attempt
+    // ends at the next separator and the scan stays linear.
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:#{1,6}|\/{2,3}|\/\*{1,2}|<!--))|(?<=\/))[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,}|[^\s'"]{1,7}(?=["']?[ \t]*\+))["']?/i,
     // Only fire on credential-shaped names with high-entropy values — kills
     // `FOO_KEY=changeme` and `cacheKey: <entropic-id>` FPs. #2912: a value
     // that is exactly an environment read (`os.environ["X"]`,
@@ -1439,16 +1735,30 @@ export const PATTERNS: RedactPattern[] = [
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
     // #2899: a function call assigned to the name is code, not a value (see
     // isCallExpression). #3048, #3630: so is a TS/JSX/Dart/Python type or expression (isSourceExpression).
+    // #4209: so is a dotted attribute read assigned with = in Python or Dart (isAttributeReference).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
+    // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
+    // GST-3004: so is a dotted field path (isDottedFieldPath, #4289), and so
+    // is key-naming text in a comment
+    // (isCommentText). GST-3297: so is a regex literal's body after its
+    // opening `/` (isRegexLiteralBody). A secret literal in a `+` chain reports first,
+    // whatever the exemptions say about the chain's first piece
+    // (concatenationHoldsSecret).
     validate: (span, match, opts) =>
       isCredentialShapedEnvName(match[0]) &&
-      !isPlaceholderSpan(span) &&
-      !/^\$\{?[A-Za-z_]/.test(span) &&
-      !isBareEnvRead(span, match) &&
-      !isCallExpression(span, match) &&
-      !isSourceExpression(span, match, opts?.sourcePath) &&
-      !isSchemaFieldIdentifier(span, match) &&
-      shannonEntropy(span) >= 3.0,
+      (concatenationHoldsSecret(match) ||
+        (!isPlaceholderSpan(span) &&
+          !/^\$\{?[A-Za-z_]/.test(span) &&
+          !isBareEnvRead(span, match) &&
+          !isCallExpression(span, match) &&
+          !isSourceExpression(span, match, opts?.sourcePath) &&
+          !isAttributeReference(span, match, opts?.sourcePath) &&
+          !isDottedFieldPath(span, match, opts?.sourcePath) &&
+          !isCommentText(span, match) &&
+          !isRegexLiteralBody(span, match) &&
+          !isSchemaFieldIdentifier(span, match) &&
+          !isTestFixtureLabel(span, opts?.sourcePath) &&
+          shannonEntropy(span) >= 3.0)),
   },
   {
     id: "auth.bearer",
@@ -1541,7 +1851,7 @@ export const PATTERNS: RedactPattern[] = [
     category: "pii",
     description: "Public IPv4 address",
     regex: /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/,
-    validate: (span, match) => isPublicIPv4(span) && !isDeclaredVersion(match),
+    validate: (span, match, opts) => isPublicIPv4(span) && !isDeclaredVersion(match) && !isVersionContext(match, opts?.sourcePath),
   },
   {
     id: "pii.wallet",

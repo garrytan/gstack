@@ -14,7 +14,7 @@
  * once to pair.png through lib/aside-render.ts; with no browser the HTML and
  * the text fallback (text.md, a collapsed unified diff) are still written.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveBase } from './gate-diff/git';

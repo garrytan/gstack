@@ -31,6 +31,8 @@ export interface RuleMeta {
   pageOnly?: boolean;
   /** The render tier reports this rule; the static tier never does. */
   render?: boolean;
+  /** An app-profile rule: only `--scope app` reports it, and `--scope app` reports nothing else (render-app.ts). */
+  app?: boolean;
 }
 
 export const RULES: Record<string, RuleMeta> = {
@@ -170,6 +172,12 @@ export const RULES: Record<string, RuleMeta> = {
   'missing-skip-link': { tier: 'ask', gate: 'craft', title: 'no skip link reaching <main>', fix: 'add a "Skip to content" link first in <body> whose #id exists on <main>', pageOnly: true },
   'missing-aria-current': { tier: 'ask', gate: 'craft', title: 'route navigation without aria-current', fix: 'mark the current nav link aria-current="page"', pageOnly: true },
   'empty-mount-node': { tier: 'ask', gate: 'craft', title: 'an empty mount node: the body has no text and a script renders it, so the lint read none of its content', fix: 'lint the rendered page: save document.documentElement.outerHTML to a file and lint that', pageOnly: true },
+  // ── App profile (--scope app only; render-app.ts and render-probe-app.ts, GST-1741) ──
+  'row-crowding': { tier: 'ask', gate: 'app', title: 'a list row whose text spans two or more lines sits under 8px from its row edge, or under 16px from the next row\'s text', fix: 'pad the row 8px or more top and bottom and leave 16px or more between one row\'s text and the next', render: true, app: true },
+  'copy-flush-under-list': { tier: 'ask', gate: 'app', title: 'the first text block after a list starts under 12px below the list', fix: 'leave 12px or more between the list and the copy under it', render: true, app: true },
+  'note-in-row-weight': { tier: 'ask', gate: 'app', title: 'a note inside a row at the name\'s weight (no icon, no surface of its own, lightness within 0.15 and size 0.9 or more of the name\'s), or a note of three lines or more at 1200px and wider', fix: 'mute the note (a lighter ink and a smaller size than the name), or give it an icon or a callout of its own', render: true, app: true },
+  'small-hit-area': { tier: 'ask', gate: 'app', title: 'a control inside a list row under 32px in either dimension at a phone width (480px or less)', fix: 'make the target 32px or more (padding with a negative margin, or an inset ::before) and keep the visible glyph its size', render: true, app: true },
+  'section-overflow': { tier: 'ask', gate: 'app', title: 'an element inside the measured section runs past the viewport, or a non-scrolling element overflows its own box', fix: 'let it wrap or shrink (min-width: 0, overflow-wrap: anywhere), or give it a scrolling container', render: true, app: true },
   // ── The lint's own bookkeeping ──
   'waiver': { tier: 'ask', gate: 'waiver', title: 'a waiver the lint refused', fix: 'fix the finding, or waive it with the rule id and a reason about this page' },
   'house-style': { tier: 'polish', gate: 'waiver', title: 'more than three rules waived on one page', fix: 'lock the choices into DESIGN.md so later pages inherit them instead of re-arguing them' },

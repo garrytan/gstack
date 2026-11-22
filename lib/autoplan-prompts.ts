@@ -13,6 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { bunIsolationArgs } from './bun-isolation';
 import { detectDocsOnly, readScopeMarker, scopeMarker, scopeTokens, type ScopeFlags, type UiEvidence } from './autoplan-scope';
+import { RESULT_FORMAT_HEADER } from './autoplan-reconcile';
 import { COORDINATOR_CONTRACT } from './coordinator-contract';
 import { capyBootstrapCommand } from './doctor-components';
 import { DX_ERROR_COMPACT } from './dx-error-contract';
@@ -117,13 +118,13 @@ export function extractHeading(text: string, heading: string): string | undefine
 
 export const RESULT_FORMAT = (phase: string, sha256: string, resultPath: string) => `
 ---
-RESULT FORMAT (required by gstack-autoplan; the parent binds your file by this contract):
+${RESULT_FORMAT_HEADER}
 1. The first line of your result is exactly: INPUT: ${phase} ${sha256}
 2. Write the complete review as prose, then END with one fenced block of canonical findings, one JSON object per line:
 \`\`\`gstack-findings
 {"id":"F1","severity":"High","title":"<one line>","file":"<path or omit>","line":12,"fix":"<the fix>"}
 \`\`\`
-   severity is Critical | High | Medium | Low | Informational. Add "user_challenge": true only when you recommend changing the plan's stated direction AND the change alters its scope, cost or direction (then also add "changes": "scope" | "cost" | "direction") or only its delivery packaging or ordering, with no Implementation-plan edit (then "changes": "packaging" | "ordering"). Naming and other reversible choices are ordinary findings, not user challenges. Add "urgent": true and "suggested_owner": "<who>" for a security or data-loss finding this plan does not own. An empty fence means no findings; a missing fence is refused.
+   severity is Critical | High | Medium | Low | Informational. Any finding that recommends changing the plan's scope, cost or direction adds "changes": "scope" | "cost" | "direction", or "packaging" | "ordering" when only its delivery packaging or build order changes, with no Implementation-plan edit; that holds at any severity. Only the owner's own words are the plan's direction: add "user_challenge": true and "owner_quote": <n> only when the change goes against bullet n (from 1) of the plan's "Owner's words" section. Scope, order or features the planning agent wrote are proposals, so a change to them is an ordinary finding with "changes" and no user_challenge. A plan with no "Owner's words" section: add "user_challenge": true (no owner_quote) when you recommend changing its stated direction. Naming and other reversible choices are ordinary findings with no "changes". Add "urgent": true and "suggested_owner": "<who>" for a security or data-loss finding this plan does not own. An empty fence means no findings; a missing fence is refused.
 3. Write the whole result to this file: ${resultPath}
 `;
 

@@ -126,7 +126,7 @@ describe("renderPdf", () => {
     const none = async (): Promise<RenderResult> => ({ ok: false, outputs: [], evals: {}, stdout: "", error: `${NO_BROWSER}: ${NO_BROWSER_HELP} (NEEDS_ASIDE: aside not on PATH)` });
     const err = await renderPdf("<p></p>", { output: "/tmp/never.pdf" }, none).catch((e: Error) => e);
     expect(err).toBeInstanceOf(BrowserUnavailableError);
-    expect((err as Error).message).toContain("aside.com");
+    expect((err as Error).message).toContain(NO_BROWSER_HELP);
     expect((err as Error).message).toContain("./setup");
     expect((err as Error).message).toContain("GSTACK_BROWSE_BIN");
   });

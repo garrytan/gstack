@@ -1,0 +1,17 @@
+REVIEWED_TREE: 35aa2e6c1f8a972d6541e40cd27074c054a4971a /workspace/gstack
+
+NO FINDINGS
+
+Scope note, outside the findings block: the diff from a832db7 changes two files. I read `lib/review-scope.ts` in full. I reviewed `test/review-scope.test.ts` in summary mode only, as the fixture rule requires (4 lines added, 4 removed). Those test edits change the deferral-rendering expectations so `severity` stays the plain collected label and the new `stated` field carries what the reviewer wrote, including a newline-injection case.
+
+Here's what I checked across the integration boundaries:
+
+- **Callers:** `deferredRecord` and `renderDeferredSection` are only called from `bin/gstack-review-scope` (`defer` and `render`), so nothing else depended on the old severity format.
+- **PR body:** the rendered `## Deferred findings` line comes out byte-identical to before (`CRITICAL (the reviewer wrote …)`), and `stated` still goes through `oneLine`.
+- **`DEFERRED:` stderr line:** it now prints the plain label instead of the label with the reviewer suffix attached. That's an improvement, and nothing parses it.
+- **Older files:** a `deferred.json` written before this change still renders the same, because its severity string already had the suffix baked in.
+- **Docs:** `docs/review-policy.md` already describes `stated` this way.
+
+The one gap I found, too small to report as a finding: if one /ship run wrote `deferred.json` with the new code and rendered it with the old code, the reviewer's stated text would be dropped silently. That would need the code to change in the middle of a run, so it's unrealistic.
+
+`bun test test/review-scope.test.ts` passes on this tree: 36 pass, 0 fail.

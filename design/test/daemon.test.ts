@@ -154,7 +154,7 @@ describe("daemon /boards/<id> trailing-slash redirect", () => {
     const board = await publishTestBoard();
     const r = await fetchHandler(req("GET", `/boards/${board.id}`));
     expect(r.status).toBe(301);
-    expect(r.headers.get("Location")).toBe(`/boards/${board.id}/`);
+    expect(r.headers.get("Location")).toBe(`/${__testInternals__.token}/boards/${board.id}/`);
   });
 
   test("GET /boards/<id>/ renders the board's HTML", async () => {
@@ -247,7 +247,7 @@ describe("daemon /boards/<id>/api/feedback", () => {
 
   test("rejects malformed JSON body", async () => {
     const board = await publishTestBoard();
-    const bad = new Request(`http://127.0.0.1/boards/${board.id}/api/feedback`, {
+    const bad = new Request(`http://127.0.0.1:1234/${__testInternals__.token}/boards/${board.id}/api/feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{not json",
@@ -477,7 +477,7 @@ describe("daemon idle + activity tracking (smoke)", () => {
 
 describe("daemon malformed body handling", () => {
   test("POST /api/boards rejects invalid JSON body with 400", async () => {
-    const bad = new Request("http://127.0.0.1:1234/api/boards", {
+    const bad = new Request(`http://127.0.0.1:1234/${__testInternals__.token}/api/boards`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{not json",
@@ -493,7 +493,7 @@ describe("daemon malformed body handling", () => {
     // !body || typeof body !== "object" guard and fail at the missing-html
     // check below. The "Expected JSON object" path only fires for genuinely
     // non-object values like null, numbers, strings.
-    const bad = new Request("http://127.0.0.1:1234/api/boards", {
+    const bad = new Request(`http://127.0.0.1:1234/${__testInternals__.token}/api/boards`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "null",
@@ -517,7 +517,7 @@ describe("daemon malformed body handling", () => {
   test("POST /boards/<id>/api/reload rejects invalid JSON body with 400", async () => {
     const board = await publishTestBoard();
     const bad = new Request(
-      `http://127.0.0.1:1234/boards/${board.id}/api/reload`,
+      `http://127.0.0.1:1234/${__testInternals__.token}/boards/${board.id}/api/reload`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

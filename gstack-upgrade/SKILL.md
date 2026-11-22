@@ -1,7 +1,7 @@
 ---
 name: gstack-upgrade
 version: 1.1.0
-description: Upgrade gstack to the latest version.
+description: "Upgrade gstack to the latest version. Use for: upgrade gstack, update gstack version."
 triggers:
   - upgrade gstack
   - update gstack version
@@ -16,8 +16,6 @@ allowed-tools:
 <!-- Regenerate: bun run gen:skill-docs -->
 
 # /gstack-upgrade
-
-Upgrade gstack to the latest version and show what's new.
 
 ## Inline upgrade flow
 
@@ -52,7 +50,8 @@ Tell user: "Auto-upgrade enabled. Future updates will install automatically." Th
 ```bash
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 _SNOOZE_FILE="$GSTACK_STATE_ROOT/update-snoozed"
-_REMOTE_VER="{new}"
+_UPGRADE_LINE="{line}"
+_REMOTE_VER=$(printf '%s\n' "$_UPGRADE_LINE" | awk '{print (NF >= 4 ? $(4) : $(3))}')
 _CUR_LEVEL=0
 if [ -f "$_SNOOZE_FILE" ]; then
   _SNOOZED_VER=$(awk '{print $(1)}' "$_SNOOZE_FILE")
@@ -65,7 +64,7 @@ _NEW_LEVEL=$((_CUR_LEVEL + 1))
 [ "$_NEW_LEVEL" -gt 3 ] && _NEW_LEVEL=3
 echo "$_REMOTE_VER $_NEW_LEVEL $(date +%s)" > "$_SNOOZE_FILE"
 ```
-Note: `{new}` is the remote version from the `UPGRADE_AVAILABLE` output — substitute it from the update check result. On a four-field line use the SHA (fourth field) as `{new}`, so the snooze ends when main moves.
+Note: `{line}` is the whole `UPGRADE_AVAILABLE` line, exactly as printed; the snippet picks the field `gstack-update-check` reads.
 
 Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.gstack/config.yaml` for automatic upgrades."
 
@@ -209,28 +208,26 @@ If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: loc
 **For vendored installs** (vendored, vendored-global):
 ```bash
 (cd -- "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}" && [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ]) || { echo "ERROR: INSTALL_DIR=${INSTALL_DIR:-} is not a gstack install; nothing was changed. Re-run Step 2." >&2; exit 1; }
-# A stale .bak from a previously crashed upgrade would make the mv below NEST
-# the live install inside it and the failure-restore arm would "restore" the
-# stale backup. It may also be the only good copy from that crashed run —
-# abort and let the human inspect, never delete it silently.
+# A stale .bak (a crashed upgrade's) would NEST the live install in the mv
+# below, and may be the only good copy: abort for the human, never delete it.
 [ -e "$INSTALL_DIR.bak" ] && { echo "ERROR: stale backup exists at $INSTALL_DIR.bak (from a previous failed upgrade?) — inspect it, salvage/remove it, then re-run." >&2; exit 1; }
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gstack-upgrade.XXXXXX") || { echo "ERROR: mktemp failed — aborting upgrade (install untouched)." >&2; exit 1; }
-git clone --depth 1 https://github.com/garrytan/gstack.git "$TMP_DIR/gstack" || { echo "ERROR: clone failed — aborting upgrade (install untouched)." >&2; rm -rf "$TMP_DIR"; exit 1; }
-mv "$INSTALL_DIR" "$INSTALL_DIR.bak" || { rm -rf "$TMP_DIR"; exit 1; }
+git clone --depth 1 https://github.com/garrytan/gstack.git "$TMP_DIR/gstack" || { echo "ERROR: clone failed — aborting upgrade (install untouched)." >&2; rm -r "$TMP_DIR" </dev/null; exit 1; }
+mv "$INSTALL_DIR" "$INSTALL_DIR.bak" || { rm -r "$TMP_DIR" </dev/null; exit 1; }
 if mv "$TMP_DIR/gstack" "$INSTALL_DIR"; then
   if (cd "$INSTALL_DIR" && ./setup --refresh-registered); then
-    rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
+    rm -r "$INSTALL_DIR.bak" "$TMP_DIR" </dev/null
   else
-    rm -rf "$INSTALL_DIR"
+    rm -r "$INSTALL_DIR" </dev/null
     mv "$INSTALL_DIR.bak" "$INSTALL_DIR" || { echo "ERROR: restore failed; backup retained." >&2; exit 1; }
-    rm -rf "$TMP_DIR"
+    rm -r "$TMP_DIR" </dev/null
     echo "ERROR: setup failed; previous install restored." >&2
     exit 1
   fi
 else
   mv "$INSTALL_DIR.bak" "$INSTALL_DIR"
   echo "ERROR: swap failed — previous install restored; upgrade aborted." >&2
-  rm -rf "$TMP_DIR"
+  rm -r "$TMP_DIR" </dev/null
   exit 1
 fi
 ```
@@ -264,7 +261,7 @@ git rm -r --cached .claude/skills/gstack/ 2>/dev/null || true
 if ! grep -qF '.claude/skills/gstack/' .gitignore 2>/dev/null; then
   echo '.claude/skills/gstack/' >> .gitignore
 fi
-rm -rf "$LOCAL_GSTACK"
+rm -r "$LOCAL_GSTACK" </dev/null
 ```
 Tell user: "Removed vendored copy at `$LOCAL_GSTACK` (team mode active — global install is the source of truth). Commit the `.gitignore` change when ready."
 
@@ -274,11 +271,11 @@ Tell user: "Removed vendored copy at `$LOCAL_GSTACK` (team mode active — globa
 (cd -- "${LOCAL_GSTACK:?LOCAL_GSTACK is not set: re-run the detection block above and substitute the printed path}" && [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ]) || { echo "ERROR: LOCAL_GSTACK=${LOCAL_GSTACK:-} is not a gstack copy; nothing was changed." >&2; exit 1; }
 [ -e "$LOCAL_GSTACK.bak" ] && { echo "ERROR: stale vendored backup; inspect it before retrying." >&2; exit 1; }
 mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak" || exit 1
-if cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK" && rm -rf "$LOCAL_GSTACK/.git" && (cd "$LOCAL_GSTACK" && ./setup --refresh-registered); then
-  rm -rf "$LOCAL_GSTACK.bak"
+if cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK" && { [ ! -e "$LOCAL_GSTACK/.git" ] || rm -r "$LOCAL_GSTACK/.git" </dev/null; } && (cd "$LOCAL_GSTACK" && ./setup --refresh-registered); then
+  rm -r "$LOCAL_GSTACK.bak" </dev/null
   echo "LOCAL_SYNC_OK"
 else
-  rm -rf "$LOCAL_GSTACK"
+  rm -r "$LOCAL_GSTACK" </dev/null
   mv "$LOCAL_GSTACK.bak" "$LOCAL_GSTACK" || { echo "ERROR: restore failed; backup retained." >&2; exit 1; }
   echo "ERROR: sync failed; previous vendored copy restored." >&2
   exit 1
@@ -355,8 +352,7 @@ Substitute the install directory from Step 2, then act on `DAEMON_CHECK`:
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 mkdir -p "$GSTACK_STATE_ROOT"
 echo "$OLD_VERSION" > "$GSTACK_STATE_ROOT"/just-upgraded-from
-rm -f "$GSTACK_STATE_ROOT"/last-update-check
-rm -f "$GSTACK_STATE_ROOT"/update-snoozed
+rm "$GSTACK_STATE_ROOT/last-update-check" "$GSTACK_STATE_ROOT/update-snoozed" 2>/dev/null || :
 ```
 
 ### Step 6: Show What's New

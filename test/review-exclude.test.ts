@@ -19,6 +19,8 @@ import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } fro
 const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 const policyText = (patterns: string[]) => JSON.stringify({ review_exclude_paths: patterns, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n';
+/** A credential-shaped base64 value (no known key prefix) for the lines that must keep their file: a name alone keeps nothing (GST-1967). */
+const VALUE = Buffer.from('a private signing key that must never reach a results tree 0x5f3759df').toString('base64');
 const GZ = Buffer.from([0x1f, 0x8b, 0, 1, 2, 3, 0, 0]);
 const EXCLUDED = ['receipts/a/result.json', 'receipts/a/trial.gz', 'receipts/config/blob.bin', 'receipts/c/result.json', 'receipts/e/result.json', 'receipts/notes.md'];
 const KEPT = ['receipts/b/result.json', 'receipts/d/fixture.json', 'receipts/run.sh'];
@@ -92,6 +94,36 @@ describe('what review_exclude_paths excludes and keeps', () => {
     for (const f of KEPT) expect(read.has(f)).toBe(true);
   }, 120_000);
 
+  // Value: protects=a results manifest the base policy names by file name leaves the reviewers' diff, and stops keeping the
+  //   receipts it lists, while config files under a broader pattern stay; fails_when=a pattern whose last segment is
+  //   manifest.json keeps the manifest as config, the manifest's full-path list keeps the receipts as named-by-code, or a
+  //   package.json or manifest.json matched only by data/** is excluded; why_new=a large eval results PR stopped at
+  //   REVIEW_DIFF_TOO_LARGE on a 1.42 MB manifest its base policy named; seam=bin/gstack-review-plan and git running the printed commands
+  test('a config-named data file is excluded when a pattern names its file name, and kept under a broader pattern', () => {
+    const named = 'docs/bench/run1/results-a/x/manifest.json';
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['data/**', 'docs/bench/*/results*/**/manifest.json']) } });
+    repos.push(repo);
+    commit(repo, {
+      [named]: JSON.stringify({ trials: ['data/r1.json', 'data/r2.json'] }) + '\n',
+      'data/r1.json': '{"ok": true}\n',
+      'data/r2.json': '{"ok": false}\n',
+      'data/manifest.json': '{"name": "data"}\n',
+      'data/package.json': '{"scripts": {"postinstall": "node x.js"}}\n',
+      'docs/bench/run1/package.json': '{"name": "bench"}\n',
+    });
+    const p = JSON.parse(plan(repo, ['--json']).out);
+    expect(p.review_exclude.kept_files).toEqual([
+      { path: 'data/manifest.json', reason: 'config' },
+      { path: 'data/package.json', reason: 'config' },
+    ]);
+    expect(p.review_exclude).toMatchObject({ state: 'active', excluded: 3, content: { binary: 0, data: 3, docs: 0, log: 0 } });
+    const mb = mergeBase(repo);
+    const cmds = plan(repo).out.split('\n').filter(l => /^DIFF_(CMD|KEEP): /.test(l)).map(l => l.replace(/^DIFF_(CMD|KEEP): \S+ /, ''));
+    const read = new Set(cmds.flatMap(c => pathsRead(repo, c, mb)));
+    for (const f of [named, 'data/r1.json', 'data/r2.json']) expect(read.has(f)).toBe(false);
+    for (const f of ['data/manifest.json', 'data/package.json', 'docs/bench/run1/package.json']) expect(read.has(f)).toBe(true);
+  }, 120_000);
+
   // Value: protects=the Red Team, the security specialist, the adversarial pass and the outside voice read the same selection
   //   as the plan, including through the fixture-handling command; fails_when=any brief's git diff command (or the embedded
   //   outside-voice diff) shows an excluded file, or a kept file is unreachable from a brief; why_new=task 8 (the fixture
@@ -145,7 +177,7 @@ describe('what review_exclude_paths excludes and keeps', () => {
   //   and a credential line inside a matched file keeps it; fails_when=scanNumbers or targetedClasses read excluded lines, or
   //   a secret-bearing data file is excluded; why_new=task 9; seam=bin/gstack-review-plan; no_claim=pregate's credential scan
   test('excluded lines feed neither the numeric scan nor the targeted classes; a credential line keeps its file', () => {
-    const files = { 'receipts/r.json': '{"cost_usd": 12.5, "price_usd": 3, "pass_rate": "97%", "latency_ms": 180}\n', 'docs/bench.md': '# bench\n', 'receipts/s.json': '{"cmd": "curl -H $OPENAI_API_KEY"}\n' };
+    const files = { 'receipts/r.json': '{"cost_usd": 12.5, "price_usd": 3, "pass_rate": "97%", "latency_ms": 180}\n', 'docs/bench.md': '# bench\n', 'receipts/s.json': `{"cmd": "curl -H $OPENAI_API_KEY", "auth": "${VALUE}"}\n` };
     const control = makeFixtureRepo({ prefix: 'gstack-exclude-' }); repos.push(control);
     commit(control, files);
     const with_ = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['receipts/**']) } }); repos.push(with_);
@@ -183,6 +215,7 @@ describe('the base policy read', () => {
     expect(r.err).toContain('POLICY_SOURCE_UNAVAILABLE');
 
     const bad = census([':(icase)receipts/**']);
+    onBase(bad, { '.gstack/ship-policy.json': JSON.stringify({ review_exclude_paths: [':(icase)receipts/**'], review: { panel: 'some' }, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n' });
     const b = plan(bad);
     expect(b.status).toBe(EXIT.refused);
     expect(b.err).toContain('review_exclude_paths[0]');
@@ -193,9 +226,9 @@ describe('the base policy read', () => {
 
 describe('the kept-file command is bounded by argument bytes', () => {
   // Value: protects=the DIFF_KEEP command stays under the Windows command line however many kept files a pattern has, and a
-  //   disjoint small pattern still applies; fails_when=a pattern whose kept files pass KEEP_ARG_MAX_BYTES is applied, or the plan
-  //   does not say why it was not; why_new=task 10; seam=bin/gstack-review-plan; no_claim=a real Windows launch
-  test('a pattern whose kept files pass the bound is not applied and the plan says why; a disjoint small pattern applies', () => {
+  //   pattern past the bound is never dropped quietly; fails_when=a pattern whose kept files pass KEEP_ARG_MAX_BYTES is applied,
+  //   or skipped while the plan goes on; why_new=task 10, GST-3158; seam=bin/gstack-review-plan; no_claim=a real Windows launch
+  test('a pattern whose kept files pass the bound stops the plan with REVIEW_EXCLUDE_KEEP_TOO_LARGE; without it the small pattern applies', () => {
     const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['big/**', 'small/**']) } }); repos.push(repo);
     const long = 'x'.repeat(180);
     for (let k = 0; k < 140; k++) {
@@ -203,8 +236,13 @@ describe('the kept-file command is bounded by argument bytes', () => {
       fs.chmodSync(path.join(repo.work, `big/${long}-${k}.sh`), 0o755);
     }
     commit(repo, { 'big/data.json': '{}\n', 'small/data.json': '{}\n', 'lib/a.js': 'exports.a = 1;\n' });
+    const refused = plan(repo);
+    expect(refused.status).toBe(EXIT.refused);
+    expect(refused.out).not.toContain('REVIEW_EXCLUDE:');
+    expect(refused.err).toMatch(new RegExp(`pattern big/\\*\\* on origin/main@[0-9a-f]{12} keeps 140 matched files in review \\(executable:140\\).*\\(more than ${KEEP_ARG_MAX_BYTES}\\).*\\(REVIEW_EXCLUDE_KEEP_TOO_LARGE\\)`));
+    onBase(repo, { '.gstack/ship-policy.json': policyText(['small/**']) });
     const text = plan(repo).out;
-    expect(text).toMatch(new RegExp(`REVIEW_EXCLUDE: patterns=1/2 .* skipped=big/\\*\\*:kept=140:bytes=\\d+ \\(kept files over ${KEEP_ARG_MAX_BYTES} argument bytes: pattern not applied\\)`));
+    expect(text).toMatch(/REVIEW_EXCLUDE: patterns=1\/1 /);
     const cmd = text.split('\n').find(l => l.startsWith('DIFF_CMD: '))!;
     expect(cmd).toContain("':(top,exclude,glob)small/**'");
     expect(cmd).not.toContain('big/**');
@@ -216,16 +254,14 @@ describe('the review ceiling lines', () => {
   const d = { bytes: 3_500_000, byDir: [['results', 3_000_000], ['src', 500_000]] as Array<[string, number]> };
   // Value: protects=a REVIEW_DIFF_TOO_LARGE stop names the one fix that applies, with JSON a person can paste; fails_when=the
   //   fix ignores where the policy stands or prints a placeholder version; why_new=task 4; seam=tooLargeLine; no_claim=the bytes git reports
-  test('the fix branches on no key, head-only, a skipped pattern and still over, with pasteable JSON at the key version', () => {
+  test('the fix branches on no key, head-only and still over, with pasteable JSON at the key version', () => {
     const json = (line: string) => JSON.parse(line.match(/land (\{.*?\}) in /)![1]!);
     const none = tooLargeLine('ctx', 'batched', d, { state: 'none', base: 'main', source: 'origin/main@abc' }).line;
     expect(json(none)).toEqual({ review_exclude_paths: ['results/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION });
     expect(none).toContain('then bring main into this branch and rerun once; if it is still over, split the PR');
     const head = tooLargeLine('ctx', 'batched', d, { state: 'head-only', base: 'main', source: 'origin/main@abc', headPatterns: ['results/**'] }).line;
     expect(head).toContain('this branch declares review_exclude_paths, but only the copy on main applies');
-    const skipped = tooLargeLine('ctx', 'batched', d, { state: 'active', base: 'main', source: 'origin/main@abc', record: { patterns: ['results/**'], skipped: [{ pattern: 'results/**', kept: 900, bytes: 40_000 }], excluded: 0 } }).line;
-    expect(skipped).toContain('pattern results/** was not applied: its 900 kept files need 40000 argument bytes');
-    const over = tooLargeLine('ctx', 'batched', d, { state: 'active', base: 'main', source: 'origin/main@abc', floor: '1.300.0.0', record: { patterns: ['receipts/**'], skipped: [], excluded: 12 } }).line;
+    const over = tooLargeLine('ctx', 'batched', d, { state: 'active', base: 'main', source: 'origin/main@abc', floor: '1.300.0.0', record: { patterns: ['receipts/**'], excluded: 12 } }).line;
     expect(over).toContain('still over after excluding 12 files');
     expect(json(over)).toEqual({ review_exclude_paths: ['receipts/**', 'results/**'], min_gstack_version: '1.300.0.0' });
     expect(over).toEndWith('nothing was written (REVIEW_DIFF_TOO_LARGE)');
@@ -437,7 +473,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     test('an unreadable base policy still refuses a receipt with no digest or an older one', () => {
       for (const basePolicy of [null, ['receipts/**']]) {
         const { repo, body } = shipped(CODE, basePolicy);
-        policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
+        policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**", "review": { "panel": "some" } }\n');
         const b = bind(repo, body);
         expect({ basePolicy, ok: b.ok, code: b.ok ? '' : b.code }).toEqual({ basePolicy, ok: false, code: 'POLICY_INVALID' });
       }
@@ -506,7 +542,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     }, 240_000);
 
     test('an unreadable or malformed base policy still refuses carry', () => {
-      for (const text of [JSON.stringify({ review_exclude_paths: 'receipts/**', min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n', '{ not json\n']) {
+      for (const text of [JSON.stringify({ review_exclude_paths: 'receipts/**', review: { panel: 'some' }, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n', '{ not json\n']) {
         const { repo, body } = shipped(CODE, null);
         onBase(repo, { '.gstack/ship-policy.json': text });
         const refused = carry(repo, body);
@@ -565,6 +601,23 @@ describe('the receipt binds the selection the reviewers read', () => {
       expect(receiptIn(body).review_exclude!.digest).toBe(now);
     }, 240_000);
 
+    // Value: protects=a base whose list no longer validates writes the fallback record and never carries a receipt whose review
+    //   left a PR file out; fails_when=write drops review_exclude_fallback or carry accepts the narrower review (GST-3399);
+    //   seam=gstack-ship-receipt write and carry; no_claim=the queue's reading of the field
+    test('a base list that is set aside writes the fallback record and refuses carry of the narrower review', () => {
+      const { repo, body } = reviewed();
+      policyOnBaseOnly(repo, policyText(Array.from({ length: 65 }, (_, i) => `data/p${i}/**`)));
+      const w = writeWith(repo, []);
+      expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
+      const written = receiptIn(path.join(repo.root, 'body-w.md'));
+      expect(written.review_exclude).toBeUndefined();
+      expect(written.review_exclude_fallback!.errors).toEqual(['review_exclude_paths: more than 64 patterns']);
+      repo.git('merge', '-q', '--no-edit', 'origin/main');
+      const refused = carry(repo, body);
+      expect(refused.status).toBe(EXIT.refused);
+      expect(refused.err).toContain('review_exclude changed: recorded=');
+    }, 240_000);
+
     test('a policy edit that changes the selection over the PR files still refuses write, ready and carry', () => {
       const changes: Array<{ name: string; after: string[] }> = [
         { name: 'a new pattern keeps a PR file', after: ['receipts/**', 'lib/**'] },
@@ -595,7 +648,7 @@ describe('the receipt binds the selection the reviewers read', () => {
         expect({ extra, status: w.status }).toEqual({ extra, status: EXIT.fail });
         expect(w.err).toContain('field=review_exclude expected=');
       }
-      policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
+      policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**", "review": { "panel": "some" } }\n');
       const unreadable = writeWith(repo, ['--review-exclude', digest]);
       expect(unreadable.status).toBe(EXIT.refused);
       expect(unreadable.err).toContain('so its review_exclude_paths cannot be read');
@@ -963,7 +1016,7 @@ describe('a branch cannot hide code under a base pattern', () => {
   //   item 5 (#3852 round 3, outside-voice#2); seam=bin/gstack-review-plan and reviewExclude in head mode; no_claim=pregate's gitleaks scan, what readers' own diffs show (they still follow the attributes)
   test('a branch .gitattributes marking receipts binary cannot get a credential-line file excluded: the keep rule reads the text', () => {
     const repo = makeFixtureRepo({ prefix: 'gstack-exclude-', baseFiles: { '.gstack/ship-policy.json': policyText(['receipts/**']) } }); repos.push(repo);
-    const secret = '{"cmd": "curl -H $OPENAI_API_KEY"}\n';
+    const secret = `{"cmd": "curl -H $OPENAI_API_KEY", "auth": "${VALUE}"}\n`;
     commit(repo, { '.gitattributes': 'receipts/** binary\n', 'receipts/s.json': secret, 'receipts/a.b/c.json': secret, 'receipts/a.json': '{"ok": true}\n', 'receipts/a/t.json': '{"ok": true}\n' });
     const p = JSON.parse(plan(repo, ['--json']).out);
     const kept = [{ path: 'receipts/a.b/c.json', reason: 'secret-line' as const }, { path: 'receipts/s.json', reason: 'secret-line' as const }];
@@ -1111,3 +1164,50 @@ describe('a branch cannot hide code under a base pattern', () => {
   }, 180_000);
 });
 
+
+describe('the gate scan keeps code but not run data under a pattern (GST-2006)', () => {
+  // Value: protects=a results PR whose model replies say "fit (" excludes its run data and stays under the reader ceiling, while
+  //   a focused or skipped test in code under the same pattern (a test file, a non-test module, a .jsonl renamed to .ts) is
+  //   still gate-tagged and kept; fails_when=RH-1 keeps main/turns.jsonl as gate-tagged (harness-evals#333 at a229e258:
+  //   reader diff 5,120,181 B, REVIEW_DIFF_TOO_LARGE) or a code file under the pattern loses its RH-1 keep; why_new=every other
+  //   exclusion test passes --gate-tagged 0 or plants no idiom in data; seam=gstack-review-plan and gstack-review-dispatch pass
+  //   running the real gate scan; no_claim=what reviewers do with the kept files
+  test('English "fit (" in turns.jsonl leaves the file excluded; code with focus and skip markers stays gate-tagged', () => {
+    const dir = 'docs/benchmarks/2026-11-06-qm-s1-edition/main';
+    const legacy = Array.from({ length: 12 }, (_, n) => JSON.stringify({ turn: n, role: 'user', text: `question ${n}` })).join('\n') + '\n';
+    const repo = makeFixtureRepo({ prefix: 'gstack-exclude-rh1-', baseFiles: { '.gstack/ship-policy.json': policyText(['docs/benchmarks/**/main/**']), [`${dir}/legacy.jsonl`]: legacy } });
+    repos.push(repo);
+    const replies = [
+      "The columns don't fit (the gap never drops below one space), so I widened the table.",
+      'Values past the limit should *not* fit (e.g. a 41-character name in a 40-character field).',
+    ];
+    const filler = 'x'.repeat(1_000);
+    const turns = Array.from({ length: 2_600 }, (_, n) => JSON.stringify({ turn: n, role: 'assistant', text: `${replies[n % 2]} ${filler}` })).join('\n') + '\n';
+    expect(Buffer.byteLength(turns)).toBeGreaterThan(2_500_000);
+    repo.git('mv', `${dir}/legacy.jsonl`, `${dir}/legacy.ts`);
+    commit(repo, {
+      [`${dir}/turns.jsonl`]: turns,
+      [`${dir}/trials/t1.json`]: '{"pass": true}\n',
+      [`${dir}/legacy.ts`]: legacy + "it.only('replays turn 3', () => {});\n",
+      [`${dir}/score.test.ts`]: "fit('scores turn 3', () => {});\n",
+      [`${dir}/report.mjs`]: "describe.skip('report', () => {});\n",
+    });
+    const p = JSON.parse(runBin(repo, 'gstack-review-plan', ['--base', 'main', '--json']).out);
+    expect(p.review_exclude.kept_files).toEqual([
+      { path: `${dir}/legacy.ts`, reason: 'gate-tagged' },
+      { path: `${dir}/report.mjs`, reason: 'gate-tagged' },
+      { path: `${dir}/score.test.ts`, reason: 'gate-tagged' },
+    ]);
+    expect(p.review_exclude).toMatchObject({ state: 'active', excluded: 3, content: { binary: 0, data: 3, docs: 0, log: 0 } });
+    const out = path.join(repo.root, 'pass');
+    const pass = runBin(repo, 'gstack-review-dispatch', ['pass', '--base', 'main', '--out', out, '--pass', 'p1']);
+    expect({ status: pass.status, err: pass.err.split('\n').filter(l => l.includes('REVIEW_DIFF_TOO_LARGE')) }).toEqual({ status: EXIT.ok, err: [] });
+    const reader = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')).readers[0];
+    const mb = mergeBase(repo);
+    const read = spawnSync('bash', ['-c', `git diff "$DIFF_BASE" -- . ${reader.policy_exclude} && git diff "$DIFF_BASE" -- ${reader.keep.map((k: string) => `'${k}'`).join(' ')}`], { cwd: repo.work, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...repo.env, DIFF_BASE: mb } });
+    expect(read.status).toBe(0);
+    expect(read.stdout).not.toContain(`b/${dir}/turns.jsonl`);
+    expect(read.stdout).toContain(`b/${dir}/score.test.ts`);
+    expect(Buffer.byteLength(read.stdout)).toBeLessThan(2_000_000);
+  }, 180_000);
+});

@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { bisectArtifact } from '../lib/ship-queue-train-verdict';
+import { bisectArtifact } from '../crew/lib/ship-queue-train-verdict';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 type Step = { id?: string; name?: string; uses?: string; if?: string; run?: string; env?: Record<string, unknown>; with?: Record<string, unknown> };
@@ -147,7 +147,7 @@ const dispatch = (ref = 'main') => ({ event_name: 'workflow_dispatch', actor: 'g
   event: { repository: { default_branch: 'main' } } });
 const INPUTS = { evals_all: true, base_ref: '', base_sha: '', expected_sha: '', nonce: '', pr_receipts: '', cases: '', prefix_shas: '', screen_pr: '', screen_merge_sha: '', screen_policy: '' };
 // rerun-plan is the free rule-16 planner (F1); its paid eval-rerun runs only when it plans a rerun.
-const TODAY_PR_JOBS = ['build-image', 'eval-slices', 'plan-slices', 'readiness', 'recover-receipts', 'rerun-plan', 'slices-comment', 'slices-report'];
+const TODAY_PR_JOBS = ['build-image', 'eval-slices', 'plan-slices', 'readiness', 'recover-receipts', 'rerun-plan', 'slices-comment', 'slices-report', 'trunk-dynamic-ci'];
 const TODAY_DISPATCH_JOBS = ['build-image', 'eval-slices', 'plan-slices', 'rerun-plan', 'slices-report'];
 const TRAIN_STEPS = ['Write the train record', 'Upload the train record', "Check the screen's PR head (Free Tests)", 'Plan the bisect (one executor per prefix)', 'Hand the bisect plan to its executors'];
 const train = { record_artifact: 'gstack-train-record', full_gate_check: 'gstack/full-gate' };
@@ -188,20 +188,20 @@ describe('without a train block nothing changes (the inert proof)', () => {
     const fork = pr();
     (fork.event.pull_request.head.repo as { full_name: string }).full_name = 'fork/gstack';
     expect(simulate(evals, { github: fork, inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' } } }).jobs).toEqual(['build-image', 'route']);
-    expect(simulate(evals, { github: { ...pr(), actor: 'dependabot[bot]' }, inputs: {} }).jobs).toEqual([]);
+    expect(simulate(evals, { github: { ...pr(), actor: 'dependabot[bot]' }, inputs: {} }).jobs).toEqual(['trunk-dynamic-ci']);
   });
 });
 
 describe('under a train block (the gate edits, each only on its mode)', () => {
   test('a PR push starts no paid slice and waits for nothing: route, the image and the free screening summary only', () => {
     const sim = simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, ...train, mode: 'pr-summary' } } });
-    expect(sim.jobs).toEqual(['build-image', 'route', 'screen-summary']);
+    expect(sim.jobs).toEqual(['build-image', 'route', 'screen-summary', 'trunk-dynamic-ci']);
     expect(simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' } } }).jobs).toContain('readiness');
     const summary = evals.jobs['screen-summary']!;
     expect(summary.permissions).toEqual({ contents: 'read' });
     expect(JSON.stringify(summary)).not.toMatch(/secrets\.|restore-deps|bun install/);
     expect(summary.steps.at(-1)!.run).toContain('--emit-plan /tmp/paid-plan/manifest.json --slices 1');
-    expect(summary.steps.at(-1)!.run).toContain('scripts/train-gate.ts screen-summary /tmp/paid-plan/manifest.json --pr "$PR_NUMBER"');
+    expect(summary.steps.at(-1)!.run).toContain('crew/scripts/train-gate.ts screen-summary /tmp/paid-plan/manifest.json --pr "$PR_NUMBER"');
   });
 
   test('a dispatched screen tests its pinned merge commit, reuses and binds as a screen, comments on its PR, and is keyed on the PR', () => {
@@ -248,7 +248,7 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
     expect(sim.steps('slices-report')).not.toContain("Bind this run's verdict for reuse (R2a/R2)");
     expect(sim.steps('slices-report')).toEqual(expect.arrayContaining(['Write the train record', 'Upload the train record']));
     expect(sim.checkout('slices-report')?.['fetch-depth']).toBe('0');
-    expect(sim.step('slices-report', 'Write the train record')!.run).toContain('scripts/train-gate.ts train-record /tmp/paid-report --nonce "$NONCE" --head "$HEAD_SHA"');
+    expect(sim.step('slices-report', 'Write the train record')!.run).toContain('crew/scripts/train-gate.ts train-record /tmp/paid-report --nonce "$NONCE" --head "$HEAD_SHA"');
     expect(sim.step('slices-report', 'Upload the train record')!.with).toMatchObject({ name: 'gstack-train-record', path: '/tmp/train-record', overwrite: true });
     expect(simulate(evals, { github: dispatch('train/t1'), inputs, outputs: { route: { ...ROUTE, ...train, mode: 'train' } }, results: { 'slices-report': 'failure' } }).jobs).not.toContain('train-check');
   });
@@ -284,7 +284,7 @@ describe('under a train block (the gate edits, each only on its mode)', () => {
 describe('GSTA-48 open items', () => {
   test('a head the readiness job blocked replaces the stale verdict comment and plans nothing (P3-1)', () => {
     const sim = simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' } }, results: { readiness: 'failure' } });
-    expect(sim.jobs).toEqual(['build-image', 'readiness', 'readiness-comment', 'route']);
+    expect(sim.jobs).toEqual(['build-image', 'readiness', 'readiness-comment', 'route', 'trunk-dynamic-ci']);
     const comment = evals.jobs['readiness-comment']!;
     expect(comment.steps.some(st => st.uses)).toBe(false);
     expect(comment.steps[0]!.run).toContain('if [ -z "$COMMENT_ID" ]; then exit 0; fi');
@@ -316,7 +316,7 @@ describe('rule-16 rerun wiring (F1)', () => {
       const sim = simulate(evals, { github: pr(), inputs: {}, outputs: { route: { ...ROUTE, mode: 'pr' }, 'rerun-plan': planned }, results });
       expect(sim.jobs, JSON.stringify(results)).toContain('slices-report');
     }
-    for (const [id, job] of Object.entries(evals.jobs)) expect((job as Record<string, unknown>)['continue-on-error'], id).toBeUndefined();
+    for (const [id, job] of Object.entries(evals.jobs).filter(([id]) => id !== 'trunk-dynamic-ci')) expect((job as Record<string, unknown>)['continue-on-error'], id).toBeUndefined();
     const report = evals.jobs['slices-report']!;
     const reconcile = report.steps.find(st => st.id === 'reconcile')!;
     expect(reconcile.run).toContain('echo "exit=${PIPESTATUS[0]}"');
@@ -428,7 +428,7 @@ describe.skipIf(!Bun.which('jq') || !Bun.which('bash'))('the route job reads the
     fs.rmSync(fx.dir, { recursive: true, force: true });
   });
 
-  test('a ref without scripts/train-gate.ts routes a plain dispatch as before and refuses train or screen inputs', () => {
+  test('a ref without crew/scripts/train-gate.ts routes a plain dispatch as before and refuses train or screen inputs', () => {
     const fx = fixture(undefined);
     expect(run(routeStep.run!, fx.dir, { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF_NAME: 'old-branch' })).toEqual({ mode: 'dispatch' });
     expect(() => run(routeStep.run!, fx.dir, { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF_NAME: 'old-branch', SCREEN_PR: '42' })).toThrow();
@@ -456,12 +456,12 @@ describe('evals-main-backstop.yml', () => {
     const gate = job.steps.find(st => st.name === 'Gate main unless a green train covers its tree')!;
     expect(gate.if).toBe("steps.policy.outputs.train == 'true'");
     expect(gate.id).toBe('gate');
-    expect(gate.run).toContain('scripts/train-backstop.ts run --repo "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" --sha "$GITHUB_SHA"');
+    expect(gate.run).toContain('crew/scripts/train-backstop.ts run --repo "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" --sha "$GITHUB_SHA"');
     expect(gate.run).toContain('--outputs "$GITHUB_OUTPUT"');
     expect(job.outputs).toEqual({ action: '${{ steps.gate.outputs.action }}' });
   });
 
-  // The weekly release (scripts/release-cut.ts) reads the per-commit verdict as
+  // The weekly release (crew/scripts/release-cut.ts) reads the per-commit verdict as
   // the main-backstop check run: a superseded push exits 0 but is neutral there.
   test('the main-backstop check run is published from its own code-free job: success for covered|gated, neutral for inert|superseded|deferred, failure otherwise', () => {
     const job = backstopWf.jobs['backstop-check']!;

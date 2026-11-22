@@ -17,7 +17,7 @@ import { classifyBaseRed, classifyLines, parseEvidence, readPause, waitBaseGreen
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLineWithDocs } from '../lib/result-codes';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
-import { git } from '../lib/ship-queue-gate';
+import { git } from '../crew/lib/ship-queue-gate';
 
 const HELP = `gstack-base-red — prove a Step 5 failure is the base branch's own, and pause /ship on it
 

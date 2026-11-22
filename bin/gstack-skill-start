@@ -125,8 +125,8 @@ fi
 # Session markers: local functional state (live-session count), never sent and
 # not gated on telemetry (#1150). README "Privacy & Telemetry" describes them.
 mkdir -p "$_GH/sessions" 2>/dev/null || true
-touch "$_GH/sessions/$PARENT_PID" 2>/dev/null || true
 find "$_GH/sessions" -mmin +120 -type f -exec rm {} + 2>/dev/null || true
+touch "$_GH/sessions/$PARENT_PID" 2>/dev/null || true
 _SESSIONS=$(find "$_GH/sessions" -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 
 _PROACTIVE=$("$_BIN/gstack-config" get proactive 2>/dev/null || echo "core")
@@ -141,9 +141,9 @@ case "$_PROACTIVE" in
   core|all|off) ;;
   *) _PROACTIVE="core" ;;
 esac
-# off silences every unasked surface below: the tips, the one-time prompt and
-# the CLAUDE.md routing offer. A stored off also answers the one-time prompt,
-# so the marker is written here, before STATUS reports it.
+# off silences every unasked surface below: the tips and the one-time prompt.
+# A stored off also answers the one-time prompt, so the marker is written
+# here, before STATUS reports it.
 case "$_PROACTIVE" in off) _PROACTIVE_OFF="yes" ;; *) _PROACTIVE_OFF="no" ;; esac
 _PROACTIVE_PROMPTED=$([ -f "$_GH/.proactive-prompted" ] && echo "yes" || echo "no")
 if [ "$_PROACTIVE_PROMPTED" = "no" ] && [ "$_PROACTIVE_OFF" = "yes" ]; then
@@ -302,15 +302,19 @@ fi
 if [ "$_SESSION_KIND" = "unattended" ] && [ "$_DURABLE" = "no" ]; then
   echo "learnings: skipped (state root is ephemeral; set GSTACK_STATE_ROOT)"
 fi
-# Plan B1: the autoplan publication hook executes only inside Claude Code
-# (CLAUDECODE is set there; GSTACK_ACTIVE_HOST names an env-var host). On
-# every other host, and in every unattended session, the hook is rendered but
-# never runs, so publication order rests on the per-phase snapshot hashes.
-# Claude Code's deny-on-absent behavior is untouched: this line is printed,
-# never used to allow anything. B0's validator requires it in an unattended
-# run's review-record.md.
+# The autoplan publication guard is the PreToolUse hook the Claude render of
+# autoplan/SKILL.md declares in its frontmatter. Claude Code (CLAUDECODE is
+# set there; GSTACK_ACTIVE_HOST names an env-var host) runs it whatever the
+# session kind, so an unattended Claude Code run is guarded too (GST-3062).
+# Every other host never runs it, and publication order rests on the per-phase
+# snapshot hashes. The line is printed, never used to allow anything; B0's
+# validator requires one of the two in an unattended run's review-record.md.
+# lib/autoplan-guard-status.ts holds the same rule.
 if [ "$SKILL_NAME" = "autoplan" ]; then
-  if [ "$_SESSION_KIND" = "unattended" ] || [ -z "${CLAUDECODE:-}" ] || { [ -n "${GSTACK_ACTIVE_HOST:-}" ] && [ "${GSTACK_ACTIVE_HOST:-}" != "claude" ]; }; then
+  if [ -n "${CLAUDECODE:-}" ] && { [ -z "${GSTACK_ACTIVE_HOST:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = "claude" ]; } &&
+     awk 'NR == 1 { if ($0 !~ /^---\r?$/) exit 1; next } /^---\r?$/ { exit found ? 0 : 1 } /autoplan\/bin\/phase-publication-hook/ { found = 1 } END { exit found ? 0 : 1 }' "$(dirname "$_BIN")/autoplan/SKILL.md" 2>/dev/null; then
+    echo "autoplan guard: enforced by Claude Code's /autoplan hook at phase Reads and reviewer dispatch; publish each phase report as visible message text, not reasoning, before the next phase (GUARD_ENFORCED)"
+  else
     echo "autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)"
   fi
 fi
@@ -321,9 +325,7 @@ for _RF in CLAUDE.md AGENTS.md; do
     _HAS_ROUTING="yes"
   fi
 done
-_ROUTING_DECLINED=$("$_BIN/gstack-config" get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
-echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 _VENDORED="no"
 if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
   if [ -f ".claude/skills/gstack/VERSION" ] || [ -d ".claude/skills/gstack/.git" ]; then
@@ -374,7 +376,7 @@ echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 # GSTACK_SESSION_KIND=spawned override must light this up too.
 [ "$_SESSION_KIND" = "spawned" ] && echo "SPAWNED_SESSION: true" || true
 [ "$_SESSION_KIND" = "unattended" ] && echo "UNATTENDED_SESSION: true" || true
-[ "$_SESSION_KIND" = "unattended" ] && [ "$SKILL_NAME" = "ship" ] && echo "UNATTENDED_SHIP: no push, no new PR; an open PR at HEAD gets its body updated (pr-body section, receipt first), else Step 18 takes the handoff section; receipt at .gstack/tmp/ship-receipt.md; end with gstack-ship-receipt result" || true
+[ "$_SESSION_KIND" = "unattended" ] && [ "$SKILL_NAME" = "ship" ] && echo "UNATTENDED_SHIP: no push, no new PR; an open PR at HEAD gets its body updated (pr-body section, receipt in Agent notes), else Step 18 takes the handoff section; receipt at .gstack/tmp/ship-receipt.md; end with gstack-ship-receipt result" || true
 
 # ---------------------------------------------------------------------------
 # Artifacts sync (the former "Artifacts Sync (skill start)" fence, verbatim
@@ -390,9 +392,11 @@ _BRAIN_CONFIG_BIN="$_BIN/gstack-config"
 
 # /sync-gbrain context-load hint. Per-worktree pin via kubectl-style
 # .gbrain-source at the git toplevel; empty output when gbrain is not
-# configured (zero context cost for non-gbrain users).
-_GBRAIN_CONFIG="$HOME/.gbrain/config.json"
-if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
+# configured (zero context cost for non-gbrain users). gbrain's config path
+# comes from gstack-gbrain-home.sh, which follows GBRAIN_HOME as gbrain does
+# (#4325); empty when that file is missing or gbrain would refuse GBRAIN_HOME.
+_GBRAIN_CONFIG=$( . "$_BIN/gstack-gbrain-home.sh" 2>/dev/null && gstack_gbrain_config_path ) || _GBRAIN_CONFIG=""
+if [ -n "$_GBRAIN_CONFIG" ] && [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
   _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || true)
   if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
     _GBRAIN_PIN_PATH=""
@@ -442,12 +446,12 @@ if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ] && grep -q '"gbr
       # matches the TS one: remote_mcp is a marker when JS-truthy, as in
       # gbrain's isThinClient (null, false, 0 and "" are not), and
       # database_url counts when non-blank after JS trim() and engine is not
-      # pglite. GBRAIN_HOME is the
-      # parent of .gbrain, as in gbrainConfigDir. test/gbrain-mcp-locality.test.ts
+      # pglite. The config is _GBRAIN_CONFIG above (GBRAIN_HOME is the
+      # parent of .gbrain, as in gbrainConfigDir). test/gbrain-mcp-locality.test.ts
       # runs both programs below against the TS rule.
       if printf '%s' "$_GBRAIN_MCP_ENTRY" | jq -e '(.url // "") | ascii_downcase | (contains("${") | not) and test("\\Ahttps?://(localhost|127(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}|\\[::1\\])(:([0-9]{0,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?([/?#]|\\z)")' >/dev/null 2>&1 \
         && jq -e '((.remote_mcp // false) | . == false or . == 0 or . == "") and .engine != "pglite" and ((.database_url // "") | (type == "string" and test("[^\\s\\x{feff}]|\\x{0085}")))' \
-          "${GBRAIN_HOME:-$HOME}/.gbrain/config.json" >/dev/null 2>&1; then
+          "$_GBRAIN_CONFIG" >/dev/null 2>&1; then
         _GBRAIN_MCP_MODE="local-stdio"
       fi
       ;;
@@ -602,7 +606,7 @@ if [ "$_TEL_PROMPTED" = "no" ] && [ "$_LAKE_SEEN" = "yes" ]; then
   _emit_block telemetry-prompt <<EOI
 Ask telemetry once via AskUserQuestion:
 
-> Help gstack get better. Yes sends, per skill run: skill name, outcome, duration, gstack version, OS, a redacted error summary and a stable device ID. Never code, file paths, prompts, repo or branch names. Your repo and branch are also logged on this machine (analytics/skill-usage.jsonl) and stripped before upload; off logs nothing. Not covered by this answer: the update check asks GitHub for the latest version about hourly (\`gstack-config set update_check false\`), and outside reviews send code to Codex or Claude Code (\`gstack-config set codex_reviews disabled\`). Details: README "Privacy & Telemetry".
+> Help gstack get better. Yes sends, per skill run: skill name, outcome and why it ended, duration, which coding agent and model family ran it, gstack version, OS, a redacted error summary, a random id per agent session and a stable device ID. Never code, file paths, prompts, repo or branch names. Your repo and branch are also logged on this machine (analytics/skill-usage.jsonl) and stripped before upload; off logs nothing. Not covered by this answer: the update check asks GitHub for the latest version about hourly (\`gstack-config set update_check false\`), and outside reviews send code to Codex or Claude Code (\`gstack-config set codex_reviews disabled\`). Details: README "Privacy & Telemetry".
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -610,7 +614,7 @@ Options:
 
 If A: run \`$_BIN/gstack-config set telemetry community\`. If B, ask the follow-up:
 
-> Anonymous mode sends only aggregate usage, no unique ID.
+> Anonymous mode sends the same usage with no device ID; a random id per agent session that is never reused.
 
 Options: A) Sure, anonymous is fine  B) No thanks, fully off
 If B→A: \`$_BIN/gstack-config set telemetry anonymous\`. If B→B: \`$_BIN/gstack-config set telemetry off\`.
@@ -660,61 +664,6 @@ EOI
   fi
 fi
 
-# Routing injection (interactive: AUQ + CLAUDE.md append + commit). The body
-# is a quoted heredoc (markdown backticks must stay literal), so the resolved
-# bin path is substituted via sed on the __BIN__ placeholder. Under off the
-# routing rules are the auto-invocation the user turned off, so no offer.
-# Under core the heredoc's rule lines are replaced by the core rules below, so
-# the offered section routes only the four core skills.
-_CORE_ROUTING_RULES=$(cat <<'EOR'
-- Product ideas/brainstorming → invoke /office-hours
-- QA/testing site behavior → invoke /qa
-- Code review/diff check → invoke /review
-- Ship/deploy/PR → invoke /ship
-
-Do not suggest or auto-invoke other gstack skills: they run when the user types them, or when a running skill hands off to them (`gstack-config set proactive all` routes every skill).
-EOR
-)
-_routing_offer() {
-  if [ "$_PROACTIVE" = "core" ]; then
-    _GSTACK_CORE_RULES="$_CORE_ROUTING_RULES" awk '/^- .* → invoke \// { if (!done) { print ENVIRON["_GSTACK_CORE_RULES"]; done = 1 } next } { print }'
-  else
-    cat
-  fi | sed "s|__BIN__|$_BIN|g"
-}
-if [ "$_HAS_ROUTING" = "no" ] && [ "$_ROUTING_DECLINED" = "false" ] && [ "$_PROACTIVE_PROMPTED" = "yes" ] && [ "$_PROACTIVE_OFF" = "no" ]; then
-  _routing_offer <<'EOI' | _emit_block routing-injection
-gstack works best when the project CLAUDE.md includes skill routing rules. If no CLAUDE.md exists in the project root, create it. Use AskUserQuestion:
-
-> gstack works best when your project's CLAUDE.md includes skill routing rules.
-
-Options: A) Add routing rules to CLAUDE.md (recommended)  B) No thanks, I'll invoke skills manually
-
-If A: append this section to the end of CLAUDE.md, then commit it (`git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`):
-
-## Skill routing
-
-When the user's request matches an available skill, invoke it via the Skill tool. Route only to skills in the session's available-skills list; answer directly for quick questions or small scoped edits.
-
-Key routing rules:
-- Product ideas/brainstorming → invoke /office-hours
-- Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /autoplan
-- Design system/plan review → invoke /design-consultation or /plan-design-review
-- Full review pipeline → invoke /autoplan
-- Bugs/errors → invoke /investigate, unless one read-only check confirms the cause and a narrow fix (then fix it and run the focused test)
-- QA/testing site behavior → invoke /qa or /qa-only
-- Code review/diff check → invoke /review
-- Visual polish → invoke /design-review
-- Ship/deploy/PR → invoke /ship (merge + deploy: the user types /land-and-deploy)
-- Save progress → invoke /context-save
-- Resume context → invoke /context-restore
-- Author a backlog-ready spec/issue → invoke /spec
-
-If B: run `__BIN__/gstack-config set routing_declined true` and say they can re-enable with `__BIN__/gstack-config set routing_declined false`. This only happens once per project.
-EOI
-fi
-
 # Vendoring deprecation (interactive; slug-scoped marker).
 if [ "$_VENDORED" = "yes" ] && [ ! -f "$_GH/.vendoring-warned-${SLUG:-unknown}" ]; then
   _emit_block vendoring-deprecation <<EOI
@@ -743,7 +692,7 @@ fi # end interactive-onboarding guard (kind != spawned/unattended)
 if [ "$_SESSION_KIND" = "unattended" ]; then
   _UA_NONE="This skill writes no run directory and prints no GSTACK_RESULT line, so do not invent either; end at its first pending item and list that item, with every recommended option you took, in your final report."
   case "$SKILL_NAME" in
-    autoplan)  _UA_RECORD="This skill writes a run directory through gstack-autoplan (plan.md, review-record.md, tasks.jsonl, decisions.jsonl, findings.jsonl, timing.json, run.json, gate.json): append each recommended choice to decisions.jsonl with kind \"auto\" and each pending one with kind \"approval\" and status \"pending\". The final approval gate is written as a gate list (gstack-gate render) and this run ENDS there with \`GSTACK_RESULT: skill=autoplan status=gate_pending run=<dir>\`." ;;
+    autoplan)  _UA_RECORD="This skill writes a run directory through gstack-autoplan (plan.md, review-record.md, tasks.jsonl, decisions.jsonl, findings.jsonl, timing.json, run.json, gate.json): append each recommended choice to decisions.jsonl with kind \"auto\" and each pending one with kind \"approval\" and status \"pending\". The final approval gate is written as a gate list (gstack-gate render) and this run ENDS there with \`GSTACK_RESULT: skill=autoplan status=gate_pending run=<dir>\`. The one exception: when the owner's own reply to that gate is relayed to you, record it with \`gstack-autoplan answer --by agent:<id> --owner-reply-file <file>\` as sections/unattended.md says, never on your own judgment and never handed back to the owner to run." ;;
     eval-plan) _UA_RECORD="This run ENDS at the Step 4 spend approval, left pending, with \`GSTACK_RESULT: skill=eval-plan status=gate_pending run=<outdir>\`, where <outdir> is the pilot's --out directory. No helper writes a gate.json for this skill yet, so the parent reads the pilot report and spend ledger in <outdir>." ;;
     ship)      _UA_RECORD="This skill ends with \`gstack-ship-receipt result\` (Step 22), which writes <state root>/ship/runs/<utc>-<head12>/ship-run.json (a /ship record, not a run manifest) and prints \`GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>\`; a run that stops earlier prints \`GSTACK_RESULT: skill=ship status=refused run=-\` itself. The one publication allowed here: when an open PR for this branch exists and HEAD is its pushed head, update that PR's body and title with the receipt through the pr-body section's existing-PR path (never pr-create, never a push, and never \`gh pr ready\`: the draft-state items there concern an early PR this run never opened); otherwise the handoff section writes the receipt to .gstack/tmp/ship-receipt.md and the parent reads it there." ;;
     review)    _UA_RECORD="$_UA_NONE The parent reads the review-log rows (\`gstack-review-read\`)." ;;

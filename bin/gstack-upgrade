@@ -57,8 +57,19 @@ case "${1:-}" in
   *) echo "gstack-upgrade: unknown argument '$1'" >&2; exit 2 ;;
 esac
 
-refuse() { echo "gstack-upgrade: $1; nothing was changed; fix: $2 (UPGRADE_REFUSED)" >&2; exit 3; }
-fetch_failed() { echo "gstack-upgrade: could not reach origin ($1); fix: check network access to $(git -C "$ROOT" remote get-url origin 2>/dev/null || echo origin), then re-run $ROOT/bin/gstack-upgrade (UPGRADE_FETCH_FAILED)" >&2; exit 3; }
+# upg_tel <upgrade_error> [from_version] — one upgrade_completed telemetry event
+# (docs/privacy.md), sent only when the user's telemetry setting allows it and
+# never from --check or an unattended session.
+upg_tel() {
+  [ "$CHECK" -eq 1 ] && return 0
+  [ "$("$ROOT/bin/gstack-session-kind" 2>/dev/null)" = unattended ] && return 0
+  [ -x "$ROOT/bin/gstack-telemetry-log" ] || return 0
+  "$ROOT/bin/gstack-telemetry-log" --no-sweep --event-type upgrade_completed --outcome "$([ "$1" = none ] && echo success || echo error)" \
+    --from-version "${2:-${INSTALLED:-}}" --upgrade-error "$1" >/dev/null 2>&1 || true
+}
+refuse() { case "$1" in "tracked files changed"*) upg_tel refused_dirty ;; *) upg_tel other ;; esac
+  echo "gstack-upgrade: $1; nothing was changed; fix: $2 (UPGRADE_REFUSED)" >&2; exit 3; }
+fetch_failed() { upg_tel fetch_failed; echo "gstack-upgrade: could not reach origin ($1); fix: check network access to $(git -C "$ROOT" remote get-url origin 2>/dev/null || echo origin), then re-run $ROOT/bin/gstack-upgrade (UPGRADE_FETCH_FAILED)" >&2; exit 3; }
 bounded() { if command -v timeout >/dev/null 2>&1; then timeout "${GSTACK_UPGRADE_FETCH_TIMEOUT:-60}" "$@"; else "$@"; fi; }
 # Egress receipts (_receipted_git), fail-open like the session-start updater:
 # a user-run upgrade must not die over an audit-log hiccup.
@@ -75,7 +86,7 @@ TOPLEVEL=$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)
 [ -f "$ROOT/VERSION" ] && [ -f "$ROOT/setup" ] && [ -n "$TOPLEVEL" ] && gstack_path_same "$TOPLEVEL" "$ROOT" \
   || refuse "$ROOT is not a gstack checkout" "run gstack-upgrade from a git checkout of https://github.com/garrytan/gstack"
 PF=$(bash "$ROOT/bin/gstack-ff-update" --preflight "$ROOT" 2>/dev/null)
-[ $? -eq 6 ] && { echo "gstack-upgrade: $PF (UPGRADE_REFUSED)" >&2; exit 3; }
+[ $? -eq 6 ] && { upg_tel other; echo "gstack-upgrade: $PF (UPGRADE_REFUSED)" >&2; exit 3; }
 export GIT_TERMINAL_PROMPT=0
 HOST=$(git -C "$ROOT" remote get-url origin 2>/dev/null); HOST="${HOST#*://}"; HOST="${HOST#*@}"; HOST="${HOST%%[/:]*}"
 R="user ran gstack-upgrade"
@@ -162,12 +173,17 @@ reinstall() { # FROM — run the install step; a pending marker survives a failu
   # failure: no pending marker for it.
   if [ "$_rc" -ne 0 ] && [ "$(cat "$_held")" = "gstack: fail wrapper" ]; then
     rm -f "$PENDING"
+    upg_tel none "$1"
     echo "gstack-upgrade: reinstalled $(head -1 "$ROOT/VERSION"); only the wrapper row failed (an owner action on the Drive copy, CAPY_WRAPPER_STALE), so no reinstall is pending"
   fi
   if [ "$_rc" -eq 0 ]; then
     [ -n "$CALLER_PROJECT" ] || cat "$_held"
-    rm -f "$PENDING" "$_held" "$_ierr"; certify
+    rm -f "$PENDING" "$_held" "$_ierr"
+    ( certify ); _rc=$?
+    upg_tel "$([ "$_rc" -eq 0 ] && echo none || echo setup_failed)" "$1"
+    exit "$_rc"
   fi
+  [ -f "$PENDING" ] && upg_tel setup_failed "$1"
   [ -s "$_held" ] && cat "$_held"
   [ "$_rc" -eq 3 ] && [ ! -s "$_held" ] && stop_trailer "$_ierr"
   rm -f "$_held" "$_ierr"
@@ -233,6 +249,7 @@ EOF_BUSY
   else
     echo "gstack-upgrade: live gstack sessions hold this installation: $HOLDERS; nothing was changed; fix: wait for those sessions to finish, or re-run with GSTACK_UPGRADE_FORCE=1 when you know they are idle (UPGRADE_BUSY)" >&2
   fi
+  upg_tel busy
   exit 3
 fi
 # shellcheck source=bin/gstack-bun-version.sh
@@ -251,8 +268,10 @@ if [ -n "${GSTACK_SETUP_LOCK_OWNER:-}" ] && [ "$(cat "$LOCK_DIR/pid" 2>/dev/null
   LOCK_HANDED=1
 else
   mkdir -p "$GSTACK_STATE_ROOT" 2>/dev/null
-  mkdir "$LOCK_DIR" 2>/dev/null || refuse "another gstack updater holds $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown))" "wait for it to finish, then re-run"
-  echo "$$" > "$LOCK_DIR/pid"
+  . "$ROOT/bin/gstack-lock.sh" 2>/dev/null || refuse "$ROOT/bin/gstack-lock.sh is missing" "reinstall with cd $ROOT && ./setup"
+  # gstack_lock_take creates the pid file with O_EXCL: mkdir's exit status is
+  # not a lock on Ubuntu 26.04's uutils mkdir.
+  gstack_lock_take "$LOCK_DIR" pid "$$" || refuse "another gstack updater holds $LOCK_DIR (pid $(cat "$LOCK_DIR/pid" 2>/dev/null || echo unknown))" "wait for it to finish, then re-run"
   trap '[ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
 fi
 
@@ -261,5 +280,5 @@ NEW=$(head -1 "$ROOT/VERSION")
 echo "gstack-upgrade: upgraded $INSTALLED -> $NEW"
 [ "$LOCK_HANDED" -eq 1 ] || { rm -rf "$LOCK_DIR"; trap - EXIT; }
 
-[ "$REINSTALL" -eq 1 ] || exit 0
+[ "$REINSTALL" -eq 1 ] || { upg_tel none; exit 0; }
 reinstall "$INSTALLED"

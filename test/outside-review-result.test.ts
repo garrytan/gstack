@@ -27,8 +27,8 @@ function cli(args: string[]) {
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
-// A clean review states that it found nothing; an untagged finding is unverified (DX-11).
-const RECOMMEND = 'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.';
+// A clean review ends with the verdict line (GST-1821); an untagged finding is unverified (DX-11).
+const RECOMMEND = 'No issues found in this change.\nRecommendation: approve because changed.ts keeps its data.\nVERDICT: CLEAN';
 const UNTAGGED = 'Recommendation: fix the guard because changed.ts loses data.';
 
 // A model may write the completion recommendation as a Markdown section instead of an inline line (#3980).
@@ -37,10 +37,10 @@ describe('a ## Recommendation heading carries the completion recommendation (#39
     classifyOutsideReview({ text: `${head}\n\n${tail}`, gate: 'review' });
 
   test('an advisory review with a heading is clean and keeps its severity', () => {
-    const result = review('## Recommendation\n\nShip as-is because current callers already enforce the invariant.');
+    const result = review('## Recommendation\n\nShip as-is because current callers already enforce the invariant.\nVERDICT: FINDINGS');
     expect(result.verdict).toBe('clean');
     expect(result.findings.highest).toBe('P3');
-    expect(review('## Recommendation\n\n**Ship as-is** because current callers already enforce the invariant.').verdict).toBe('clean');
+    expect(review('## Recommendation\n\n**Ship as-is** because current callers already enforce the invariant.\nVERDICT: FINDINGS').verdict).toBe('clean');
   });
 
   test('a blocker under the heading still blocks', () => {
@@ -60,21 +60,21 @@ describe('a ## Recommendation heading carries the completion recommendation (#39
     }
   });
 
-  test('a no-findings rationale under the heading concludes the review', () => {
+  test('a no-findings rationale under the heading completes the review', () => {
     const result = classifyOutsideReview({ text: '### Recommendation:\nApprove because no issues were found.', gate: 'proposal' });
     expect(result.verdict).toBe('clean');
-    expect(classifyOutsideReview({ text: '## Recommendation\n\nApprove because I found no issues.', gate: 'review' }).verdict).toBe('clean');
+    expect(classifyOutsideReview({ text: '## Recommendation\n\nApprove because I found no issues.\nVERDICT: CLEAN', gate: 'review' }).verdict).toBe('clean');
   });
 
   test('a heading over a no-findings line with no because-clause reads as it did before the heading fold', () => {
-    for (const text of ['## Recommendation\n\nNo issues found.', 'Reviewed the diff.\n\n## Recommendation\n\nNo issues found in the change.']) {
+    for (const text of ['## Recommendation\n\nNo issues found.\nVERDICT: CLEAN', 'Reviewed the diff.\n\n## Recommendation\n\nNo issues found in the change.\nVERDICT: CLEAN']) {
       expect(classifyOutsideReview({ text, gate: 'structured' }).verdict).toBe('clean');
       expect(classifyOutsideReview({ text, gate: 'review' }).reason).toBe('missing_markers');
     }
   });
 
   test('the inline form still works', () => {
-    const result = review('Recommendation: Ship as-is because current callers already enforce the invariant.');
+    const result = review('Recommendation: Ship as-is because current callers already enforce the invariant.\nVERDICT: FINDINGS');
     expect(result.verdict).toBe('clean');
     expect(result.findings.highest).toBe('P3');
   });
@@ -93,12 +93,13 @@ describe('a ## Recommendation heading carries the completion recommendation (#39
 describe('classifyOutsideReview: separate execution, findings and verdict', () => {
   const cases: Array<[string, { text: string; gate: OutsideGate; stderr?: string; exit?: number }, string, string | null, string | undefined]> = [
     ['clean review', { text: RECOMMEND, gate: 'review' }, 'clean', null, undefined],
-    ['review with an untagged finding', { text: UNTAGGED, gate: 'review' }, 'unverified', null, 'untagged_review'],
+    ['review with an untagged finding', { text: UNTAGGED, gate: 'review' }, 'unverified', null, 'missing_verdict'],
     ['review with P1', { text: `[P1] data loss\n${RECOMMEND}`, gate: 'review' }, 'findings', 'P1', undefined],
     ['review with only P2', { text: `[P2] naming\n${RECOMMEND}`, gate: 'review' }, 'clean', 'P2', undefined],
     ['review missing recommendation', { text: 'A few observations.', gate: 'review' }, 'unavailable', null, 'missing_markers'],
-    ['structured untagged prose', { text: 'The change looks reasonable overall.', gate: 'structured' }, 'unverified', null, 'untagged_review'],
-    ['structured explicit clear', { text: 'NO_FINDINGS', gate: 'structured' }, 'clean', null, undefined],
+    ['structured untagged prose', { text: 'The change looks reasonable overall.', gate: 'structured' }, 'unverified', null, 'missing_verdict'],
+    ['structured NO_FINDINGS without the verdict line', { text: 'NO_FINDINGS', gate: 'structured' }, 'unverified', null, 'missing_verdict'],
+    ['structured NO_FINDINGS with the verdict line', { text: 'NO_FINDINGS\nVERDICT: CLEAN', gate: 'structured' }, 'clean', null, undefined],
     ['structured native P1 label', { text: 'P1: race in cleanup', gate: 'structured' }, 'findings', 'P1', undefined],
     ['spec passing score', { text: 'SCORE: 8\nAMBIGUITIES: NONE', gate: 'spec' }, 'clean', null, undefined],
     ['spec failing score', { text: 'SCORE: 4\nAMBIGUITIES: scope', gate: 'spec' }, 'findings', null, undefined],
@@ -124,28 +125,31 @@ describe('classifyOutsideReview: separate execution, findings and verdict', () =
   });
 });
 
-// #3294: "clean" comes only from a no-findings statement that concludes the reply,
-// never from a "no X" phrase among untagged findings anywhere in it.
-describe('a no-findings statement counts only as the reply\'s conclusion (#3294)', () => {
+// #3294: a "no X" phrase among untagged findings never made a reply clean. Since GST-1821
+// a no-findings statement does not either: only the closing VERDICT line reads clean.
+describe('a no-findings statement reads unverified without the verdict line (#3294)', () => {
   const REPORTER = 'I found no actionable regressions in the staged, unstaged, or untracked changes.';
   const FINDING = 'The fallback path now swallows ENOENT and returns an empty config.';
 
-  test("the reporter's exact codex review reply reads clean through the reporter's CLI invocation", () => {
-    expect(classifyOutsideReview({ text: REPORTER, gate: 'structured' }).verdict).toBe('clean');
+  test("the reporter's exact codex review reply reads unverified without the verdict line, through the reporter's CLI invocation too", () => {
+    expect(classifyOutsideReview({ text: REPORTER, gate: 'structured' }).verdict).toBe('unverified');
     const r = cli(['--label', 'probe', '--exit', '0', '--stderr', file(''), 'structured', file(REPORTER)]);
-    expect([r.status, r.stdout]).toEqual([0, 'VERDICT: clean\nFINDINGS: none\n']);
+    expect([r.status, r.stdout]).toEqual([4, 'VERDICT: unverified\nFINDINGS: none\nREASON: missing_verdict\n']);
+    const withVerdict = cli(['--label', 'probe', '--exit', '0', '--stderr', file(''), 'structured', file(`${REPORTER}\nVERDICT: CLEAN`)]);
+    expect([withVerdict.status, withVerdict.stdout]).toEqual([0, 'VERDICT: clean\nFINDINGS: none\n']);
   });
 
-  test('clean conclusions, with the added regressions/defects vocabulary and the requested marker formatted', () => {
+  test('no-findings statements, with the added regressions/defects vocabulary and the requested marker formatted, read unverified without the verdict line and clean with it', () => {
     for (const text of ['No regressions found.', 'I did not find any defects.', 'There are no actionable regressions.',
       'NO_FINDINGS', '**NO_FINDINGS**', '`NO_FINDINGS`', '- NO_FINDINGS',
       `The change adds a retry cap and its tests.\n${REPORTER}`, 'Reviewed the retry helper.\n\nNo issues found in this change.',
-      'After reviewing the patch, I found no issues.', 'I found no issues in this read-only change.',
+      'After reviewing the patch, I found no issues.', 'I found no issues in this read-only change.', 'No issues found while reviewing the diff.',
       'Summary of the retry helper\nNo issues found.', 'I found no actionable regressions in the staged\nchanges.',
       // Clean `codex review --uncommitted` replies captured from codex-cli 0.160.0 with gpt-6-sol.
       'The change validates the retry limit before execution. No actionable regression was found.',
       'The change validates `max` before retrying. No affected callers or tests are present in the repository, and no actionable regression is evident.']) {
-      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'unverified' });
+      expect({ text, verdict: classifyOutsideReview({ text: `${text}\nVERDICT: CLEAN`, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
     }
   });
 
@@ -169,19 +173,190 @@ describe('a no-findings statement counts only as the reply\'s conclusion (#3294)
     ]) {
       for (const gate of ['structured', 'review'] as const) {
         const r = classifyOutsideReview({ text: gate === 'review' ? `${text}\nRecommendation: ship because it looks fine.` : text, gate });
-        expect({ text, gate, verdict: r.verdict, reason: r.reason }).toEqual({ text, gate, verdict: 'unverified', reason: 'untagged_review' });
+        expect({ text, gate, verdict: r.verdict, reason: r.reason }).toEqual({ text, gate, verdict: 'unverified', reason: 'missing_verdict' });
       }
     }
   });
 
-  test("a review's Recommendation because-clause concludes under the same rules", () => {
+  test("a review's Recommendation because-clause reads unverified without the verdict line", () => {
     const verdict = (text: string) => classifyOutsideReview({ text, gate: 'review' }).verdict;
-    expect(verdict('Recommendation: ship because I found no regressions in this change.')).toBe('clean');
-    expect(verdict(`The change adds a retry cap.\nRecommendation: ship because no issues remain.`)).toBe('clean');
+    expect(verdict('Recommendation: ship because I found no regressions in this change.')).toBe('unverified');
+    expect(verdict('Recommendation: ship because I found no regressions in this change.\nVERDICT: CLEAN')).toBe('clean');
+    expect(verdict(`The change adds a retry cap.\nRecommendation: ship because no issues remain.`)).toBe('unverified');
+    expect(verdict(`The change adds a retry cap.\nRecommendation: ship because no issues remain.\nVERDICT: CLEAN`)).toBe('clean');
     expect(verdict('No issues in the parser.\nRecommendation: fix the fallback because it swallows ENOENT.')).toBe('unverified');
     expect(verdict(`${FINDING}\nRecommendation: ship because no regressions in the existing tests.`)).toBe('unverified');
     expect(verdict(`${FINDING}\nRecommendation: ship because no issues remain, but the fallback needs a follow-up.`)).toBe('unverified');
     expect(verdict('Recommendation: address the migration because no regressions were found in the parser change,\nbut the migration drops users_email_idx.')).toBe('unverified');
+  });
+});
+
+// #3469: a clean Codex review often signs off with one sentence about the checks
+// it ran. Since GST-1821 neither that sentence nor the no-findings statement before
+// it reads clean; only the closing VERDICT line does.
+describe('a closing check-results sentence reads unverified without the verdict line (#3469)', () => {
+  // The two clean tails quoted in #3469 (codex review --base main, codex-cli 0.163.0-alpha, gpt-6-luna).
+  const TAILS = [
+    'No actionable regressions were identified in the diff. Tests, lint, and build all pass.',
+    'The changes introduce no definite, actionable regressions. Tests, lint, and build all pass.',
+  ];
+  const FINDING = 'The fallback path now swallows ENOENT and returns an empty config.';
+  const unverified = (text: string) => {
+    const r = classifyOutsideReview({ text, gate: 'structured' });
+    expect({ text, verdict: r.verdict, reason: r.reason }).toEqual({ text, verdict: 'unverified', reason: 'missing_verdict' });
+  };
+
+  test("the reporter's tails read unverified without the verdict line, in-process and through the CLI /ship calls", () => {
+    for (const text of TAILS) {
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'unverified' });
+      const r = cli(['--label', 'Codex structured review', '--exit', '0', '--stderr', file(''), 'structured', file(`${text}\n`)]);
+      expect([r.status, r.stdout]).toEqual([4, 'VERDICT: unverified\nFINDINGS: none\nREASON: missing_verdict\n']);
+      expect({ text, verdict: classifyOutsideReview({ text: `${text}\nVERDICT: CLEAN`, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
+    }
+  });
+
+  test('other check-results sign-offs, one or several, on one line or after a blank line, read unverified without the verdict line and clean with it', () => {
+    for (const text of ['No issues found. Typecheck passes.', 'No regressions found in this change. The tests pass.\nLint passes.',
+      'I found no issues. Tests and build succeeded.', 'This patch introduces no regressions. All tests pass.',
+      'The change validates the retry limit.\nNo actionable regressions were identified in the diff; tests, lint, and build all pass.',
+      `The change adds a retry cap.\n\n${TAILS[0]}`, 'No issues found.\r\n\r\nTests, lint, and build all pass.\r\n']) {
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'unverified' });
+      expect({ text, verdict: classifyOutsideReview({ text: `${text}\nVERDICT: CLEAN`, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'clean' });
+    }
+  });
+
+  test('findings followed by a check-results sentence are never clean', () => {
+    for (const text of [`[P1] data loss\n${TAILS[0]}`, `P0: corrupts every row\n${TAILS[1]}`, `Severity: High. ${FINDING}\n${TAILS[0]}`]) {
+      expect({ text, verdict: classifyOutsideReview({ text, gate: 'structured' }).verdict }).toEqual({ text, verdict: 'findings' });
+    }
+    for (const text of [`${FINDING} Tests, lint, and build all pass.`, `No issues found. ${FINDING} Tests pass.`,
+      'No issues found. Tests pass. The fallback path now swallows ENOENT.',
+      'No regressions found. Tests pass, but the fallback path now swallows ENOENT.',
+      'No issues found, except that the fallback path now swallows ENOENT. Lint passes.',
+      `${FINDING}\nNo issues in the parser. Tests pass.`,
+      `${FINDING} The changes to the parser introduce no regressions. Tests pass.`,
+      'The changes introduce no regressions in parsing, while missing configuration now silently disables authentication.',
+      'No issues in the parser, while missing configuration now silently disables authentication. Tests pass.',
+      'The changes introduce no regressions in the diff, while missing configuration now silently disables authentication.',
+      'No issues in the parser, while the change silently disables authentication. Tests pass.',
+      'I reviewed the parser.\nNo issues in the diff, and the fallback path now swallows ENOENT in this change.',
+      'I reviewed the parser.\nNo issues in the parser whereas this change drops the cache.',
+      'The changes introduce no regressions in the diff, the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff and the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff \u2014 the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff (the fallback path now swallows ENOENT).',
+      'I reviewed the parser.\nNo issues in this change so callers now lose data.',
+      'I reviewed the parser.\nNo issues in the diff -- the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff [the fallback path now swallows ENOENT].',
+      'I reviewed the parser.\nNo issues in the diff / the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff \u2012 the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff plus the fallback path now swallows ENOENT.',
+      'I reviewed the parser.\nNo issues in the diff despite the fallback path now swallowing ENOENT.']) unverified(text);
+  });
+
+  test('a truncated, empty or check-only reply is never clean', () => {
+    for (const text of ['No actionable regressions were identified in the diff. Tests, lint, and b',
+      'No actionable regressions were identified in the diff. Tests, lint, and build all pass',
+      'No issues found. Tests', 'Tests, lint, and build all pass.', 'No regressions found. Tests fail.']) unverified(text);
+    const empty = classifyOutsideReview({ text: ' \n', gate: 'structured' });
+    expect([empty.verdict, empty.reason]).toEqual(['unavailable', 'empty_response']);
+  });
+
+  test('a check sentence that quotes code, continues a wrapped line or follows a condition is not a sign-off', () => {
+    for (const text of ['No issues found. Tests `do not` pass.', 'No issues found. `Not all` tests pass.',
+      'No issues found. Tests pass `only if the regression is skipped`.', 'No issues found. `Not all`\ntests pass.',
+      '```\ntests pass.\n```\nNo issues found.\n`Not all` tests pass.', 'No issues found in this patch, provided that:\nTests pass.',
+      'No issues found. Not all tests pass.', 'No issues found. Some tests pass.']) unverified(text);
+  });
+});
+
+// GST-1808: every prose no-findings form, even one closed sentence scoped to the whole
+// change, leaked a false clean, so GST-1821 deleted the prose rules. Exceptions,
+// questions, partial scopes and closed sentences alike leave the review unverified
+// without the closing VERDICT line, as the reply's only sentence, its last sentence
+// or its Recommendation because-clause.
+describe('a no-findings sentence reads unverified without the verdict line (GST-1808)', () => {
+  const FINDING = 'the fallback path now swallows ENOENT.';
+  const verdictOf = (text: string, gate: OutsideGate) => {
+    const r = classifyOutsideReview({ text, gate });
+    return { text, gate, verdict: r.verdict, reason: r.reason };
+  };
+  const unverified = (text: string, gate: OutsideGate = 'structured') =>
+    expect(verdictOf(text, gate)).toEqual({ text, gate, verdict: 'unverified', reason: 'missing_verdict' });
+  const cleanOnlyWithVerdict = (text: string, gate: OutsideGate = 'structured') => {
+    unverified(text, gate);
+    const withVerdict = `${text}\nVERDICT: CLEAN`;
+    expect(verdictOf(withVerdict, gate)).toEqual({ text: withVerdict, gate, verdict: 'clean', reason: undefined });
+  };
+
+  test('a Recommendation-only reply is held to the same rule as any other conclusion', () => {
+    for (const text of ['Recommendation: Ship because no issues in the diff, so the change disables auth.',
+      'Recommendation: ship because no issues, so the change disables auth.',
+      'Recommendation: ship because I found no regressions in this change, which now disables auth.',
+      'Recommendation: ship because no issues in the diff\nso the change disables auth.']) unverified(text, 'review');
+  });
+
+  test('an exception after the statement or its whole-change scope is not a conclusion', () => {
+    for (const tail of ['with the exception of the auth change', 'outside of the auth path', 'save for the auth change',
+      'after the change removed the auth check', 'bar the auth path', 'excepting the auth path']) {
+      for (const text of [`No issues in the diff ${tail}.`, `I reviewed the parser.\nNo issues in the diff ${tail}.`,
+        `No issues found ${tail}.`, `I reviewed the parser.\nNo actionable regressions were found in this change ${tail}.`]) unverified(text);
+    }
+  });
+
+  test('a question is not a conclusion', () => {
+    for (const text of ['Prose here. No issues in the diff?', 'No issues in the diff?', 'No issues?', 'NO_FINDINGS?',
+      'I reviewed the parser.\nNo issues in the diff?!', 'I reviewed the parser.\nNo issues found in this change?\nTests pass.']) unverified(text);
+    unverified('Recommendation: ship because no issues remain?', 'review');
+  });
+
+  test('a joiner after the scope starts a clause the conclusion does not cover, with or without a sign-off (fc3#1)', () => {
+    for (const joiner of [': ', ' & ', ' + ', ' -> ', ' \u2192 ', ' | ', '\u2026 ', '/', ' ~ ', ' \u2010 ', ' \u2212 ', '- ', ' with ', ' now ', '. so ']) {
+      for (const signoff of ['', ' Tests pass.']) unverified(`I reviewed the parser.\nNo issues in the diff${joiner}${FINDING}${signoff}`);
+    }
+    for (const text of [`No issues found: ${FINDING}`, `I reviewed the parser.\nNo issues found: ${FINDING}`, `NO_FINDINGS: ${FINDING}`]) unverified(text);
+  });
+
+  test('a scope that names only part of the change does not conclude, even as the only sentence', () => {
+    for (const text of ['No issues in the parser.', 'I found no issues in the retry helper.', 'After reviewing the parser, I found no issues.',
+      'I reviewed the parser.\nNo issues in the auth module of this change.', 'No issues in the diff against the auth module.',
+      // Former fixtures that read clean only through the lax scope and colon rules (RECOMMEND, GST-436's NO_ISSUES, prose-negative.txt,
+      // codex-3105/p1-in-code.txt and codex-3105/no-findings.txt).
+      'No issues found in changed.ts.\nRecommendation: approve because changed.ts keeps its data.', 'No issues found in the changed helpers.',
+      'Reviewed the parser.\n\nNo issues found in the changed parser.',
+      'I read the diff and checked every caller.\nNo findings: the cap is enforced and the tests cover the boundary.']) unverified(text, text.includes('Recommendation:') ? 'review' : 'structured');
+  });
+
+  test('former clean conclusions read unverified without the verdict line and clean with it', () => {
+    for (const text of [
+      // #3469's two clean tails (codex review --base main, codex-cli 0.163.0-alpha, gpt-6-luna), with and without their sign-off.
+      'No actionable regressions were identified in the diff. Tests, lint, and build all pass.',
+      'The changes introduce no definite, actionable regressions. Tests, lint, and build all pass.',
+      'No actionable regressions were identified in the diff.', 'The changes introduce no definite, actionable regressions.',
+      // #3294's reply and the codex-cli 0.160.0 captures.
+      'I found no actionable regressions in the staged, unstaged, or untracked changes.',
+      'The change validates the retry limit before execution. No actionable regression was found.',
+      'The change validates `max` before retrying. No affected callers or tests are present in the repository, and no actionable regression is evident.',
+      'NO_FINDINGS', '**NO_FINDINGS**', 'No issues found.', 'No issues found!', 'There are no actionable regressions.', 'I did not find any defects.',
+      'Overall, no issues found.', 'After reviewing the patch, I found no issues.', 'Having reviewed the diff, I found no issues.',
+      'No issues found while reviewing the diff.', 'I found no issues in this read-only change.', 'No issues to report in this PR.',
+      'Reviewed the retry helper.\n\nNo issues found in this change.', 'No regressions were found in the change as a whole.',
+      'No issues found across the committed and uncommitted changes.', 'No issues found in the staged / unstaged changes.', 'No issues found in the changed files.',
+      'The change validates the retry limit.\nNo actionable regressions were identified in the diff; tests, lint, and build all pass.',
+    ]) cleanOnlyWithVerdict(text);
+    for (const text of ['Recommendation: ship because I found no regressions in this change.', 'Recommendation: proceed because no findings remain.',
+      'The change adds a retry cap.\nRecommendation: ship because no issues remain.', '## Recommendation\n\nApprove because I found no issues.']) cleanOnlyWithVerdict(text, 'review');
+  });
+
+  test('a whole-change scope naming the branch or its base reads unverified without the verdict line, as does any other scope', () => {
+    for (const text of ['No issues found in the changes on this branch.', 'I found no actionable regressions in the branch diff.',
+      'No issues found in the diff against main.', 'No issues found in the diff against the base branch.',
+      'No issues found in the changes on this branch against origin/main.', 'After reviewing the changes on this branch, I found no issues.']) cleanOnlyWithVerdict(text);
+    cleanOnlyWithVerdict('Recommendation: ship because no issues in the changes on this branch.', 'review');
+    for (const text of ['No issues found in the changes on this branch, except the auth path.', 'No issues found in the diff against main, so ship it.',
+      'No issues found in the changes on this branch?', 'No issues found in the diff against the auth module.',
+      'No issues found in the branch diff against main except the auth path.', 'No issues found in the diff against origin/main-except-the-auth-path.',
+      'No issues found in the diff against origin/feature/auth-only.']) unverified(text);
   });
 });
 
@@ -190,11 +365,11 @@ describe('validateOutsideReview keeps the text-only shape for direct importers',
     expect(validateOutsideReview('', 'review')).toEqual({ completed: false, reason: 'empty response' });
     expect(validateOutsideReview('I must refuse.', 'review')).toEqual({ completed: false, reason: 'review refused' });
     expect(validateOutsideReview('notes', 'review')).toEqual({ completed: false, reason: 'missing review completion recommendation' });
-    expect(validateOutsideReview('notes', 'structured')).toEqual({ completed: false, reason: 'missing severity or explicit no-findings conclusion' });
+    expect(validateOutsideReview('notes', 'structured')).toEqual({ completed: false, reason: 'the review does not end with the required VERDICT: CLEAN or VERDICT: FINDINGS line' });
     expect(validateOutsideReview('SCORE: 8', 'spec')).toEqual({ completed: false, reason: 'missing or invalid SCORE/AMBIGUITIES markers' });
     expect(validateOutsideReview('SCORE: 6\nAMBIGUITIES: NONE', 'spec')).toEqual({ completed: true, score: 6, gate: 'fail' });
     expect(validateOutsideReview(RECOMMEND, 'review')).toEqual({ completed: true });
-    expect(validateOutsideReview('[P2] nit', 'structured')).toEqual({ completed: true, gate: 'pass' });
+    expect(validateOutsideReview('[P2] nit\nVERDICT: FINDINGS', 'structured')).toEqual({ completed: true, gate: 'pass' });
     expect(validateOutsideReview('[P1] bug', 'structured')).toEqual({ completed: true, gate: 'fail' });
   });
 
@@ -202,7 +377,7 @@ describe('validateOutsideReview keeps the text-only shape for direct importers',
     for (const text of ['[P0] corrupts every row', 'P0: corrupts every row', '**P0:** corrupts every row', '[P3] nit\n[P0] corrupts every row']) {
       expect(validateOutsideReview(text, 'structured')).toEqual({ completed: true, gate: 'fail' });
     }
-    expect(validateOutsideReview('[P2] naming\n[P3] nit', 'structured')).toEqual({ completed: true, gate: 'pass' });
+    expect(validateOutsideReview('[P2] naming\n[P3] nit\nVERDICT: FINDINGS', 'structured')).toEqual({ completed: true, gate: 'pass' });
   });
 });
 
@@ -212,7 +387,7 @@ describe('outside-review-result CLI', () => {
     expect(cli(['review', file(`[P0] data loss\n${RECOMMEND}`)]).status).toBe(0);
     const untagged = cli(['structured', file('looks fine')]);
     expect(untagged.status).toBe(1);
-    expect(untagged.stderr).toBe('Outside review unavailable: missing severity or explicit no-findings conclusion; missing coverage.\n');
+    expect(untagged.stderr).toBe('Outside review unavailable: the review does not end with the required VERDICT: CLEAN or VERDICT: FINDINGS line; missing coverage.\n');
     expect(cli(['structured', path.join(TMP, 'missing-file')]).status).toBe(1);
     expect(cli(['bogus', file('x')]).status).toBe(2);
     expect(cli(['execution', file('x')]).status).toBe(2);
@@ -286,7 +461,7 @@ describe('B1: a review whose sandbox could not start is unavailable, not clean',
   });
 
   test('a real review that discusses bwrap, namespaces, landlock and seccomp still passes', () => {
-    const result = classifyOutsideReview({ text: read('review-mentions-sandbox.txt'), stderr: '', exit: 0, gate: 'review' });
+    const result = classifyOutsideReview({ text: `${read('review-mentions-sandbox.txt')}\nVERDICT: FINDINGS`, stderr: '', exit: 0, gate: 'review' });
     expect([result.verdict, result.findings.highest, result.execution.state]).toEqual(['clean', 'P2', 'ran']);
   });
 
@@ -309,7 +484,7 @@ describe('B1: a review whose sandbox could not start is unavailable, not clean',
   });
 
   test('a clean "I did not find any issues" with empty stderr still passes', () => {
-    expect(classifyOutsideReview({ text: 'I did not find any issues.', stderr: '', exit: 0, gate: 'structured' }).verdict).toBe('clean');
+    expect(classifyOutsideReview({ text: 'I did not find any issues.\nVERDICT: CLEAN', stderr: '', exit: 0, gate: 'structured' }).verdict).toBe('clean');
   });
 
   test('the CLI reads --events', () => {
@@ -422,5 +597,109 @@ describe('a mid-run Codex usage limit is unavailable (quota_exhausted); a mid-ru
         expect({ stderr, classifier: classifyOutsideReview({ text: '', stderr, exit: 1, gate: 'review' }).reason }).toEqual({ stderr, classifier: reason });
       }
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe('an HTTP 402 or payment-required refusal is unavailable (budget_exhausted), never an auth failure', () => {
+  const PAYMENT_402 = 'ERROR: unexpected status 402 Payment Required: {"error":{"message":"API key allowance exhausted for this billing period","type":"payment_required"}}';
+  const STREAM_402 = 'stream error: exceeded retry limit, last status: 402 Payment Required';
+  const BODY_ONLY = 'ERROR: {"type":"error","error":{"type":"payment_required","message":"Proxy allowance used up for this API key"}}';
+  const AUTH_401 = 'ERROR: unexpected status 401 Unauthorized: {"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}';
+  const AUTH_403 = 'ERROR: unexpected status 403 Forbidden: {"error":{"message":"This API key is not allowed to use this project","type":"permission_error"}}';
+  const ECHOED = 'user\nHandle the 402 Payment Required answer from the billing proxy in this diff\n';
+
+  test('a failed call with a 402 line -> unavailable, reason budget_exhausted, detail is the line', () => {
+    for (const line of [PAYMENT_402, STREAM_402, BODY_ONLY]) {
+      const result = classifyOutsideReview({ text: '', stderr: `Reading prompt from stdin...\n${line}\n`, exit: 1, gate: 'review' });
+      expect({ line, verdict: result.verdict, reason: result.reason, detail: result.detail }).toEqual({ line, verdict: 'unavailable', reason: 'budget_exhausted', detail: line });
+    }
+  });
+
+  test('the printed line names the budget, says what to check and never says to log in', () => {
+    const line = gateOutcomeLine('Codex outside review', 'budget_exhausted', PAYMENT_402);
+    expect(line).toContain('HTTP 402');
+    expect(line).toContain('allowance');
+    expect(line).toContain('quota');
+    expect(line).toContain('https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-budget-exhausted');
+    expect(line).not.toMatch(/codex login|claude auth login|authentication failed/i);
+  });
+
+  test('401 and 403 controls are not a budget stop: they stay execution_failed with the status in the detail', () => {
+    for (const [line, status] of [[AUTH_401, '401'], [AUTH_403, '403']] as const) {
+      const result = classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 1, gate: 'review' });
+      expect({ status, reason: result.reason }).toEqual({ status, reason: 'execution_failed' });
+      expect(result.detail).toContain(status);
+    }
+  });
+
+  test('an echoed prompt that names a 402 stays execution_failed, and a timeout keeps its reason', () => {
+    expect(classifyOutsideReview({ text: '', stderr: `${ECHOED}ERROR: unexpected status 500 Internal Server Error\n`, exit: 1, gate: 'review' }).reason).toBe('execution_failed');
+    expect(classifyOutsideReview({ text: '', stderr: `${PAYMENT_402}\n`, exit: 124, gate: 'review' }).reason).toBe('timeout');
+  });
+
+  test('a host error for a dispatched reviewer (a Capy subagent) that names a 402 or a quota is the budget or quota stop', () => {
+    const budget = classifyOutsideReview({ text: '', gate: 'review', exit: 1, providerError: 'OpenAI key declined the request: 402 Payment Required: allowance exhausted' });
+    expect([budget.verdict, budget.reason]).toEqual(['unavailable', 'budget_exhausted']);
+    const quota = classifyOutsideReview({ text: '', gate: 'review', exit: 1, providerError: 'OpenAI key declined the request: insufficient_quota: You exceeded your current quota' });
+    expect(quota.reason).toBe('quota_exhausted');
+    const auth = classifyOutsideReview({ text: '', gate: 'review', exit: 1, providerError: 'OpenAI key declined the request: 401 Unauthorized: invalid_api_key' });
+    expect(auth.reason).toBe('execution_failed');
+  });
+
+  test('the readiness probe does not stop on a 402: the review still runs once and its own result names the cause', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-budget-probe-'));
+    try {
+      const stubDir = path.join(home, 'bin');
+      const codexHome = path.join(home, '.codex');
+      fs.mkdirSync(stubDir);
+      fs.mkdirSync(codexHome);
+      fs.writeFileSync(path.join(codexHome, 'auth.json'), '{}');
+      fs.writeFileSync(path.join(stubDir, 'codex'), '#!/usr/bin/env bash\nprintf \'%s\\n\' "$STUB_STDERR" >&2\nexit 1\n', { mode: 0o755 });
+      const probe = spawnSync('bash', ['-c', `source "${path.join(ROOT, 'bin', 'gstack-codex-probe')}" && _gstack_codex_model_probe`], {
+        encoding: 'utf8', timeout: 20_000,
+        env: { PATH: `${stubDir}:${process.env.PATH ?? ''}`, HOME: home, CODEX_HOME: codexHome, GSTACK_HOME: path.join(home, '.gstack'), STUB_STDERR: PAYMENT_402, _TEL: 'off' },
+      });
+      expect(probe.status).toBe(0);
+      expect(probe.stdout).toContain('MODEL_PROBE_INCONCLUSIVE');
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe('the execution_failed detail names the terminal Codex failure', () => {
+  test('a transient reconnect error before turn.failed does not become the detail', () => {
+    const fatal = 'unexpected status 500 Internal Server Error, url: http://127.0.0.1:41000/v1/responses';
+    const events = [
+      JSON.stringify({ type: 'error', message: 'Reconnecting... 1/5 (stream disconnected before completion)' }),
+      JSON.stringify({ type: 'turn.failed', error: { message: fatal } }),
+    ].join('\n');
+    const result = classifyOutsideReview({ text: '', gate: 'review', exit: 1, stderr: 'Reading additional input from stdin...', events });
+    expect([result.verdict, result.reason]).toEqual(['unavailable', 'execution_failed']);
+    expect(result.detail).toBe(`exit 1: ${fatal}`);
+  });
+});
+
+describe('the final Codex failure decides the cause, and only a 402 status is a budget stop (GST-3188)', () => {
+  test('an earlier 402 error event followed by a final 401 turn.failed reads as the 401, not budget_exhausted', () => {
+    const final = 'unexpected status 401 Unauthorized: Incorrect API key provided, url: http://127.0.0.1:45349/v1/responses';
+    const events = [
+      JSON.stringify({ type: 'error', message: 'unexpected status 402 Payment Required: allowance used up, url: http://127.0.0.1:45349/v1/responses' }),
+      JSON.stringify({ type: 'turn.failed', error: { message: final } }),
+    ].join('\n');
+    const result = classifyOutsideReview({ text: '', gate: 'review', exit: 1, stderr: 'Reading additional input from stdin...', events });
+    expect([result.verdict, result.reason, result.detail]).toEqual(['unavailable', 'execution_failed', `exit 1: ${final}`]);
+  });
+
+  test('a 402 inside a request id or a duration is not a budget stop', () => {
+    for (const line of ['ERROR: unexpected status 500 Internal Server Error (request id req_9c3f402ab)', 'ERROR: unexpected status 401 Unauthorized after 402 ms', 'ERROR: unexpected status 500 Internal Server Error (request id: req-402-payment-abc)']) {
+      const result = classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 1, gate: 'review' });
+      expect({ line, reason: result.reason }).toEqual({ line, reason: 'execution_failed' });
+    }
+  });
+
+  test('a 402 written as an HTTP status, a status or code field, or an API error still is', () => {
+    for (const line of ['ERROR: HTTP 402', 'ERROR: HTTP/1.1 402', 'ERROR: {"status_code": 402}', 'ERROR: statusCode: 402', 'ERROR: http_status=402', 'ERROR: {"status":402,"title":"E_ALLOWANCE"}', 'ERROR: API Error: 402 {"type":"error"}']) {
+      const result = classifyOutsideReview({ text: '', stderr: `${line}\n`, exit: 1, gate: 'review' });
+      expect({ line, reason: result.reason }).toEqual({ line, reason: 'budget_exhausted' });
+    }
   });
 });

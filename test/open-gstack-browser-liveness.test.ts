@@ -31,7 +31,7 @@ describe('/open-gstack-browser daemon liveness', () => {
     expect(TMPL).not.toMatch(/\bkill\b[^\n]*(_OLD_PID|\$\w*PID)/);
     expect(TMPL).not.toMatch(/kill -9/);
     expect(TMPL).not.toMatch(/grep -o '"pid":/);
-    expect(TMPL).not.toMatch(/rm -f[^\n]*browse\.json/);
+    expect(TMPL).not.toMatch(/\brm\b[^\n]*browse\.json/);
   });
 
   test('Step 0 probes with $B status without auto-starting a daemon, before any connect', () => {

@@ -154,7 +154,7 @@ test('calibration keeps its future hook but no shipped source enables the absent
   const note = section.slice(section.indexOf('**Calibration gate status:**'),section.indexOf('{{BRAIN_WRITE_BACK}}'));
   expect(note).toMatch(/never set it yourself/i);
   const mentions: string[] = [];
-  const tracked = execFileSync('git', ['ls-files', '-z', '--', 'bin', 'lib', 'scripts'], {cwd: root, encoding: 'utf8', timeout: 30_000})
+  const tracked = execFileSync('git', ['ls-files', '-z', '--', 'bin', 'lib', 'scripts', 'crew/bin', 'crew/lib', 'crew/scripts'], {cwd: root, encoding: 'utf8', timeout: 30_000})
     .split('\0').filter(Boolean);
   for (const rel of tracked) {
     const text = fs.readFileSync(path.join(root, rel), 'utf8');

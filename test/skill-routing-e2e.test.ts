@@ -73,9 +73,9 @@ if (evalsEnabled && process.env.EVALS_TIER) {
 function installSkills(tmpDir: string) {
   const skillDirs = [
     '', // root gstack SKILL.md
-    'qa', 'qa-only', 'ship', 'review', 'plan-ceo-review', 'autoplan',
+    'qa', 'qa-only', 'ship', 'review', 'plan-ceo-review', 'plan-eng-review', 'autoplan',
     'plan-design-review', 'design-review', 'design-consultation', 'retro',
-    'document-release', 'investigate', 'office-hours', 'browse', 'setup-browser-cookies',
+    'document-release', 'office-hours', 'browse', 'setup-browser-cookies',
     'gstack-upgrade', 'humanizer',
   ];
 
@@ -95,7 +95,8 @@ function installSkills(tmpDir: string) {
 
   // The names-only catalog keeps new CLI built-ins from changing the candidate
   // set. Descriptions still choose the skill; no request-to-skill answer key.
-  // The routing instruction is the one gstack ships (bin/gstack-skill-start),
+  // The routing instruction is the one gstack offered for CLAUDE.md
+  // (test/fixtures/claude-md-skill-routing.md),
   // without its per-skill rule list. These journey tests exist to catch skill
   // DESCRIPTION regressions (their touchfiles key on */SKILL.md.tmpl): with a
   // lookup table in context, a badly regressed frontmatter description still
@@ -241,7 +242,7 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
       spawnSync('git', ['commit', '-m', 'initial'], { cwd: tmpDir, stdio: 'pipe', timeout: 5000 });
 
       const testName = 'journey-plan-eng';
-      const expectedSkill = 'autoplan';
+      const expectedSkill = 'plan-eng-review';
       const result = await runSkillTest({
         prompt: "I wrote up a plan for the waitlist app in plan.md. Can you take a look at the architecture and make sure I'm not missing any edge cases or failure modes before I start coding?",
         workingDirectory: tmpDir,
@@ -307,7 +308,9 @@ export default app;
       run('git', ['checkout', '-b', 'feature/waitlist-api']);
 
       const testName = 'journey-debug';
-      const expectedSkill = 'investigate';
+      // GST-1717: /investigate is retired and the router fixes a bug directly
+      // (a cause check, then a focused failing test), so no skill is the route.
+      const expectedSkill = 'none';
       const result = await runSkillTest({
         prompt: "The GET /api/waitlist endpoint was working fine yesterday but now it's returning 500 errors. The tests are passing locally but the endpoint fails when I hit it with curl. Can you figure out what's going on?",
         workingDirectory: tmpDir,
@@ -323,14 +326,12 @@ export default app;
       });
 
       const skillCalls = result.toolCalls.filter(tc => tc.tool === 'Skill');
-      const actualSkill = skillCalls.length > 0 ? skillCalls[0]?.input?.skill : undefined;
+      const actualSkill = skillCalls.length > 0 ? skillCalls[0]?.input?.skill : 'none';
 
       logCost(`journey: ${testName}`, result);
       recordRouting(testName, result, expectedSkill, actualSkill);
 
-      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
-      const validSkills = ['investigate', 'qa'];
-      expect(validSkills, `Expected one of ${validSkills.join('/')} but got ${actualSkill}`).toContain(actualSkill);
+      expect(actualSkill, `Expected a direct answer with no skill call but got ${actualSkill}. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBe(expectedSkill);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

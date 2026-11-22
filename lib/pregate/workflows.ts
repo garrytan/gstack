@@ -8,7 +8,7 @@
  * runner-owned selection manifest `.gstack/pregate.json` declares for it, or
  * it is reported as an unsupported expression and treated conservatively.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { laneOf, type Lane as Platform } from '../runtime-pins';
@@ -225,6 +225,11 @@ export function workflowCallers(repoRoot: string, tree: string, workflow: string
     if (calling.length) callers.push({ file: n, dispatch: canDispatch, jobs: calling });
   }
   return { dispatch, jobName, callers };
+}
+
+/** Whether a workflow_dispatch run of `profile.workflow` could carry: the workflow at git `ref` has the trigger and the run profile accepts the event. */
+export function canDispatch(repoRoot: string, ref: string, profile: { workflow: string; events: string[] }): boolean {
+  return profile.events.includes('workflow_dispatch') && workflowCallers(repoRoot, ref, profile.workflow, '').dispatch;
 }
 
 /** A regex source matching a display name GitHub renders from `name`: each `${{ … }}` expression matches any text without ` / `. */

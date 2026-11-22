@@ -281,14 +281,16 @@ describe('gstack-lease', () => {
     const { dir, leases } = checkout();
     const [first, second] = [sleeper(), sleeper()];
     // The first touch holds the lock across its prune (find runs under the lock) until the test releases it.
+    // Its owner write also waits a moment after the O_EXCL create, so the owner file is briefly empty.
     const release = path.join(dir, 'release');
-    const slow = bashEnv(dir, `find() { case "$*" in *'+120'*) until [ -e "${release}" ]; do sleep 0.05; done ;; esac; command find "$@"; }\n`);
+    const slow = bashEnv(dir, `find() { case "$*" in *'+120'*) until [ -e "${release}" ]; do sleep 0.05; done ;; esac; command find "$@"; }\nprintf() { [ -n "\${_gl_dir:-}" ] && sleep 0.3; builtin printf "$@"; }\n`);
     const holder = spawn('bash', [LEASE, 'touch', '--root', dir, '--pid', String(first)], { env: { ...baseEnv, BASH_ENV: slow }, stdio: 'ignore' });
     children.push(holder);
     const exited = new Promise<number | null>((resolve) => holder.on('exit', resolve));
     const owner = path.join(leases, '.lock', 'owner');
-    for (let i = 0; i < 500 && !fs.existsSync(owner); i++) await Bun.sleep(20);
-    expect(fs.readFileSync(owner, 'utf8')).toMatch(new RegExp(`^${holder.pid} `));
+    const ownerLine = () => { try { return fs.readFileSync(owner, 'utf8'); } catch { return ''; } };
+    for (let i = 0; i < 500 && !ownerLine().endsWith('\n'); i++) await Bun.sleep(20);
+    expect(ownerLine()).toMatch(new RegExp(`^${holder.pid} `));
     const blocked = run(['touch', '--root', dir, '--pid', String(second)], { GSTACK_LEASE_LOCK_TRIES: '3' });
     fs.writeFileSync(release, '');
     expect(blocked.status, blocked.stdout + blocked.stderr).toBe(3);
@@ -552,7 +554,8 @@ describe('gstack-lease', () => {
   test('a lock whose owner cannot be published is removed, not left ownerless, and touch fails at once', () => {
     const { dir, leases } = checkout();
     const holder = sleeper();
-    const shim = bashEnv(dir, 'mv() { case "$*" in *".lock.claim."*) return 1 ;; esac; command mv "$@"; }\n');
+    // The owner file is created inside the new lock directory; a directory that refuses writes stands in for any failed publish.
+    const shim = bashEnv(dir, 'mkdir() { command mkdir "$@" || return; case "$*" in *"/.lock") command chmod a-w "${@: -1}" ;; esac; }\n');
     const r = run(['touch', '--root', dir, '--pid', String(holder)], { BASH_ENV: shim });
     expect(r.status, r.stdout + r.stderr).toBe(3);
     expect(r.stderr).toContain('cannot take the lease directory lock');

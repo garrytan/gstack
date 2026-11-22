@@ -12,24 +12,29 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { LAND_KEY_VERSION, MERGE_KEY_VERSION, RELEASE_GATE_KEY_VERSION, validatePolicy } from '../lib/ship-policy';
+import { LAND_MERGE_COMMIT_PATHS_KEY_VERSION } from '../lib/ship-policy-keys';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 import { shippedBody } from './helpers/ship-queue-train-fixture';
-import { persist, repoIdentity } from '../lib/ship-queue-train-record';
+import { persist, repoIdentity } from '../crew/lib/ship-queue-train-record';
 import { rewriteStamps, tentativeMentions } from '../lib/restamp';
-import { bumpVersion } from '../lib/version-gate-train';
+import { bumpVersion } from '../crew/lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
 import type { MergedRun } from '../lib/land-merged-checks';
 import { bunIsolationArgs } from '../lib/bun-isolation';
-import { readLock, writeLock } from '../lib/ship-queue-land-lock';
+import { readLock, writeLock } from '../crew/lib/ship-queue-land-lock';
 import { flakyGit } from './helpers/flaky-git';
-import { runBackstop } from '../scripts/train-backstop';
-import { readTrainNotes } from '../scripts/release-cut';
-import { gitIn } from '../scripts/train-gate';
-import type { GhRunner } from '../scripts/recover-receipts';
+import { runBackstop } from '../crew/scripts/train-backstop';
+import { readTrainNotes } from '../crew/scripts/release-cut';
+import { gitIn } from '../crew/scripts/train-gate';
+import type { GhRunner } from '../crew/scripts/recover-receipts';
 import { TRAIN_BLOCK } from './helpers/ship-queue-train-fixture';
+import { CHECK_IDS } from '../lib/pregate/index';
+import { appliedGateDispositions, gateAcceptance, GATE_SOURCE, gateDispositionDigest, gateDispositionRow, gateDispositionText, type GateDisposition } from '../lib/gate-dispositions';
+import { buildRow, locate, type ApprovalRow, type StoreLocation } from '../lib/approval-record';
 
 const REQUIRED = ['free-tests', 'Check VERSION is not stale vs queue'];
 const POLICY = { ...BASE_POLICY, release_tool: null, release_outputs: [], changelog_fragments: { dir: 'changelog.d', required_checks: REQUIRED }, merge: 'direct', min_gstack_version: MERGE_KEY_VERSION };
+const FULL_CHECKS = CHECK_IDS.map(id => ({ id, status: 'pass' }));
 /** The base policy with land.merged_checks: the first proves the checks see the merged tree, the second stands in for a budget cap a stale base can break (#3886). */
 const CHECKED = { ...POLICY, land: { merged_checks: ['test -e other.txt && ls pr-*.txt >/dev/null', "test ! -e budget.md || test ! -e other.txt || { echo 'budget.md over its cap' >&2; exit 1; }"] }, min_gstack_version: LAND_KEY_VERSION };
 const repos: FixtureRepo[] = [];
@@ -54,10 +59,12 @@ function setup(policy: Record<string, unknown> = POLICY): Fx {
     "  if(d.mainOnView){g('update-ref','refs/heads/main',d.mainOnView);delete d.mainOnView;save()}",
     "  let head='';try{head=g('rev-parse','refs/heads/'+p.headRefName)}catch{};",
     "  console.log(JSON.stringify({mergeable:'MERGEABLE',mergeStateStatus:'CLEAN',...p,headRefOid:p.headRefOid??head,mergeCommit:p.mergeSha?{oid:p.mergeSha}:null}));process.exit(0)}",
+    "if(a[0]==='api'&&/actions\\/runs\\?head_sha=/.test(a[1])){console.log(JSON.stringify({total_count:0,workflow_runs:[]}));process.exit(0)}",
     "if(a[0]==='api'){const m=/commits\\/([0-9a-f]+)\\/(check-runs|status)/.exec(a[1]);if(!m)process.exit(1);",
     "  if(m[2]==='status'){console.log(JSON.stringify({total_count:0,statuses:[]}));process.exit(0)}",
     "  const set=d.checks[m[1]]??Object.fromEntries(d.defaultChecks.map(n=>[n,'success']));",
-    "  const runs=Object.entries(set).map(([name,c],i)=>({id:i+1,name,status:c==='pending'?'in_progress':'completed',conclusion:c==='pending'?null:c,completed_at:'2026-11-03T00:00:00Z',app:{id:1}}));",
+    "  const all=/[?&]filter=all(&|$)/.test(a[1]);",
+    "  const runs=Array.isArray(set)?set.filter(r=>all||!r.earlier_attempt):Object.entries(set).filter(([,v])=>all||!v.earlierAttempt).map(([name,v],i)=>{const c=typeof v==='string'?v:v.conclusion;return {id:i+1,name,status:c==='pending'?'in_progress':'completed',conclusion:c==='pending'?null:c,completed_at:'2026-11-03T00:00:00Z',app:{id:1}}});",
     "  console.log(JSON.stringify({total_count:runs.length,check_runs:runs}));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];const head=g('rev-parse','refs/heads/'+p.headRefName);",
     "  if(head!==want){console.error('Head branch was modified');process.exit(1)}",
@@ -103,6 +110,8 @@ function openPr(fx: Fx, pr: string, opts: { edit?: (work: string) => void; shipp
   repo.git('checkout', '-q', '--detach', 'origin/main');
   return head;
 }
+/** The gh pr merge arguments land sends for a fixture PR: the title subject, and a body of the opening lines plus trailers (none here: the fixture body is only a receipt). */
+const merged = (pr: string, pin: string, method = '--squash', body = '') => [pr, method, '--match-head-commit', pin, '--subject', `PR ${pr} (#${pr})`, '--body', body];
 const land = (fx: Fx, pr: string, pin: string, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', pr, '--pin', pin, '--base', 'main', ...extra], fx.env);
 const remote = (fx: Fx, ref: string) => { fx.repo.git('fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*'); return fx.repo.git('rev-parse', 'origin/' + ref); };
 const show = (fx: Fx, rev: string) => fx.repo.git('show', rev);
@@ -141,7 +150,7 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     const r = land(fx, '7', pin);
     expect(r.err).toBe('');
     expect(r.status).toBe(EXIT.ok);
-    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin]);
+    expect(fx.read().mergeArgs).toEqual(merged('7', pin));
     const main = remote(fx, 'main');
     expect(fx.repo.git('rev-parse', main + '^1')).toBe(base);
     expect(r.out).toContain('MERGED: #7 as ' + main);
@@ -152,6 +161,33 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(notes).toHaveLength(1);
     expect(notes[0]).toMatchObject({ kind: 'land', pr: '7', pin, merge_sha: main, base_sha: base });
   }, 90_000);
+
+  // Value: protects=land sends the plain message (title subject, opening lines plus trailers), prints it under --dry-run,
+  // takes --body-file, and keeps a merge commit for a land.merge_commit_paths match; fails_when=land drops --body (GitHub then
+  // writes its commit list), ignores the override, or squashes an eval results PR; why_new=R76 as amended 2026-11-15 (GST-2737)
+  test('the merge commit is the title plus the opening lines; --dry-run prints it, --body-file replaces the opening, a merge_commit_paths match merges', () => {
+    const fx = setup({ ...POLICY, land: { merge_commit_paths: ['evals/**'] }, min_gstack_version: LAND_MERGE_COMMIT_PATHS_KEY_VERSION });
+    const pin = openPr(fx, '31');
+    fx.write(d => { d.prs['31'].body = 'Land now writes a plain commit.\n\nWhy: main\'s log should read as a list of changes.\n\n' + d.prs['31'].body; });
+    const dry = land(fx, '31', pin, ['--dry-run']);
+    expect(dry.status).toBe(EXIT.ok);
+    expect(dry.out).toContain('METHOD: squash (no land.merge_commit_paths match)\nSUBJECT: PR 31 (#31)\nBODY: Land now writes a plain commit.\nBODY: \nBODY: Why: main\'s log should read as a list of changes.\n');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    const file = path.join(fx.repo.root, 'commit-body.txt');
+    fs.writeFileSync(file, 'The line I picked.\n');
+    expect(land(fx, '31', pin, ['--body-file', file]).status).toBe(EXIT.ok);
+    expect(fx.read().mergeArgs).toEqual(merged('31', pin, '--squash', 'The line I picked.'));
+    const evals = openPr(fx, '32', { edit: w => { fs.mkdirSync(path.join(w, 'evals'), { recursive: true }); fs.writeFileSync(path.join(w, 'evals', 'run.json'), '{}\n'); } });
+    const r = land(fx, '32', evals);
+    expect(r.out).toContain('METHOD: merge (land.merge_commit_paths matches evals/run.json)');
+    expect(fx.read().mergeArgs).toEqual(merged('32', evals, '--merge'));
+  }, 120_000);
+
+  test('--help names the land form this repository takes', () => {
+    const fx = setup();
+    expect(runBin(fx.repo, 'gstack-ship-queue', ['--help'], fx.env).out).toContain('This repository (merge: direct): land each READY PR with gstack-ship-queue land --pr <n> --pin');
+  });
+
 
   test('GST-1316: the base moved after the pin\'s CI, so land runs land.merged_checks on the pin merged onto main: a failure refuses with QUEUE_LAND_MERGED_CHECKS and merges nothing, a pass lands and names the merged tree, and a rerun checks again', () => {
     const fx = setup(CHECKED);
@@ -556,6 +592,61 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
   }, 90_000);
 });
 
+describe('land --pin and ready under merge: direct (GSTA-461 items 7 and 19)', () => {
+  const run = (id: number, name: string, conclusion: string, completed_at: string, suite: number) => ({ id, name, status: 'completed', conclusion, completed_at, app: { id: 1 }, check_suite: { id: suite } });
+
+  // Value: protects=land --pin names each red run that a newer run from another check suite replaced, right after its CI line, and still lands;
+  // fails_when=land prints plain green and merges with no word when free-tests failed in suite 1 and a branch-only run passed in suite 3;
+  // why_new=reports/GSTA-461.md item 7; seam=the gh shim's raw check-run list; no_claim=the same-suite rule that would refuse (after the freeze)
+  test('a red check replaced by a pass from another check suite lands with a CI_SUPERSEDED line', () => {
+    const fx = setup();
+    const pin = openPr(fx, '9');
+    fx.write(d => { d.checks[pin] = [run(1, 'free-tests', 'failure', '2026-11-09T10:00:00Z', 1), run(2, 'Check VERSION is not stale vs queue', 'success', '2026-11-09T10:02:00Z', 2), run(3, 'free-tests', 'success', '2026-11-09T10:20:00Z', 3)]; });
+    const r = land(fx, '9', pin);
+    expect(r.err).toBe('');
+    expect(r.status).toBe(EXIT.ok);
+    const lines = r.out.split('\n');
+    const ci = lines.findIndex(l => l.startsWith('CI: green at '));
+    expect(ci).toBeGreaterThanOrEqual(0);
+    expect(lines[ci + 1]).toBe('CI_SUPERSEDED: free-tests red run 1 replaced by 3 (suite 1 → 3)');
+    expect(r.out).toContain('MERGED: #9 as ');
+  }, 90_000);
+
+  // Value: protects=ready without a train block refuses when origin never receives its READY note, and a rerun after the fix pushes the kept note
+  // that land --pin then reads from origin; fails_when=ready prints a READY_RECEIPT line and exits 0 while origin lacks the note (our own land on
+  // 11-09 refused QUEUE_NOT_READY this way); why_new=#4254 covers only the train path; seam=a pre-receive hook in the fixture's bare origin, and a
+  // separate state root for ready so land can only find the note on origin; no_claim=GitHub's own rejection messages
+  test('origin rejects refs/notes/*: ready refuses QUEUE_READY_NOTE_UNPUSHED; once origin accepts, a rerun pushes the note and land merges', () => {
+    const fx = setup();
+    const head = openPr(fx, '31', { ready: false });
+    fx.repo.git('checkout', '-q', 'pr-31');
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const env = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'ready-state') };
+    const ready = () => runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '31', '--pregate', pregate, '--base', 'main'], env);
+    const hook = path.join(fx.repo.origin, 'hooks', 'pre-receive');
+    const remoteNotes = () => fx.repo.git('ls-remote', 'origin', 'refs/notes/gstack-trains').split(/\s+/)[0] ?? '';
+    fs.writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do case "$ref" in refs/notes/*) echo "notes refused by fixture" >&2; exit 1;; esac; done; exit 0\n', { mode: 0o755 });
+    const refused = ready();
+    expect(refused.status).toBe(EXIT.refused);
+    expect(refused.err).toContain('(QUEUE_READY_NOTE_UNPUSHED)');
+    expect(refused.err).toContain('gstack-ship-queue ready --pr 31');
+    expect(refused.out).not.toContain('notes pushed');
+    expect(refused.out).toMatch(/^GSTACK_RESULT: .*status=refused/m);
+    expect(remoteNotes()).toBe('');
+    fs.rmSync(hook);
+    const again = ready();
+    expect(again.err).toBe('');
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).toMatch(/^READY_RECEIPT: .* \(notes pushed to origin refs\/notes\/gstack-trains\)$/m);
+    expect(remoteNotes()).not.toBe('');
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const r = land(fx, '31', head);
+    expect(r.status).toBe(EXIT.ok);
+    expect(r.out).toContain('MERGED: #31 as ');
+  }, 120_000);
+});
+
 describe('land --pin: refusals (nothing merged)', () => {
   const refused = (fx: Fx, r: { status: number | null; err: string }, code: string) => {
     expect(r.status).not.toBe(EXIT.ok);
@@ -609,6 +700,35 @@ describe('land --pin: refusals (nothing merged)', () => {
     refused(fx, land(fx, '15', pin), 'QUEUE_RECEIPT_MISSING');
   }, 90_000);
 
+  test('QUEUE_RECEIPT_BASE_MISMATCH: a #3570 child retargeted to main while its parent is open lands nothing; a GST-1199 child reviewed against main still lands', () => {
+    const fx = setup();
+    const { repo } = fx;
+    openPr(fx, '17');
+    const child = (pr: string, base: string): string => {
+      repo.git('checkout', '-q', 'origin/pr-17', '-B', 'pr-' + pr);
+      fs.writeFileSync(path.join(repo.work, 'pr-' + pr + '.txt'), pr + '\n');
+      fs.writeFileSync(path.join(repo.work, 'changelog.d', 'pr-' + pr + '.md'), '- #' + pr + ' change\n');
+      repo.git('add', '-A');
+      repo.git('commit', '-q', '-m', 'pr ' + pr);
+      repo.git('push', '-q', '-f', 'origin', 'HEAD:refs/heads/pr-' + pr);
+      const head = repo.git('rev-parse', 'HEAD');
+      fx.write(d => { d.prs[pr] = { state: 'OPEN', baseRefName: 'main', headRefName: 'pr-' + pr, isCrossRepository: false, title: 'PR ' + pr, body: shippedBody(pr, head, { base }) }; });
+      markReady(fx, pr, head);
+      repo.git('checkout', '-q', '--detach', 'origin/main');
+      return head;
+    };
+    const before = remote(fx, 'main');
+    const retargeted = child('171', 'pr-17');
+    const r = land(fx, '171', retargeted);
+    refused(fx, r, 'QUEUE_RECEIPT_BASE_MISMATCH');
+    expect(r.err).toContain("PR #171's ship receipt was reviewed against pr-17, not main");
+    expect(remote(fx, 'main')).toBe(before);
+    const reviewedOnMain = child('172', 'origin/main');
+    const ok = land(fx, '172', reviewedOnMain);
+    expect(ok.err).toBe('');
+    expect(ok.status).toBe(EXIT.ok);
+  }, 90_000);
+
   test('QUEUE_NOT_READY: no READY note at the pin', () => {
     const fx = setup();
     const pin = openPr(fx, '16', { ready: false });
@@ -616,6 +736,39 @@ describe('land --pin: refusals (nothing merged)', () => {
     refused(fx, r, 'QUEUE_NOT_READY');
     expect(r.err).toContain('gstack-ship-queue ready --pr 16');
   }, 90_000);
+
+  // Value: protects=under GSTACK_PLAN_RECORD=require land refuses a READY note with no plan or another line than the PR body, lands a matching one, and a merged rerun skips the check; fails_when=landPlan's wiring in landDirect is dropped or runs after the merge; why_new=plan-record.test.ts covers landPlan only; seam=none; no_claim=ready's resolution (the note is written directly)
+  test('QUEUE_PLAN_MISMATCH under GSTACK_PLAN_RECORD=require: no plan on the READY note or a stale line refuses and merges nothing; a matching note lands; a merged rerun skips the check', () => {
+    const fx = setup();
+    const pin = openPr(fx, '26');
+    const body = shippedBody('26', pin) + '\nPlan: exempt: bug fix\n';
+    fx.write(d => { d.prs['26'].body = body; });
+    const req = (extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '26', '--pin', pin, '--base', 'main', ...extra], { ...fx.env, GSTACK_PLAN_RECORD: 'require' });
+    const bare = req();
+    refused(fx, bare, 'QUEUE_PLAN_MISMATCH');
+    expect(bare.err).toContain('carries no plan record');
+    const notePlan = (line: string) => {
+      const prior = process.env.GSTACK_STATE_ROOT;
+      process.env.GSTACK_STATE_ROOT = path.join(fx.repo.root, 'ready-state');
+      try {
+        const now = new Date().toISOString();
+        persist(fx.repo.work, [{ schema: 1, kind: 'ready', repo_key: repoIdentity(fx.repo.work).key, pr: '26', head: pin, base_sha: fx.repo.git('rev-parse', 'origin/main'), ready_at: now, screen: { choice: 'no-screen', policy: null, nonce: null, run: null, merge_sha: null }, updated_at: now, plan: { line, state: 'exempt', reason: line.replace('Plan: exempt: ', ''), resolver: 1 } } as any]);
+      } finally { if (prior === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = prior; }
+    };
+    notePlan('Plan: exempt: docs only');
+    const stale = req();
+    refused(fx, stale, 'QUEUE_PLAN_MISMATCH');
+    expect(stale.err).toContain('but the PR body now says "Plan: exempt: bug fix"');
+    notePlan('Plan: exempt: bug fix');
+    const ok = req();
+    expect(ok.status).toBe(EXIT.ok);
+    expect(ok.out).toContain('PLAN: exempt bug fix (from the READY note)');
+    fx.write(d => { d.prs['26'].body = shippedBody('26', pin); });
+    const again = req();
+    expect(again.status).toBe(EXIT.ok);
+    expect(again.out).toContain('already merged');
+    expect(again.out).not.toContain('QUEUE_PLAN_MISMATCH');
+  }, 120_000);
 
   test('QUEUE_LAND_CHECKS: a red check, a pending check, and a required check GitHub never scheduled', () => {
     const fx = setup();
@@ -628,6 +781,19 @@ describe('land --pin: refusals (nothing merged)', () => {
     const missing = land(fx, '17', pin);
     refused(fx, missing, 'QUEUE_LAND_CHECKS');
     expect(missing.err).toContain('Check VERSION is not stale vs queue');
+    expect(missing.out + missing.err).toContain('cannot be dispatched, so edit the PR title or body to rerun it');
+  }, 90_000);
+
+  // Value: protects=land never merges a pin whose failed check run sits in an earlier workflow-run attempt that GitHub's default filter=latest hides
+  // (gstack-evals#303: the rerun attempt listed no jobs); fails_when=land reads only the latest attempt and merges; seam=ciAtHead through the shim's
+  // filter=latest/all split; no_claim=a workflow run that never created a job
+  test('QUEUE_LAND_CHECKS: a failed check from an earlier attempt whose rerun listed no jobs is red (gstack-evals#303)', () => {
+    const fx = setup();
+    const pin = openPr(fx, '27');
+    fx.write(d => { d.checks[pin] = { 'free-tests': 'success', 'Check VERSION is not stale vs queue': 'success', checks: { conclusion: 'failure', earlierAttempt: true } }; });
+    const r = land(fx, '27', pin);
+    refused(fx, r, 'QUEUE_LAND_CHECKS');
+    expect(r.err).toMatch(/red at [0-9a-f]{12} \(passed=2 failed=1 pending=0 skipped=0\)/);
   }, 90_000);
 
   test('QUEUE_LAND_NOT_CLEAN: GitHub does not report the PR mergeable and clean', () => {
@@ -706,7 +872,7 @@ describe('land --pin: fail closed and merge methods', () => {
     fx.write(d => { d.prs['25'].baseRefName = 'main'; });
     const r = land(fx, '25', pin);
     expect(r.err).toBe('');
-    expect(fx.read().mergeArgs).toEqual(['25', '--merge', '--match-head-commit', pin]);
+    expect(fx.read().mergeArgs).toEqual(merged('25', pin, '--merge'));
   }, 90_000);
 
   test('land reads the policy after fetching the base: a required check main added since the last fetch is enforced', () => {
@@ -821,7 +987,7 @@ describe('merge: direct | train', () => {
     expect(errs({ land: { merged_checks: ['bun run typecheck'] } })).toContain('introduced in gstack ' + LAND_KEY_VERSION);
     const bad = (land: unknown) => errs({ land, min_gstack_version: LAND_KEY_VERSION });
     expect(bad({ merged_checks: [] })).toContain('land.merged_checks: must list 1 to 16 commands');
-    expect(bad({ merged_checks: ['a'], timeout: 5 })).toContain('land.timeout: unknown key');
+    expect(bad({ merged_checks: ['a'], timeout: 5 })).toBe('');
     expect(bad({ merged_checks: ['a\nb', ' '] })).toBe('land.merged_checks[0]: must be one line of at most 512 characters\nland.merged_checks[1]: must be a non-empty command');
     expect(bad(['a'])).toContain('land: must be { merged_checks } or null');
   });
@@ -948,7 +1114,7 @@ describe('land --pin: the release PR (docs/ship-policy.md#release-stamp)', () =>
   }, 120_000);
 });
 
-/** A backstop freeze on origin's notes (what scripts/train-backstop.ts writes on a red gate), written from another state root. */
+/** A backstop freeze on origin's notes (what crew/scripts/train-backstop.ts writes on a red gate), written from another state root. */
 function freezeMain(fx: Fx, over: Record<string, unknown> = {}): string {
   const main = remote(fx, 'main');
   const prior = process.env.GSTACK_STATE_ROOT;
@@ -970,7 +1136,7 @@ const originRecords = (fx: Fx, kind: string): any[] => {
 const freezeOf = (fx: Fx) => { const all = originRecords(fx, 'freeze'); expect(all).toHaveLength(1); return all[0]; };
 
 /**
- * scripts/train-backstop.ts on main's head from its own clone (the CI runner's checkout) with a scripted gh: no green
+ * crew/scripts/train-backstop.ts on main's head from its own clone (the CI runner's checkout) with a scripted gh: no green
  * train covers it, and the gate run concludes as asked; `during` runs while the gate runs (a land meanwhile).
  */
 function backstopOn(fx: Fx, gate: 'success' | 'failure' | 'cancelled', run: number, during?: () => void) {
@@ -1009,7 +1175,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(r.err).toBe('');
     expect(r.status).toBe(EXIT.ok);
     expect(r.out).toMatch(/^FREEZE: warn only: train backstop froze main \(backstop red on main [0-9a-f]{12}: .*\); the base policy declares release_gate/m);
-    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin]);
+    expect(fx.read().mergeArgs).toEqual(merged('7', pin));
     expect(freezeOf(fx)).toMatchObject({ train: 'backstop', repair: null, cleared_at: null });
   }, 90_000);
 
@@ -1044,7 +1210,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(r.err).toBe('');
     expect(r.status).toBe(EXIT.ok);
     expect(r.out).toContain(`REPAIR: #7@${pin7.slice(0, 12)} admitted under the land lock`);
-    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin7]);
+    expect(fx.read().mergeArgs).toEqual(merged('7', pin7));
     expect(fx.read().lockAtMerge).toMatchObject({ pr: '7', journal: 'land-pin:' + pin7 });
     expect(freezeOf(fx)).toMatchObject({ train: 'backstop', repair: { pr: '7', head: pin7, train: null }, cleared_at: null, cleared_by: null });
     expect(landNotes(fx)).toEqual([expect.objectContaining({ pr: '7', pin: pin7, merge_sha: remote(fx, 'main') })]);
@@ -1052,7 +1218,7 @@ describe('land --pin --repair: the one way through a backstop freeze under merge
     expect(second.err).toContain('(QUEUE_TRAIN_FROZEN)');
     expect(second.err).toContain(`repair #7@${pin7.slice(0, 12)}`);
     expect(land(fx, '8', pin8).err).toContain('(QUEUE_TRAIN_FROZEN)');
-    expect(fx.read().mergeArgs).toEqual(['7', '--squash', '--match-head-commit', pin7]);
+    expect(fx.read().mergeArgs).toEqual(merged('7', pin7));
   }, 120_000);
 
   test('a recorded repair that never merged at its pin gives way to the next --repair; a repair train holding the freeze does not', () => {
@@ -1179,5 +1345,254 @@ describe('the backstop rewrites a freeze by compare-and-swap (GST-1354)', () => 
     expect(freezeOf(fx).reason).toContain('repair #7 was not judged');
     const green = backstopOn(fx, 'success', 703);
     expect(freezeOf(fx).cleared_by).toBe(`repair #7; backstop 703 green on ${green.sha}`);
+  }, 180_000);
+});
+
+// Value: protects=the authority for an owner gate disposition is the lander's explicit acceptance, re-derived from the approval
+//   store at the pin (GSTA-518 audit B1, N5): a row the lane wrote itself, a receipt or PR body that hides or invents one, and an
+//   accepted id that names nothing all refuse, and verify --pin agrees with land line for line; fails_when=land trusts the
+//   receipt, merges an unaccepted disposition, or verify and land print different GATE_DISPOSITION lines; seam=pinAcceptance
+//   (lib/ship-queue-land-direct.ts) over gateAcceptance (lib/gate-dispositions.ts); no_claim=who wrote a well-formed row
+describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)', () => {
+  const F = 'tests/balance.test.ts:3:gate-integrity', G = '69c7c3432501', REASON = 'fed-careless gate allows 6 of 48 seeds';
+  const prep = () => { const fx = setup(); fx.env.GSTACK_APPROVALS_MIRROR = '0'; return fx; };
+  const storeEnv = (fx: Fx) => ({ ...process.env, ...fx.repo.env, ...fx.env });
+  const record = (fx: Fx, pr: string, head: string) => runBin(fx.repo, 'gstack-approvals', ['gate', '--branch', 'pr-' + pr, '--finding', F, '--gate-id', G, '--head', head, '--reason', REASON, '--words', 'Do it', '--by', 'Founderstar Captain (FOUN-1)'], fx.env);
+  const applied = (fx: Fx, pr: string, head: string) => appliedGateDispositions(fx.repo.work, { branch: 'pr-' + pr, pin: head, env: storeEnv(fx) }).applied;
+  const bodyWith = (pr: string, head: string, ds: GateDisposition[], lines = ds) => shippedBody(pr, head, ds.length ? { gate_dispositions: ds } : {}) + lines.map(d => `\nGate disposition: ${gateDispositionText(d)}\n`).join('');
+  const setBody = (fx: Fx, pr: string, body: string) => fx.write(d => { d.prs[pr].body = body; });
+  const verify = (fx: Fx, pr: string, pin: string, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['verify', '--pr', pr, '--pin', pin, '--base', 'main', ...extra], fx.env);
+  const gateLines = (out: string) => out.split('\n').filter(l => l.startsWith('GATE_DISPOSITION'));
+  const why = (err: string) => err.replace(/^gstack-ship-queue (?:land|verify): /m, '');
+
+  test('end to end: the owner records, the unattended review reads CURRENT, ready prints it, land refuses until the lander accepts it, and verify agrees', () => {
+    const fx = prep();
+    const head = openPr(fx, '41', { ready: false });
+    fx.repo.git('checkout', '-q', 'pr-41');
+    const lane = { ...fx.env, GSTACK_SESSION_KIND: 'unattended' };
+    const start = runBin(fx.repo, 'gstack-review-log', ['--start', 'review'], lane);
+    expect(start.status, start.err).toBe(0);
+    const row = { skill: 'review', timestamp: '2026-11-11T20:30:13Z', via: 'ship', review_scope: 'frozen', pass: 1, range_base: null, completed: true, converged: true, status: 'issues_found', issues_found: 1, critical: 1, informational: 0,
+      findings: [{ fingerprint: F, severity: 'CRITICAL', locus: 'diff', kind: 'defect', blocking: true, raised_by: 'core', gate: 'RH-15', gate_id: G, action: 'kept', reason: 'owner approved' }] };
+    const logged = runBin(fx.repo, 'gstack-review-log', [JSON.stringify(row), '--finish', start.out.trim()], lane);
+    expect(logged.status, logged.err).toBe(0);
+    const review = () => runBin(fx.repo, 'gstack-review-read', [], fx.env).out.split('\n---CONFIG---')[0]!.split('\n')
+      .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review' ? [v] : []; } catch { return []; } }).at(-1);
+    expect([review().review_freshness.status, review().findings[0].action]).toEqual(['UNVERIFIED', 'open']);
+    const rec = record(fx, '41', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    expect([review().review_freshness.status, review().findings[0].action, review().findings[0].disposition]).toEqual(['CURRENT', 'kept', id]);
+    const ds = applied(fx, '41', head);
+    expect(ds.map(d => d.approval)).toEqual([id]);
+    setBody(fx, '41', bodyWith('41', head, ds));
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const ready = runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '41', '--pregate', pregate, '--base', 'main'], fx.env);
+    expect(ready.status, ready.out + ready.err).toBe(EXIT.ok);
+    expect(gateLines(ready.out)).toEqual([`GATE_DISPOSITION: ${gateDispositionText(ds[0]!)}`, expect.stringMatching(new RegExp(`^GATE_DISPOSITIONS: applied=${id} store=`))]);
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const bare = land(fx, '41', head);
+    expect([bare.status, bare.err]).toEqual([EXIT.refused, expect.stringContaining(`disposition ${id} is not accepted`)]);
+    expect(bare.err).toContain('(QUEUE_GATE_DISPOSITION)');
+    expect(fx.read().mergeArgs).toBeUndefined();
+    const checked = verify(fx, '41', head);
+    expect([checked.status, why(checked.err)]).toEqual([EXIT.refused, why(bare.err)]);
+    expect(gateLines(checked.out)).toEqual(gateLines(bare.out));
+    const ok = verify(fx, '41', head, ['--accept-gate-disposition', id]);
+    expect(ok.status, ok.out + ok.err).toBe(EXIT.ok);
+    expect(ok.out).toContain(`VERIFY_PIN: ok #41 at ${head.slice(0, 12)}`);
+    expect(fx.read().mergeArgs).toBeUndefined();
+    const landed = land(fx, '41', head, ['--accept-gate-disposition', id]);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(landed.out).toContain('MERGED: #41 as ');
+    expect(gateLines(landed.out)).toEqual(gateLines(ok.out));
+    expect(gateLines(landed.out)[1]).toContain(`accepted=${id}`);
+  }, 180_000);
+
+  // Value: protects=a disposition recorded on the /ship machine reaches a lander on another machine through the READY note, still
+  //   only by the lander's explicit acceptance, and a note row edited after ready wrote it counts for nothing; fails_when=land on a
+  //   machine without the store refuses QUEUE_GATE_DISPOSITION (#4581 needed GSTACK_APPROVALS_DIR pointed at a hand copy), lands an
+  //   unaccepted disposition, or trusts an edited note row; seam=ready's note and pinAcceptance; no_claim=a security-class row, which
+  //   stays store-only so the public notes ref never carries its words
+  test('#4581: land on a machine without the store reads the signed row ready copied into the READY note', () => {
+    const fx = prep();
+    const head = openPr(fx, '44', { ready: false });
+    fx.repo.git('checkout', '-q', 'pr-44');
+    const rec = record(fx, '44', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    const ds = applied(fx, '44', head);
+    setBody(fx, '44', bodyWith('44', head, ds));
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const ready = runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '44', '--pregate', pregate, '--base', 'main'], fx.env);
+    expect(ready.status, ready.out + ready.err).toBe(EXIT.ok);
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const elsewhere = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'lander-state') };
+    const landAt = (env: Record<string, string>, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '44', '--pin', head, '--base', 'main', ...extra], env);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-44', pin: head, env: { ...storeEnv(fx), GSTACK_STATE_ROOT: elsewhere.GSTACK_STATE_ROOT } }).applied).toEqual([]);
+    const bare = landAt(elsewhere);
+    expect([bare.status, bare.err]).toEqual([EXIT.refused, expect.stringContaining(`disposition ${id} is not accepted`)]);
+    expect(gateLines(bare.out)[0]).toBe(`GATE_DISPOSITION: ${gateDispositionText(ds[0]!)}`);
+    expect(gateLines(bare.out)[1]).toContain('ready_note_rows=1');
+    const landed = landAt(elsewhere, ['--accept-gate-disposition', id]);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(landed.out).toContain('MERGED: #44 as ');
+  }, 180_000);
+
+  test('#4581: an edited READY note row counts for nothing, so land elsewhere still refuses', () => {
+    const fx = prep();
+    const head = openPr(fx, '45', { ready: false });
+    const rec = record(fx, '45', head);
+    expect(rec.status, rec.err).toBe(0);
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-45' }) as StoreLocation;
+    const row = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    const edited = { ...row, ask: row.ask.replace(REASON, 'the gate is fine') };
+    const env = { ...storeEnv(fx), GSTACK_STATE_ROOT: path.join(fx.repo.root, 'lander-state') };
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-45', pin: head, env, noted: [edited] }).applied).toEqual([]);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-45', pin: head, env, noted: [row] }).applied.map(d => d.approval)).toEqual([row.id]);
+    const other = appliedGateDispositions(fx.repo.work, { branch: 'pr-46', pin: head, env, noted: [row] }).applied;
+    expect(other).toEqual([]);
+  }, 120_000);
+
+  test('#4581: a newer store row for the same finding wins over an older READY note row', () => {
+    const fx = prep();
+    const head = openPr(fx, '47', { ready: false });
+    expect(record(fx, '47', head).status).toBe(0);
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-47' }) as StoreLocation;
+    const older = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    const again = runBin(fx.repo, 'gstack-approvals', ['gate', '--branch', 'pr-47', '--finding', F, '--gate-id', G, '--head', head, '--reason', 'owner re-ruled after ready', '--words', 'Do it', '--by', 'Founderstar Captain (FOUN-1)'], fx.env);
+    expect(again.status, again.err).toBe(0);
+    const newer = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    expect(newer.id).not.toBe(older.id);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-47', pin: head, env: storeEnv(fx), noted: [older] }).applied.map(d => d.approval)).toEqual([newer.id]);
+  }, 120_000);
+
+  test('a row the lane appends to the store by hand, digest and all, still needs the lander: land refuses and prints it, a wrong id refuses, and the accepted id lands', () => {
+    const fx = prep();
+    const head = openPr(fx, '42');
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-42' }) as StoreLocation;
+    const forged = buildRow({ ...gateDispositionRow(F, G, head, 'the lane says the owner agreed'), words: 'Do it', by: 'Owner', source: GATE_SOURCE }, 'pr-42') as ApprovalRow;
+    fs.mkdirSync(path.dirname(loc.file), { recursive: true });
+    fs.appendFileSync(loc.file, JSON.stringify({ ...forged, digest: gateDispositionDigest(forged as unknown as Record<string, unknown>) }) + '\n');
+    const ds = applied(fx, '42', head);
+    expect(ds.map(d => d.approval)).toEqual([forged.id]);
+    setBody(fx, '42', bodyWith('42', head, ds));
+    const line = `GATE_DISPOSITION: ${gateDispositionText(ds[0]!)}`;
+    const bare = land(fx, '42', head);
+    expect([bare.status, gateLines(bare.out)[0], bare.err]).toEqual([EXIT.refused, line, expect.stringContaining(`disposition ${forged.id} is not accepted`)]);
+    const wrong = land(fx, '42', head, ['--accept-gate-disposition', forged.id, '--accept-gate-disposition', 'a-000000000000']);
+    expect([wrong.status, wrong.err]).toEqual([EXIT.refused, expect.stringContaining('--accept-gate-disposition a-000000000000 names no disposition the store applies')]);
+    expect(verify(fx, '42', head, ['--accept-gate-disposition', 'a-000000000000']).status).toBe(EXIT.refused);
+    expect(land(fx, '42', head, ['--accept-gate-disposition', 'undefined']).status).toBe(EXIT.usage);
+    const landed = land(fx, '42', head, ['--accept-gate-disposition', forged.id]);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(gateLines(landed.out)[0]).toBe(line);
+  }, 120_000);
+
+  test('the receipt omitting a disposition, the body dropping its line, and the receipt listing one the store lacks refuse land and verify alike', () => {
+    const fx = prep();
+    const head = openPr(fx, '43');
+    const rec = record(fx, '43', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    const ds = applied(fx, '43', head);
+    const invented = { ...ds[0]!, approval: 'a-111111111111' };
+    for (const [body, problem] of [
+      [bodyWith('43', head, [], ds), 'the receipt has no gate_dispositions field'],
+      [shippedBody('43', head, { gate_dispositions: [] }) + `\nGate disposition: ${gateDispositionText(ds[0]!)}\n`, `the receipt omits applied disposition ${id}`],
+      [bodyWith('43', head, ds, []), 'the PR body lacks the line "Gate disposition: '],
+      [bodyWith('43', head, [...ds, invented]), 'the receipt lists disposition a-111111111111, which the store'],
+    ] as const) {
+      setBody(fx, '43', body);
+      const l = land(fx, '43', head, ['--accept-gate-disposition', id, '--dry-run']);
+      const v = verify(fx, '43', head, ['--accept-gate-disposition', id]);
+      expect([l.status, l.err]).toEqual([EXIT.refused, expect.stringContaining(problem)]);
+      expect([v.status, why(v.err), gateLines(v.out)]).toEqual([EXIT.refused, why(l.err), gateLines(l.out)]);
+    }
+    setBody(fx, '43', bodyWith('43', head, ds));
+    expect(verify(fx, '43', head, ['--accept-gate-disposition', id]).status).toBe(EXIT.ok);
+  }, 120_000);
+
+  // Value: protects=a merger that reads another state root, or a store that lost the row after the receipt was written, never lands a
+  //   PR whose review an owner disposition cleared with zero accepted ids (the ab73c3f audit's B1); fails_when=a receipt id the store
+  //   lacks, or a field-less receipt beside a row, reads as nothing to accept; seam=gateAcceptance via land and verify
+  test('another state root at merge, a row removed after the receipt, or a field-less receipt beside a row refuses; an explicit [] with an empty store lands', () => {
+    const fx = prep();
+    const head = openPr(fx, '44');
+    const rec = record(fx, '44', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    const ds = applied(fx, '44', head);
+    setBody(fx, '44', bodyWith('44', head, ds));
+    const other = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'merger-state'), GSTACK_HOME: path.join(fx.repo.root, 'merger-state') };
+    const elsewhere = runBin(fx.repo, 'gstack-ship-queue', ['verify', '--pr', '44', '--pin', head, '--base', 'main', '--accept-gate-disposition', id], other);
+    expect([elsewhere.status, elsewhere.err]).toEqual([EXIT.refused, expect.stringContaining('may read another GSTACK_STATE_ROOT or approvals mirror')]);
+    const landElsewhere = runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '44', '--pin', head, '--base', 'main', '--dry-run', '--accept-gate-disposition', id], other);
+    expect([landElsewhere.status, why(landElsewhere.err)]).toEqual([EXIT.refused, why(elsewhere.err)]);
+    const store = (locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-44' }) as StoreLocation).file;
+    const kept = fs.readFileSync(store, 'utf8');
+    fs.rmSync(store);
+    const removed = land(fx, '44', head, ['--dry-run', '--accept-gate-disposition', id]);
+    expect([removed.status, removed.err]).toEqual([EXIT.refused, expect.stringContaining(`the receipt lists disposition ${id}, which the store at`)]);
+    expect(verify(fx, '44', head, ['--accept-gate-disposition', id]).status).toBe(EXIT.refused);
+    fs.writeFileSync(store, kept);
+    setBody(fx, '44', shippedBody('44', head) + `\nGate disposition: ${gateDispositionText(ds[0]!)}\n`);
+    const fieldless = land(fx, '44', head, ['--dry-run', '--accept-gate-disposition', id]);
+    expect([fieldless.status, fieldless.err]).toEqual([EXIT.refused, expect.stringContaining('the receipt has no gate_dispositions field')]);
+    expect(verify(fx, '44', head, ['--accept-gate-disposition', id]).status).toBe(EXIT.refused);
+    const pin = openPr(fx, '45');
+    setBody(fx, '45', shippedBody('45', pin, { gate_dispositions: [] }));
+    expect(verify(fx, '45', pin).status).toBe(EXIT.ok);
+    const landed = land(fx, '45', pin);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(gateLines(landed.out)).toEqual([]);
+  }, 180_000);
+
+  test('a git error while deriving the dispositions refuses instead of reading as not applied (N1)', () => {
+    const fx = prep();
+    const head = openPr(fx, '46');
+    expect(record(fx, '46', head).status).toBe(0);
+    const r = gateAcceptance({ cwd: fx.repo.work, branch: 'pr-46', pin: 'f'.repeat(40), body: '', receipt: { gate_dispositions: [] } as any, env: storeEnv(fx) });
+    expect(r.failure?.message).toContain(`the pin ${'f'.repeat(12)} is not a commit in this clone`);
+    expect(r.failure).toMatchObject({ code: 'QUEUE_GATE_DISPOSITION', message: expect.stringContaining('cannot be derived') });
+  }, 60_000);
+
+  // Value: protects=a row whose head a rewrite and gc removed never strands land, verify or ready (the 0a9a0c4 review's blocker),
+  //   while a shallow clone, which cannot prove ancestry, refuses; fails_when=git's exit 128 on the missing head refuses for good,
+  //   or a shallow clone reads an unprovable row as not applied; seam=appliedGateDispositions via ready, verify and land
+  test('a row whose head a rewrite and gc removed is not applied: ready, verify and land proceed; a shallow clone refuses and says to deepen it', () => {
+    const fx = prep();
+    const old = openPr(fx, '47', { ready: false });
+    expect(record(fx, '47', old).status).toBe(0);
+    fx.repo.git('checkout', '-q', 'pr-47');
+    fx.repo.git('commit', '-q', '--amend', '-m', 'pr 47 rewritten');
+    fx.repo.git('push', '-q', '-f', 'origin', 'HEAD:refs/heads/pr-47');
+    const head = fx.repo.git('rev-parse', 'HEAD');
+    for (const dir of [['-C', fx.repo.work], ['--git-dir', fx.repo.origin]]) {
+      fx.repo.git(...dir, 'reflog', 'expire', '--expire=now', '--all');
+      fx.repo.git(...dir, 'gc', '-q', '--prune=now');
+    }
+    expect([spawnCheck(fx.repo.work, old), spawnCheck(fx.repo.origin, old), spawnCheck(fx.repo.work, head)]).toEqual([false, false, true]);
+    expect(applied(fx, '47', head)).toEqual([]);
+    setBody(fx, '47', shippedBody('47', head, { gate_dispositions: [] }));
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const ready = runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '47', '--pregate', pregate, '--base', 'main'], fx.env);
+    expect(ready.status, ready.out + ready.err).toBe(EXIT.ok);
+    expect(gateLines(ready.out)).toEqual([]);
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const ok = verify(fx, '47', head);
+    expect(ok.status, ok.out + ok.err).toBe(EXIT.ok);
+    const landed = land(fx, '47', head);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(landed.out).toContain('MERGED: #47 as ');
+    const shallow = path.join(fx.repo.root, 'shallow');
+    fx.repo.git('clone', '-q', '--depth', '1', '--branch', 'pr-47', 'file://' + fx.repo.origin, shallow);
+    fx.repo.git('-C', shallow, 'config', 'remote.origin.url', fx.repo.git('config', 'remote.origin.url'));
+    const r = gateAcceptance({ cwd: shallow, branch: 'pr-47', pin: head, body: '', receipt: { gate_dispositions: [] } as any, env: storeEnv(fx) });
+    expect([r.failure?.code, r.failure?.message]).toEqual(['QUEUE_GATE_DISPOSITION', expect.stringContaining('this clone is shallow')]);
+    expect(r.failure?.message).toContain('deepen the clone (git fetch --unshallow)');
   }, 180_000);
 });

@@ -148,6 +148,29 @@ export function seedRatchet({ durations, allowlist, baseAllowlist }: SeedRatchet
   return { violations, exceptions };
 }
 
+/**
+ * The allowlist a fresh recording needs, for the weekly recorder's seed PR: drop
+ * entries for files now at or under the ceiling or gone from the seed, and admit
+ * every unlisted file over it with `admit`'s annotated entry (a todo is required).
+ * Other entries keep their text. Returns the new entries and what changed.
+ */
+export function reconcileSeedAllowlist(
+  durations: Record<string, number>, allowlist: SeedAllowlistEntry[],
+  admit: (file: string, ms: number) => SeedAllowlistEntry & { todo: string },
+): { entries: SeedAllowlistEntry[]; admitted: string[]; pruned: string[] } {
+  const pruned = allowlist.filter(entry => !(durations[entry.file] > SEED_CEILING_MS)).map(entry => entry.file);
+  const kept = allowlist.filter(entry => !pruned.includes(entry.file));
+  const listed = new Set(kept.map(entry => entry.file));
+  const admitted = Object.keys(durations).filter(file => durations[file] > SEED_CEILING_MS && !listed.has(file)).sort();
+  return { entries: [...kept, ...admitted.map(file => admit(file, durations[file]))], admitted, pruned };
+}
+
+/** The allowlist file's own layout: one entry per line. */
+export function formatSeedAllowlist(entries: SeedAllowlistEntry[]): string {
+  const line = (entry: SeedAllowlistEntry) => `{${Object.entries(entry).map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`).join(', ')}}`;
+  return `{\n  "entries": [\n${entries.map(entry => `    ${line(entry)}`).join(',\n')}\n  ]\n}\n`;
+}
+
 export type BaseAllowlistRead =
   | { status: 'ok'; entries: SeedAllowlistEntry[] | null }
   | { status: 'unavailable'; reason: string };

@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
 import { STAMP_PLACEHOLDERS_KEY_VERSION } from '../lib/ship-policy';
-import { extractReceipt, placeReceiptFirst } from '../lib/ship-receipt';
+import { extractReceipt, placeReceipt } from '../lib/ship-receipt';
 import { cleanup, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
 import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -354,7 +354,7 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     write(repo.work, 'lib/rows.js', src({ 6: 'exports.v6 = 600;' })); repo.git('commit', '-qam', 'feat: v6');
     const reviewed = repo.git('rev-parse', 'HEAD');
     const body = path.join(repo.root, 'body.md');
-    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
     repo.git('checkout', '-q', 'main');
     write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "five";' })); repo.git('commit', '-qam', 'main: v5'); repo.git('push', '-q', 'origin', 'main');
     repo.git('checkout', '-q', 'feature');
@@ -382,7 +382,7 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     const guard = (text: string, after: string) => text.replace('authorize();\n', '').replace(after + '\n', after + '\nauthorize();\n');
     const rows = () => fs.readFileSync(path.join(repo.work, 'lib/rows.js'), 'utf8');
     write(repo.work, 'lib/rows.js', guard(rows(), 'exports.v2 = 2;')); repo.git('commit', '-qam', 'feat: guard v2');
-    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
     write(repo.work, 'lib/rows.js', guard(rows(), 'exports.v4 = 4;')); repo.git('commit', '-qam', 'feat: move the guard');
     const moved = carry();
     expect(moved.status).toBe(EXIT.refused);
@@ -408,7 +408,7 @@ describe('carry with a context path and a gap elsewhere (GST-407 cycle 5)', () =
     write(repo.work, 'lib/rows.js', src({ 6: 'exports.v6 = 600;' })); write(repo.work, 'plugin/b.json', json('b2')); repo.git('commit', '-qam', 'feat: v6, b2');
     const reviewed = repo.git('rev-parse', 'HEAD');
     const body = path.join(repo.root, 'body.md');
-    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
     repo.git('checkout', '-q', 'main');
     write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "five";' })); write(repo.work, 'plugin/b.json', json('b2')); write(repo.work, 'plugin/a.json', json('a2'));
     repo.git('commit', '-qam', 'main: v5, b2 landed, a2'); repo.git('push', '-q', 'origin', 'main');
@@ -418,7 +418,7 @@ describe('carry with a context path and a gap elsewhere (GST-407 cycle 5)', () =
     expect([gap.status, gap.out.trim().split('\n')[0]]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)']);
     write(repo.work, 'plugin/b.json', json('b')); write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) + Array.from({ length: 220 }, (_, i) => `exports.w${i} = ${i};\n`).join(''));
     repo.git('commit', '-qam', 'feat: many rows');
-    fs.writeFileSync(body, placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
     repo.git('checkout', '-q', 'main');
     write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "5";' })); repo.git('commit', '-qam', 'main: v5 again'); repo.git('push', '-q', 'origin', 'main');
     repo.git('checkout', '-q', 'feature');
@@ -554,6 +554,28 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     expect(big.stdout).toContain('STOP: --docs-requested docs/KEY_FILES.md');
   });
 
+  // Value: protects=an audit that names the requested doc as path:line or path:line:column (FOUN-32 via Vorflux at 2af3822f)
+  //   still backs the fix, while a different file sharing the path's prefix never does; fails_when=a correct requested fix stops
+  //   on how the audit wrote the location, or a sibling file's note waves the fix through; seam=finish --docs-requested;
+  //   no_claim=the audit child's wording
+  test.each([
+    ['path:line', 'docs/KEY_FILES.md:8: the src/b.ts entry is missing', true],
+    ['path:line:column', 'docs/KEY_FILES.md:8:12 the src/b.ts entry is missing', true],
+    ['path then "line"', 'docs/KEY_FILES.md: line 8 is missing the src/b.ts entry', true],
+    ['another file sharing the prefix', 'docs/KEY_FILES.md.tmpl:8: the src/b.ts entry is missing', false],
+  ])('--docs-requested matches the audit naming the doc as %s: %p', (_name, decision, named) => {
+    const index = Array.from({ length: 30 }, (_, i) => `- entry ${i}`).join('\n') + '\n';
+    const f = fx({ 'docs/KEY_FILES.md': index });
+    const reviewed = wtree(f);
+    const post = snapshot(f, ['docs']);
+    const result = path.join(f.root, 'a1-result.json');
+    fs.writeFileSync(result, JSON.stringify({ schema_version: 1, audit_id: 'a1', status: 'current', files_updated: [], files_reviewed: ['docs/KEY_FILES.md'], blockers: [], decisions: [decision], documentation_section: 'x' }));
+    f.write({ 'docs/KEY_FILES.md': index + '- src/b.ts: the b constant\n' }); f.commit('docs: index link');
+    const r = finish(f, reviewed, post, ['--reviewed-base', mergeBase(f), '--docs-rechecked', '--docs-requested', 'docs/KEY_FILES.md', '--docs-result', result]);
+    if (named) expect([r.status, lineOf(r.stdout, 'DOCS')]).toEqual([0, expect.stringContaining('requested=1')]);
+    else expect(r.stdout).toContain("STOP: --docs-requested docs/KEY_FILES.md is not named in the audit result's blockers or decisions");
+  });
+
   // Value: protects=an audit launch the child's install check refused is not counted, once per invocation; a crashed child,
   //   a completed audit and output that only quotes a refusal are counted, and a second refusal stops; fails_when=the refusal
   //   burns the only retry (gbrain #8084) or refusals relaunch forever; seam=none; no_claim=the parent's launch
@@ -595,7 +617,7 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     mergeMain(f, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
     const view = path.join(f.root, 'view.json');
-    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
     f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(lineOf(r.stdout, 'CARRY')).toBe('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)');
@@ -616,7 +638,7 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     mergeMain(f);
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
     const view = path.join(f.root, 'view.json');
-    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
     f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
     expect(lineOf(r.stdout, 'CARRY')).toMatch(/^CARRY: would carry/);
@@ -634,7 +656,7 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
     mergeMain(f, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
     const view = path.join(f.root, 'view.json');
-    fs.writeFileSync(view, JSON.stringify({ body: placeReceiptFirst('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge', gstack_version: '1.0.0' } as any), headRefOid: head }));
+    fs.writeFileSync(view, JSON.stringify({ body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge', gstack_version: '1.0.0' } as any), headRefOid: head }));
     f.gh(`case "$1 $2" in "pr list") echo 9 ;; "pr view") cat '${view}' ;; *) exit 1 ;; esac`);
     const r = f.run(path.join(BIN, 'gstack-ship-receipt'), ['carry', '--pr', '9', '--base', 'main', '--dry-run']);
     expect([r.status, lineOf(r.stdout, 'CARRY')]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_REFUSED)']);
@@ -979,5 +1001,65 @@ describe('base lines do not count toward the scoped-review cap (GST-1226, founde
     const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
     mergeMain(f, { 'src/shots.ts': join(merged) });
     expect(scoped(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual([3, 'behavior=1 docs=0 metadata=0 tests=0 base=0 context=0', false, true]);
+  });
+});
+
+// Value: protects=a base merge that only changes context lines inside the branch's own unchanged hunks reaches the carry's
+//   scoped read even when those context lines and hunk headers push a section past PACKET_SECTION_CAP (founderstar#802: 22
+//   hunks, +66/-11, a section of about 205 lines); a branch whose own +/- lines pass the cap is still refused;
+//   fails_when=carry counts base context lines (in the branch's hunks or in the base's change) toward the cap and refuses
+//   with RECEIPT_CARRY_PRODUCT_CHANGED, or lets a section the branch's own lines push over reach the scoped read;
+//   seam=contextPacket's count; no_claim=the scoped reviewer's judgment
+describe('only the branch\'s own +/- lines count toward the scoped-review cap in carry (GST-2229, founderstar#802)', () => {
+  const row = (at: number, v: string | number = at) => `exports.v${at} = ${v};`;
+  /** `hunks` branch hunks 15 lines apart, alternating a 1-to-3 replacement and a 3-line insertion; the base edits the line two below each of the first `edits` spots, inside a branch hunk's context where there is one. */
+  const file = (hunks: number, edits: number, pr: boolean, base: boolean) => Array.from({ length: 15 * Math.max(hunks, edits) + 10 }, (_, i) => {
+    const at = i + 1, k = (at - 10) / 15, e = (at - 12) / 15;
+    const line = base && Number.isInteger(e) && e >= 0 && e < edits ? row(at, `"base ${at}"`) : row(at);
+    if (!pr || !Number.isInteger(k) || k < 0 || k >= hunks) return [line];
+    const added = [0, 1, 2].map(j => `exports.pr${at}_${j} = ${j};`);
+    return k % 2 ? [line, ...added] : added;
+  }).flat().join('\n') + '\n';
+  const carry = (hunks: number, edits = hunks) => {
+    const repo = makeFixtureRepo({ prefix: 'ship-rereview-own-' }); repos.push(repo);
+    repo.git('checkout', '-q', 'main');
+    write(repo.work, 'lib/game.js', file(hunks, edits, false, false)); repo.git('add', '-A'); repo.git('commit', '-qm', 'game'); repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', 'feature'); repo.git('merge', '-q', '--no-edit', 'main');
+    write(repo.work, 'lib/game.js', file(hunks, edits, true, false)); repo.git('commit', '-qam', 'feat: game');
+    const body = path.join(repo.root, 'body.md');
+    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    repo.git('checkout', '-q', 'main');
+    write(repo.work, 'lib/game.js', file(hunks, edits, false, true)); repo.git('commit', '-qam', 'main: context'); repo.git('push', '-q', 'origin', 'main');
+    repo.git('checkout', '-q', 'feature');
+    spawnMerge(repo, { 'lib/game.js': file(hunks, edits, true, true) });
+    expect(fs.readFileSync(path.join(repo.work, 'lib/game.js'), 'utf8')).toBe(file(hunks, edits, true, true));
+    return runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+  };
+  const section = (text: string, label: string) => (new RegExp(`^${label}\\n\`\`\`diff\\n([\\s\\S]*?)\\n\`\`\`$`, 'm').exec(text)?.[1] ?? '').split('\n');
+
+  const packet = (r: { status: number | null; out: string; err: string }) => {
+    expect([r.status, r.out.trim().split('\n')[0]], r.err).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)']);
+    const at = /reads (\S+), then/.exec(r.err)?.[1];
+    expect(at).toBeDefined();
+    return fs.readFileSync(at!, 'utf8');
+  };
+  const own = (rows: string[]) => rows.filter(l => /^[+-]/.test(l)).length;
+
+  test('22 unchanged branch hunks whose base context moved reach the scoped read with their sections over 200 lines', () => {
+    const text = packet(carry(22));
+    const current = section(text, 'Current hunks'), reviewed = section(text, 'Reviewed hunks');
+    expect([current.length > 200, own(current), reviewed.length > 200, own(reviewed)]).toEqual([true, 77, true, 77]);
+    expect(text).toContain('+exports.pr10_0 = 0;');
+    expect(text).toContain(' exports.v12 = "base 12";');
+  });
+
+  test('30 scattered base edits whose context lines pass 200 next to 4 unchanged branch hunks reach the scoped read', () => {
+    const base = section(packet(carry(4, 30)), "The base's change");
+    expect([base.length - own(base) > 200, own(base)]).toEqual([true, 60]);
+  });
+
+  test('60 branch hunks whose own +/- lines pass 200 are still too large for the scoped review', () => {
+    const r = carry(60);
+    expect([r.status, r.out.trim().split('\n')[0], r.err.includes('lib/game.js (too large for the scoped review: over 200 lines in a section)')]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)', true]);
   });
 });

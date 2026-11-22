@@ -195,6 +195,15 @@ describe('C6 platform depth (FOUN-32, founderstar#496): a planned skip needs the
     expect(planReview(base({ paths: ['docs/benchmarks/run/results/summary.md'], shape: on(ev) })).mode).toBe('lean');
     expect(planReview(base({ paths: ['evals/prereg.md'], shape: on(ev) })).mode).toBe('lean');
   });
+  // Value: protects=R114 makes numbered and plural prereg data docs, and the platform skip must still refuse it;
+  //   fails_when=lanes/x/prereg2.json or a preregs/ folder plans the platform depth; seam=platformFits
+  test('every preregistration spelling PREREG_PATH accepts refuses the platform depth (prereg2.json, preregs/)', () => {
+    const ev = { id: '1', head: HEAD, reviewer: 'capy-ai[bot]' };
+    for (const p of ['lanes/x/prereg2.json', 'wiki/plans/a-preregs/arms.json']) {
+      expect(platformFits('docs', [p], 0, scanNumbers({}))).toBe(false);
+      expect(planReview(base({ paths: [p], shape: on(ev) })).mode).not.toBe('platform');
+    }
+  });
   test('risk class and published numbers never take the platform depth', () => {
     const ev = { id: '1', head: HEAD, reviewer: 'capy-ai[bot]' };
     expect(planReview(base({ paths: ['lib/billing.ts'], shape: on(ev) })).mode).toBe('panel');

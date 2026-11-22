@@ -540,7 +540,8 @@ async function main(): Promise<void> {
   }
 
   const failures = results.filter((r) => r.failed);
-  if (!args.quiet && failures.length > 0 && gbrainAvailable() && existsSync(join(gbrainConfigDir(), "config.json"))) {
+  const configDir = gbrainConfigDir();
+  if (!args.quiet && failures.length > 0 && gbrainAvailable() && configDir && existsSync(join(configDir, "config.json"))) {
     const reasons = [...new Set(failures.map((r) => r.reason))].join("; ");
     console.error(`brain context: ${failures.length}/${results.length} queries failed (${reasons})`);
   }

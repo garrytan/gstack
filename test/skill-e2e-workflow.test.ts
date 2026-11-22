@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { extractSkillBody } from './helpers/skill-fixture';
+import { extractCodexReviewExcerpt, extractSkillBody } from './helpers/skill-fixture';
 import { createCoverageAuditFixture } from './fixtures/coverage-audit-fixture';
 import { claudeOutsideExecutions, codexReviewVerdicts } from './helpers/outside-voice-evidence';
 import { validateCoverageAudit, type CoverageFile } from './helpers/coverage-audit';
@@ -413,32 +413,7 @@ describeIfSelected('Codex skill E2E', ['codex-review'], () => {
     run('git', ['add', 'user_controller.rb']);
     run('git', ['commit', '-m', 'add vulnerable controller']);
 
-    // Extract only the review-relevant content (CLAUDE.md: "extract, don't copy").
-    // The codex skill is carved (T9): the skeleton carries setup + dispatch and
-    // STOP-points to codex/sections/*-mode.md. Build the fixture from the
-    // skeleton's setup slices plus the review-mode section body, SKIPPING the
-    // Section index and STOP pointers — their install paths don't exist in this
-    // temp fixture dir and would burn agent turns on failed Reads.
-    const full = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    const introStart = full.indexOf('# /codex — Multi-AI Second Opinion');
-    const introEnd = full.indexOf('## Section index', introStart);
-    const stepsStart = full.indexOf('## Step 0.4', introStart);
-    const stepsEnd = full.indexOf('> **STOP.**', stepsStart);
-    expect(introStart).toBeGreaterThan(-1);
-    expect(introEnd).toBeGreaterThan(introStart);
-    expect(stepsStart).toBeGreaterThan(introEnd);
-    expect(stepsEnd).toBeGreaterThan(stepsStart);
-    const reviewMode = fs.readFileSync(
-      path.join(ROOT, 'codex', 'sections', 'review-mode.md'),
-      'utf-8',
-    );
-    expect(reviewMode).toContain('## Step 2A: Review Mode'); // non-empty, right section
-    const reviewSection = [
-      full.slice(introStart, introEnd),
-      full.slice(stepsStart, stepsEnd),
-      reviewMode,
-    ].join('\n');
-    fs.writeFileSync(path.join(codexDir, 'codex-SKILL.md'), reviewSection);
+    fs.writeFileSync(path.join(codexDir, 'codex-SKILL.md'), extractCodexReviewExcerpt(ROOT));
   });
 
   afterAll(() => {

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { classifyDiff, classifyPath, dataCandidate, depthFor, gateScanNeeded, depthOfCommitInput, diffCommand, isGatePath, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, ROLE_EFFORT, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
+import { classifyDiff, classifyPath, dataCandidate, PREREG_PATH, depthFor, gateScanNeeded, depthOfCommitInput, diffCommand, isGatePath, nextStep, planReview, reviewPlanLine, scanNumbers, DEPTH_RULES, ROLE_EFFORT, FULL_PASS_CAP, SCOPED_RANGE_LINES, type DepthError, type PlanInput } from '../lib/review-depth';
 import { summarizeReviewLoop } from '../lib/review-scope';
 import { sectionTexts } from '../lib/review-brief';
 import { createHash } from 'node:crypto';
@@ -194,10 +194,36 @@ describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; 
  * with each voices step read back as main's stop (its reason is the parenthesised tail, no dispatch), hashes to the same value,
  * and every voices step is a gate-class stop before Step 11 that adds exactly Step 11's three voices. No grant is passed (main
  * takes none). The brief bodies lib/review-brief.ts cuts from the ship sections hash to MAIN_SECTIONS: main's bodies plus
- * GST-508's exclude-pathspec placeholders (replay 'GST-508+GST-464+GST-967': the merged bodies minus main's are the wave's minus fc292e22f).
+ * GST-508's exclude-pathspec placeholders (replay 'GST-508+GST-464+GST-967': the merged bodies minus main's are the wave's minus fc292e22f),
+ * then GST-1821's last-line VERDICT request in the outside brief (replay 'GST-1821').
+ * GST-2547 (R51) adds one reader and drops none: a light runtime-0 full step on the tests diff dispatches one batched reader on
+ * the Testing checklist where main dispatched nothing; asMainBeforeR51 checks that reader and reads the plan back as main's.
  */
+const R51_SKIP = 'red-team and adversarial-native (light depth, runtime 0: one batched reader reads the tests diff, R51)';
+function asMainBeforeR51(p: ReturnType<typeof planReview>): { dispatches: typeof p.dispatches; skipped: string[]; added: boolean } {
+  if (!(p.class === 'tests' && p.next.step === 'full' && p.stepDepth === 'light')) return { dispatches: p.dispatches, skipped: p.skipped, added: false };
+  expect(p.dispatches[0]).toEqual({ role: 'specialist', name: 'batched', effort: ROLE_EFFORT.specialist, exclude: [], checklists: ['testing'] });
+  const at = p.skipped.indexOf('specialists except testing (tests class)');
+  expect(p.skipped.slice(at, at + 2)).toEqual(['specialists except testing (tests class)', R51_SKIP]);
+  return { dispatches: p.dispatches.slice(1), skipped: [...p.skipped.slice(0, at), 'specialists, red-team and adversarial-native (light depth, runtime 0)', ...p.skipped.slice(at + 2)], added: true };
+}
+/**
+ * GST-3187 adds review and drops none: after a full pass, a fix that touched a gate-class path with no other fix flag plans its
+ * review (a full pass on the range, or the owner stop at the cap, with Step 11's voices first on gate class) where main planned
+ * done "the step applied no edits". asMainBeforeGst3187 checks each such case and reads it back as main's plan, which is the
+ * same input with touchedGate unset.
+ */
+function asMainBeforeGst3187(input: PlanInput, p: ReturnType<typeof planReview>): { plan: ReturnType<typeof planReview>; changed?: string } {
+  const h = input.history;
+  if (!(h.last === 'full' && h.touchedGate && !h.fixedBlocking && !h.fixedBelow && !h.blockingOpen)) return { plan: p };
+  expect(['full', 'stop', 'voices']).toContain(p.next.step);
+  const main = planReview({ ...input, history: { ...h, touchedGate: false } });
+  expect(main.next).toEqual({ step: 'done', reason: 'the step applied no edits' });
+  return { plan: main, changed: p.next.step };
+}
 const MAIN_PLANS = '9d13d6bae86bfc9207ce7e0cec8da5b33db2518c1653e8e009160a98b0f04c89';
-const MAIN_SECTIONS = 'cec8872ff5a4aacb610133294706e452952b172fbe9c4891039679e98d895f62';
+const R51_CASES = 28;
+const MAIN_SECTIONS = '7eb6b4c2dd31edbd7c69f02bd31f8884407187fac8ace4e796632d60957b6bbb';
 describe('GST-967 dispatch-superset no-loss check', () => {
   // Value: protects=the no-loss rule for review-depth changes: GST-967 drops, renames and re-efforts no reviewer main dispatches on any grid case, and changes no brief body; fails_when=a non-stop plan changes, a voices step appears off gate class or after Step 11, it dispatches anything but the three voices, or a brief body moves;
   //   why_new=GST-967; seam=planReview, sectionTexts; no_claim=what the added voices find (they only add coverage)
@@ -212,19 +238,28 @@ describe('GST-967 dispatch-superset no-loss check', () => {
     };
     const rows: unknown[] = [];
     let voices = 0;
+    let r51 = 0;
+    const gst3187: Record<string, number> = {};
     for (const [name, f] of Object.entries(fixtures)) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
       const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
-      const p = planReview({ ...f, numbers: none, history, adversarialRan } as PlanInput);
+      const input = { ...f, numbers: none, history, adversarialRan } as PlanInput;
+      const { plan: p, changed } = asMainBeforeGst3187(input, planReview(input));
+      if (changed) gst3187[`${name}:${changed}`] = (gst3187[`${name}:${changed}`] ?? 0) + 1;
       let { step, reason } = p.next;
-      let dispatches = p.dispatches;
+      const back = asMainBeforeR51(p);
+      if (back.added) r51++;
+      let dispatches = back.dispatches;
       if (step === 'voices') {
         voices++;
         expect([p.class, adversarialRan, dispatches.map(d => `${d.role}:${d.effort}`)]).toEqual(['gate', false, ['adversarial-native:full', 'outside-voice:host', 'targeted:full']]);
         [step, reason, dispatches] = ['stop', reason.slice(reason.indexOf('--adversarial-ran (') + '--adversarial-ran ('.length, -1), []];
       }
-      rows.push({ name, fullPasses, last, bits, adversarialRan, class: p.class, step, reason, dispatches, skipped: p.skipped });
+      rows.push({ name, fullPasses, last, bits, adversarialRan, class: p.class, step, reason, dispatches, skipped: back.skipped });
     }
-    expect([rows.length, voices, sha(rows)]).toEqual([1440, 71, MAIN_PLANS]);
+    expect([rows.length, voices, r51, sha(rows)]).toEqual([1440, 71, R51_CASES, MAIN_PLANS]);
+    expect(gst3187).toEqual({
+      'docs:full': 4, 'docs:stop': 2, 'gate:full': 4, 'gate:stop': 1, 'gate:voices': 1, 'light:full': 4, 'light:stop': 2, 'standard:full': 4, 'standard:stop': 2, 'tests:full': 4, 'tests:stop': 2,
+    });
     expect(sha(sectionTexts(ROOT))).toBe(MAIN_SECTIONS);
   });
 });
@@ -274,8 +309,9 @@ describe('GST-972 follow-up no-loss check', () => {
       const rows: { name: string; fullPasses: number; last: string; bits: number; adversarialRan: boolean; class: string; depth: string; step: string; dispatches: { role: string; name: string; effort: string; checklists: string[] }[] }[] = [];
       for (const [name, c] of Object.entries(cases)) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
         const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
-        const p = planReview({ paths: c[pick], scope: c[2], gateTagged: 0, diffLines: 40, consumed: [], numbers: none, history, adversarialRan });
-        rows.push({ name, fullPasses, last, bits, adversarialRan, class: p.class, depth: p.depth, step: p.next.step, dispatches: p.dispatches.map(d => ({ role: d.role, name: d.name, effort: d.effort, checklists: d.checklists ?? [] })) });
+        const input = { paths: c[pick], scope: c[2], gateTagged: 0, diffLines: 40, consumed: [], numbers: none, history, adversarialRan } as PlanInput;
+        const p = pick ? asMainBeforeGst3187(input, planReview(input)).plan : planReview(input);
+        rows.push({ name, fullPasses, last, bits, adversarialRan, class: p.class, depth: p.depth, step: p.next.step, dispatches: (pick ? asMainBeforeR51(p).dispatches : p.dispatches).map(d => ({ role: d.role, name: d.name, effort: d.effort, checklists: d.checklists ?? [] })) });
       }
       return rows;
     };
@@ -304,6 +340,50 @@ describe('GST-972 follow-up no-loss check', () => {
   });
 });
 
+describe('GST-2547: a tests-only diff gets one reader (R51)', () => {
+  // Value: protects=R51's one reviewer on a tests diff and the rule that only a human-docs diff (R81) may plan zero readers on pass 1; fails_when=a tests diff, or code with no runtime lines, plans no dispatch, a tests diff plans more than one reader or a second round after a clean pass, or the docs, code, gate and security plans move;
+  //   why_new=HARN-1 (harness-evals#425): a tests-only diff printed dispatches=0 and the only review was the author's core read; seam=planReview; no_claim=what the reader finds
+  const off: PlanInput['shape'] = { panel: 'off', readerModel: 'lane', platform: 'off', head: 'h', platformReview: null };
+  const tests = { paths: ['test/clock.test.ts'], scope: { SCOPE_TESTS: 'true' }, diffLines: 12 };
+  test.each([['panel all', undefined], ['review.panel off', off]] as const)('%s: one batched Testing reader on pass 1, then done after a clean pass or below-floor fixes', (_, shape) => {
+    const p = planReview(base({ ...tests, shape }));
+    expect([p.class, p.depth, roles(p), batch(p)]).toEqual(['tests', 'light', ['specialist:batched:medium'], ['testing']]);
+    const after = (h: Partial<PlanInput['history']>) => planReview(base({ ...tests, shape, history: { fullPasses: 1, last: 'full', ...h } })).next.step;
+    expect([after({}), after({ fixedBelow: true, rangeRuntimeLines: 0 })]).toEqual(['done', 'done']);
+  });
+  test('only a docs diff plans zero readers on pass 1, under every panel and depth floor', () => {
+    const fixtures: Record<string, Partial<PlanInput>> = {
+      tests,
+      'outputs-only code': { paths: ['src/gen.ts'], perPath: [{ path: 'src/gen.ts', lines: 30, binary: false }], registry: { sha: 'a', outputs: ['src/gen.ts'] } },
+      code: {}, gate: { gateTagged: 1 }, security: { declared: ['security'] },
+    };
+    for (const shape of [undefined, off, { ...off, panel: 'risk' as const }, { ...off, panel: 'all' as const }]) for (const floor of [undefined, 'standard', 'full'] as const) {
+      for (const [name, f] of Object.entries(fixtures)) expect([name, shape?.panel, floor, planReview(base({ ...f, shape, floor })).dispatches.length > 0]).toEqual([name, shape?.panel, floor, true]);
+      expect(planReview(base({ paths: ['README.md'], scope: {}, gateTagged: null, shape })).dispatches).toEqual([]);
+    }
+  });
+  test('a forced specialist on a tests diff stays its own reader and is the one reader, as on main', () => {
+    const p = planReview(base({ ...tests, force: ['performance'] }));
+    expect([roles(p), p.skipped[0]]).toEqual([['specialist:performance:medium'], 'specialists, red-team and adversarial-native (light depth, runtime 0)']);
+  });
+  test('code with no runtime lines (registered outputs only) gets one batched reader on the code checklists over the whole diff', () => {
+    const p = planReview(base({ paths: ['src/gen.ts'], perPath: [{ path: 'src/gen.ts', lines: 30, binary: false }], registry: { sha: 'a', outputs: ['src/gen.ts'] } }));
+    expect([p.class, p.runtimeLines, p.dispatches]).toEqual(['code', 0, [{ role: 'specialist', name: 'batched', effort: 'medium', exclude: [], checklists: ['testing', 'security'] }]]);
+  });
+  test('controls: the docs, code, gate and security plans are main\'s', () => {
+    const plan = (o: Partial<PlanInput>) => { const p = planReview(base(o)); return [p.class, p.depth, p.dispatches.map(d => `${d.role}:${d.name}:${d.effort}${d.checklists ? `[${d.checklists.join(',')}]` : ''}`)]; };
+    expect(plan({ paths: ['docs/howto.md'], scope: {}, gateTagged: null })).toEqual(['docs', 'light', []]);
+    expect(plan({ paths: ['docs/howto.md'], scope: {}, gateTagged: null, shape: off })).toEqual(['docs', 'light', []]);
+    expect(plan({})).toEqual(['code', 'light', ['specialist:batched:full[testing,security,red-team]', 'adversarial-native:adversarial:full']]);
+    expect(plan({ shape: off })).toEqual(['code', 'light', ['adversarial-native:single:full[testing,security,red-team]']]);
+    const panel = ['specialist:batched:medium[testing,security]', 'red-team:red-team:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host'];
+    expect(plan({ gateTagged: 1, targeted: { classes: ['gate'] } })).toEqual(['gate', 'full', [...panel, 'targeted:targeted:full']]);
+    expect(plan({ gateTagged: 1, shape: off })).toEqual(['gate', 'full', ['adversarial-native:merged:full[testing,security,red-team]']]);
+    expect(plan({ declared: ['security'] })).toEqual(['code', 'full', panel]);
+    expect(plan({ declared: ['security'], shape: off })).toEqual(['code', 'full', ['adversarial-native:merged:full[testing,security,red-team]']]);
+  });
+});
+
 describe('scanNumbers', () => {
   test('finds claims and fingerprints them', () => {
     const a = scanNumbers({ 'docs/bench.md': ['Median dropped 48% to 1.2s', 'no numbers here'] });
@@ -327,10 +407,10 @@ describe('planReview', () => {
     const p = planReview(base({ paths: ['docs/bench.md'], scope: {}, numbers: scanNumbers({ 'docs/bench.md': ['3x faster'] }) }));
     expect(roles(p)).toEqual(['outside-voice:outside-voice:host']);
   });
-  test('tests class: runtime 0 is light, core only (Behavior changes: no Testing specialist)', () => {
+  test('tests class: runtime 0 is light, one batched reader on the Testing checklist (R51, GST-2547)', () => {
     const p = planReview(base({ paths: ['test/a.test.ts'], scope: { SCOPE_TESTS: 'true' } }));
     expect(p.depth).toBe('light');
-    expect(roles(p)).toEqual([]);
+    expect([roles(p), batch(p)]).toEqual([['specialist:batched:medium'], ['testing']]);
   });
   test('non-risky code pass 1 is light at any size (R51): one batched reader carrying the Red Team prompt and the native adversarial', () => {
     const p = planReview(base({ diffLines: 900 }));
@@ -394,7 +474,7 @@ describe('planReview', () => {
 
 describe('GSTA-131 pass-1 review repairs', () => {
   test('rule docs agents follow are code, and markdown inside a skill directory is code when the root is known', () => {
-    for (const p of ['docs/captain.md', 'docs/unattended.md', 'docs/pregate.md']) expect(classifyPath(p)).toBe('code');
+    for (const p of ['crew/docs/captain.md', 'docs/unattended.md', 'docs/pregate.md']) expect(classifyPath(p)).toBe('code');
     expect(classifyPath('autoplan/notes.md')).toBe('docs');
     expect(classifyPath('autoplan/notes.md', ROOT)).toBe('code');
     expect(classifyPath('docs/howto-x.md', ROOT)).toBe('docs');
@@ -454,9 +534,9 @@ const mixed = (o: Partial<PlanInput> = {}) => base({ paths: Object.keys(o.perPat
 const err = (code: DepthError['code'], result?: DepthError['result']): DepthError => ({ code, detail: 'd', input: 'i', repair: 'r', ...(result ? { result } : {}) });
 
 describe('review depth: the matrix', () => {
-  test('runtime 0 (tests and docs only) is light: core only, nothing dispatched', () => {
+  test('runtime 0 (tests and docs only) is light: one batched Testing reader that leaves the docs out (R51, GST-2547)', () => {
     const p = planReview(mixed({ perPath: per({ 'test/a.test.ts': 300, 'docs/a.md': 40 }), diffLines: 340 }));
-    expect([p.depth, p.runtimeLines, p.dispatches]).toEqual(['light', 0, []]);
+    expect([p.depth, p.runtimeLines, p.dispatches]).toEqual(['light', 0, [{ role: 'specialist', name: 'batched', effort: 'medium', exclude: [':(exclude)docs/a.md'], checklists: ['testing'] }]]);
   });
   test('runtime 1-50 is light plus one batched specialist: the fixed set, scope picks and the Red Team in one context', () => {
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 48, 'test/a.test.ts': 190, 'docs/a.md': 9 }), diffLines: 247 }));
@@ -503,7 +583,7 @@ describe('review depth: the matrix', () => {
     ['an edit to SMALL_DIFF_LINES', { paths: ['lib/review-depth.ts'] }],
     ['the collector', { paths: ['lib/review-collect.ts'] }],
     ['the plan CLI', { paths: ['bin/gstack-review-plan'] }],
-    ['the queue', { paths: ['lib/ship-queue-train.ts'] }],
+    ['the queue', { paths: ['crew/lib/ship-queue-train.ts'] }],
     ['the Step 9 template', { paths: ['ship/sections/review-army.md.tmpl'] }],
   ] as const)('%s is full', (_n, o) => {
     const paths = (o as any).paths ?? ['src/app.ts'];
@@ -692,7 +772,7 @@ describe('GSTA-167 part 4a: data files no code names are docs (classifyDiff only
   test('a consumed data file, an unscanned diff and an overflowing scan all keep the file code', () => {
     for (const consumed of [['wiki/post/data.json'], undefined, 'all' as const]) {
       const c = classifyDiff({ paths: ['wiki/post/data.json'], perPath: [json(80)], consumed, gateTagged: 0 });
-      expect([c.class, c.runtimeLines]).toEqual(['code', 80]);
+      expect([c.class, c.runtimeLines]).toEqual(['code', 0]);
     }
   });
   test.each([
@@ -727,6 +807,79 @@ describe('GSTA-167 part 4a: data files no code names are docs (classifyDiff only
   });
   test('a deleted data file stays guarded: a code diff that deletes one is gate class', () => {
     expect(classifyDiff({ paths: ['src/app.ts', 'wiki/old.json'], deleted: ['wiki/old.json'], consumed: [], gateTagged: 0 }).class).toBe('gate');
+  });
+});
+
+describe('R114: a preregistration and its plain data are a write-up; data rows are never runtime lines', () => {
+  const dir = 'wiki/plans/2026-11-19-geva-559-ship-panel-judged-sample-prereg';
+  const prereg = [`${dir}/README.md`, `${dir}/power.txt`, `${dir}/arms.json`, `${dir}/route-table.tsv`];
+  const consumed = [`${dir}/arms.json`, `${dir}/route-table.tsv`];
+  const input = (extra: string[] = [], o: Partial<PlanInput> = {}) => {
+    const paths = [...prereg, ...extra];
+    return { paths, perPath: paths.map(p => ({ path: p, lines: 40, binary: false })), consumed, gateTagged: 0, scope: {}, diffLines: 40 * paths.length, ...o };
+  };
+  const lean: PlanInput['shape'] = { panel: 'off', readerModel: 'm', platform: 'off', head: 'h', platformReview: null };
+  // Value: protects=R114, a preregistration whose data code names plans as the docs write-up it is (one reviewer, one round), under
+  //   both the panel and the lean table; fails_when=a named prereg data file makes the diff code or counts runtime lines; seam=ClassInput.consumed
+  test('a prereg-only diff whose data code names is docs, light and runtime 0, and plans exactly as a docs write-up', () => {
+    const c = classifyDiff(input());
+    expect([c.class, c.runtimeLines, c.risk, c.errors]).toEqual(['docs', 0, [], []]);
+    expect(c.reasons).toContain('docs: 2 preregistration data path(s) (R114)');
+    const writeUp = { paths: [`${dir}/README.md`], perPath: [{ path: `${dir}/README.md`, lines: 40, binary: false }], gateTagged: 0, scope: {}, diffLines: 40 };
+    const numbers = scanNumbers({ [`${dir}/README.md`]: ['The bar: prove-it loads in at least 39 of 60 bugs (65%).'] });
+    for (const o of [{}, { numbers }, { shape: lean }, { shape: lean, numbers }] as Partial<PlanInput>[]) {
+      const p = planReview(base({ ...input([], o) }));
+      const w = planReview(base({ ...writeUp, ...o }));
+      expect([p.class, p.depth, p.runtimeLines, roles(p), p.next.step]).toEqual(['docs', 'light', 0, roles(w), w.next.step]);
+    }
+    expect(roles(planReview(base({ ...input([], { numbers }) })))).toEqual(['outside-voice:outside-voice:host']);
+    expect(depthOfCommitInput(input()).depth).toBe('light');
+    const sessions = depthOfCommitInput(input([`${dir}/sessions.txt`], { scope: { SCOPE_AUTH: 'true', SCOPE_DOCS: 'true' } }));
+    expect([sessions.class, sessions.depth]).toEqual(['docs', 'light']);
+  });
+  // Value: protects=R114's exception, scoring, judge or checker code keeps its depth whether it sits beside the prereg or inside it;
+  //   fails_when=a scorer next to a preregistration plans light; seam=lib/review-risk.ts eval class
+  test('a prereg plus a scoring module is full depth, inside or outside the prereg directory', () => {
+    for (const scorer of ['lib/scorers/pass-rate.ts', `${dir}/judge.py`, 'src/grading/rubric.ts']) {
+      const d = depthOfCommitInput(input([scorer]));
+      expect([d.class, d.depth, d.risk]).toEqual(['code', 'full', ['eval']]);
+    }
+  });
+  // Value: protects=R114's exception, a guard edit beside a preregistration keeps the full gate review; fails_when=a gate path,
+  //   a tagged gate hunk or an unavailable gate scan in a prereg diff plans light; seam=classifyDiff's gate signals
+  test('a prereg plus a guard edit is full depth: a gate path, a tagged hunk in its data, or no gate scan', () => {
+    for (const guard of ['lib/gate-thresholds.json', '.github/workflows/evals.yml', 'bin/gstack-pregate']) {
+      const d = depthOfCommitInput(input([guard]));
+      expect([d.class, d.depth]).toEqual(['gate', 'full']);
+    }
+    expect(depthOfCommitInput(input([], { gateTagged: 1 }))).toMatchObject({ class: 'gate', depth: 'full' });
+    const unscanned = depthOfCommitInput(input([], { gateTagged: null }));
+    expect([unscanned.class, unscanned.depth, unscanned.errors.map(e => e.code)]).toEqual(['gate', 'full', ['gate_scan_unavailable']]);
+  });
+  // Value: protects=the R114 exemption sits on top of the existing catches: code in a prereg stays code, a secret in its named
+  //   data still reads as security risk, and executable or out-of-prereg data stays code; fails_when=any of them plans as docs
+  test('the exemption covers only plain data under a prereg path; every other catch still applies', () => {
+    const draw = depthOfCommitInput(input([`${dir}/draw.py`]));
+    expect([draw.class, draw.depth, draw.runtimeLines]).toEqual(['code', 'light', 40]);
+    const secret = depthOfCommitInput(input([], { added: { [`${dir}/arms.json`]: ['"cmd": "curl -H \\"x-api-key: $OPENAI_API_KEY\\""'] } }));
+    expect([secret.depth, secret.risk]).toEqual(['full', ['secret']]);
+    expect(classifyDiff(input([], { executables: [`${dir}/arms.json`] })).class).toBe('code');
+    expect(classifyDiff({ paths: [`${dir}/README.md`, 'lanes/x/arms.json'], consumed: ['lanes/x/arms.json'], gateTagged: 0 }).class).toBe('code');
+  });
+  test.each([
+    ['wiki/plans/2026-11-19-capy-b1d-hook-default-prereg/route-table.tsv', true], ['docs/benchmarks/2026-11-10-gstack-skill-ablation/prereg-harbor-arms.json', true],
+    ['lanes/review-replay/panel/eval2/prereg2.md', true], ['wiki/plans/2026-10-31-geva-65-lanea-shakedown-prereg-addendum-2/arms.json', true], ['evals/preregistration/arms.csv', true],
+    ['wiki/plans/2026-11-18-geva-553-office-hours-rewrite-pre-run-change-1/arms.json', false], ['src/preregistered.json', false], ['wiki/plans/x-results/rows.jsonl', false],
+  ])('PREREG_PATH %s -> %s', (p, hit) => expect(PREREG_PATH.test(p)).toBe(hit));
+  // Value: protects=harness-evals#432, whose results rows code names by basename planned 17,773 runtime lines; fails_when=a text data
+  //   row counts as a runtime line, or a config file, a guard's JSON allowlist or a binary named image stops counting;
+  //   seam=classifyDiff runtimeLines; no_claim=a JSON guard allowlist outside a docs or results tree (harness-evals' scripts/public-safety/allow.json) keeps counting
+  test('data rows never count as runtime lines, named or not; a JSON outside a docs or results tree, config files and code still do', () => {
+    const r = 'docs/benchmarks/2026-11-10-x/results';
+    const paths = [`${r}/main/opus-full/trials.jsonl`, `${r}/audit.json`, 'docs/benchmarks/2026-11-10-x/locks/diet.lock.json', `${r}/rows.tsv`, 'lanes/x/runs/proxy-usage.ndjson', 'lanes/x/table.csv', 'scripts/analyze.ts', 'package.json', 'scripts/public-safety/allow.json'];
+    const lines = (p: string) => p.endsWith('.ts') ? 12 : p === 'package.json' ? 2 : p.endsWith('allow.json') ? 19 : 5000;
+    const c = classifyDiff({ paths, perPath: paths.map(p => ({ path: p, lines: lines(p), binary: false })), consumed: paths.filter(p => !p.endsWith('.ts') && p !== 'package.json'), gateTagged: 0 });
+    expect([c.class, c.runtimeLines]).toEqual(['code', 12 + 2 + 19]);
   });
 });
 

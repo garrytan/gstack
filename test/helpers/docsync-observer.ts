@@ -5,7 +5,7 @@ import { observeQAWrites, type QAWriteObservation } from './qa-functional-observ
 import { nativeCalls } from './qa-checkpoint-evidence';
 import type { SkillTestResult } from './session-runner';
 import { DOC_PATH, type DocsScenario, type fixtureDocs } from './docsync-fixture';
-import { docsNativeInterface, DOCS_AUDIT_RECORD, DOCS_AUDIT_RECORD_PATHS, DOCS_AUDIT_RESET, DOCS_TMP_EXCLUDE, docsCapsCommand } from './docsync-interface';
+import { docsNativeInterface, DOCS_AUDIT_RECORD, DOCS_AUDIT_RECORD_PATHS, DOCS_AUDIT_RESET, DOCS_AUDIT_RESET_FORCED, DOCS_TMP_EXCLUDE, docsCapsCommand } from './docsync-interface';
 import { sliceBetween } from './skill-fixture';
 import { readOnlyCommandAllowed } from './read-only-commands';
 
@@ -171,7 +171,8 @@ export function docsPreambleCommands(fixture: ReturnType<typeof fixtureDocs>): s
     'document-release/SKILL.md'), 'utf8');
   const [command, expected] = [source, generated].map(text => {
     if ((text.match(/^## Preamble \(run first\)[ \t]*\r?$/gm) ?? []).length !== 1) return undefined;
-    return /^## Preamble \(run first\)[ \t]*\r?\n(?:[ \t]*\r?\n)*```bash[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/m.exec(text)?.[1];
+    // A Claude render runs the start at load (GST-3157); its plain command stays below the injected line as the fallback.
+    return /^## Preamble \(run first\)[ \t]*\r?\n(?:[ \t]*\r?\n)*(?:!`[^`\r\n]+`[ \t]*\r?\n(?:[ \t]*\r?\n)*If the line above is not the start output, run this once; otherwise it already ran:[ \t]*\r?\n(?:[ \t]*\r?\n)*)?```bash[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/m.exec(text)?.[1];
   });
   if (!command || command !== expected) return [];
   return [command, command.replace(/(^|\n)("\$_SS" --skill|[^\s"]*\/gstack-skill-start --skill)/, '$1GSTACK_SESSION_KIND=spawned $2')];
@@ -179,7 +180,7 @@ export function docsPreambleCommands(fixture: ReturnType<typeof fixtureDocs>): s
 
 export function docsShipPhase(skeleton: string, prBody: string, scenario: DocsScenario, storePointer: string): string {
   if (scenario === 'store') return storePointer;
-  return `${sliceBetween(skeleton, '## Step 14.5: Documentation audit (every ship)', '## Step 15: Commit')}\n\n${sliceBetween(prBody, '## Documentation', '## Test plan')}`;
+  return `${sliceBetween(skeleton, '## Step 14.5: Documentation audit (every ship)', '## Step 15: Commit')}\n\n${sliceBetween(prBody, '## Documentation', '## Tests')}`;
 }
 
 type DocsSessionOptionsInput = {
@@ -252,7 +253,7 @@ export function docsCommandAllowed(command: string, fixture: ReturnType<typeof f
   const text = command.trim();
   if (docsPreambleCommands(fixture).some(block => block.trim() === text)) return true;
   // The section prints the cap gate with the ~/.claude/skills/gstack prefix; in the fixture HOME is fixture.home, so that form names the same installed binary.
-  if (text === DOCS_TMP_EXCLUDE || text === DOCS_AUDIT_RESET || text === docsCapsCommand(fixture.skills.split(path.sep).join('/')) ||
+  if (text === DOCS_TMP_EXCLUDE || text === DOCS_AUDIT_RESET || text === DOCS_AUDIT_RESET_FORCED || text === docsCapsCommand(fixture.skills.split(path.sep).join('/')) ||
     (text === docsCapsCommand('~/.claude/skills/gstack') && fixture.skills === path.join(fixture.home, '.claude/skills/gstack'))) return true;
   if (readOnlyCommandAllowed(text, docsReadOnlyScope(fixture)) || docsComposedReadAllowed(text, fixture)) return true;
   const insert = /^cat (['"]?)([^\s'"]+)\1 >> (['"]?)([^\s'"]+)\3$/.exec(text);
@@ -414,8 +415,25 @@ function literalDocsCommandAllowed(text: string, fixture: ReturnType<typeof fixt
   if (commandName === candidate) {
     const privateJson = (file: string | undefined) => !!file && path.isAbsolute(file) && /\.json$/i.test(file) && docsPrivateArtifact(file, fixture, scripts);
     if (rest.length === 1 && rest[0] === '--help') return true;
-    if (rest.length === 2 && (rest[0] === 'snapshot' || rest[0] === 'compare') && rest[1] === '--help') return true;
+    if (rest.length === 2 && ['snapshot', 'compare', 'result', 'attempt', 'repair-prompt'].includes(rest[0]) && rest[1] === '--help') return true;
+    const auditIdOk = (id: string) => /^[A-Za-z0-9._-]+$/.test(id) && !id.includes('..');
+    const privateOutput = (file: string | undefined) => !!file && path.isAbsolute(file) && docsPrivateArtifact(file, fixture, scripts);
     if (rest[0] === 'compare') return rest.length === 2 && privateJson(rest[1]);
+    if (rest[0] === 'attempt') return rest.length === 4 && path.isAbsolute(rest[1]) && docsPrivateArtifact(rest[1], fixture, scripts) &&
+      rest[2] === '--state' && privateJson(rest[3]);
+    if (rest[0] === 'repair-prompt') return rest.length === 4 && privateOutput(rest[1]) && rest[2] === '--audit-id' && auditIdOk(rest[3]);
+    if (rest[0] === 'result') {
+      if ((rest.length !== 6 && rest.length !== 8) || !privateOutput(rest[1])) return false;
+      const options = new Map<string, string>();
+      for (let i = 2; i < rest.length; i += 2) {
+        if (!['--audit-id', '--out-dir', '--repair-of'].includes(rest[i]) || options.has(rest[i])) return false;
+        options.set(rest[i], rest[i + 1]);
+      }
+      const auditId = options.get('--audit-id');
+      const outDir = options.get('--out-dir');
+      if (auditId === undefined || outDir === undefined || (options.has('--repair-of') && !privateOutput(options.get('--repair-of')))) return false;
+      return auditIdOk(auditId) && (outDir === fixture.home || docsPrivateDirectory(outDir, fixture));
+    }
     if (rest[0] !== 'snapshot' || rest.length % 2 !== 1) return false;
     const flags = rest.slice(1).filter((_, i) => i % 2 === 0);
     const values = rest.slice(1).filter((_, i) => i % 2 === 1);

@@ -1,7 +1,7 @@
 ---
 name: guard
 version: 0.1.0
-description: "Full safety mode: destructive command warnings + directory-scoped edits. (gstack)"
+description: "Full safety mode: destructive command warnings + directory-scoped edits. Use for: full safety mode, guard against mistakes. (gstack)"
 triggers:
   - full safety mode
   - guard against mistakes
@@ -74,7 +74,7 @@ On helper failure, do not claim the boundary is active. Preserve the state and r
 
 Tell the user:
 - "**Guard mode active.** Two protections are now running:"
-- "1. **Destructive command guard** — rm -rf, DROP TABLE, force-push, etc. warn before executing (overridable); catastrophic shapes (recursive delete of / or ~, force-push to the default branch) are hard-denied"
+- "1. **Destructive command guard** — rm -rf, DROP TABLE, force-push, etc. warn before executing (overridable); catastrophic shapes (recursive delete of /, ~ or a system folder, force-push to main or the default branch, wiping a disk) are hard-denied"
 - "2. **Edit boundary** — file edits restricted to `<path>/`. Edits outside this directory are blocked."
 - "To remove the persistent edit boundary, run `/unfreeze`. Ending the session stops its hooks but does not delete that boundary."
 

@@ -237,11 +237,11 @@ describe('gstack-ship-receipt write enforces declared classes (APPROVAL_CITATION
     const other = run('docs-plan', 'Rewrite the quickstart in docs/quickstart.md with a shorter first step. Tests cover the links.', true);
     const ok = write(repo, `Approved by Garry 2026-10-16 via ${good.sha}\n`, ['--approval-run', other.out, '--approval-run', good.out]);
     expect(ok.status, ok.err).toBe(EXIT.ok);
-    expect(JSON.parse(ok.out).approval.classes[0]).toMatchObject({ class: 'data-repair', citation: 'verified', binding: 'paths', via: good.sha, evidence: expect.stringMatching(/^plan run-\d+ gate_rev=1 p1=b answered_by=human$/) });
+    expect(JSON.parse(ok.out).approval.classes[0]).toMatchObject({ class: 'data-repair', citation: 'verified', binding: 'paths', via: good.sha, evidence: expect.stringMatching(/^plan run-[a-z]{6}-\d{14} gate_rev=1 p1=b answered_by=human$/) });
     const notApproved = write(repo, `Approved by Garry 2026-10-16 via ${pending.sha}\n`, ['--approval-run', pending.out]);
     expect(notApproved.err).toMatch(/holds this plan but its gate is not APPROVED \(status gate_pending, p1 unanswered\).*\(APPROVAL_CITATION_MISSING\)$/m);
     const unrelated = write(repo, `Approved by Garry 2026-10-16 via ${other.sha}\n`, ['--approval-run', other.out]);
-    expect(unrelated.err).toMatch(/plan run-\d+ gate_rev=1 p1=b answered_by=human names neither/);
+    expect(unrelated.err).toMatch(/plan run-[a-z]{6}-\d{14} gate_rev=1 p1=b answered_by=human names neither/);
     const noRun = write(repo, `Approved by Garry 2026-10-16 via ${good.sha}\n`);
     expect(noRun.err).toMatch(/plan sha [0-9a-f]{8}: pass the autoplan run with --approval-run <dir>.*must attest "for data-repair@[0-9a-f]{12}"/);
     fs.appendFileSync(path.join(good.out, 'plan.md'), '\nsrc/commands/repair/later.ts\n');
@@ -258,6 +258,9 @@ describe('gstack-ship-receipt write enforces declared classes (APPROVAL_CITATION
     expect(autoplan(['next', '--out', out, '--plan', path.join(dir, 'plan.md'), '--no-ui']).status).toBe(0);
     runPhase(out, 'ceo');
     runPhase(out, 'eng');
+    const owners = (JSON.parse(fs.readFileSync(path.join(out, 'gate.json'), 'utf8')).items as Array<{ id: string; recommended: string }>).filter(i => i.id.startsWith('uc')).map(i => `${i.id}${i.recommended}`);
+    expect(owners.length).toBeGreaterThan(0);
+    expect(autoplan(['answer', '--by', 'human', '--out', out, '--gate-rev', '1', '--reply', owners.join(' ')]).stdout).toMatch(/^GATE_PENDING: p1 unanswered/m);
     const reply = recCarrying(out);
     expect(autoplan(['answer', '--by', 'agent:test', '--words-by', 'agent:test', '--owner-reply', reply, '--out', out, '--gate-rev', '1', '--reply', reply]).stdout).toMatch(/^APPROVED: gate_rev=1/m);
     const sha = (JSON.parse(fs.readFileSync(path.join(out, 'run.json'), 'utf8')).artifacts['plan.md'].sha256 as string).slice(0, 8);

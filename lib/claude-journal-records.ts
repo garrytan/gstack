@@ -236,7 +236,7 @@ export interface RecordMeta {
   subtype?: string;
   attachmentType?: string;
   version?: string;
-  /** A compact boundary's preserved message uuids, ending with its logical parent (Claude Code 2.1.300). */
+  /** A compact boundary's preserved message uuids, ending with the preserved segment's tail. */
   preserved?: readonly string[];
 }
 
@@ -248,16 +248,17 @@ const sessionStartRecord = (r: Record<string, any>): boolean => r.type === 'atta
 const PRESERVED_MAX = 1024;
 /**
  * Claude Code 2.1.300 keeps a compaction's last records in place and lists them in
- * compactMetadata.preservedMessages, ending with the segment's tail, which is also the
- * boundary's logicalParentUuid. Only such a list of native uuids is read.
+ * compactMetadata.preservedMessages, ending with the segment's tail. On 2.1.300 the tail
+ * is the boundary's logicalParentUuid; on 2.1.317 the logical parent is a record the file
+ * never receives. Only a list of native uuids ending with preservedSegment.tailUuid is read.
  */
 function preservedUuids(r: Record<string, any>): readonly string[] | undefined {
   if (r.type !== 'system' || r.subtype !== 'compact_boundary' || r.parentUuid !== null || !nativeUuid(r.logicalParentUuid)) return;
   const meta = r.compactMetadata;
   if (!object(meta) || !object(meta.preservedSegment) || !object(meta.preservedMessages)) return;
   const uuids = meta.preservedMessages.uuids;
-  if (meta.preservedSegment.tailUuid !== r.logicalParentUuid || !Array.isArray(uuids) ||
-      uuids.length > PRESERVED_MAX || uuids.at(-1) !== r.logicalParentUuid || !uuids.every(nativeUuid)) return;
+  if (!Array.isArray(uuids) || !uuids.length || uuids.length > PRESERVED_MAX ||
+      uuids.at(-1) !== meta.preservedSegment.tailUuid || !uuids.every(nativeUuid)) return;
   return uuids;
 }
 
@@ -317,6 +318,10 @@ export function ownedCausalOrder(metas: readonly RecordMeta[], cwd: string): Own
   // compact summary, so the boundary's logical parent descends from the boundary itself.
   // Such a boundary continues from the last preserved record that is a node of this file
   // and not its own descendant. With none, the cycle stays and supplies no ownership.
+  // Claude Code 2.1.317 names a logical parent the file never receives, and the list ends
+  // with the last record kept in place: that boundary continues the same way. A logical
+  // parent that is the list's own tail may just be unflushed and stays unresolved, and a
+  // boundary that opens the file stays a resumed fork's root.
   const descends = (id: string | undefined, from: RecordMeta): boolean => {
     for (const visited = new Set<RecordMeta>(); id;) {
       const m = byId.get(id);
@@ -327,8 +332,11 @@ export function ownedCausalOrder(metas: readonly RecordMeta[], cwd: string): Own
     return false;
   };
   const resumed = new Map<RecordMeta, string>();
-  for (const m of nodes) if (m.preserved && descends(m.parent, m)) {
-    const anchor = m.preserved.slice(0, -1).findLast(id => byId.get(id) !== undefined && !descends(id, m));
+  const fileHead = metas.find(m => m.uuid);
+  for (const m of nodes) {
+    if (!m.preserved || m.parent === undefined) continue;
+    const continues = m.preserved.at(-1) === m.parent ? descends(m.parent, m) : m !== fileHead && byUuid.get(m.parent) === undefined;
+    const anchor = continues ? m.preserved.findLast(id => byId.get(id) !== undefined && !descends(id, m)) : undefined;
     if (anchor) resumed.set(m, anchor);
   }
   const parentOf = (m: RecordMeta) => resumed.get(m) ?? m.parent;

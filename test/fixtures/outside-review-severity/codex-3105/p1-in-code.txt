@@ -7,6 +7,6 @@ P1: The cap is ignored.
 1. **P1 — The cap is ignored.**
 ```
 
-No issues found in the changed parser.
+No issues found in the changed files.
 
 Recommendation: ship because the parser handles every documented form.

@@ -16,8 +16,7 @@ import { runSkillTest } from './helpers/session-runner';
 import { ROOT, runId, describeIfSelected, testIfSelected, copyDirSync, logCost,
   createEvalCollector, finalizeEvalCollector } from './helpers/e2e-helpers';
 import { extractSkillBody } from './helpers/skill-fixture';
-import { createCoverageAuditFixture } from './fixtures/coverage-audit-fixture';
-import { createTestValueFixture, lastJsonLine, jsonFindings, LOW_VALUE_TESTS, recordsNonTestCallerSearch } from './helpers/test-value-fixture';
+import { createShipCoverageValueFixture, createTestValueFixture, lastJsonLine, weakGapCovers, jsonFindings, LOW_VALUE_TESTS, recordsNonTestCallerSearch } from './helpers/test-value-fixture';
 import { runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS } from './helpers/office-hours-attempt';
 import { resolveEvalModel } from '../lib/eval-model';
 import { RETIREMENT_FIELDS } from '../scripts/resolvers/test-value';
@@ -29,13 +28,6 @@ const RUNNER_MS = CAPTURE_MS - 3 * OFFICE_HOURS_BUN_GRACE_MS;
 function trackedChanges(cwd: string): string {
   return spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
 }
-
-const SMOKE_TEST = `
-import { refundPayment } from '../src/billing';
-test('refundPayment does not throw', () => {
-  expect(() => refundPayment('pay_1', 'duplicate')).not.toThrow();
-});
-`;
 
 type Case = {
   id: string;
@@ -49,10 +41,7 @@ type Case = {
 const CASES: Case[] = [
   {
     id: 'ship-coverage-value', skill: 'ship', suite: 'Ship Test Value E2E',
-    setup: cwd => {
-      createCoverageAuditFixture(cwd);
-      fs.appendFileSync(path.join(cwd, 'test/billing.test.ts'), SMOKE_TEST);
-    },
+    setup: createShipCoverageValueFixture,
     prompt: cwd => `Read ship/SKILL.md and ship/sections/test-coverage.md for the current ship workflow.
 
 You are on the feature/billing branch. The base branch is main. There is no remote.
@@ -61,13 +50,13 @@ directly to ${cwd}/src/billing.ts and its tests in ${cwd}/test/billing.test.ts (
 targeted audit with no branch diff). Generation: audit-only; passes used: 0 of 2.
 Do not dispatch subagents, write tests or modify files. Skip every other step.
 End with the audit's LAST-line JSON exactly as Step 7 specifies.`,
-    validate: result => {
+    validate: (result, cwd) => {
       const json = lastJsonLine(result.output || '');
       if (!json) throw new Error('ship coverage: no last-line JSON');
       if (typeof json.coverage_pct !== 'number' || typeof json.coverage_pct_value !== 'number') throw new Error(`ship coverage: numeric coverage_pct and coverage_pct_value required, got ${JSON.stringify(json)}`);
       if (json.coverage_pct < json.coverage_pct_value) throw new Error(`ship coverage: coverage_pct ${json.coverage_pct} < coverage_pct_value ${json.coverage_pct_value}`);
       const weak = Array.isArray(json.weak_gaps) ? json.weak_gaps : [];
-      if (!weak.some((gap: any) => /refund/i.test(JSON.stringify(gap)))) throw new Error(`ship coverage: the ★-only refundPayment path must be in weak_gaps, got ${JSON.stringify(json.weak_gaps)}`);
+      if (!weak.some((gap: any) => weakGapCovers(gap, cwd, /refund/i))) throw new Error(`ship coverage: the ★-only refundPayment path must be in weak_gaps, got ${JSON.stringify(json.weak_gaps)}`);
     },
   },
   {

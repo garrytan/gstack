@@ -6,7 +6,7 @@ name: Windows Smoke
 #   1. ./setup --host claude into an isolated HOME under Git Bash, with
 #      gstack's own browser (Playwright Chromium).
 #   2. The core skills start: gstack-skill-start for /ship, /review,
-#      /qa-only, /investigate and /browse answers SKILL_START_PROTO: 1.
+#      /qa-only and /browse answers SKILL_START_PROTO: 1.
 #   3. /browse on gstack's own browser: the installed browse runs a piped
 #      chain flow against a local page from an unrelated directory.
 #   4. The fastest Windows-safe free tests for those paths (list below).
@@ -31,19 +31,84 @@ permissions:
   contents: read
 
 jobs:
-  windows-smoke:
-    runs-on: windows-latest
-    timeout-minutes: 15
+  # Trunk Dynamic CI, LEARNING ONLY (GST-1847; free-tests.yml has the full
+  # rationale). Trunk records whether it would have run or skipped windows-smoke
+  # on same-repository pull requests; every job still runs. Trunk keys verdicts
+  # by workflow file, so each observed workflow carries its own observer. No job
+  # needs it, no condition reads it and it exports no outputs, so a mode change
+  # in Trunk's dashboard cannot skip anything. It checks out nothing, runs no
+  # pull-request code, holds no GITHUB_TOKEN scopes, never fails the run, and
+  # skips fork pull requests, pushes and dispatches. docs/TESTING_INTERNALS.md.
+  trunk-dynamic-ci:
+    name: Trunk Dynamic CI (learning only, windows-smoke)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions: {}
+    env:
+      TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+    steps:
+      - name: Record Trunk's verdicts for windows-smoke (nothing reads them)
+        if: env.TRUNK_API_TOKEN != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: trunk-io/dynamic-ci@5bcddbf3615c2b032c21eed1b514c91164bda4a8 # v0.1.7
+        env:
+          TRUNK_DISABLE_TELEMETRY: 'true'
+        with:
+          token: ${{ env.TRUNK_API_TOKEN }}
+          job-keys: windows-smoke
+          github-token: ''
+          enable-annotation: 'true'
+
+  # R81 (docs/pregate.md#docs-only): windows-smoke is a required check, and gstack's
+  # land counts only a check that concluded success, so the job always runs; its steps
+  # skip only when docs-scope succeeded and said docs-only. A crashed or failed
+  # classifier runs the smoke.
+  docs-scope:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - id: scope
+        uses: ./.github/actions/docs-scope
+
+  windows-smoke:
+    needs: docs-scope
+    if: ${{ !cancelled() }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      DOCS_ONLY: ${{ needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true' }}
+    steps:
+      - name: A docs-only pull request owes no Windows smoke
+        if: env.DOCS_ONLY == 'true'
+        run: |
+          echo 'Docs-only pull request (docs/pregate.md#docs-only): docs-scope passed, so the smoke steps were skipped.' >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: env.DOCS_ONLY != 'true'
         with:
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: env.DOCS_ONLY != 'true'
         with:
           bun-version: 1.4.2
 
       - name: Configure git identity (required by tests that init temp repos)
+        if: env.DOCS_ONLY != 'true'
         run: |
           git config --global user.email "windows-smoke@gstack.test"
           git config --global user.name "Windows Smoke"
@@ -51,10 +116,12 @@ jobs:
         shell: bash
 
       - name: Install dependencies
+        if: env.DOCS_ONLY != 'true'
         run: bun install --frozen-lockfile
         shell: bash
 
       - name: ./setup installs into an isolated HOME
+        if: env.DOCS_ONLY != 'true'
         run: |
           set -euo pipefail
           SMOKE_HOME="$RUNNER_TEMP/smoke-home"
@@ -64,12 +131,13 @@ jobs:
         shell: bash
 
       - name: The core skills start
+        if: env.DOCS_ONLY != 'true'
         run: |
           set -euo pipefail
           SMOKE_HOME="$RUNNER_TEMP/smoke-home"
           USERPROFILE="$(cygpath -w "$SMOKE_HOME")"
           export HOME="$SMOKE_HOME" USERPROFILE
-          for skill in ship review qa-only investigate browse; do
+          for skill in ship review qa-only browse; do
             set +e
             OUT=$(timeout 120 "$SMOKE_HOME/.claude/skills/gstack/bin/gstack-skill-start" --skill "$skill" --model claude 2>&1 < /dev/null)
             CODE=$?
@@ -81,6 +149,7 @@ jobs:
         shell: bash
 
       - name: /browse on gstack's own browser runs a piped chain flow from an unrelated directory
+        if: env.DOCS_ONLY != 'true'
         run: |
           set -euo pipefail
           SMOKE_HOME="$RUNNER_TEMP/smoke-home"
@@ -106,6 +175,7 @@ jobs:
         shell: bash
 
       - name: Fastest Windows-safe free tests for install and the core skills
+        if: env.DOCS_ONLY != 'true'
         # Windows-measured seconds from scripts/free-test-durations-windows.json.
         #   setup-windows-fallback (0.1): setup's _link_or_copy copies, never links, on Windows
         #   setup-staged-copy (0.6): a copy install is staged and swapped in only when complete
@@ -150,7 +220,7 @@ jobs:
         shell: bash
 
       - name: Upload full test logs
-        if: always()
+        if: always() && env.DOCS_ONLY != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows-smoke-logs
@@ -161,7 +231,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload flake ledger
-        if: always()
+        if: always() && env.DOCS_ONLY != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: flake-ledger-windows-smoke

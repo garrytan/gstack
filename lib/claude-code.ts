@@ -4,6 +4,7 @@ import { resolveClaudeCommand, type ClaudeCommand } from './claude-bin';
 import { initializeWindowsReviewJob, WindowsReviewSupervisionError } from './claude-code-windows-job';
 import { ModelPolicyError, describeSelection, resolvePlanReviewModel, selectionRepair, type ModelSelection } from './model-policy';
 import { emitModelPolicyNotice } from './model-policy-notice';
+import { BUDGET_FAILURE, CLAUDE_CODE_BUDGET_STOP, QUOTA_FAILURE } from './outside-review-result';
 
 export const CLAUDE_CODE_OUTPUT_LIMIT = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 500;
@@ -112,9 +113,15 @@ export function parseClaudeCodeResult(stdout: string, stderr: string, exitCode: 
   try { raw = JSON.parse(stdout); } catch { /* Classified below, after CLI failure. */ }
   const obj = isObject(raw) ? raw : undefined;
   const response = typeof obj?.result === 'string' ? obj.result : typeof obj?.response === 'string' ? obj.response : '';
-  const actualFailure = exitCode !== 0 || !obj || Boolean(obj.is_error) || !response.trim();
+  const errorSubtype = typeof obj?.subtype === 'string' && obj.subtype.startsWith('error');
+  const actualFailure = exitCode !== 0 || !obj || Boolean(obj.is_error) || errorSubtype || !response.trim();
+  const failureText = `${diagnostic}\n${response}\n${stdout.slice(0, 4096)}`;
+  const budget = actualFailure ? `${diagnostic}\n${obj ? response : stdout.slice(0, 4096)}`.split(/\r?\n/).map(line => line.trim()).find(line => BUDGET_FAILURE.test(line) || QUOTA_FAILURE.test(line)) : undefined;
   let result: ClaudeCodeResult;
-  if (actualFailure && /\b(?:authentication(?:[_ ](?:failed|error))?|unauthorized|not authenticated|invalid (?:x-)?api[- ]key|login required|please (?:run .*login|log in)|not logged in)\b/i.test(`${diagnostic}\n${response}\n${stdout.slice(0, 4096)}`)) {
+  if (budget) {
+    const cause = BUDGET_FAILURE.test(budget) ? 'its budget is used up (HTTP 402, payment required)' : 'its usage limit or quota is used up';
+    result = failure('budget', `${CLAUDE_CODE_BUDGET_STOP} ${cause}: ${budget.slice(0, 240)}. Check the allowance on the proxy or gateway in front of the provider, or the account's quota and credits; logging in again will not fix it.`, true);
+  } else if (actualFailure && /\b(?:authentication(?:[_ ](?:failed|error))?|unauthorized|not authenticated|invalid (?:x-)?api[- ]key|login required|please (?:run .*login|log in)|not logged in)\b/i.test(failureText)) {
     result = failure('authentication', 'Claude Code authentication failed. Run claude interactively in this execution context to authenticate.', true);
   } else if (exitCode !== 0) {
     result = failure('exit', `Claude Code exited with ${exitCode === null ? 'a signal' : `code ${exitCode}`}.${response ? ` ${response.slice(0, 4096)}` : ''}`);
@@ -122,7 +129,7 @@ export function parseClaudeCodeResult(stdout: string, stderr: string, exitCode: 
     result = failure('invalid-json', 'Claude Code returned invalid JSON. Check the CLI installation and diagnostic output.');
   } else if (!obj) {
     result = failure('invalid-response', 'Claude Code returned JSON that is not an object.');
-  } else if (obj.is_error || (typeof obj.subtype === 'string' && obj.subtype.startsWith('error'))) {
+  } else if (obj.is_error || errorSubtype) {
     result = failure('provider-error', `Claude Code reported an error.${response ? ` ${response.slice(0, 4096)}` : ''}`);
   } else if (!response.trim()) {
     result = failure('empty-response', 'Claude Code returned no response text.');
@@ -139,6 +146,7 @@ export function parseClaudeCodeResult(stdout: string, stderr: string, exitCode: 
   }
   result.exit_code = exitCode;
   if (diagnostic) result.stderr = diagnostic;
+  if (result.error?.code === 'budget') result.stderr = [diagnostic, `ERROR: ${result.error.message}`].filter(Boolean).join('\n');
   return result;
 }
 

@@ -5,7 +5,7 @@
  * floor, named patch-id refusal and branch-touched walk; the digit-bounded
  * stamp replacement.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -19,6 +19,7 @@ import { gitArgvIn } from './helpers/scratch-repo';
 const repos: FixtureRepo[] = [];
 const fixture = (opts: Parameters<typeof makeFixtureRepo>[0] = {}) => { const r = makeFixtureRepo({ prefix: 'ship-receipt-2-', ...opts }); repos.push(r); return r; };
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
+setDefaultTimeout(30_000);
 
 /** A repository with no VERSION, no package.json, no CHANGELOG and no policy: the shape E18 names. */
 function bareRepo(): FixtureRepo {
@@ -145,7 +146,7 @@ describe('E11: the documentation audit record and the doc caps', () => {
     const receipt = extractReceipt(fs.readFileSync(body, 'utf8'));
     expect(receipt.errors).toEqual([]);
     expect((receipt.receipt as any).docs).toEqual({ status: 'blocked', scope: 'docs/', exception: { accepted_by: 'owner', date: '2026-10-26', via: 'PR #9 review', reason: 'removed page republished in the next release' } });
-    expect(Object.keys(receipt.receipt!).slice(-2)).toEqual(['docs', 'review_loop']);
+    expect(Object.keys(receipt.receipt!).slice(-3)).toEqual(['docs', 'review_loop', 'gate_dispositions']);
     expect(runBin(repo, 'gstack-ship-receipt', ['read', '--body', body]).status).toBe(EXIT.ok);
     const malformed = runBin(repo, 'gstack-ship-receipt', [...common, '--docs', '{"status":"done","scope":"docs/"}']);
     expect(malformed.status).toBe(EXIT.fail);

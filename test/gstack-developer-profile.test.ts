@@ -1296,3 +1296,69 @@ describe('gstack-developer-profile --reconcile', () => {
     expect(readKey(read, 'LAST_ASSIGNMENT')).toBe('');
   });
 });
+
+
+// -----------------------------------------------------------------------
+// --kill-check: the newest approved commitment per project (GST-3024)
+// -----------------------------------------------------------------------
+
+describe('gstack-developer-profile --kill-check', () => {
+  function logCommitment(project_slug: string, kill_date: string, kill_test: string, date = '2026-11-01T10:00:00Z') {
+    expect(runDev('--log-session', JSON.stringify({ date, mode: 'commitment', project_slug, kill_date, kill_test })).status).toBe(0);
+  }
+  function logStartup(project_slug: string) {
+    expect(runDev('--log-session', JSON.stringify({
+      date: '2026-11-01T09:00:00Z', mode: 'startup', project_slug, signal_count: 0, signals: [],
+      design_doc: '', assignment: 'Send three priced payment links by Friday',
+    })).status).toBe(0);
+  }
+  const key = (out: string, k: string) => out.match(new RegExp(`^${k}: (.*)$`, 'm'))?.[1];
+
+  test('no commitment: a declined draft is never logged, so the check is empty', () => {
+    logStartup('alpha');
+    const r = runDev('--kill-check', 'alpha');
+    expect(r.status).toBe(0);
+    expect(key(r.stdout, 'KILL_DATE')).toBe('');
+    expect(key(r.stdout, 'KILL_TEST')).toBe('');
+    expect(key(r.stdout, 'KILL_DUE')).toBe('no');
+  });
+
+  test('an edited criterion: the newest approved line wins, and a past date is due', () => {
+    logCommitment('alpha', '2099-01-01', 'three organizers pay $40');
+    logCommitment('alpha', '2020-01-15', 'one organizer pays $40 before the event');
+    const r = runDev('--kill-check', 'alpha');
+    expect(key(r.stdout, 'KILL_DATE')).toBe('2020-01-15');
+    expect(key(r.stdout, 'KILL_TEST')).toBe('one organizer pays $40 before the event');
+    expect(key(r.stdout, 'KILL_DUE')).toBe('yes');
+  });
+
+  test('A then B then A: each project reads its own newest commitment', () => {
+    logCommitment('alpha', '2099-02-01', 'alpha first test');
+    logCommitment('beta', '2020-03-01', 'beta test');
+    logCommitment('alpha', '2099-04-01', 'alpha second test');
+    const a = runDev('--kill-check', 'alpha').stdout;
+    expect(key(a, 'KILL_TEST')).toBe('alpha second test');
+    expect(key(a, 'KILL_DUE')).toBe('no');
+    const b = runDev('--kill-check', 'beta').stdout;
+    expect(key(b, 'KILL_TEST')).toBe('beta test');
+    expect(key(b, 'KILL_DUE')).toBe('yes');
+    expect(key(runDev('--kill-check', 'gamma').stdout, 'KILL_DATE')).toBe('');
+  });
+
+  test('an empty slug is a usage error, never "nothing due"', () => {
+    const r = runDev('--kill-check', '');
+    expect(r.status).toBe(2);
+    expect(r.stdout).not.toContain('KILL_DUE');
+  });
+
+  test('commitment rows never count as sessions or move LAST_*', () => {
+    logStartup('alpha');
+    logCommitment('beta', '2099-01-01', 'beta test', '2026-11-02T10:00:00Z');
+    logCommitment('beta', '2099-01-02', 'beta test 2', '2026-11-03T10:00:00Z');
+    const read = runDev('--read').stdout;
+    expect(key(read, 'SESSION_COUNT')).toBe('1');
+    expect(key(read, 'LAST_PROJECT')).toBe('alpha');
+    expect(key(read, 'LAST_ASSIGNMENT')).toBe('Send three priced payment links by Friday');
+    expect(key(read, 'CROSS_PROJECT')).toBe('false');
+  });
+});

@@ -4,9 +4,15 @@ Read only when Step 19 printed `CAPY_PR: on`. Under Capy a person decides the me
 the READY report, through a Captain, so the body shows what changed in pictures, why, and who
 approved what. Guide: `captain.md` beside the Capy `gstack` skill's SKILL.md.
 
-**Order.** The `gstack-ship-receipt` block stays first when Step 19 writes one. Then `## What changed`,
-`## Why`, `## Blast radius` and `## Approvals`, then the standard sections below. Keep `## Summary` to
-commit themes; do not repeat the captions.
+**Order.** The plain opening lines come first (at most three), then `## What changed`, `## Why` and `## Blast radius`,
+then the standard sections. `## What changed` holds the pictures below, then the template's themes, without
+repeating the captions. gstack-post folds each into a collapsed section. `## Approvals` goes inside the closing
+Agent notes section, where `gstack-ship-receipt write` also puts the receipt. A body posted any other way,
+Capy's PR tool included, is folded first: pass the output of
+`~/.claude/skills/gstack/bin/gstack-post fold --body-file "$PR_BODY_FILE"` (it posts nothing, and exit 4
+with `PLAIN_BODY:` lines means rewrite the body file first). Under Capy `gstack-post` and the receipt
+commands never write through `gh`, which signs in as the owner: each prints `HOST_PUBLISH:` with the files to
+publish through the host's PR tool before the next step, to the `repo=` it names.
 
 1. **Pick the evidence:** one to three before/after pairs, highest-signal first. The first is the
    key image.
@@ -35,10 +41,11 @@ commit themes; do not repeat the captions.
    the failed run, or their request, quoted); the rest say what changes for them. No inventory: BAD "Adds
    a lint and a CI step." GOOD "'The review loop is too overzealous.' Pass 2 now reads only pass 1's range."
 6. **`## Blast radius`:** the body template's item, written once, here: what else the change touches and
-   the one fact that makes that safe, with the evidence-ladder rung it reached (the `/investigate` skill's Blast radius section, when present).
-7. **`## Approvals`:** the output of `~/.claude/skills/gstack/bin/gstack-approvals render`, verbatim. It
+   the one fact that makes that safe, with the evidence-ladder rung it reached (file:line read, walked failure path, script ran, repro).
+7. **`## Approvals`** (inside Agent notes): the output of `~/.claude/skills/gstack/bin/gstack-approvals render --plan "<the brief's Plan line>"`, verbatim. It
    escapes its cells, and the receipt never reads it as an approval citation. A public repo (or unknown
-   visibility) gets only `Approved: yes|no (record <id>)`; never pass `--full` for a PR body. On
+   visibility) gets only `Approved: yes|no (record <id>)` and `Plan: approved (record r-<id>)`; never pass `--full` for a PR body. If render
+   refuses with a `PLAN_*` code, it printed nothing: run the fix it names and render again. On
    `APPROVAL_RECORD_UNAVAILABLE` keep its text and say so in the READY report. Never type rows by hand.
 8. **READY report:** attach the key image's PNG to the report you send (Capy's message
    attachments) and give its uploaded URL, so the Captain can show it inline.

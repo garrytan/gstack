@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { freeTestsState, readinessDecision, screenTarget, waitForReadiness, type FreeTestsRun } from '../scripts/eval-readiness';
-import type { GhRunner } from '../scripts/recover-receipts';
+import type { GhRunner } from '../crew/scripts/recover-receipts';
 
 const HEAD = 'a'.repeat(40);
 const NEWER = 'b'.repeat(40);

@@ -1,0 +1,4 @@
+{
+  "bytes": 659,
+  "why": "Step 14.5 checks the docs audit's result line with gstack-docs-candidate result and feeds a malformed reply's retry note to the re-audit (GST-1843)"
+}

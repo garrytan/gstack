@@ -63,6 +63,30 @@ function symlinkedSkillMds(dir: string): string[] {
   return found;
 }
 
+/** Codex's runtime-root links to skills it already lists (setup's _link_codex_skill_refs). */
+const CODEX_SKILL_REFS = ['gstack-upgrade', 'office-hours', 'plan-design-review'];
+
+/**
+ * The SKILL.md files Codex 0.170 lists from dir, by its scan rule: it enters
+ * linked directories and nested ones, and skips a SKILL.md that is itself a
+ * symlink (verified with `codex debug prompt-input`, GST-3161). A skill listed
+ * twice injects nothing when named (GEVA-555).
+ */
+function codexListedSkillMds(dir: string, seen = new Set<string>()): string[] {
+  const real = realpathSync(dir);
+  if (seen.has(real)) return [];
+  seen.add(real);
+  const found: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    const st = lstatSync(p);
+    if (name === 'SKILL.md') { if (st.isFile()) found.push(p); continue; }
+    if (st.isDirectory() || (st.isSymbolicLink() && existsSync(p) && lstatSync(realpathSync(p)).isDirectory())) found.push(...codexListedSkillMds(p, seen));
+  }
+  return found;
+}
+const listedNames = (mds: string[]) => mds.map(md => readFileSync(md, 'utf8').match(/^name:\s*(\S+)/m)?.[1] ?? md);
+
 /**
  * Section pointers in installed SKILL.md files that do not resolve to a
  * readable file (INV-3, ENG-1). A pointer is "Read `<path>/sections/<f>.md`",
@@ -145,7 +169,18 @@ describe.skipIf(process.platform === 'win32')('host conformance kit', () => {
       // INV-3 install-level checks (C2, C3, ENG-1, ENG-14).
       if (host !== 'claude') {
         const runtimeRoot = rows[0][4];
-        expect(symlinkedSkillMds(dest), `${host}: symlinked SKILL.md files (Codex skips them)`).toEqual([]);
+        if (host === 'codex') {
+          // The runtime root's references to listed skills are links, so Codex lists each skill once.
+          expect(symlinkedSkillMds(dest).sort()).toEqual(CODEX_SKILL_REFS.map(s => join(runtimeRoot, s, 'SKILL.md')).filter(existsSync).sort());
+          for (const s of CODEX_SKILL_REFS) {
+            const ref = join(runtimeRoot, s, 'SKILL.md');
+            if (existsSync(ref)) expect(realpathSync(ref)).toBe(realpathSync(join(dest, `gstack-${s.replace(/^gstack-/, '')}`, 'SKILL.md')));
+          }
+          const listed = listedNames(codexListedSkillMds(dest));
+          expect(listed.filter((n, i) => listed.indexOf(n) !== i), 'skills Codex lists twice').toEqual([]);
+        } else {
+          expect(symlinkedSkillMds(dest), `${host}: symlinked SKILL.md files (Codex skips them)`).toEqual([]);
+        }
         for (const bin of ['design/dist/design', 'make-pdf/dist/pdf']) {
           expect(existsSync(join(runtimeRoot, bin)), `${host} runtime root ${bin}`).toBe(true);
         }
@@ -224,7 +259,7 @@ describe.skipIf(process.platform === 'win32')('host conformance kit', () => {
     expect(runSetup(f, join(src, 'setup'), ['--host', 'claude']).status).toBe(0);
     const sections = join(f.home, '.claude/skills/autoplan/sections');
     expect(lstatSync(sections).isSymbolicLink(), sections).toBe(true);
-    expect(readFileSync(join(f.home, '.claude/skills/autoplan/SKILL.md'), 'utf8')).toContain('Read `sections/unattended.md`, end here');
+    expect(readFileSync(join(f.home, '.claude/skills/autoplan/SKILL.md'), 'utf8')).toContain('Read `sections/unattended.md` and settle the gate');
     rmSync(join(src, 'autoplan/sections/unattended.md'));
     const status = runSetup(f, join(src, 'setup'), ['--status']);
     expect(status.status, status.stdout + status.stderr).toBe(1);
@@ -262,7 +297,36 @@ describe.skipIf(process.platform === 'win32')('host conformance kit', () => {
     expect(saved![1]).toBe(router);
     expect(saved![2].startsWith(join(f.home, '.gstack/backups/skill-copies/'))).toBe(true);
     expect(readFileSync(saved![2], 'utf8')).toEndWith('\nmy local note\n');
-    expect(upgrade.stdout).toContain(`refreshed SKILL.md copies in ${join(f.home, '.codex/skills/gstack')}: SKILL.md gstack-upgrade/SKILL.md office-hours/SKILL.md`);
+    expect(upgrade.stdout).toContain(`refreshed SKILL.md copies in ${join(f.home, '.codex/skills/gstack')}: SKILL.md\n`);
+  }, 90_000);
+
+  test('an existing Codex install with real copies of three skills is upgraded to list each skill once (GST-3161)', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.dir, 'gstack'));
+    expect(runSetup(f, join(src, 'setup'), ['--host', 'codex']).status).toBe(0);
+    const skills = join(f.home, '.codex/skills');
+    const root = join(skills, 'gstack');
+    // The layout setup wrote before GST-3161: real copies in the runtime root.
+    const refs = CODEX_SKILL_REFS.filter(s => existsSync(join(root, s, 'SKILL.md')));
+    expect(refs).toContain('office-hours');
+    for (const s of refs) {
+      const md = join(root, s, 'SKILL.md');
+      const body = readFileSync(md, 'utf8');
+      rmSync(md);
+      writeFileSync(md, body);
+    }
+    const before = listedNames(codexListedSkillMds(skills));
+    expect(before.filter(n => n === 'office-hours')).toHaveLength(2);
+
+    const upgrade = runSetup(f, join(src, 'setup'), ['--host', 'codex']);
+    expect(upgrade.status, upgrade.stdout + upgrade.stderr).toBe(0);
+    const after = listedNames(codexListedSkillMds(skills));
+    expect(after.filter((n, i) => after.indexOf(n) !== i)).toEqual([]);
+    expect(before.filter(n => !after.includes(n))).toEqual([]);
+    for (const s of refs) {
+      expect(lstatSync(join(root, s, 'SKILL.md')).isSymbolicLink()).toBe(true);
+      expect(readFileSync(join(root, s, 'SKILL.md'), 'utf8')).toContain(`name: ${s}`);
+    }
   }, 90_000);
 
   test('a Codex namespace captured by a vendored project copy is reported, never repointed (#2879)', () => {

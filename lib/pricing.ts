@@ -28,6 +28,13 @@ export interface ModelPricing {
   input_per_mtok: number;
   output_per_mtok: number;
   cached_input_per_mtok?: number;
+  /**
+   * Set when a newer major generation of this model's family has its own row
+   * here: the row that replaces it. gstack-eval-plan refuses a superseded
+   * model in every role a plan chooses (R116, docs/TESTING_INTERNALS.md#frontier-models-under-test).
+   * A point release (gpt-6-astra beside gpt-6.2-astra) is the same generation.
+   */
+  superseded_by?: string;
   as_of: string; // YYYY-MM
 }
 
@@ -47,29 +54,33 @@ export const PRICING: Record<string, ModelPricing> = {
   // https://platform.claude.com/docs/en/models/opus-5-5/overview#pricing (list prices effective 2026-10-07)
   'claude-opus-5-5':    { input_per_mtok: 4.00,  output_per_mtok: 20.00, cached_input_per_mtok: 0.20, as_of: '2026-10' },
   // https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-10-12)
-  'claude-opus-4-7':    { input_per_mtok: 5.00,  output_per_mtok: 25.00, cached_input_per_mtok: 0.50, as_of: '2026-10' },
+  'claude-opus-4-7':    { input_per_mtok: 5.00,  output_per_mtok: 25.00, cached_input_per_mtok: 0.50, superseded_by: 'claude-opus-5-5', as_of: '2026-10' },
   // https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-10-12)
   'claude-sonnet-5-5':  { input_per_mtok: 2.00,  output_per_mtok: 10.00, cached_input_per_mtok: 0.10, as_of: '2026-10' },
-  'claude-sonnet-4-6':  { input_per_mtok: 3.00,  output_per_mtok: 15.00, as_of: '2026-04' },
+  'claude-sonnet-4-6':  { input_per_mtok: 3.00,  output_per_mtok: 15.00, superseded_by: 'claude-sonnet-5-5', as_of: '2026-04' },
   // https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-10-31; standard tier, prompts up to
   // 100,000 tokens; the $0.50 / $2.50 / $0.05 rate above that is excluded like the other long-context surcharges)
   'claude-haiku-5-5':   { input_per_mtok: 0.10,  output_per_mtok: 0.50,  cached_input_per_mtok: 0.01, as_of: '2026-10' },
-  'claude-haiku-4-5':   { input_per_mtok: 1.00,  output_per_mtok: 5.00,  as_of: '2026-04' },
+  'claude-haiku-4-5':   { input_per_mtok: 1.00,  output_per_mtok: 5.00,  superseded_by: 'claude-haiku-5-5', as_of: '2026-04' },
 
   // OpenAI (GPT + o-series)
   // https://developers.openai.com/api/docs/models/gpt-6-astra
   'gpt-6-astra':        { input_per_mtok: 10.00, output_per_mtok: 50.00, cached_input_per_mtok: 1.00, as_of: '2026-09' },
   // https://developers.openai.com/api/docs/models/gpt-6.1-sol (standard tier, up to 272K input)
   'gpt-6.1-sol':        { input_per_mtok: 2.00,  output_per_mtok: 10.00, cached_input_per_mtok: 0.10, as_of: '2026-10' },
+  // https://developers.openai.com/api/docs/models/gpt-6.2-sol (fetched 2026-11-21; standard tier, up to 272K input)
+  'gpt-6.2-sol':        { input_per_mtok: 2.00,  output_per_mtok: 10.00, cached_input_per_mtok: 0.10, as_of: '2026-11' },
+  // https://developers.openai.com/api/docs/models/gpt-6.2-astra (fetched 2026-11-21; standard tier, up to 272K input)
+  'gpt-6.2-astra':      { input_per_mtok: 8.00,  output_per_mtok: 40.00, cached_input_per_mtok: 0.40, as_of: '2026-11' },
   // https://developers.openai.com/api/docs/models/gpt-6-luna (fetched 2026-10-31; standard tier, up to 272K input)
   'gpt-6-luna':         { input_per_mtok: 0.10,  output_per_mtok: 0.50,  cached_input_per_mtok: 0.01, as_of: '2026-10' },
-  'gpt-5.4':            { input_per_mtok: 2.50,  output_per_mtok: 10.00, as_of: '2026-04' },
+  'gpt-5.4':            { input_per_mtok: 2.50,  output_per_mtok: 10.00, superseded_by: 'gpt-6.2-sol', as_of: '2026-04' },
   // https://developers.openai.com/api/docs/models/gpt-4o (fetched 2026-10-13; gbrain's LongMemEval judge, the official scorer's model;
   // the alias only: the gpt-4o-2024-05-13 snapshot has its own price)
-  'gpt-4o':             { input_per_mtok: 2.50,  output_per_mtok: 10.00, cached_input_per_mtok: 1.25, as_of: '2026-10' },
-  'gpt-5.4-mini':       { input_per_mtok: 0.60,  output_per_mtok: 2.40,  as_of: '2026-04' },
-  'o3':                 { input_per_mtok: 15.00, output_per_mtok: 60.00, as_of: '2026-04' },
-  'o4-mini':            { input_per_mtok: 1.10,  output_per_mtok: 4.40,  as_of: '2026-04' },
+  'gpt-4o':             { input_per_mtok: 2.50,  output_per_mtok: 10.00, cached_input_per_mtok: 1.25, superseded_by: 'gpt-6.2-sol', as_of: '2026-10' },
+  'gpt-5.4-mini':       { input_per_mtok: 0.60,  output_per_mtok: 2.40,  superseded_by: 'gpt-6-luna', as_of: '2026-04' },
+  'o3':                 { input_per_mtok: 15.00, output_per_mtok: 60.00, superseded_by: 'gpt-6.2-sol', as_of: '2026-04' },
+  'o4-mini':            { input_per_mtok: 1.10,  output_per_mtok: 4.40,  superseded_by: 'gpt-6-luna', as_of: '2026-04' },
 
   // Google
   // https://ai.google.dev/gemini-api/docs/pricing (fetched 2026-10-31; the rates starting 2026-12-01, so estimates
@@ -81,9 +92,9 @@ export const PRICING: Record<string, ModelPricing> = {
   // https://ai.google.dev/gemini-api/docs/pricing (fetched 2026-10-12; same schedule as gemini-3.8-flash)
   'gemini-3.6-flash':   { input_per_mtok: 0.75,  output_per_mtok: 3.75,  cached_input_per_mtok: 0.075, as_of: '2026-10' },
   // https://ai.google.dev/gemini-api/docs/pricing (fetched 2026-10-12; prompts <= 200k tokens, the long-context rate is excluded)
-  'gemini-3.1-pro-preview': { input_per_mtok: 2.00, output_per_mtok: 12.00, cached_input_per_mtok: 0.20, as_of: '2026-10' },
-  'gemini-2.5-pro':     { input_per_mtok: 1.25,  output_per_mtok: 5.00,  as_of: '2026-04' },
-  'gemini-2.5-flash':   { input_per_mtok: 0.30,  output_per_mtok: 1.20,  as_of: '2026-04' },
+  'gemini-3.1-pro-preview': { input_per_mtok: 2.00, output_per_mtok: 12.00, cached_input_per_mtok: 0.20, superseded_by: 'gemini-4-argon', as_of: '2026-10' },
+  'gemini-2.5-pro':     { input_per_mtok: 1.25,  output_per_mtok: 5.00,  superseded_by: 'gemini-4-argon', as_of: '2026-04' },
+  'gemini-2.5-flash':   { input_per_mtok: 0.30,  output_per_mtok: 1.20,  superseded_by: 'gemini-3.8-flash', as_of: '2026-04' },
 
   // Particle AI: https://docs.particle.ai/usage-billing (fetched 2026-10-30; peak rates, off-peak and flex are 50% lower;
   // OpenRouter serves particle-ai/particle-1 at the same rates)
@@ -132,6 +143,16 @@ export function pricingRow(model: string | undefined): ModelPricing | undefined 
 
 export function hasPricing(model: string | undefined): boolean {
   return pricingRow(model) !== undefined;
+}
+
+/** gpt-4o in any variant, snapshot or provider form (`openrouter:openai/gpt-4o`, `gpt-4o-mini-2024-07-18`, `chatgpt-4o-latest`), priced or not. */
+const GPT_4O = /^(?:chatgpt-4o|gpt-4o)(?:$|-)/;
+
+/** The current model that replaces `model` when it is gpt-4o or a row marked `superseded_by` (R116), else null. */
+export function currentReplacement(model: string): string | null {
+  const segments = model.trim().toLowerCase().split(/[:/]/);
+  if (segments.some(s => GPT_4O.test(s))) return segments.some(s => /4o-mini/.test(s)) ? 'gpt-6-luna' : PRICING['gpt-4o']!.superseded_by!;
+  return pricingRow(model)?.superseded_by ?? null;
 }
 
 const WARNED = new Set<string>();

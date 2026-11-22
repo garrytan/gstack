@@ -14,7 +14,7 @@ import { spawnSync } from 'child_process';
 import {
   buildRenderScript, lengthToInches, paperInches, renderWithAside, RENDER_SENTINEL,
   resolveBrowseBin, browsePdfPayload, browseScreenshotArgs, renderWithBrowse, NO_BROWSER,
-  serveDir, pickEngine, SAFE_TMP_DIR,
+  serveDir, pickEngine, SAFE_TMP_DIR, noBrowserHelp, NO_BROWSER_HELP,
   type RenderSpec, type RenderResult, type AsideProbe, type EngineChoice,
 } from '../lib/aside-render';
 import { asideAvailable } from './helpers/aside-available';
@@ -185,6 +185,21 @@ describe('aside-render: browse fallback — binary resolution', () => {
     fs.mkdirSync(path.dirname(shim), { recursive: true });
     fs.writeFileSync(shim, `#!/bin/sh\necho ${builtB}\n`, { mode: 0o755 });
     expect(resolveBrowseBin(noPath, [rootC])).toBe(builtB);
+  });
+
+  test.skipIf(process.platform === 'win32')('a PATH browse that links to another program (Debian xdg-open) is not gstack\'s', () => {
+    const binDir = path.join(home, 'path-bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const xdg = fakeBin(binDir, 'xdg-open');
+    fs.symlinkSync(xdg, path.join(binDir, 'browse'));
+    expect(resolveBrowseBin({ PATH: binDir }, [empty])).toBeNull();
+    const realDir = path.join(home, 'path-real');
+    fakeBin(realDir, 'browse');
+    expect(resolveBrowseBin({ PATH: realDir }, [empty])).toBe(path.join(realDir, 'browse'));
+    const linkDir = path.join(home, 'path-link');
+    fs.mkdirSync(linkDir, { recursive: true });
+    fs.symlinkSync(builtA, path.join(linkDir, 'browse'));
+    expect(resolveBrowseBin({ PATH: linkDir }, [empty])).toBe(path.join(linkDir, 'browse'));
   });
 
   test('directories are never "executables"', () => {
@@ -948,6 +963,23 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
     expect(r.error).toContain('timed out after');
     expect(Date.now() - t0).toBeLessThan(8_000);
   }, 20_000);
+});
+
+describe('aside-render: missing-browser advice (#3735)', () => {
+  // Value: protects=Aside recovery advice only on macOS, bundled-browser advice everywhere; fails_when=Linux or Windows hosts are told to open the macOS-only Aside app, or a host loses the ./setup remedy; why_new=no test covered the advice per platform; seam=none
+  test.each(['linux', 'win32', 'darwin'] as const)('%s gets only the remedies it can use', (platform) => {
+    const help = noBrowserHelp(platform);
+    expect(help).toContain('./setup');
+    expect(help).toContain('GSTACK_BROWSE_BIN');
+    expect(help.includes('open the Aside app')).toBe(platform === 'darwin');
+    expect(help.includes('aside.com')).toBe(platform === 'darwin');
+  });
+
+  test('NO_BROWSER_HELP and the no-engine error use this host\'s advice', () => {
+    expect(NO_BROWSER_HELP).toBe(noBrowserHelp(process.platform));
+    const choice = pickEngine(true, { probe: () => ({ ok: false, reason: 'NEEDS_ASIDE', detail: 'stub' }), resolveBin: () => null });
+    expect(choice.engine === null && choice.error).toBe(`${NO_BROWSER}: ${NO_BROWSER_HELP} (NEEDS_ASIDE: stub)`);
+  });
 });
 
 describe('aside-render: pickEngine — cached engine choice through the probe/resolver seam', () => {

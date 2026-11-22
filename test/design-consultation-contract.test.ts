@@ -36,8 +36,10 @@ for (const { name: host } of ALL_HOST_CONFIGS) {
 
 test('creative wording leaves the review and scoring gates intact', () => {
   const ctx = context('codex');
-  expect(outsideVoiceInvocation(ctx, { timeoutMs: 300000 })).toContain('explicit no-findings rationale');
-  expect(outsideVoiceInvocation(ctx, { timeoutMs: 300000, gate: 'structured' })).toContain('severity-tagged findings');
+  expect(outsideVoiceInvocation(ctx, { timeoutMs: 300000 })).toContain('a Recommendation: <action> because <reason> line');
+  expect(outsideVoiceInvocation(ctx, { timeoutMs: 300000, gate: 'structured' })).toContain('[P0]-[P3] severity tags');
+  for (const gate of ['structured', 'review'] as const)
+    expect(outsideVoiceInvocation(ctx, { timeoutMs: 300000, gate })).toContain('`VERDICT: CLEAN` or `VERDICT: FINDINGS` as the last line');
   expect(outsideVoiceInvocation(ctx, { timeoutMs: 300000, gate: 'spec' })).toContain('SCORE: N');
 });
 

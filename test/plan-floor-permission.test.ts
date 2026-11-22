@@ -73,7 +73,7 @@ async function exercise(mode: Mode, kind: keyof typeof SEEDS = 'ceo', capture?: 
       expect(opts).toMatchObject({nativeReviewOnly:true,preconfiguredReviewActor:true});
       fixture = createPlanCountFixture(seed, opts);
       const config = fs.readFileSync(path.join(fixture.env.GSTACK_HOME,'config.yaml'),'utf8');
-      expect(config).toContain('routing_declined: true'); expect(config).toContain('cross_project_learnings: false');
+      expect(config).toContain('cross_project_learnings: false');
       expect(config).toContain('codex_reviews: disabled'); return fixture;
     },
     readPlanFloorTarget, currentFilePermissionBinding, readPendingWriteInput, isCroppedEditPermissionVisible,

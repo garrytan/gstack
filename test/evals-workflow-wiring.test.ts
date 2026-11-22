@@ -25,7 +25,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { buildRunManifest, isCodexShard, isOverlayTestFile, parseCliOptions, resolvePaidShardTimeoutMs, sliceExecutionOrder, sliceSupervisedWallMs, CI_SETUP_ALLOWANCE_MINUTES } from '../scripts/test-paid-shards';
-import { CENSUS_ARMS, MONTHLY_CENSUS_ARMS, MONTHLY_CENSUS_SCHEDULE, WEEKLY_CENSUS_ARMS, WEEKLY_CENSUS_SCHEDULE, censusArmEnv, censusMatrix, selectCensus } from '../scripts/census-arms';
+import { CENSUS_ARMS, MONTHLY_CENSUS_ARMS, MONTHLY_CENSUS_SCHEDULE, WEEKLY_CENSUS_ARMS, WEEKLY_CENSUS_SCHEDULE, censusArmEnv, censusMatrix, selectCensus } from '../crew/scripts/census-arms';
 
 const ROOT = path.join(import.meta.dir, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf-8');
@@ -211,16 +211,16 @@ describe('evals-periodic.yml sliced-lane wiring', () => {
     expect(executor['timeout-minutes']).toBe('${{ matrix.timeout }}');
     expect(executor.steps[0]!.run).toBe('echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"');
     expect(planner.outputs!.gate_matrix).toBe('${{ steps.gate-matrix.outputs.gate_matrix }}');
-    expect(planner.steps.find(step => step.id === 'gate-matrix')!.run).toBe('bun --no-install run scripts/census-arms.ts --matrix /tmp/gate-census-plan "$ARMS" >> "$GITHUB_OUTPUT"');
+    expect(planner.steps.find(step => step.id === 'gate-matrix')!.run).toBe('bun --no-install run crew/scripts/census-arms.ts --matrix /tmp/gate-census-plan "$ARMS" >> "$GITHUB_OUTPUT"');
     const emit = planner.steps.filter(step => step.run?.includes('--emit-plan "/tmp/gate-census-plan/$arm/manifest.json" '));
     expect(emit).toHaveLength(1);
-    expect(emit[0]!.run).toContain('mapfile -t arm_env < <(bun --no-install run scripts/census-arms.ts --env "$arm")');
+    expect(emit[0]!.run).toContain('mapfile -t arm_env < <(bun --no-install run crew/scripts/census-arms.ts --env "$arm")');
     expect(emit[0]!.run).toContain('env "${arm_env[@]}" EVALS_TIER=gate bun run scripts/test-paid-shards.ts');
     const execute = executor.steps.filter(step => step.run?.includes('--plan '));
     expect(execute).toHaveLength(1);
     expect(execute[0]!.run).toContain('--plan /tmp/gate-census-plan/${{ matrix.arm }}/manifest.json --slice ${{ matrix.slice }}');
     // The executor runs with its arm's host and model, and downloads every arm's plan.
-    expect(executor.steps.find(step => step.name === "Select the census arm's host and model")!.run).toBe('bun --no-install run scripts/census-arms.ts --env "$ARM" >> "$GITHUB_ENV"');
+    expect(executor.steps.find(step => step.name === "Select the census arm's host and model")!.run).toBe('bun --no-install run crew/scripts/census-arms.ts --env "$ARM" >> "$GITHUB_ENV"');
     expect(executor.steps.some(step => step.with?.path === '/tmp/gate-census-plan')).toBe(true);
     const cliArgs = (run: string) => {
       const command = /\bbun(?: --no-install)? run scripts\/test-paid-shards\.ts (.*)$/m.exec(run)!;
@@ -424,7 +424,7 @@ describe('panel verdict surfaces (eval reliability policy)', () => {
       const uploads = Object.values(jobs).flatMap(job => job.steps).filter(step => step.uses?.startsWith('actions/upload-artifact@'))
         .map(step => step.with?.name ?? '').filter(name => /slice|census-\$/.test(name))
         // GSTA-49 T1b: the train record keeps the fixed name gstack-ship-queue reads; it is built from the
-        // first attempt's slice results only (scripts/train-gate.ts buildTrainRecord), so a re-run cannot change it.
+        // first attempt's slice results only (crew/scripts/train-gate.ts buildTrainRecord), so a re-run cannot change it.
         .filter(name => name !== '${{ needs.plan-slices.outputs.record_artifact }}');
       expect(uploads.length).toBeGreaterThan(0);
       for (const name of uploads) expect(name, name).toContain('-a${{ github.run_attempt }}');
@@ -493,11 +493,11 @@ describe('scheduled paid lanes: concurrency and branch dispatch scope', () => {
   test('a branch dispatch of evals-periodic runs the periodic lane only unless it opts into the gate census', () => {
     const wf = parse(periodicYml);
     expect(wf.on.workflow_dispatch!.inputs!.include_gate_census).toMatchObject({ type: 'boolean', default: false });
-    // The planner selects the census arms (scripts/census-arms.ts); no arm, no census job.
+    // The planner selects the census arms (crew/scripts/census-arms.ts); no arm, no census job.
     expect(wf.jobs['gate-census']!.if).toBe("${{ needs.plan-slices.outputs.gate_matrix != '[]' }}");
     const select = wf.jobs['plan-slices']!.steps.find(step => step.id === 'census')!;
     expect(select.env?.INCLUDE_GATE_CENSUS).toBe("${{ github.ref == 'refs/heads/main' || inputs.include_gate_census }}");
-    expect(select.run).toBe('bun --no-install run scripts/census-arms.ts --select >> "$GITHUB_OUTPUT"');
+    expect(select.run).toBe('bun --no-install run crew/scripts/census-arms.ts --select >> "$GITHUB_OUTPUT"');
     expect(selectCensus({ schedule: '', censusArms: '', includeGateCensus: false })).toEqual({ arms: [], periodicLane: true });
     expect(selectCensus({ schedule: WEEKLY_CENSUS_SCHEDULE, includeGateCensus: true })).toEqual({ arms: [...WEEKLY_CENSUS_ARMS], periodicLane: true });
     const report = wf.jobs.report!.steps;
@@ -561,7 +561,7 @@ describe('evals-periodic.yml census arms: Monday two-arm census, monthly Fable/A
     expect(selectCensus({ censusArms: 'claude-opus, codex-sol,codex-sol', includeGateCensus: false })).toEqual({ arms: ['claude-opus', 'codex-sol'], periodicLane: false });
     expect(() => selectCensus({ censusArms: 'codex-sol,gpt', includeGateCensus: false })).toThrow('unknown census arm(s): gpt');
     const cli = (args: string[], env: Record<string, string>) => {
-      const proc = spawnSync(process.execPath, ['--no-install', 'run', 'scripts/census-arms.ts', ...args],
+      const proc = spawnSync(process.execPath, ['--no-install', 'run', 'crew/scripts/census-arms.ts', ...args],
         { cwd: ROOT, env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf8', timeout: 15_000 });
       expect(proc.status, proc.stderr).toBe(0);
       return proc.stdout;

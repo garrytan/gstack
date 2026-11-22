@@ -31,6 +31,15 @@ priced pilot (three items per arm, settled against the invoice, extrapolated
 with an error band). Only then is the owner asked to approve the full run. Every
 step prints one grep-able line; a parent agent reads the lines, not this prose.
 
+## Step 0: Size the question
+
+First name the decision: what we do differently for each way the result could come
+out. If no result changes what we do, don't run it. For a small question ("does this
+edit help?"), offer a quick look first: at most 100 dollars paid and one day, a
+three-line plan (`prereg --init <path> --quick`) that publishes no number
+(`results --check` refuses one, `EVAL_QUICK_LOOK_NO_NUMBER`). Anything that publishes
+a number or ships a cut is a counted run: Steps 1 to 5.
+
 Usage: `/eval-plan [<prereg.md>] [--input <rows.jsonl>] [--arms <model,model>] [--cap <usd>] [--total <items>]`
 
 ## Boundaries
@@ -56,12 +65,18 @@ Write (or open) the preregistration file. Each section is required and must be f
 
 | Section | What it holds |
 |---|---|
-| Bars | one line per metric: name, pass bar, direction, what a miss means for the decision |
+| Bars | `lesson:` the public lesson the run is after, then one line per metric: name, pass bar, direction |
+| Decisions | one `if <result>: <what we do>` line per way the run can come out, at least two, with different actions |
 | Arms | one line per arm: the arm identity first (`<model>` or `<model>#<loadout>`), settings, per-item cost from Step 1b |
 | Comparison | `stack: loaded` when any arm loads gstack or another skill stack; otherwise `stack: none` and a `why:` line |
+| Models | optional: `reader:` and `simulator:` lines for every other model the run starts; `vendor-default: <model> <system>` for a competitor system's built-in model when that system is tested as its vendor ships it |
+| Scoring | `judge: none` or the judge model with `labels:`, `agreement:`, `per-arm: yes` and `effort:`; with two or more arms, `paired: yes`, `interval: 95%`, `mdd:` |
+| Pilot | per arm, uncounted: `share:` (at most 10% of the arm's budget), `counted: no`, `ran:`, `judge:`, `supply:`, `units:` (every unit type), `seed:` (a draw order that doesn't depend on the number of workers) |
+| Cost | `paid:` a plain dollar amount (no k, ranges or arithmetic), `meter:`, `ledger:` (the private file that gets the actual cost and the decision it settled) |
+| Interim look | only when `paid:` is above 500 dollars: `at: 50%`, `looks: 1`, `bounds: O'Brien-Fleming`, `futility:` |
 | Decoys | inputs the scorer must reject or score low; how many, how they were made, what a decoy pass proves |
 | Stop rules | the spend cap, a bar missed on the pilot, a scorer below its bar, `budget_exhausted`, the first quota or rate-limit error on a seat-metered arm |
-| Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it |
+| Held-out exposure | every held-out set the plan touches: prior exposure (which runs, which models), the reservation on it; and how each task machine was checked, before any session, for answers the agent could read there (other git refs such as `git log --all`, build and package caches, archives and the task's own work tree; never a sweep of `/`, runner state or `~/.ssh`); and, when a grader runs git in the agent's repo, how it treats that repo as hostile (below) |
 | No-gstack arm | required with `stack: loaded` (below) |
 
 ```bash
@@ -84,6 +99,16 @@ gstack skill file is contaminated and gets zero credit.
 `PREREG_NO_GSTACK_ARM` (exit 1) names what is missing. The PREREG line shows
 `stack=loaded no_gstack_arm=ok` when it is complete, or `stack=none` for an opt-out.
 
+**A grader treats the agent's repo as hostile.** A grader that runs git inside a repo the
+agent worked in runs it against a sanitized copy of `.git`: no repo, system or global
+config, no hooks, no attributes (`.gitattributes` or `info/attributes`), no textconv or
+external diff, and no signature display. The copied index files keep their original
+timestamps, because a fresh mtime turns off git's same-second check and a same-second,
+same-size edit then reads as committed. The grader's environment holds no API keys, and a
+test plants each of these settings and asserts that nothing runs. On one eval, a planted
+`core.fsmonitor`, a clean filter, or `gpg.program` with `log.showSignature` each ran code
+on the grading machine next to the proxy that held the keys.
+
 When the summarizer counts diagnostics, declare them before the freeze commit in a
 `## Diagnostics` section: `summarizer: <command naming {fixture}>`, `fixture: <synthetic
 records file>`, and one `| diagnostic | expected |` row per diagnostic, with the count the
@@ -91,7 +116,29 @@ fixture is built to produce. The summarizer's last stdout line is one JSON objec
 Then run `prereg --check <path> --allow-repo-commands`. Without the flag, the summarizer is
 listed and the check exits 3. Every `PREREG_DIAGNOSTIC:` line must say `ok`.
 `PREREG_DIAGNOSTIC_UNTESTED` (exit 1) means a count, a missing diagnostic or an
-undeclared one does not match its definition. Fix that before you freeze.
+undeclared one does not match its definition. Fix that before you freeze. Any count
+the results may report as zero is declared here with a planted case: its fixture holds
+at least one, so `expected` is 1 or more and the summarizer is shown to find it.
+
+**Result checks** (docs/TESTING_INTERNALS.md#result-checks). `prereg --check` runs them;
+`PREREG_INCOMPLETE` names the line that fails:
+
+1. **Decisions before spend.** Each possible result names what we do differently. If
+   every result leads to the same action, the eval changes nothing: do not run it.
+2. **A checked judge.** A model judge comes from another model family than every arm,
+   is checked against at least 100 hand-labelled outputs (40 for a plan frozen before
+   2026-11-22; never held-out rows) at a kappa of 0.6 or better, and the comparison is paired with a 95% interval and its
+   smallest detectable difference stated now.
+
+3. **The eval-loop checks** (docs/TESTING_INTERNALS.md#eval-loop-checks): the Pilot,
+   Cost and (above 500 dollars paid) Interim look sections; the judge's `per-arm:` and
+   `effort:`; a `regression test` bar beside any arm that asks for a smaller change
+   or less code, because a shorter diff can come from skipping the test; and an
+   `answers:` line under Held-out exposure.
+
+A `frozen: YYYY-MM-DD` line before 2026-11-15 keeps the rules it was frozen under
+(`result_checks=exempt`); one before 2026-11-21 skips item 3 (`loop_checks=exempt`)
+and keeps the models it named.
 
 ### Step 1b: Arms and their price
 
@@ -108,9 +155,15 @@ page or drop the arm. Copy the priced arms into the Arms section. An arm identit
 `<model>#<loadout>` (for example `claude-opus-5-5#no-gstack`) is priced by its model and
 gets its own pilot attempts; naming one identity twice is `EVAL_ARM_DUPLICATE`.
 
-Models under test are frontier models (`claude-opus-5-5`, `gpt-6.1-sol`, at most one named
+Models under test are frontier models (`claude-opus-5-5`, `gpt-6.2-sol`, at most one named
 low-cost primary); a Haiku or Sonnet arm only with a stated tier question
-(docs/TESTING_INTERNALS.md#frontier-models-under-test).
+(docs/TESTING_INTERNALS.md#frontier-models-under-test). Judges: `gpt-6-astra` or
+`gpt-6.2-astra` for Claude arms, `claude-opus-5-5` for GPT arms. No arm, judge, reader or
+simulator may be gpt-4o or a model `lib/pricing.ts` marks `superseded_by` (R116): `prereg
+--check` prints `MODEL_GENERATION: refused <model> role=<role> replacement=<model>` and
+exits 1 (`EVAL_MODEL_OLD_GENERATION`); `dry-run` and `pilot start` refuse such an arm too.
+The one exception is a competitor system tested as its vendor ships it: its built-in model
+goes on a `vendor-default:` line, `MODEL_EXCEPTION:` records it, and the results name it.
 
 When the repo commits `.gstack/eval-models.json` (allow, deny, per-scope lists, families
 newest first; `docs/eval-models.md` in gstack), `arms`, `dry-run`, `pilot start` and
@@ -167,6 +220,7 @@ the budget the run will use. The checklist printed must be all `ok`:
 - `CHECK: reservation-fits-cap` (with `--cap <cap-usd>`) — one call, the largest row plus the
   output budget, priced, fits under the cap; a provider refuses a reservation the cap cannot hold.
 - `CHECK: frontier` — Haiku/Sonnet arms: `refused` if all (pass `--tier-question "<why>"`), `warn` if some; re-costs on frontier prices.
+- `CHECK: model-generation` — an arm is gpt-4o or superseded (R116): refused, with the replacement.
 - `DRY_RUN_ROW:` lines name rows missing a field; fix the rows, not the prompt.
 
 `DRY_RUN_RESULT: pass` writes `dry-run.json` to `--out`; the pilot refuses to start on
@@ -177,6 +231,12 @@ anything else (`EVAL_DRY_RUN_FAILED`).
 ```bash
 ~/.claude/skills/gstack/bin/gstack-eval-plan pilot start --out <outdir> --cap <cap-usd> --arms <picked-models> --dry-run <path>
 ```
+
+The pilot is uncounted and runs per arm, on at most a tenth of that arm's budget. It shows,
+on that arm's own outputs, that the part under test ran, that the judge passes its label check
+there, and that the units can be supplied. It draws at least one unit of every type the
+counted run uses, in an order from a fixed seed, so a restart at another concurrency draws the
+same items. An arm that fails is fixed or left out, and reported as left out.
 
 `pilot start` reserves three attempts per arm through the spend ledger (`spend.json` in
 `--out`): admission is `spent + reserved + unknown + estimate <= cap`, under a file lock
@@ -206,6 +266,21 @@ the preregistration, when `status=budget_exhausted`, or when `verdict=exceeds`.
 
 ## Step 4: The approval ask
 
+With a model judge, check it before asking. Label at least the preregistered number of
+outputs by hand as `{"id", "human", "judge"}` JSONL (development or calibration rows),
+then:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-eval-plan judge --check <prereg-path> --labels <labels-path>
+```
+
+Give each label row its `"arm"`: with `per-arm: yes`, each `JUDGE_ARM:` line must meet the
+bar on its own. Start every judge or reader subagent with its model and reasoning effort
+set; left unset, it inherits its parent's, and a reader that inherited the highest effort
+cost about four times the default. `JUDGE_AGREEMENT: ok` continues. `EVAL_JUDGE_UNCHECKED` (exit 1) means too few labels,
+one class, or kappa below the bar: replace the judge or fix its prompt, then
+relabel; never lower the bar.
+
 Price every paid gate the plan names (a benchmark or eval command that spends) from the
 repo's call-plan file; nothing is executed (`docs/eval-calls.md` in gstack). The gate
 command is free text, so it reaches the pricer only as a file:
@@ -224,7 +299,8 @@ Each `GATE_PRICE:` line goes into the ask. `EVAL_GATE_UNPRICED`, `EVAL_PLAN_STAL
 `--allow-unpriced "<reason>"` only on the owner's word.
 
 Present, in this order and nothing before it: the `PILOT_PROJECTION:` line, the spend
-table, each gate's `GATE_PRICE:` line, the pilot's per-bar results, and the preregistration's stop rules. Then ask one
+table, each gate's `GATE_PRICE:` line, the pilot's per-bar results, the `JUDGE_AGREEMENT:`
+line, the preregistration's Decisions lines, and its stop rules. Then ask one
 question with the projection as the recommended option only when `verdict=within`:
 
 - A) Run `<total-items>` items at the projected cost (recommended when within the cap)
@@ -234,7 +310,9 @@ question with the projection as the recommended option only when `verdict=within
 Under `SESSION_KIND: unattended` write the question as an `approval` gate item through
 `gstack-gate` and end with `GSTACK_RESULT: skill=eval-plan status=gate_pending run=<outdir>`.
 The full run, when approved, keeps settling every attempt into the same ledger and reprints
-the spend table at each gate; `budget_exhausted` stops it.
+the spend table at each gate; `budget_exhausted` stops it. Above 500 dollars paid it takes the one
+preregistered look at half the units and stops on its O'Brien-Fleming or futility bound;
+it takes no other look.
 
 ## Step 5: Results beside the no-gstack arm
 
@@ -243,12 +321,27 @@ from the Arms section, each `<model>#no-gstack` row beside its variants. Before 
 leaves the run (a report, a READY block, a PR body), check it:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-eval-plan results --check <prereg-path> <results-path>
+~/.claude/skills/gstack/bin/gstack-eval-plan results --check <prereg-path> <results-path> [--labels <labels-path>]
 ```
 
-`RESULTS: ok` lets the numbers go out. `EVAL_REPORT_NO_GSTACK_ROW` (exit 1) names the arm
-whose filled row is missing from the table that holds the others; add it and rerun. A
-preregistration with `stack: none` needs no row.
+`RESULTS: ok` lets the numbers go out. Each refusal exits 1:
+
+- `EVAL_REPORT_NO_GSTACK_ROW` names the arm whose filled row is missing from the table
+  that holds the others; add it. A preregistration with `stack: none` needs no row.
+- `EVAL_JUDGE_UNCHECKED`: a model judge's numbers count only with `--labels` passing.
+- `EVAL_REPORT_UNPLANTED_ZERO`: a zero in any results table, in a column not named after
+  a Diagnostics counter with a planted case. Declare and run it, or report the zero as
+  unverified, outside the tables.
+- `EVAL_REPORT_NO_ANSWER_ONLY`: a failures column needs an `answer-only` column beside
+  it (failures by the grader's own rule on the final answer); a broader count can rise
+  while that one stays flat.
+
+Write the actual paid and meter cost, and the decision the run settled (or "none"), to the
+Cost section's `ledger:` file; the public page carries the decision, not the cost.
+
+The results file opens with two or three plain takeaways ("We learned X. You should do
+X."): what works first, then what didn't, with its number. Cost appears only as part of a
+lesson, and nothing is opened without a stated reason (ETHOS.md, Explain the Number).
 
 ## Tier 3, after P7 (not in this skill yet)
 

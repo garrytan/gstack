@@ -57,7 +57,8 @@ import {
   realpathSync,
 } from "fs";
 import { join, basename, dirname, delimiter, relative } from "path";
-import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
+import { execFileSync, spawn, type ChildProcess } from "child_process";
+import { spawnSync } from "../lib/spawn-sync";
 import { homedir } from "os";
 import { createHash } from "crypto";
 
@@ -195,6 +196,8 @@ interface BulkResult {
   /** #2392: transcripts skipped because their remote's trust tier is `deny`. */
   skipped_policy_deny: number;
   failed: number;
+  /** Source files that could not be parsed, counted in failed; not import failures. */
+  parse_failed?: number;
   duration_ms: number;
   partial_pages: number;
   /** A1: pages gbrain refused or that were not found after import (retried next run). */
@@ -2134,6 +2137,7 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
       skipped_policy_readonly: prep.skippedPolicyReadonly,
       skipped_policy_deny: prep.skippedPolicyDeny,
       failed: prep.parseFailed + prep.prepared.length,
+      parse_failed: prep.parseFailed,
       duration_ms: Date.now() - t0,
       partial_pages: prep.partialPages,
       system_error: prep.policyError,
@@ -2159,6 +2163,7 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
       skipped_policy_readonly: prep.skippedPolicyReadonly,
       skipped_policy_deny: prep.skippedPolicyDeny,
       failed: prep.parseFailed,
+      parse_failed: prep.parseFailed,
       duration_ms: Date.now() - t0,
       partial_pages: prep.partialPages,
     };
@@ -2180,6 +2185,7 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
       skipped_policy_readonly: prep.skippedPolicyReadonly,
       skipped_policy_deny: prep.skippedPolicyDeny,
       failed: prep.parseFailed,
+      parse_failed: prep.parseFailed,
       duration_ms: Date.now() - t0,
       partial_pages: prep.partialPages,
     };
@@ -2198,6 +2204,7 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
       skipped_policy_readonly: prep.skippedPolicyReadonly,
       skipped_policy_deny: prep.skippedPolicyDeny,
       failed: prep.parseFailed + prep.prepared.length,
+      parse_failed: prep.parseFailed,
       duration_ms: Date.now() - t0,
       partial_pages: prep.partialPages,
       system_error: msg,
@@ -2262,6 +2269,7 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
         written: 0,
         skipped_secret: prep.skippedSecret + (r.scannerFailed ? 1 : 0),
         failed: prep.parseFailed + prep.prepared.length,
+        parse_failed: prep.parseFailed,
         duration_ms: Date.now() - t0,
         system_error: r.error,
       };
@@ -2287,7 +2295,7 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
     const msg = `EGRESS_RECEIPT_FAILED: ${(err as Error).message} — ingest refused`;
     console.error(`[memory-ingest] ERR: ${msg}`);
     if (resumed && !args.scanSecrets) cleanupStagingDir(resumed.stagingDir);
-    return { ...base, state_untouched: true, written: 0, failed: prep.parseFailed + prep.prepared.length, duration_ms: Date.now() - t0, system_error: msg };
+    return { ...base, state_untouched: true, written: 0, failed: prep.parseFailed + prep.prepared.length, parse_failed: prep.parseFailed, duration_ms: Date.now() - t0, system_error: msg };
   }
 
   const run: RunContext = {
@@ -2343,6 +2351,7 @@ async function ingestPassScoped(args: CliArgs, state: IngestState, scope: Transc
     ...base,
     written: run.written,
     failed: run.failed + prep.parseFailed,
+    parse_failed: prep.parseFailed,
     refused: run.refused,
     unverified: check.unverified,
     quarantined: run.quarantined,
@@ -2406,8 +2415,10 @@ export function transcriptSourceId(remote: string): string {
  */
 function brainIsRemote(remoteHttpMode: boolean): boolean {
   if (remoteHttpMode) return true;
+  const configDir = gbrainConfigDir();
+  if (!configDir) return false;
   try {
-    const cfg = JSON.parse(readFileSync(join(gbrainConfigDir(), "config.json"), "utf-8"));
+    const cfg = JSON.parse(readFileSync(join(configDir, "config.json"), "utf-8"));
     return (typeof cfg?.database_url === "string" && cfg.database_url.trim() !== "" && cfg.engine !== "pglite") || !!cfg?.remote_mcp;
   } catch {
     return false;
@@ -3234,6 +3245,12 @@ async function runLocked(args: CliArgs): Promise<number> {
 
   const t0 = Date.now();
   const result = await ingestPass(args, state);
+  // /sync-gbrain reads the counts here: per-page failures exit 0 (#4417).
+  if (process.env.GSTACK_INGEST_RESULT_FILE) {
+    try {
+      writeFileSync(process.env.GSTACK_INGEST_RESULT_FILE, JSON.stringify({ written: result.written, failed: result.failed, parse_failed: result.parse_failed ?? 0 }));
+    } catch {}
+  }
   if (!result.state_untouched) {
     // A pending reconcile (set by the upgrade migration or a schema migration)
     // gets one bounded pass per ingest run until it completes.

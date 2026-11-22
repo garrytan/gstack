@@ -1,7 +1,11 @@
 import { expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { computePaidCaseSelection } from '../scripts/test-paid-shards';
 import { PR_PROFILE_CASE_IDS, selectPrProfile, type PrProfileMaps } from '../scripts/test-pr-profile';
 import { E2E_TIERS, E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
+
+const ROOT = path.resolve(import.meta.dir, '..');
 
 const sharedInputs = [
   'package.json', 'bun.lock', '.github/docker/Dockerfile.ci',
@@ -114,8 +118,10 @@ const setupScreens: Record<string, string[]> = {
 const screen = (policy: 'narrow' | 'broad', changedFiles: string[]) => computePaidCaseSelection({
   profile: 'pr', env: { EVALS_BASE: 'fixture-base', EVALS_SCREEN_POLICY: policy }, changedFiles, packageVersionOnly: false });
 
+// GST-1717 deleted the /investigate gate files: a deleted hook under hosts/claude/hooks/ is still "referenced" by setup's
+// hook paths and restores the full gate, so the replay screens only the files that still exist.
 test.each(Object.entries(setupScreens))('a narrow screen of %s derives setup and selects its six cases', (_pr, files) => {
-  const result = screen('narrow', files);
+  const result = screen('narrow', files.filter(file => fs.existsSync(path.join(ROOT, file))));
   expect(result.coverage?.mode).not.toBe('full-fallback');
   expect(result.selection.e2e).toEqual(setupHookCases);
   expect(result.coverage?.reasons.join('\n')).not.toContain('Shared runtime/build inputs');

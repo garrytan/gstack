@@ -29,10 +29,10 @@
  * than building a gstack-side daemon.
  */
 
-import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync, realpathSync, readdirSync, appendFileSync } from "fs";
+import { existsSync, statSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync, unlinkSync, renameSync, realpathSync, readdirSync, appendFileSync } from "fs";
 import { join, dirname, basename, isAbsolute } from "path";
 import { execSync, spawnSync } from "child_process";
-import { homedir, hostname } from "os";
+import { homedir, hostname, tmpdir } from "os";
 import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
@@ -262,32 +262,88 @@ function isArtifactsSourceRow(r: { local_path?: string }, env?: NodeJS.ProcessEn
 }
 
 /**
- * A5 (#2670): after a successful artifacts push, report what gbrain actually
- * holds. A git push is not indexing; a maintained artifacts source with zero
- * pages is the one provably broken state and fails the stage.
+ * A5 (#2670): after an artifacts drain, report what gbrain actually holds. A
+ * git push is not indexing; a maintained artifacts source with zero pages is
+ * the one provably broken state and fails the stage. `lead` says what the
+ * drain did.
  */
-export function brainSyncIndexVerdict(env: NodeJS.ProcessEnv = process.env): { ok: boolean; summary: string } {
+export function brainSyncIndexVerdict(
+  env: NodeJS.ProcessEnv = process.env,
+  lead = "curated artifacts pushed to git",
+): { ok: boolean; summary: string } {
   const raw = execGbrainJson(["sources", "list", "--json"], { baseEnv: env, timeout: 10_000 });
   if (raw === null) {
-    return { ok: true, summary: "curated artifacts pushed to git; gbrain page count unavailable (gbrain sources list failed)" };
+    return { ok: true, summary: `${lead}; gbrain page count unavailable (gbrain sources list failed)` };
   }
   const explicit = env.GSTACK_BRAIN_SOURCE_ID;
   const row = parseSourcesList(raw).find((r) => (explicit ? r.id === explicit : isArtifactsSourceRow(r, env)));
   if (!row?.id) {
-    return { ok: true, summary: "curated artifacts pushed to git (no gbrain artifacts source on this machine, so indexing is not checked here)" };
+    return { ok: true, summary: `${lead} (no gbrain artifacts source on this machine, so indexing is not checked here)` };
   }
   if (typeof row.page_count !== "number") {
-    return { ok: true, summary: `curated artifacts pushed to git; gbrain source ${row.id} did not report a page count` };
+    return { ok: true, summary: `${lead}; gbrain source ${row.id} did not report a page count` };
   }
   if (row.page_count === 0) {
     return {
       ok: false,
-      summary:
-        `curated artifacts pushed to git, but gbrain source ${row.id} has 0 indexed pages. ` +
-        `Fix: gbrain sync --source ${row.id}, then re-run /sync-gbrain`,
+      summary: `${lead}, but gbrain source ${row.id} has 0 indexed pages. Fix: gbrain sync --source ${row.id}, then re-run /sync-gbrain`,
     };
   }
-  return { ok: true, summary: `curated artifacts pushed; gbrain source ${row.id} has ${row.page_count} pages` };
+  return { ok: true, summary: `${lead}; gbrain source ${row.id} has ${row.page_count} pages` };
+}
+
+/**
+ * The brain-sync row (#4418). `gstack-brain-sync --once` exits 0 when its push
+ * fails (the commit is kept and retried), so the row comes from the status the
+ * drain wrote, and only a drain whose status is ok says "pushed". `drain` is
+ * null when this run wrote no status (sync off, or another drain held the lock).
+ */
+export function brainSyncStageVerdict(
+  drain: { status?: unknown; message?: unknown } | null,
+  env: NodeJS.ProcessEnv = process.env,
+): { ok: boolean; warn?: boolean; summary: string } {
+  if (!drain) return brainSyncIndexVerdict(env, "no artifacts drain ran (artifacts sync is off, or another sync held the lock), so nothing was pushed");
+  const status = typeof drain.status === "string" ? drain.status : "unknown";
+  const message = (typeof drain.message === "string" ? drain.message : "").slice(0, 400);
+  const detail = `${status}: ${message || "no message"}; details: gstack-brain-sync --status`;
+  if (status === "ok") return brainSyncIndexVerdict(env);
+  if (status === "idle") return brainSyncIndexVerdict(env, `nothing new to push (${message || "idle"})`);
+  if (status === "held" || status === "collision") {
+    const v = brainSyncIndexVerdict(env, `artifacts not all pushed (${detail})`);
+    return { ...v, warn: v.ok };
+  }
+  return { ok: false, summary: `artifacts not pushed (${detail})` };
+}
+
+/**
+ * The memory row (#4417). gstack-memory-ingest exits 0 when single pages fail
+ * (they are retried next run), so the exit code alone printed OK with every
+ * page refused. The counts decide: a failed page makes the row WARN, and a run
+ * that imported nothing while pages failed is ERR. A source file that could not
+ * be parsed is never retried as an import, so it is a note, not a failure.
+ */
+export function memoryStageVerdict(
+  status: number | null,
+  stderr: string,
+  counts: { written?: unknown; failed?: unknown; parse_failed?: unknown } | null,
+): { ok: boolean; warn?: boolean; summary: string } {
+  const memLines = stderr.split("\n").filter((l) => l.includes("[memory-ingest]"));
+  const errLine = memLines.find((l) => l.includes("[memory-ingest] ERR"));
+  const summary = (errLine || memLines.slice(-1)[0] || "ingest pass complete")
+    .replace(/^.*\[memory-ingest\]\s*/, "")
+    .replace(/^ERR:\s*/, "");
+  if (status !== 0) {
+    return { ok: false, summary: `${summary}${status === null ? " (killed by signal / timeout)" : ` (exit ${status})`}` };
+  }
+  const parseFailed = typeof counts?.parse_failed === "number" ? counts.parse_failed : 0;
+  const failed = Math.max(0, (typeof counts?.failed === "number" ? counts.failed : 0) - parseFailed);
+  const unparsed = parseFailed > 0 ? `; ${parseFailed} source file(s) could not be parsed and were skipped` : "";
+  if (failed === 0) return { ok: true, summary: summary + unparsed };
+  const written = typeof counts?.written === "number" ? counts.written : 0;
+  const first = memLines.find((l) => l.includes("[memory-ingest] FAILED "));
+  const cause = first ? `; first: ${first.replace(/^.*\[memory-ingest\] FAILED\s*/, "").slice(0, 240)}` : "";
+  const line = `${written} imported, ${failed} failed (retried next run; each failure: gstack-memory-ingest --incremental)${cause}${unparsed}`;
+  return written === 0 ? { ok: false, summary: line } : { ok: true, warn: true, summary: line };
 }
 
 export interface MemorySourceSelection {
@@ -1634,36 +1690,27 @@ function runMemoryIngest(args: CliArgs, previous: SyncState, consent: Transcript
     process.env.GSTACK_SYNC_MEMORY_TIMEOUT_MS,
     "GSTACK_SYNC_MEMORY_TIMEOUT_MS",
   );
+  // D6: the child's [memory-ingest] stderr lines carry the summary and any
+  // system error; its counts (GSTACK_INGEST_RESULT_FILE) decide whether pages
+  // failed, since per-page failures exit 0 (#4417).
+  const resultFile = join(mkdtempSync(join(tmpdir(), "gstack-ingest-result-")), "result.json");
+  childEnv.GSTACK_INGEST_RESULT_FILE = resultFile;
   const result = spawnSync(process.execPath, ingestArgs, {
     encoding: "utf-8",
     timeout: memoryTimeoutMs,
     env: childEnv,
   });
+  let counts: { written?: unknown; failed?: unknown } | null = null;
+  try {
+    counts = JSON.parse(readFileSync(resultFile, "utf-8"));
+  } catch {}
+  rmSync(dirname(resultFile), { recursive: true, force: true });
 
-  // D6: parse [memory-ingest] lines from the child's stderr. ERR-prefixed
-  // lines indicate a system-level failure (gbrain crashed or CLI missing)
-  // and the child exits non-zero. Per-file failures are summarized in the
-  // last non-ERR [memory-ingest] line but do NOT make the verdict ERR.
-  const stderrLines = (result.stderr || "").split("\n");
-  const memLines = stderrLines.filter((l) => l.includes("[memory-ingest]"));
-  const errLine = memLines.find((l) => l.includes("[memory-ingest] ERR"));
-  const lastMemLine = memLines.slice(-1)[0];
-  const rawSummary = errLine || lastMemLine || "ingest pass complete";
-  // Strip the "[memory-ingest] " prefix and any leading "ERR: " for cleaner
-  // verdict output. The orchestrator's own formatStage will prefix with OK/ERR.
-  const summary = rawSummary
-    .replace(/^.*\[memory-ingest\]\s*/, "")
-    .replace(/^ERR:\s*/, "");
-
-  const ok = result.status === 0;
   return {
     name: "memory",
     ran: true,
-    ok,
     duration_ms: Date.now() - t0,
-    summary: ok
-      ? summary
-      : `${summary}${result.status === null ? " (killed by signal / timeout)" : ` (exit ${result.status})`}`,
+    ...memoryStageVerdict(result.status, result.stderr || "", counts),
     memory_sources: selected,
     transcript_consent: consentRecord,
   };
@@ -1708,12 +1755,24 @@ function runBrainSyncPush(args: CliArgs): StageResult {
     : ["ignore", "inherit", "inherit"];
 
   spawnSync(discover.cmd, discover.argv, { stdio, timeout: 60 * 1000, shell: discover.shell });
+  const statusPath = join(GSTACK_HOME, ".brain-sync-status.json");
+  const statusStamp = () => (existsSync(statusPath) ? `${statSync(statusPath).mtimeMs}:${readFileSync(statusPath, "utf-8")}` : null);
+  const before = statusStamp();
   const result = spawnSync(once.cmd, once.argv, { stdio, timeout: 60 * 1000, shell: once.shell });
 
   if (result.status !== 0) {
     return { name: "brain-sync", ran: true, ok: false, duration_ms: Date.now() - t0, summary: `gstack-brain-sync exited ${result.status}` };
   }
-  return { name: "brain-sync", ran: true, duration_ms: Date.now() - t0, ...brainSyncIndexVerdict() };
+  let drain: { status?: unknown; message?: unknown } | null = null;
+  const after = statusStamp();
+  if (after !== null && after !== before) {
+    try {
+      drain = JSON.parse(readFileSync(statusPath, "utf-8"));
+    } catch {
+      drain = { status: "unknown", message: `${statusPath} is unreadable` };
+    }
+  }
+  return { name: "brain-sync", ran: true, duration_ms: Date.now() - t0, ...brainSyncStageVerdict(drain) };
 }
 
 /**

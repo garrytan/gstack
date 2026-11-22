@@ -79,6 +79,7 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   { file: 'test/pregate-docs-lane-review.test.ts', reason: 'spawns bin/gstack-pregate through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess); the docs-lane selection rules it drives are POSIX-run like the other pregate fixtures' },
   { file: 'test/pregate-dart.test.ts', reason: 'its dart, flutter and fvm stand-ins are bash scripts on a colon-joined PATH, which Bun.which and CreateProcess cannot use on Windows, and its containment case needs a POSIX symlink; the Dart lane code it drives is POSIX-run like the other pregate fixtures' },
   { file: 'test/pregate-non-js.test.ts', reason: 'spawns bin/gstack-pregate through test/helpers/pregate-fixture.ts runBin and expects the Linux-host lanes verdict, like test/pregate-docs-lane-review.test.ts and test/pregate-selection.test.ts' },
+  { file: 'test/pregate-declared-test-tree.test.ts', reason: 'spawns bin/gstack-pregate through test/helpers/pregate-fixture.ts runBin and expects the Linux-host lanes verdict (the outside test runs in the local lane), like test/pregate-selection.test.ts' },
   { file: 'test/pregate-remote-gbrain.test.ts', reason: 'spawns bin/gstack-pregate through test/helpers/pregate-fixture.ts runBin (shebang via CreateProcess) and runs the gbrain-shaped ci:ubicloud package script through the POSIX lane runner, like test/pregate-remote.test.ts' },
   { file: 'test/pregate-remote-stamp-only.test.ts', reason: 'expects the Linux-host lanes verdict like test/pregate-remote.test.ts (on Windows the fixture\'s Linux lane is a requires-remote obligation) and skips itself on win32 (describe.skipIf), so the curated lane would run an empty file (#3485, #3486)' },
   // C-pregate: these drive bin/gstack-issue-links and bin/gstack-ship-receipt through
@@ -308,42 +309,58 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'test/gstack-ship-receipt.test.ts',
     reason: 'spawns bin/gstack-ship-receipt and bin/gstack-artifact (shebangs) plus a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts',
   },
+  {
+    file: 'test/ship-receipt-voice-blockers.test.ts',
+    reason: 'spawns bin/gstack-review-scope and bin/gstack-ship-receipt (shebangs) through test/helpers/restamp-fixture.ts runBin, like test/gstack-ship-receipt.test.ts',
+  },
   // Field list 2, W1 (shared merge queue): same fixture helpers, same shebang spawns.
   {
     file: 'test/gstack-ship-queue.test.ts',
     reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts',
   },
-  // GSTA-49 T1 (merge trains): the train lib logic runs on Windows in test/ship-queue-train-logic.test.ts.
   {
-    file: 'test/ship-queue-train-land.test.ts',
-    reason: 'drives train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for test/ship-queue-train.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
+    file: 'test/ship-queue-ready-fresh-base.test.ts',
+    reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts (windows-scoped-shard, run 42720453184)',
   },
   {
-    file: 'test/ship-queue-land-lock.test.ts',
-    reason: 'drives land and train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for test/ship-queue-train-land.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
+    file: 'crew/test/release-gate-workflow.test.ts',
+    reason: 'the gate-step case splices a native temp-path stub into the step\'s bash -e script in place of crew/bin/gstack-release-gate, and on windows-latest its gated case exits non-zero (expected 0; windows-scoped-shard, run 42421330820); release-gate.yml itself runs only on ubuntu-latest',
+  },
+  // GSTA-49 T1 (merge trains): the train lib logic runs on Windows in crew/test/ship-queue-train-logic.test.ts.
+  {
+    file: 'crew/test/ship-queue-train-land.test.ts',
+    reason: 'drives train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for crew/test/ship-queue-train.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
   },
   {
-    file: 'test/ship-queue-train.test.ts',
+    file: 'crew/test/ship-queue-land-lock.test.ts',
+    reason: 'drives land and train land against test/helpers/ship-queue-train-fixture.ts plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead, as for crew/test/ship-queue-train-land.test.ts and test/ship-queue-land.test.ts (windows-free-shard 6, run 40824965988)',
+  },
+  {
+    file: 'crew/test/ship-queue-train.test.ts',
     reason: 'drives bin/gstack-ship-queue against the stateful #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard run 39152702056)',
   },
   {
-    file: 'test/ship-queue-train-bisect.test.ts',
-    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+    file: 'crew/test/ship-queue-ready-notes-push.test.ts',
+    reason: 'drives bin/gstack-ship-queue ready against the #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts, like crew/test/ship-queue-train.test.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead (windows-scoped-shard run 42711409624)',
   },
   {
-    file: 'test/ship-queue-train-verify.test.ts',
-    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+    file: 'crew/test/ship-queue-train-bisect.test.ts',
+    reason: 'split from crew/test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+  },
+  {
+    file: 'crew/test/ship-queue-train-verify.test.ts',
+    reason: 'split from crew/test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
     file: 'test/ubicloud-runner-tiers.test.ts',
     reason: 'split from test/ubicloud-runner.test.ts, excluded as a whole: runs scripts/ubicloud/ubi-runner.sh through bash with the #!/usr/bin/env bash curl, ssh and make shims test/helpers/ubi-runner-fake-vm.ts puts on a colon-joined PATH, like test/ubicloud-runner-run.test.ts',
   },
   {
-    file: 'test/ship-queue-train-freeze.test.ts',
-    reason: 'split from test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
+    file: 'crew/test/ship-queue-train-freeze.test.ts',
+    reason: 'split from crew/test/ship-queue-train.test.ts (GSTA-151): drives bin/gstack-ship-queue against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
-    file: 'test/ship-queue-train-cost.test.ts',
+    file: 'crew/test/ship-queue-train-cost.test.ts',
     reason: 'drives bin/gstack-ship-queue train verdict against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead of the shim (windows-free-shard 2 on #3478 at d5e6a7d)',
   },
   // GSTA-151 splits: parts of files the curation excluded as a whole keep that platform scope.
@@ -368,11 +385,11 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'split from test/shared-libs-checker-interface-evidence.test.ts, which spawned bin/gstack-review-log (shebang); its prerequisite checks run the same review-log commands through bash',
   },
   {
-    file: 'test/ship-queue-train-ops.test.ts',
+    file: 'crew/test/ship-queue-train-ops.test.ts',
     reason: 'drives bin/gstack-ship-queue (screen verdicts, scratch-merge screens, prune --stale, watch, forget, verify --post-merge, ready --dispatch-ci, --stack-tests) against the same #!/bin/sh gh shim in test/helpers/ship-queue-train-fixture.ts',
   },
   {
-    file: 'test/ship-queue-train-generic.test.ts',
+    file: 'crew/test/ship-queue-train-generic.test.ts',
     reason: 'drives bin/gstack-ship-queue train build, verdict, land, watch, init and doctor against the same #!/bin/sh gh shim plus an extensionless node gh wrapper on a colon-joined PATH; on windows-latest spawnSync(\'gh\') resolves the runner\'s gh.exe instead (windows-free-shard 1, run 41218228855)',
   },
   {
@@ -396,6 +413,14 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-ship-release, gstack-evidence, gstack-ci-carry and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-release.test.ts; windows-latest fails every bin case at the first spawn (windows-scoped-shard, run 41607840098)',
   },
   {
+    file: 'test/ship-preflight-carry-stop.test.ts',
+    reason: 'drives bin/gstack-ship-preflight, gstack-ci-carry, gstack-evidence and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-ci-carry.test.ts, which windows-latest fails at the first bin spawn (windows-scoped-shard, run 41607840098)',
+  },
+  {
+    file: 'test/ship-preflight-carry-bound-and-deps.test.ts',
+    reason: 'drives bin/gstack-ship-preflight, gstack-ship-release, gstack-ci-carry, gstack-evidence and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-preflight-carry-stop.test.ts, which windows-latest fails at the first bin spawn (windows-scoped-shard, run 41607840098)',
+  },
+  {
     file: 'test/ship-rereview-triggers.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-release.test.ts; windows-latest fails every bin case at the first spawn (windows-free-shard 6, run 41193336209)',
   },
@@ -406,6 +431,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/ship-finish-ruled-notes.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-approvals, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-rereview-triggers.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42139467391)',
+  },
+  {
+    file: 'test/ship-gate-dispositions.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-approvals, gstack-review-log, gstack-review-read, gstack-ship-receipt, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-ruled-notes.test.ts, which windows-latest fails at the first bin spawn (windows-scoped-shard, run 42139467391)',
   },
   {
     file: 'test/ship-accept-head-policy.test.ts',
@@ -428,6 +457,18 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-ship-receipt, gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-mechanical-retake.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42167292675)',
   },
   {
+    file: 'test/ship-base-side-masks.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-rereview-triggers.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 41950236362)',
+  },
+  {
+    file: 'test/capy-host-publish.test.ts',
+    reason: 'drives bin/gstack-ship-receipt, gstack-post, gstack-approvals and gstack-review-log (shebangs) plus a #!/bin/sh gh shim through test/helpers/ship-bin-fixture.ts and restamp-fixture.ts, like test/round-cap-granted-stop.test.ts',
+  },
+  {
+    file: 'test/round-cap-granted-stop.test.ts',
+    reason: 'drives bin/gstack-ship-receipt, gstack-approvals, gstack-review-plan, gstack-review-log, gstack-review-scope and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-fixed-links.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
+  },
+  {
     file: 'test/ship-uid-sidecar.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-ship-receipt, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-mechanical-retake.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42205201312)',
   },
@@ -438,6 +479,34 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/ship-accept-remote-gate-lanes.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-evidence and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-accept-same-tree-clears.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42302497169)',
+  },
+  {
+    file: 'test/ship-record-ci-reuse.test.ts',
+    reason: 'drives bin/gstack-evidence, gstack-ship-preflight and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-accept-remote-gate-lanes.test.ts; windows-latest fails every case at the first bin spawn (windows-scoped-shard, run 42382484796)',
+  },
+  {
+    file: 'test/ship-finish-fixed-links.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-approvals, gstack-review-log, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-ruled-notes.test.ts; windows-latest fails every case at the first bin spawn (windows-free-shard 3, run 42593329215)',
+  },
+  {
+    file: 'test/review-pass-program.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
+  {
+    file: 'test/review-pass-program-steps.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
+  {
+    file: 'test/review-pass-shared-machine.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
+  {
+    file: 'test/review-pass-step11.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
+  },
+  {
+    file: 'test/review-pass-voice-failures.test.ts',
+    reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
   },
 ];
 

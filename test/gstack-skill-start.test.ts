@@ -24,6 +24,7 @@ import * as path from 'path';
 import { generatePreamble } from '../scripts/resolvers/preamble';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { expectAbsent, expectMentions } from './helpers/prompt-structure';
+import { GUARD_ENFORCED_LINE, GUARD_NOT_INSTALLED_LINE, autoplanGuardLine } from '../lib/autoplan-guard-status';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const START = path.join(ROOT, 'bin', 'gstack-skill-start');
@@ -69,7 +70,7 @@ afterAll(() => {
  * PROACTIVE, SKILL_PREFIX, REPO_MODE, GSTACK_PLAN_MODE,
  * ARTIFACTS_SYNC, ...) and keys the script's OWN emission gates consume
  * (ACTIVATED, FIRST_TASK, LAKE_INTRO, TEL_PROMPTED, PROACTIVE_PROMPTED,
- * HAS_ROUTING, ROUTING_DECLINED, VENDORED_GSTACK, ...). Both classes stay in
+ * HAS_ROUTING, VENDORED_GSTACK, ...). Both classes stay in
  * the emitted contract: the echoes are the debugging surface for the gates,
  * and prose in older installed renders may still read them.
  */
@@ -95,7 +96,6 @@ const PROSE_REFERENCED_KEYS = [
   'UPDATE_CHECK',
   'LEARNINGS',
   'HAS_ROUTING',
-  'ROUTING_DECLINED',
   'VENDORED_GSTACK',
   'MODEL_OVERLAY',
   'GSTACK_PLAN_MODE',
@@ -388,6 +388,22 @@ describe('gstack-skill-start behavior', () => {
     }
   });
 
+  // GST-3062 (GEVA-549): an unattended Claude Code run printed GUARD_NOT_INSTALLED while autoplan's
+  // PreToolUse hook denied its phase Reads. The line follows the host and the installed skill, not the session kind.
+  test('the autoplan guard line says enforced whenever Claude Code runs the declared hook, unattended included', () => {
+    const line = (env: Record<string, string>) => (runStart(['--skill', 'autoplan'], env).match(/^autoplan guard: .*$/gm) ?? []);
+    const unattendedClaude = line({ CLAUDECODE: '1', GSTACK_SESSION_KIND: 'unattended' });
+    expect(unattendedClaude).toEqual([GUARD_ENFORCED_LINE]);
+    expect(unattendedClaude.join('\n')).not.toContain('GUARD_NOT_INSTALLED');
+    const matrix: Record<string, string>[] = [
+      { CLAUDECODE: '1' }, { CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'claude' },
+      { CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'codex' }, { GSTACK_SESSION_KIND: 'unattended' }, {},
+    ];
+    for (const env of matrix) expect({ env, line: line(env) }).toEqual({ env, line: [autoplanGuardLine(env, ROOT)] });
+    expect(line({ CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'codex', GSTACK_SESSION_KIND: 'unattended' })).toEqual([GUARD_NOT_INSTALLED_LINE]);
+    expect(runStart(['--skill', 'review'], { CLAUDECODE: '1' })).not.toContain('autoplan guard:');
+  });
+
   test('unattended block promises GSTACK_RESULT only to skills that write it; the rest name their record (#3281)', () => {
     const block = (skill: string) => {
       const out = runStart(['--skill', skill], { GSTACK_SESSION_KIND: 'unattended' });
@@ -408,6 +424,9 @@ describe('gstack-skill-start behavior', () => {
     expect(autoplan).toContain('gate list (gstack-gate render)');
     expect(autoplan).toMatch(/decisions\.jsonl with kind "auto"/);
     expect(autoplan).toContain('gate.json');
+    // GST-3068 (GEVA-549): the general "never approve a gate" rule defers to the record rule's exception; autoplan's names the relayed owner reply.
+    expect(autoplan).toContain("The one exception: when the owner's own reply to that gate is relayed to you, record it with `gstack-autoplan answer --by agent:<id> --owner-reply-file <file>` as sections/unattended.md says, never on your own judgment and never handed back to the owner to run.");
+    for (const [skill, text] of Object.entries(blocks)) if (skill !== 'autoplan') expect({ skill, relays: text.includes('--owner-reply') }).toEqual({ skill, relays: false });
     const evalPlan = blocks['eval-plan'];
     expect(evalPlan).toContain('`GSTACK_RESULT: skill=eval-plan status=gate_pending run=<outdir>`');
     expect(evalPlan).toContain('No helper writes a gate.json');
@@ -433,7 +452,7 @@ describe('gstack-skill-start behavior', () => {
   }, 60_000);
 
   test('unattended /ship alone prints the UNATTENDED_SHIP status line naming the receipt file, the existing-PR body update and the result line (GSTA-88, rule 22)', () => {
-    const line = /^UNATTENDED_SHIP: no push, no new PR; an open PR at HEAD gets its body updated \(pr-body section, receipt first\), else Step 18 takes the handoff section; receipt at \.gstack\/tmp\/ship-receipt\.md; end with gstack-ship-receipt result$/gm;
+    const line = /^UNATTENDED_SHIP: no push, no new PR; an open PR at HEAD gets its body updated \(pr-body section, receipt in Agent notes\), else Step 18 takes the handoff section; receipt at \.gstack\/tmp\/ship-receipt\.md; end with gstack-ship-receipt result$/gm;
     const ship = runStart(['--skill', 'ship'], { GSTACK_SESSION_KIND: 'unattended' });
     expect(ship.match(line)).toHaveLength(1);
     expect((ship.match(/^GSTACK_INSTRUCTION_BEGIN: (\S+)/gm) ?? []).map((h) => h.replace(/^GSTACK_INSTRUCTION_BEGIN: /, ''))).toEqual(['unattended-session']);
@@ -458,6 +477,7 @@ describe('gstack-skill-start behavior', () => {
     const log = path.join(tmp, 'egress.log');
     const sinks = ['gstack-telemetry-log', 'gstack-brain-sync', 'gstack-update-check'];
     fs.mkdirSync(shadow); fs.mkdirSync(gh);
+    fs.symlinkSync(path.join(ROOT, 'lib'), path.join(tmp, 'lib'));
     for (const name of fs.readdirSync(path.join(ROOT, 'bin'))) {
       if (!sinks.includes(name)) fs.symlinkSync(path.join(ROOT, 'bin', name), path.join(shadow, name));
     }
@@ -634,6 +654,30 @@ describe('gstack-skill-start behavior', () => {
   test('ARTIFACTS_SYNC reports off in a cold home', () => {
     const out = runStart();
     expect(out).toMatch(/^ARTIFACTS_SYNC: off$/m);
+  });
+
+  test('the /sync-gbrain hint follows GBRAIN_HOME the way gbrain resolves its config (#4325)', () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-gbrain-bin-'));
+    const named = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-gbrain-home-'));
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-gbrain-empty-'));
+    try {
+      fs.writeFileSync(path.join(bin, 'gbrain'), '#!/bin/sh\necho "gbrain 0.0.0"\n', { mode: 0o755 });
+      fs.mkdirSync(path.join(named, '.gbrain'));
+      fs.writeFileSync(path.join(named, '.gbrain', 'config.json'), '{}\n');
+      const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+      expect(runStart([], env)).not.toContain('GBrain configured');
+      expect(runStart([], { ...env, GBRAIN_HOME: named })).toContain('GBrain configured');
+      fs.mkdirSync(path.join(tmpHome, '.gbrain'));
+      fs.writeFileSync(path.join(tmpHome, '.gbrain', 'config.json'), '{}\n');
+      try {
+        expect(runStart([], env)).toContain('GBrain configured');
+        expect(runStart([], { ...env, GBRAIN_HOME: empty })).not.toContain('GBrain configured');
+      } finally {
+        fs.rmSync(path.join(tmpHome, '.gbrain'), { recursive: true, force: true });
+      }
+    } finally {
+      for (const dir of [bin, named, empty]) fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('artifacts-sync consent is asked before any artifacts egress, and only in interactive sessions', () => {

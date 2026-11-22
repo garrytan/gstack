@@ -150,7 +150,7 @@ describe('gstack-claude-code', () => {
 describe('API sends: gstack-outside-voice and the unattended runner', () => {
   let server: ReturnType<typeof Bun.serve>;
   let requests = 0;
-  const REVIEW = '[P2] A finding.\n\nRecommendation: revise because the premise is unmeasured.\n';
+  const REVIEW = `INPUT: ceo ${'a'.repeat(64)}\n\n[P2] A finding.\n\nRecommendation: revise because the premise is unmeasured.\n\n\`\`\`gstack-findings\n\`\`\`\n`;
   beforeAll(() => {
     server = Bun.serve({ port: 0, fetch() { requests++; return Response.json({ model: 'gpt-6-astra', choices: [{ message: { content: REVIEW } }], usage: {} }); } });
   });
@@ -217,5 +217,16 @@ describe('API sends: gstack-outside-voice and the unattended runner', () => {
     const before = requests;
     const sent = await outsideVoice(f, path.join(out, 'ceo-outside-prompt.md'), path.join(f.dir, 'ceo-outside.md'));
     expect([sent.status, requests - before], sent.stderr).toEqual([0, 1]);
+  });
+
+  test('unattended runner (GST-3015): an explicit codex_reviews: enabled is printed as the owner\'s standing consent beside the outside attempt; unset is not', () => {
+    const enabled = initRun(fixture('enabled')).r;
+    expect(enabled.status, enabled.stderr).toBe(0);
+    expect(enabled.stdout).toContain('voice=outside');
+    expect(enabled.stdout).toMatch(/^OUTSIDE_CONSENT: given by codex_reviews=enabled \(the owner's standing consent .*\)$/m);
+    const unset = initRun(fixture('unset')).r;
+    expect(unset.status, unset.stderr).toBe(0);
+    expect(unset.stdout).toContain('voice=outside');
+    expect(unset.stdout).not.toContain('OUTSIDE_CONSENT:');
   });
 });

@@ -629,8 +629,9 @@ EOF_SHIM
 # A checkout more than 24 hours behind (bin/gstack-capy-session exports
 # GSTACK_CAPY_STALE) adds `stale=<h>h` after `behind=`, or `stale=<h>h (pinned: <reason>)`
 # for a pin with a recorded reason; a failed fetch with no successful one in 24
-# hours adds `stale=no fetch from origin in <h>h` on its own. Unlike a bare
-# `behind=`, a `stale=` with no pin means: run the fix before the first workflow.
+# hours adds `stale=no fetch from origin in <h>h` on its own. Like any
+# `behind=` of 1 or more, a `stale=` with no pin means: run the fix before the
+# next workflow.
 # A project floor the doctor could not meet (`WARN floor`, PROJECT_FLOOR_UNMET)
 # adds `floor=<ver> (<file>)` and a `fix:` note the same way; when no release
 # meets the floor (the row says `no release meets this floor yet`), the note is
@@ -709,6 +710,7 @@ esac
 # so no caller is left with only the line and the re-typing path.
 LAUNCH_FILE="${VERDICT%.json}.env"
 BIN_DIR=$(cd "$ROOT/bin" 2>/dev/null && pwd -P)
+CREW_BIN_DIR=$(cd "$ROOT/crew/bin" 2>/dev/null && pwd -P) || CREW_BIN_DIR=""
 write_launch_file() {
   local tmp
   mkdir -p "$(dirname "$LAUNCH_FILE")" || return 1
@@ -719,6 +721,7 @@ write_launch_file() {
     echo "# Never print it or the environment: no \`export \$(...)\`, \`env\`, \`printenv\` or bare \`set\` in a tool fence."
     [ -n "$LAUNCH_DIR" ] && echo "case \":\$PATH:\" in *:$(shq "$LAUNCH_DIR"):*) ;; *) PATH=$(shq "$LAUNCH_DIR"):\"\$PATH\" ;; esac; export PATH"
     [ -n "$BIN_DIR" ] && echo "case \":\$PATH:\" in *:$(shq "$BIN_DIR"):*) ;; *) PATH=\"\${PATH:+\$PATH:}\"$(shq "$BIN_DIR") ;; esac; export PATH"
+    [ -n "$CREW_BIN_DIR" ] && echo "case \":\$PATH:\" in *:$(shq "$CREW_BIN_DIR"):*) ;; *) PATH=\"\${PATH:+\$PATH:}\"$(shq "$CREW_BIN_DIR") ;; esac; export PATH"
     echo "export GSTACK_SESSION_KIND=unattended"
     echo "export GSTACK_STATE_ROOT=$(shq "$GSTACK_STATE_ROOT")"
     echo "export GSTACK_EPHEMERAL=$(shq "${GSTACK_EPHEMERAL:-1}")"

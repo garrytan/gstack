@@ -14,12 +14,14 @@
  * is ambiguous across multi-option items and is reported as unparsed, never
  * guessed. A reply binds to the gate revision it answers (`gate_rev`), and a
  * `rec` reply to the recommendations it saw (`rec_hash`, bumped by
- * `gstack-autoplan recommend`). Earlier answers at the same revision
+ * `gstack-autoplan recommend`; it also names the run and its plan, so two
+ * runs with the same decision shape never share one). Earlier answers at the same revision
  * (`prior`) are kept unless a token names the item again: only unresolved
  * items default.
  * Rendered by bin/gstack-gate; rows land in decisions.jsonl (lib/headless-artifacts.ts).
  */
 import { createHash } from 'node:crypto';
+import { ownerWordsLine } from './autoplan-owner-text';
 import type { DecisionRow } from './headless-artifacts';
 
 /** `changes_plan`: choosing this option is an accepted plan change (reopens its phase plus Eng, prints APPLY:). */
@@ -46,15 +48,20 @@ export interface GateItem {
   /** An open Critical or High finding (its ids, a paired twin included): `a` applies the reviewer's fix to the plan. */
   finding?: string[];
 }
-export type ItemClass = 'challenge2' | 'challenge1' | 'disagree' | 'agent' | 'cap_deferred' | 'cap_blocker' | 'cap_delta' | 'finding' | 'p1';
+export type ItemClass = 'challenge2' | 'challenge1' | 'disagree' | 'agent' | 'cap_deferred' | 'cap_blocker' | 'cap_delta' | 'finding' | 'p1'
+  | 'proposal' | 'confirm_direction' | 'day_one' | 'cut' | 'cuts';
 export interface GateList { schema_version: 1; run: string; gate_rev: number; items: GateItem[]; title?: string;
   /** Bumped by every `recommend`, so a `rec` relayed before it no longer matches `recHash`. */
   rec_rev?: number;
+  /** 2: rendered with the run-bound `recHash`; absent on a gate written before it, whose renders printed `legacyRecHash`. */
+  rec_hash_v?: 2;
   /** The plan's plain-language ask, read from the reviewed plan (lib/captain-brief.ts `buildEli5`); printed first. */
   eli5?: GateEli5;
+  /** The plan's `### Owner's words` (lib/autoplan-owner-text.ts): the quotes a challenge must name to keep the plan's direction; `verified` when a recorded owner reply holds it. */
+  owner_words?: { status: 'ok' | 'malformed' | 'none'; quotes: Array<{ n: number; who: string; text: string; verified: boolean }>; reason?: string; fix?: string };
   /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
   carry_check?: { attempt: string; model: string; verdict: 'passed' | 'failed' | 'unavailable'; max_severity: string; findings: number; at: string } }
-/** The captain approvals shape (docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */
+/** The captain approvals shape (crew/docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */
 export interface GateEli5 { summary: string; before_after: string; why: string; cause: string; decisions: string; plan_file_sha256: string }
 export const ELI5_FIELDS = [['before_after', 'Before → after'], ['why', 'Why it matters'], ['cause', 'What caused this work'], ['decisions', 'Big decisions']] as const;
 
@@ -101,8 +108,18 @@ export function validateGateList(list: unknown): string[] {
   return problems;
 }
 
-/** The recommendations a `rec` reply takes, as a short hash the render prints and `answer --rec-hash` checks. */
+/**
+ * The recommendations a `rec` reply takes, as a short hash the render prints and `answer --rec-hash` checks. It names
+ * the run, the reviewed plan's sha256 and each item's title and option keys, so another run's gate never shares it.
+ */
 export function recHash(list: GateList): string {
+  const recs = list.items.map(i => [i.id, i.recommended, i.recommended_basis ?? '', i.recommended_by ?? '']);
+  const shape = list.items.map(i => [i.id, i.kind, i.title, i.options.map(o => [o.key, o.changes_plan ?? null])]);
+  return createHash('sha256').update(JSON.stringify(['rec_hash/2', list.run, list.eli5?.plan_file_sha256 ?? '', list.gate_rev, list.rec_rev ?? 0, recs, shape])).digest('hex').slice(0, 12);
+}
+
+/** The hash a gate written before `rec_hash_v` printed (gate revision and recommendations only); `answer` accepts it for that gate alone. */
+export function legacyRecHash(list: GateList): string {
   const recs = list.items.map(i => [i.id, i.recommended, i.recommended_basis ?? '', i.recommended_by ?? '']);
   return createHash('sha256').update(JSON.stringify([list.gate_rev, list.rec_rev ?? 0, recs])).digest('hex').slice(0, 12);
 }
@@ -122,6 +139,7 @@ export function renderGate(list: GateList, page = 1, pageSize = PAGE_SIZE): stri
   lines.push(`GATE: run=${list.run} gate_rev=${list.gate_rev} items=${list.items.length} page=${current}/${pages}${list.title ? ` — ${list.title}` : ''}`);
   lines.push('');
   if (list.eli5 && current === 1) lines.push(...renderEli5(list.eli5), '');
+  if (list.owner_words && current === 1) lines.push(...renderOwnerWords(list.owner_words), '');
   if (list.carry_check) lines.push(`Carry check ${list.carry_check.attempt}: ${list.carry_check.verdict} (${list.carry_check.model}; ${list.carry_check.findings} finding(s), highest ${list.carry_check.max_severity}).`, '');
   list.items.slice(start, start + pageSize).forEach((item, i) => {
     const n = start + i + 1;
@@ -146,6 +164,12 @@ export function renderEli5(e: GateEli5): string[] {
   const lines = e.summary.trim() ? ['ELI5', e.summary.trim()] : [];
   for (const [key, title] of ELI5_FIELDS) if (e[key].trim()) lines.push(...(lines.length ? [''] : []), `${title}:`, e[key].trim());
   return lines;
+}
+
+/** The OWNER_WORDS line, then each quote a challenge must name to keep the plan's direction, marked when no recorded owner reply holds it. */
+export function renderOwnerWords(w: NonNullable<GateList['owner_words']>): string[] {
+  return [ownerWordsLine(w, w.quotes.filter(q => !q.verified).length), "Owner's words (a reviewer's challenge to one of these keeps the plan's direction; anything else the plan says is a proposal):",
+    ...w.quotes.map(q => `${q.n}. ${q.who}: "${q.text}"${q.verified ? '' : ' (unverified: no recorded owner reply holds it)'}`)];
 }
 
 function exampleTokens(list: GateList): string {
@@ -260,6 +284,9 @@ export function decisionRows(list: GateList, extra: Partial<DecisionRow> = {}): 
 
 /** `--by` values: the owner typing tokens, or an agent relaying or deciding them. */
 export const ANSWERED_BY_RE = /^(human|agent:[A-Za-z0-9_.:-]+)$/;
+
+/** The agent whose own words (`--words-by agent:<id>`) an answer was in; never the owner's words, so they approve no plan, carry no gate and settle no user challenge. */
+export const agentWords = (r: { words_by?: string }): string | undefined => r.words_by || undefined;
 
 /** Who answered and in whose words: a new answer replaces all of it, so an earlier answerer's fields never survive under a later one. */
 const PROVENANCE = ['answered_by', 'owner_reply', 'owner_reply_parsed', 'answer_words', 'answer_words_parsed', 'words_by', 'carried_gate_from', 'carried_gate_rev', 'carry_reason', 'carried_answered_by'] as const;

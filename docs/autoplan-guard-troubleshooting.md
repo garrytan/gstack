@@ -22,7 +22,8 @@ Each code has one of four dispositions:
 
 **The fallback** (printed in every fallback denial):
 
-1. Run the reviews by hand: `/plan-ceo-review`, then `/plan-devex-review`.
+1. Run the reviews by hand: `/plan-ceo-review`, then `/plan-devex-review`,
+   then `/plan-eng-review`.
 2. Or move to a fresh session and keep your work: `/context-save`, start a new
    Claude Code session in the project (not `--resume`), `/context-restore`,
    then `/autoplan <plan path>`.
@@ -69,7 +70,7 @@ journal's directory is the same folder as the project, spelled differently.
 `unrecognized_shape:compaction_unreachable` means records after a Claude Code
 compaction hang from a compact boundary whose logical parent loops back
 instead of reaching the session root, in a layout gstack does not read yet
-(Claude Code 2.1.300's preserved segment is read). Earlier gstack versions
+(the preserved segments of Claude Code 2.1.300 and 2.1.317 are read). Earlier gstack versions
 dropped those records and denied the next phase with `close_incomplete`.
 Please report the detail and version.
 
@@ -213,8 +214,23 @@ be verified, so Claude Code is not writing it to the journal in time.
 <a id="publication-missing"></a>
 ### `publication_missing`
 No filled report for the previous phase appears after its close packet Read.
-Publish it as your own assistant text in a message whose only tool call is
+Publish it as your own visible assistant text, starting with the line
+`**Phase <N> complete.**`, in a message whose only tool call is
 `true autoplan-published <phase>`, then enter the next phase in a later message.
+The close packet, the active plan or any saved report file does not publish it:
+the guard's job is to see the report in the conversation, and a file the model
+can write without sending the report would let a phase start unpublished.
+
+<a id="publication-not-visible"></a>
+### `publication_not_visible`
+A `true autoplan-published` message came after the close packet Read, but
+none of those messages carried visible text, so nothing was published. Text
+written in reasoning (thinking) is visible to neither the user nor the guard;
+an unattended run that keeps putting its report there gets this denial on
+every attempt instead of a fallback. Send one message whose visible text is the
+filled report, starting with `**Phase <N> complete.**`, with
+`true autoplan-published <phase>` as its only tool call, then enter the next
+phase in a later message. The denial names the exact command.
 
 <a id="publication-unflushed"></a>
 ### `publication_unflushed`

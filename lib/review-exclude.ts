@@ -11,33 +11,43 @@
  * stable reason. Applied patterns become `:(top,exclude,glob)` pathspecs on every reader,
  * and kept files under them come back through a second `:(top,literal)` command, because a
  * git exclude beats any positive pathspec. That second command is bounded by its argument
- * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES is not applied.
+ * bytes: a pattern whose kept files would pass KEEP_ARG_MAX_BYTES on it refuses the plan
+ * (REVIEW_EXCLUDE_KEEP_TOO_LARGE) instead of being dropped (GST-3158). A file the base policy's
+ * review_content_patterns also matches is content whatever its extension, unless it stays code anyway (declaredData): the policy says so.
  *
- * A file kept only for a secret line (no other reason, under an applied pattern, gate scan and consumer scan both read) is
- * also listed in `excerpt`: pass readers get its matched lines in context (lib/review-secret-excerpt.ts, GST-1447) instead
- * of the whole file, and readSelection counts only that excerpt.
+ * A file kept only for a secret line (a line that names a credential and carries a value, secretValueLine;
+ * no other reason, under an applied pattern, gate scan and consumer scan both read) is also listed in `excerpt`: pass readers
+ * get its matched lines in context (lib/review-secret-excerpt.ts, GST-1447) instead of the whole file, readSelection counts
+ * only that excerpt, and no reader's command names it, so it does not count toward the bound (GST-1967). A data file kept
+ * only because the gate scan tagged it (gateData: a .jsonl, .ndjson, .csv, .tsv or .log file, or a .json under a results
+ * tree, off every gate floor, not renamed, kept for no other reason, and every tag instance one added line's own tag) is
+ * excerpted the same way, its tagged lines in context (GST-3273, harness-evals#494); anything else stays whole.
  *
  * readSelection reads one reader's diff once, with a timeout, and counts its bytes;
- * gstack-review-dispatch stops with REVIEW_DIFF_TOO_LARGE above REVIEW_DIFF_MAX_BYTES and
+ * gstack-review-dispatch stops with REVIEW_DIFF_TOO_LARGE above REVIEW_DIFF_MAX_BYTES, naming the largest files, and
  * with REVIEW_DIFF_UNREADABLE when git fails, before it writes a manifest or a brief.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
+import { classifyPath as gateFloor, parseGateIntegrityBlock } from './gate-diff/classify';
+import { readClaudeMd, splitDiffGitLine } from './gate-diff/git';
+import { lineTags, swallowsAcrossLines, tagHunk } from './gate-diff/tags';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
-import { secretPath } from './review-risk';
+import { scan } from './redact-engine';
+import { shannonEntropy } from './redact-patterns';
+import { KEY_NAME, RESULTS_TREE, SECRET_LINE, secretPath } from './review-risk';
 import { secretExcerpt } from './review-secret-excerpt';
-import { secretLine } from './review-targeted';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
 import { loadPolicyAt } from './ship-policy-at';
 
 /** The most diff bytes one reader is handed (about 500K tokens); above it the pass stops instead of truncating. */
 export const REVIEW_DIFF_MAX_BYTES = 2_000_000;
-/** The most argument bytes the kept-file command may carry across all applied patterns (under Windows' 32,767-character command line). */
+/** The most argument bytes one git command, or the kept-file command a reader runs, may carry (under Windows' 32,767-character command line). */
 export const KEEP_ARG_MAX_BYTES = 24_000;
 /** How long one reader's `git diff` may run. */
 export const REVIEW_DIFF_TIMEOUT_MS = 120_000;
@@ -49,19 +59,20 @@ export type KeptReason = (typeof KEPT_REASONS)[number];
 
 /** What the receipt records and the queue and carry compare (by `digest`, never by `source`). */
 export interface ExcludeRecord {
-  source: string; patterns: string[]; applied: string[]; skipped: Array<{ pattern: string; kept: number; bytes: number }>; unmatched: string[];
+  source: string; patterns: string[]; applied: string[]; unmatched: string[];
   excluded: number; excluded_bytes: number; kept: number; gate_tagged: string[]; patterns_sha256: string; list_sha256: string; digest: string;
 }
 export interface ActiveExclusion {
   state: 'active'; record: ExcludeRecord; excluded: Set<string>; specs: string[]; keep: string[];
-  /** The kept files (a subset of keep, as `:(top,literal)` items) whose only reason is a secret line: pass readers get an excerpt. */
+  /** The kept files (a subset of keep, as `:(top,literal)` items) whose only reason is a secret line, or gate tags on data lines: pass readers get an excerpt. */
   excerpt: string[];
   kept: Array<{ path: string; reason: KeptReason }>; content: Record<ContentKind, number>; references: Array<{ prefix: string; files: string[] }>;
 }
 export type Exclusion =
   | { state: 'none' }
   | { state: 'head-only'; patterns: string[]; source: string }
-  | { state: 'refused'; code: 'POLICY_SOURCE_UNAVAILABLE' | 'POLICY_INVALID' | 'REVIEW_DIFF_UNREADABLE'; lines: string[] }
+  | { state: 'fallback'; source: string; errors: string[] }
+  | { state: 'refused'; code: 'POLICY_SOURCE_UNAVAILABLE' | 'POLICY_INVALID' | 'REVIEW_DIFF_UNREADABLE' | 'REVIEW_EXCLUDE_KEEP_TOO_LARGE'; lines: string[] }
   | ActiveExclusion;
 
 export interface ExcludeInput {
@@ -81,6 +92,34 @@ export interface ExcludeInput {
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+/** Every credential name on a line: SECRET_LINE, and a key name given a value (`OPENAI_API_KEY=`, `"GH_TOKEN": `). */
+const SECRET_NAMES = [...SECRET_LINE, new RegExp(String.raw`\b${KEY_NAME}['"]?\s*[=:]`)].map(r => new RegExp(r.source, `${r.flags}g`));
+/** A variable reference (`$X`, `${X}`): a name, never a value. */
+const VARIABLE_REFERENCE = /\$\{?[A-Za-z_]\w*\}?/g;
+/** An unprefixed credential-shaped run (base64, base64url, a random token): 20+ characters mixing upper case, lower case and digits. */
+const VALUE_TOKEN = /[A-Za-z0-9+/_=-]{20,}/g;
+const valueToken = (text: string) => [...text.replace(VARIABLE_REFERENCE, ' ').matchAll(VALUE_TOKEN)].some(([t]) => /[A-Z]/.test(t) && /[a-z]/.test(t) && /\d/.test(t) && shannonEntropy(t) >= 3.5);
+/**
+ * Whether one changed line of excludable content holds a credential value, so its file is kept (GST-1967): it names a
+ * credential, and the credential scan (the secrets check, with #4157's env-read rule) finds a secret anywhere on the line,
+ * or a credential-shaped run follows a name within 200 characters. A line that only names one (`${OPENAI_API_KEY}`,
+ * `process.env.X`, `os.environ["X"]`, a keychain) holds no value.
+ */
+export function secretValueLine(p: string, line: string): boolean {
+  return secretValueSpans(p, line) !== null;
+}
+/**
+ * Where secretValueLine finds a credential value on a line: for each name a credential-shaped run follows, the name and the
+ * 200 characters the run may start in; [] when only the credential scan finds the value; null when the line holds none.
+ */
+export function secretValueSpans(p: string, line: string): Array<[number, number]> | null {
+  const names = SECRET_NAMES.flatMap(r => [...line.matchAll(r)].map(m => [m.index, m.index + m[0].length] as [number, number]));
+  if (!names.length) return null;
+  const valued = names.filter(([, e]) => valueToken(line.slice(e, e + 200)));
+  if (valued.length) return valued.map(([s, e]) => [s, e + 200]);
+  return scan(line, { processEnv: {}, sourcePath: p }).findings.some(f => f.category === 'secret' && f.severity !== 'LOW') ? [] : null;
+}
 /** The list_sha256 of a selection that holds no file: no pattern matched the range, so applied, excluded and kept are all empty. */
 export const EMPTY_LIST_SHA256 = sha256(JSON.stringify({ applied: [], excluded: [], kept: [] }));
 /** A recorded selection's list hash (applied patterns, excluded files, kept files with their reasons) when its digest is built from it; null otherwise. */
@@ -88,12 +127,37 @@ export const recordedList = (r: Partial<Pick<ExcludeRecord, 'patterns_sha256' | 
 const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const literal = (p: string) => `:(top,literal)${p}`;
 const argBytes = (paths: Iterable<string>) => { let n = 0; for (const p of paths) n += Buffer.byteLength(shellQuote(literal(p))) + 1; return n; };
-/** `paths` in order, split so each chunk's literal pathspecs stay within KEEP_ARG_MAX_BYTES (one path past it is its own chunk). */
-function argChunks(paths: readonly string[]): string[][] {
+/** The data files a gate-tagged file may be cut on (GST-3273), beside a .json under a results tree; a review_content_patterns declaration alone never qualifies one. */
+const GATE_DATA = /\.(?:jsonl|ndjson|csv|tsv|log)$/i;
+
+/**
+ * Whether every gate tag in a file's added lines is one line's own tag (lineTags), so an excerpt of those lines shows every
+ * instance (GST-3273): at least one line is tagged, the multi-line detector finds nothing across the added lines, and the
+ * untagged lines, scanned together as one hunk, tag nothing. Its caller has already ruled out renames and floor paths, where
+ * removed lines and floor-only rules can tag a file.
+ */
+function singleLineTags(p: string, added: readonly string[]): boolean {
+  const adds = added.map(l => l.replace(/\r$/, ''));
+  const rest = adds.filter(l => !lineTags(l, p).tags.length);
+  return rest.length < adds.length && !swallowsAcrossLines(adds) && !tagHunk({ header: '', lines: rest.map(text => ({ kind: 'add' as const, text })) }, { floor: null, path: p, allPaths: new Set([p]) }).tags.length;
+}
+
+/** The paths the range renames into, as the gate scan's `git diff -M` pairs them; null when git cannot list them. */
+function renamedPaths(i: ExcludeInput): Set<string> | null {
+  const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '-M', '--name-status', '-z', '--diff-filter=R', i.mergeBase, ...(i.head ? [i.head] : [])], { cwd: i.root, encoding: 'utf8', timeout: 120_000, maxBuffer: MAX_BUFFER });
+  if (r.status !== 0 || typeof r.stdout !== 'string') return null;
+  const parts = r.stdout.split('\0');
+  const out = new Set<string>();
+  for (let k = 0; k + 2 < parts.length; k += 3) out.add(parts[k + 2]!);
+  return out;
+}
+
+/** `paths` in order, split so each chunk's literal pathspecs (`size` bytes each) stay within KEEP_ARG_MAX_BYTES (one path past it is its own chunk). */
+function argChunks(paths: readonly string[], size = (p: string) => argBytes([p])): string[][] {
   const chunks: string[][] = [];
   let bytes = Infinity;
   for (const p of paths) {
-    const n = argBytes([p]);
+    const n = size(p);
     if (bytes + n > KEEP_ARG_MAX_BYTES) { chunks.push([]); bytes = 0; }
     chunks[chunks.length - 1]!.push(p);
     bytes += n;
@@ -236,12 +300,47 @@ function attributeBinaryLines(i: ExcludeInput, paths: readonly string[], unread:
 }
 
 /** The kind of content a path holds when the policy may exclude it, or null for code (tests included). */
-export type ContentKind = 'binary' | 'data' | 'docs' | 'log';
-function contentKind(i: ExcludeInput, p: string, binary: ReadonlySet<string>): ContentKind | null {
+export type ContentKind = 'binary' | 'data' | 'docs' | 'log' | 'declared';
+/**
+ * One range's input with the matched files a pattern names by their file name (its last segment, with no glob character): a
+ * config name there is data; and the files a review_exclude_paths and a review_content_patterns pattern both match, which
+ * the base policy declares content.
+ */
+type Scope = ExcludeInput & { named?: ReadonlySet<string>; declared?: ReadonlySet<string>; keptDeclared?: ReadonlySet<string> };
+const config = (i: Scope, p: string) => isDataConfig(p) && !i.named?.has(p);
+/** Source code by its name, in any letter case: a program extension, or a build or task file name. A declared file with one stays code. */
+const SOURCE = /(?:\.(?:[cm]?[jt]sx?|py[iw]?|pyx|rb|erb|rake|sh|bash|zsh|fish|ksh|csh|ps1|psm1|psd1|bat|cmd|vbs|go|rs|dart|java|kt|kts|scala|sc|groovy|gradle|clj[sc]?|swift|m|mm|c|h|cc|cpp|cxx|hpp|hh|hxx|ino|cs|fs|fsx|vb|php|phtml|pl|pm|lua|r|jl|ex|exs|erl|hrl|hs|ml|mli|elm|zig|nim|v|sol|sql|vue|svelte|astro|html?|xhtml|css|scss|sass|less|wasm|wat|tf|hcl|nix|mk|cmake|bzl|star|awk|sed|asm|s|applescript|jsonnet|tmpl|ejs|hbs|jinja2?|j2|mdx)|(?:^|\/)(?:Makefile|GNUmakefile|Dockerfile|Containerfile|Rakefile|Gemfile|Brewfile|Justfile|Procfile|Vagrantfile|Jenkinsfile|Earthfile|Tiltfile|BUILD|WORKSPACE|CMakeLists\.txt|meson\.build)(?:\.[^/]*)?)$/i;
+/** A declared file that is data: none of source, agent prose, config, a gate path or a .gstack/ or .github/ file, which stay code whatever the policy says. */
+const declaredData = (i: Scope, p: string) => !!i.declared?.has(p) && !SOURCE.test(p) && !isAgentProse(p) && !config(i, p) && !isGatePath(p) && !/^\.(gstack|github)\//.test(p);
+function contentKind(i: Scope, p: string, binary: ReadonlySet<string>): ContentKind | null {
   if (binary.has(p)) return 'binary';
-  if (DATA_PATH.test(p) && !isDataConfig(p)) return 'data';
+  if (DATA_PATH.test(p) && !config(i, p)) return 'data';
   if (/\.log$/i.test(p)) return 'log';
-  return classifyPath(p, i.classRoot) === 'docs' ? 'docs' : null;
+  if (classifyPath(p, i.classRoot) === 'docs' && !SOURCE.test(p)) return 'docs';
+  return declaredData(i, p) ? 'declared' : null;
+}
+
+/**
+ * The files at the head (the index on a live tree) and at the merge base that a review_exclude_paths pattern and a
+ * review_content_patterns pattern both match, listed by git under the same `:(top,glob)` pathspecs; null when git cannot
+ * list them. Whole trees, not only the range: a declared file the branch did not change is no consumer either.
+ */
+function declaredContent(i: ExcludeInput, patterns: readonly string[], content: readonly string[]): Set<string> | null {
+  const out = new Set<string>();
+  if (!content.length) return out;
+  const empty = git(i.root, ['hash-object', '-t', 'tree', '--stdin'], '');
+  if (!empty.ok) return null;
+  const list = (rev: string, specs: readonly string[]) => {
+    const r = git(i.root, [...(rev ? ['diff', '--name-only', '-z', '--no-renames', empty.out.trim(), rev] : ['ls-files', '-z']), '--', ...specs.map(p => `:(top,glob)${p}`)]);
+    return r.ok ? new Set(r.out.split('\0').filter(Boolean)) : null;
+  };
+  for (const rev of [i.head ?? '', i.mergeBase]) {
+    const matched = list(rev, patterns);
+    const declared = list(rev, content);
+    if (!matched || !declared) return null;
+    for (const f of matched) if (declared.has(f)) out.add(f);
+  }
+  return out;
 }
 
 /**
@@ -252,23 +351,27 @@ function contentKind(i: ExcludeInput, p: string, binary: ReadonlySet<string>): C
 const BINARY_CONTENT_EXT = /\.(?:png|jpe?g|gif|webp|bmp|ico|avif|tiff?|heic|heif|woff2?|ttf|otf|eot|mp3|mp4|m4a|wav|ogg|oga|ogv|webm|mov|avi|mkv|flac|aac|opus|pdf|docx|xlsx|pptx|odt|ods|odp|gz|tgz|zip|tar|bz2|xz|zst|7z|bin|dat|parquet|arrow|feather|avro|orc|npy|npz|h5|hdf5|sqlite3?|db|safetensors)$/i;
 
 /** Why a matched file is kept by its path, mode and lines alone; null for content the policy may exclude. A binary file readers would only see as "Binary files differ" is content unless its directory, mode, gate tags, extension or magic keep it. */
-function pathReason(i: ExcludeInput, p: string, m: Matched, binary: ReadonlySet<string>, native: ReadonlySet<string>): KeptReason | null {
+function pathReason(i: Scope, p: string, m: Matched, binary: ReadonlySet<string>, native: ReadonlySet<string>): KeptReason | null {
   if (/^\.(gstack|github)\//.test(p)) return 'policy-dir';
   if (isGatePath(p) || secretPath(p, i.added[p] ?? [])) return 'gate-path';
   if (m.oldMode === '100755' || m.newMode === '100755') return 'executable';
   if ([m.oldMode, m.newMode].some(x => x === '120000' || x === '160000')) return 'link';
   if (i.gateTagged?.has(p)) return 'gate-tagged';
-  if (binary.has(p)) return BINARY_CONTENT_EXT.test(p) && !native.has(p) ? null : 'code';
+  if (binary.has(p)) return (BINARY_CONTENT_EXT.test(p) || declaredData(i, p)) && !native.has(p) ? null : 'code';
   if (isAgentProse(p)) return 'agent-prose';
-  if (isDataConfig(p)) return 'config';
+  if (config(i, p)) return 'config';
   if (contentKind(i, p, binary) === null) return 'code';
-  if ((i.added[p] ?? []).some(secretLine)) return 'secret-line';
+  if ((i.added[p] ?? []).some(l => secretValueLine(p, l))) return 'secret-line';
   return null;
 }
 
-/** A file whose full-path reference keeps excluded content: a code or test file (not docs, data, a .log or binary) outside the would-be-excluded set. */
-const consumer = (i: ExcludeInput, f: string, candidates: ReadonlySet<string>) =>
-  !candidates.has(f) && !f.startsWith('.gstack/tmp/') && contentKind(i, f, new Set()) === null;
+/**
+ * A file whose full-path reference keeps excluded content: a code or test file (not docs, data, a .log or binary) outside the
+ * would-be-excluded set, or a declared file that stays in review (kept in this range, or an executable or link at `mode`).
+ */
+const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: string) =>
+  !candidates.has(f) && !f.startsWith('.gstack/tmp/') && (contentKind(i, f, new Set()) === null
+    || (!!i.declared?.has(f) && (!!i.keptDeclared?.has(f) || mode === '100755' || mode === '120000')));
 
 /**
  * An uncapped `git grep -F -o -f` of fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
@@ -279,7 +382,7 @@ const consumer = (i: ExcludeInput, f: string, candidates: ReadonlySet<string>) =
  * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). On a live tree, an entry git reads from its blob
  * (skip-worktree or assume-unchanged) goes into a second index grepped with --cached, as git grep itself would read it.
  */
-function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
+function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
   const found = new Map<string, Set<string>>();
   if (!strings.length) return found;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-exclude-'));
@@ -295,9 +398,9 @@ function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: Read
       for (const entry of ls.out.split('\0')) {
         const tab = entry.indexOf('\t');
         const f = entry.slice(tab + 1);
-        if (tab < 0 || !consumer(i, f, candidates)) continue;
-        if (f.includes('\uFFFD')) return null;
         const meta = entry.slice(0, tab).split(' ');
+        if (tab < 0 || !consumer(i, f, candidates, at ? meta[0] : meta[1])) continue;
+        if (f.includes('\uFFFD')) return null;
         if (at) { if (meta[1] === 'blob') cached.push(`${meta[0]} ${meta[2]}\t${f}`); continue; }
         const [tag = '', mode, sha, stage] = meta;
         (tag === 'S' || tag !== tag.toUpperCase() ? cached : worktree).push(`${mode} ${sha} ${stage}\t${f}`);
@@ -323,10 +426,12 @@ function grepFixed(i: ExcludeInput, strings: readonly string[], candidates: Read
 
 /**
  * The base policy's exclusion for one range. `none` when neither side declares a pattern (callers then print and change
- * nothing); `head-only` when only the head does (a notice, never applied); `refused` when the base policy cannot be read or
+ * nothing); `head-only` when only the head does (a notice, never applied); `fallback` when the base policy fails only on its
+ * exclusion keys, which finish (lib/ship-policy.ts) then sets aside so every file is reviewed; `refused` when the base policy cannot be read or
  * does not validate, or git cannot list the matches; `active` otherwise. Named-by-code keeps a file only when a kept code
  * file names its full repository path (never its basename: receipt trees reuse result.json thousands of times); a git grep
- * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable).
+ * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable) or a
+ * matched text file with changed lines the collector holds no added lines for (GST-1451: it is unread, so it fails closed).
  */
 export function reviewExclude(i: ExcludeInput): Exclusion {
   const load = loadPolicyAt(i.root, i.baseSha, i.ref);
@@ -336,49 +441,69 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   if (load.errors.length) {
     return { state: 'refused', code: 'POLICY_INVALID', lines: load.errors.map(e => `${i.context}: the base policy ${source}:${SHIP_POLICY_PATH} does not validate, so its review_exclude_paths cannot be read (${e.path || SHIP_POLICY_PATH}: ${e.message}); fix: run ` + '`' + `gstack-ship-policy validate --policy-from base --base ${base}` + '`' + ` and fix the file on ${base} with its own PR; nothing was planned (${e.code})`) };
   }
+  if (load.setAside) return { state: 'fallback', source, errors: load.setAside.map(e => `${e.path}: ${e.message}`) };
   const patterns = load.policy.review_exclude_paths;
   if (!patterns.length) { const head = headPatterns(i); return head.length ? { state: 'head-only', patterns: head, source } : { state: 'none' }; }
   const sel = select(i, patterns);
   if ('error' in sel) return { state: 'refused', code: 'REVIEW_DIFF_UNREADABLE', lines: [`${i.context}: git could not list the files review_exclude_paths matches (${sel.error}); fix: git fetch origin ${base}, then rerun once; nothing was planned (REVIEW_DIFF_UNREADABLE)`] };
+  const declared = declaredContent(i, patterns, load.policy.review_content_patterns);
+  if (!declared) return { state: 'refused', code: 'REVIEW_DIFF_UNREADABLE', lines: [`${i.context}: git could not list the files review_content_patterns matches; fix: git fetch origin ${base}, then rerun once; nothing was planned (REVIEW_DIFF_UNREADABLE)`] };
   const unread = new Set<string>();
   const native = new Set<string>();
   const claimed = i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path);
   const binary = binaryContent(i, sel.files, new Set([...claimed, ...(bytesBinary(i, patterns) ?? sel.files.keys())]), unread, native);
-  const text = { ...i, added: { ...i.added, ...attributeBinaryLines(i, claimed.filter(p => !binary.has(p) && !unread.has(p)), unread) } };
+  const fileName = (s: string) => s.slice(s.lastIndexOf('/') + 1);
+  const x: Scope = { ...i, declared, named: new Set(patterns.flatMap(q => /[*?[\\]/.test(fileName(q)) ? [] : (sel.byPattern.get(q) ?? []).filter(f => fileName(f) === fileName(q)))) };
+  const text = { ...x, added: { ...i.added, ...attributeBinaryLines(i, claimed.filter(p => !binary.has(p) && !unread.has(p)), unread) } };
+  const collected = new Map(i.perPath.map(e => [e.path, e]));
+  const unseen = (p: string) => { const e = collected.get(p); return !e || (!e.binary && e.lines > 0 && !(p in text.added)); };
   const reasons = new Map<string, KeptReason | null>();
-  for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native));
+  for (const [p, m] of sel.files) reasons.set(p, unread.has(p) ? 'consumer-scan-unavailable' : pathReason(text, p, m, binary, native) ?? (unseen(p) ? 'consumer-scan-unavailable' : null));
   const candidates = new Set([...reasons].filter(([, r]) => r === null).map(([p]) => p));
   const secretOnly = [...reasons].filter(([p, r]) => r === 'secret-line' && !p.includes('\n')).map(([p]) => p);
-  const named = grepFixed(i, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
+  const tagOnly = [...reasons].filter(([p, r]) => r === 'gate-tagged' && !p.includes('\n') && (GATE_DATA.test(p) || (/\.json$/i.test(p) && RESULTS_TREE.test(p)))
+    && !binary.has(p) && !unseen(p) && pathReason({ ...text, gateTagged: null }, p, sel.files.get(p)!, binary, native) === null).map(([p]) => p);
+  const renamed = tagOnly.length ? renamedPaths(i) : null;
+  const floorCtx = { project: parseGateIntegrityBlock(readClaudeMd(i.root)), specIsTestPath: true };
+  const gateData = renamed ? tagOnly.filter(p => !renamed.has(p) && gateFloor(p, floorCtx) === null && singleLineTags(p, text.added[p] ?? [])) : [];
+  const y: Scope = { ...x, keptDeclared: new Set([...reasons].filter(([p, r]) => r !== null && declared.has(p)).map(([p]) => p)) };
+  const named = grepFixed(y, [...candidates, ...secretOnly].filter(p => !p.includes('\n')), new Set([...candidates, ...secretOnly]), [i.mergeBase]);
+  const gateNamed = gateData.length ? grepFixed(y, gateData, new Set([...candidates, ...secretOnly]), [i.mergeBase]) : new Map<string, Set<string>>();
   for (const p of candidates) {
     if (i.gateTagged === null) reasons.set(p, 'gate-scan-unavailable');
     else if (named === null || p.includes('\n')) reasons.set(p, 'consumer-scan-unavailable');
     else if (named.has(p)) reasons.set(p, 'named-by-code');
   }
+  const secretExcerptable = new Set(i.gateTagged === null || named === null ? [] : secretOnly.filter(p => !named.has(p)));
+  const excerptable = new Set(i.gateTagged === null || named === null || gateNamed === null ? [...secretExcerptable] : [...secretExcerptable, ...gateData.filter(p => !gateNamed.has(p))]);
   const applied: string[] = [];
-  const skipped: ExcludeRecord['skipped'] = [];
   const keep = new Set<string>();
   for (const p of patterns) {
     const hit = sel.byPattern.get(p) ?? [];
     if (!hit.some(f => reasons.get(f) === null)) continue;
     const kept = hit.filter(f => reasons.get(f) !== null);
-    const bytes = argBytes(new Set([...keep, ...kept]));
-    if (bytes > KEEP_ARG_MAX_BYTES) { skipped.push({ pattern: p, kept: kept.length, bytes }); continue; }
+    const bytes = argBytes([...new Set([...keep, ...kept])].filter(f => !secretExcerptable.has(f)));
+    if (bytes > KEEP_ARG_MAX_BYTES) {
+      const why = new Map<string, number>();
+      for (const f of kept) why.set(reasons.get(f)!, (why.get(reasons.get(f)!) ?? 0) + 1);
+      const top = [...why].sort((a, b) => b[1] - a[1]).map(([r, n]) => `${r}:${n}`).join(',');
+      return { state: 'refused', code: 'REVIEW_EXCLUDE_KEEP_TOO_LARGE', lines: [`${i.context}: review_exclude_paths pattern ${p} on ${source} keeps ${kept.length} matched files in review (${top}), and the command readers run to read them would need ${bytes} argument bytes (more than ${KEEP_ARG_MAX_BYTES}), so the pattern cannot be applied and is not dropped either; fix: when those files are published data, add a review_content_patterns entry for them beside the pattern on ${base} as its own PR (docs/ship-policy.md#review-content-patterns), else narrow the pattern or split the PR; nothing was planned (REVIEW_EXCLUDE_KEEP_TOO_LARGE)`] };
+    }
     applied.push(p);
     for (const f of kept) keep.add(f);
   }
   const excluded = new Set(applied.flatMap(p => (sel.byPattern.get(p) ?? []).filter(f => reasons.get(f) === null)));
-  const excerpt = i.gateTagged === null || named === null ? [] : secretOnly.filter(p => keep.has(p) && !named.has(p)).sort();
+  const excerpt = [...excerptable].filter(p => keep.has(p)).sort();
   const keptList = [...reasons].filter(([, r]) => r !== null).map(([p, r]) => ({ path: p, reason: r! })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const sortedExcluded = [...excluded].sort();
-  const content: Record<ContentKind, number> = { binary: 0, data: 0, docs: 0, log: 0 };
-  for (const p of sortedExcluded) content[contentKind(i, p, binary)!]++;
+  const content: Record<ContentKind, number> = { binary: 0, data: 0, docs: 0, log: 0, declared: 0 };
+  for (const p of sortedExcluded) content[contentKind(x, p, binary)!]++;
   const prefixes = [...new Set(applied.map(literalPrefix).filter(Boolean))];
-  const refs = grepFixed(i, prefixes, excluded, []) ?? new Map<string, Set<string>>();
+  const refs = grepFixed(y, prefixes, excluded, []) ?? new Map<string, Set<string>>();
   const patterns_sha256 = sha256(JSON.stringify(patterns));
   const list_sha256 = sha256(JSON.stringify({ applied, excluded: sortedExcluded, kept: keptList.map(k => [k.path, k.reason]) }));
   const record: ExcludeRecord = {
-    source, patterns: [...patterns], applied, skipped, unmatched: patterns.filter(p => !(sel.byPattern.get(p) ?? []).length),
+    source, patterns: [...patterns], applied, unmatched: patterns.filter(p => !(sel.byPattern.get(p) ?? []).length),
     excluded: excluded.size, excluded_bytes: excludedBytes(i, sortedExcluded, sel.files), kept: keptList.length,
     gate_tagged: keptList.filter(k => k.reason === 'gate-tagged').map(k => k.path), patterns_sha256, list_sha256, digest: sha256(`${patterns_sha256}\n${list_sha256}`),
   };
@@ -397,16 +522,22 @@ function excludedBytes(i: ExcludeInput, excluded: readonly string[], files: Read
   return r.out.split('\n').reduce((n, l) => n + (Number(l) || 0), 0);
 }
 
+/** The loud line for a base policy whose exclusion keys were set aside: what failed, that every file is reviewed, and the fix. */
+export function fallbackLine(x: Extract<Exclusion, { state: 'fallback' }>, base: string): string {
+  return `REVIEW_EXCLUDE: fallback (WARNING: the base policy ${x.source} does not validate: ${x.errors.join('; ')}; its review_exclude_paths and review_content_patterns are set aside and every file is reviewed, as with no exclusion; every other key applies as committed; fix: correct the list on ${base} with its own PR, which this plan reviews in full; docs/ship-policy.md#review-exclude-paths)`;
+}
+
 /** The plan's lines for an exclusion: none prints nothing, so a repository without the key plans byte for byte as before. */
 export function excludeLines(x: Exclusion, base: string): string[] {
   if (x.state === 'none' || x.state === 'refused') return [];
   if (x.state === 'head-only') return [`REVIEW_EXCLUDE: none (head sets review_exclude_paths; it applies after it lands on ${base}) patterns=${x.patterns.length} source=${x.source}`];
+  if (x.state === 'fallback') return [fallbackLine(x, base)];
   const r = x.record;
-  const skipped = r.skipped.length ? ` skipped=${r.skipped.map(s => `${s.pattern}:kept=${s.kept}:bytes=${s.bytes}`).join(',')} (kept files over ${KEEP_ARG_MAX_BYTES} argument bytes: pattern not applied)` : '';
-  const out = [`REVIEW_EXCLUDE: patterns=${r.applied.length}/${r.patterns.length} excluded=${r.excluded} bytes=${r.excluded_bytes} kept=${r.kept} content=${Object.entries(x.content).filter(([, n]) => n).map(([k, n]) => `${k}:${n}`).join(',') || 'none'} source=${r.source} digest=${r.digest}${skipped}${r.unmatched.length ? ` unmatched=${r.unmatched.join(',')}` : ''}`];
+  const out = [`REVIEW_EXCLUDE: patterns=${r.applied.length}/${r.patterns.length} excluded=${r.excluded} bytes=${r.excluded_bytes} kept=${r.kept} content=${Object.entries(x.content).filter(([, n]) => n).map(([k, n]) => `${k}:${n}`).join(',') || 'none'} source=${r.source} digest=${r.digest}${r.unmatched.length ? ` unmatched=${r.unmatched.join(',')}` : ''}`];
   for (const k of x.kept.slice(0, 20)) out.push(`REVIEW_EXCLUDE_KEPT: ${k.reason} ${k.path}`);
   if (x.kept.length > 20) out.push(`REVIEW_EXCLUDE_KEPT: +${x.kept.length - 20} more (gstack-review-plan --json lists every kept file)`);
-  if (x.excerpt.length) out.push(`REVIEW_EXCLUDE_EXCERPT: ${x.excerpt.length} kept files hold no keep reason but a secret line; gstack-review-dispatch pass gives readers their matched lines in context, not the whole files (DIFF_KEEP still lists them whole)`);
+  const gated = x.excerpt.filter(s => x.kept.some(k => k.reason === 'gate-tagged' && literal(k.path) === s)).length;
+  if (x.excerpt.length) out.push(`REVIEW_EXCLUDE_EXCERPT: ${x.excerpt.length} kept files hold no keep reason but a secret line${gated ? ` or gate tags on data lines (${gated} gate-tagged)` : ''}; gstack-review-dispatch pass gives readers their matched lines in context, not the whole files, and DIFF_KEEP leaves them out`);
   for (const ref of x.references) out.push(`REVIEW_EXCLUDE_REFERENCE: ${ref.prefix} is named by ${ref.files.slice(0, 3).join(', ')}${ref.files.length > 3 ? ` (+${ref.files.length - 3} more)` : ''}; the files stay excluded, so readers see that code without the files it reads (REVIEW_EXCLUDE_REFERENCE)`);
   return out;
 }
@@ -426,7 +557,7 @@ export function parseTail(tail: string | undefined): string[] {
 }
 
 export type ReaderDiff =
-  | { ok: true; text: string; bytes: number; byDir: Array<[string, number]>; excerpt?: string; whole?: string[] }
+  | { ok: true; text: string; bytes: number; byDir: Array<[string, number]>; byFile: Array<[string, number]>; excerpt?: string; whole?: string[] }
   | { ok: false; reason: 'timeout' | 'git-exit'; exit: number | null; stderr: string; timeoutMs: number };
 
 /** The excerpt of one `git diff --text` over the excerpt files; any throw sends every file whole (fail closed). */
@@ -434,45 +565,52 @@ function excerptOf(out: string, specs: readonly string[]): { text: string; whole
   const paths = specs.map(s => s.replace(/^:\(top,literal\)/, ''));
   try {
     if (specs.some(s => !s.startsWith(':(top,literal)'))) throw new Error('an excerpt item is not a literal pathspec');
-    const x = secretExcerpt(out, paths);
+    const x = secretExcerpt(out, paths, secretValueSpans);
     return { text: x.text, files: x.files, whole: x.whole.map(literal), wholeText: x.wholeText };
   } catch { return { text: '', files: [], whole: [...specs], wholeText: out }; }
 }
 
 /**
  * One reader's selection read once: `git diff <base> [-- pathspecs]`, then the kept-file command, with its bytes per top
- * directory. `excerpt` files (ActiveExclusion.excerpt) are read with `git diff --text` and count as their secret-line
+ * directory. The kept and excerpt files are read in git calls of at most KEEP_ARG_MAX_BYTES of pathspecs each, so however many
+ * there are no command passes Windows' limit. `excerpt` files (ActiveExclusion.excerpt) are read with `git diff --text` and count as their secret-line
  * excerpt, appended to `text` and returned as `excerpt`; a file the excerpt could not be built for counts whole, its
  * section joins `text` and its item is listed in `whole` for the caller's keep command.
  */
 export function readSelection(root: string, diffBase: string, pathspecs: readonly string[], keep: readonly string[] = [], excerpt: readonly string[] = [], timeoutMs = REVIEW_DIFF_TIMEOUT_MS): ReaderDiff {
   let text = '';
-  let ex: ReturnType<typeof excerptOf> | undefined;
-  const reads: Array<[readonly string[], string[]]> = [[pathspecs, []], ...(keep.length ? [[keep, []] as [readonly string[], string[]]] : []),
-    ...(excerpt.length ? [[excerpt, ['--text', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/']] as [readonly string[], string[]]] : [])];
+  let raw = '';
+  let full = false;
+  const size = (s: string) => Buffer.byteLength(shellQuote(s)) + 1;
+  const textFlags = ['--text', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/'];
+  const reads: Array<[readonly string[], string[]]> = [[pathspecs, []], ...argChunks(keep, size).map(c => [c, []] as [readonly string[], string[]]),
+    ...argChunks(excerpt, size).map(c => [c, textFlags] as [readonly string[], string[]])];
   for (const [specs, flags] of reads) {
     const tail = specs.length ? (specs[0] === '--' ? specs : ['--', ...specs]) : [];
     const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', ...flags, diffBase, ...tail], { cwd: root, encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER });
     const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
-    if (code === 'ENOBUFS') { text += r.stdout ?? ''; break; }
+    if (code === 'ENOBUFS') { text += raw + (r.stdout ?? ''); full = true; break; }
     if (code === 'ETIMEDOUT' || (r.signal && r.status === null)) return { ok: false, reason: 'timeout', exit: null, stderr: r.stderr ?? '', timeoutMs };
     if (r.status !== 0) return { ok: false, reason: 'git-exit', exit: r.status, stderr: r.stderr ?? '', timeoutMs };
-    if (flags.length) { ex = excerptOf(r.stdout, specs); text += ex.wholeText; } else text += r.stdout;
+    if (flags.length) raw += r.stdout; else text += r.stdout;
   }
+  const ex = excerpt.length && !full ? excerptOf(raw, excerpt) : undefined;
+  if (ex) text += ex.wholeText;
   const byDir = new Map<string, number>();
-  const add = (file: string, bytes: number) => { const dir = file.includes('/') ? file.split('/')[0]! : '(root)'; byDir.set(dir, (byDir.get(dir) ?? 0) + bytes); };
-  const starts = [...text.matchAll(/^diff --git a\/(\S+)/gm)];
-  starts.forEach((m, k) => add(m[1]!, Buffer.byteLength(text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length))));
+  const byFile = new Map<string, number>();
+  const add = (file: string, bytes: number) => { const dir = file.includes('/') ? file.split('/')[0]! : '(root)'; byDir.set(dir, (byDir.get(dir) ?? 0) + bytes); byFile.set(file, (byFile.get(file) ?? 0) + bytes); };
+  const starts = [...text.matchAll(/^diff --git (.*)$/gm)];
+  starts.forEach((m, k) => add(splitDiffGitLine(m[1]!)[1], Buffer.byteLength(text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length))));
   for (const f of ex?.files ?? []) add(f.path, Buffer.byteLength(f.text));
   const all = ex?.text ? `${text}${text && !text.endsWith('\n') ? '\n' : ''}${ex.text}` : text;
-  return { ok: true, text: all, bytes: Buffer.byteLength(all), byDir: [...byDir].sort((a, b) => b[1] - a[1]), ...(ex ? { excerpt: ex.text, whole: ex.whole } : {}) };
+  return { ok: true, text: all, bytes: Buffer.byteLength(all), byDir: [...byDir].sort((a, b) => b[1] - a[1]), byFile: [...byFile].sort((a, b) => b[1] - a[1]), ...(ex ? { excerpt: ex.text, whole: ex.whole } : {}) };
 }
 
 /** Credential-bearing remote URLs and scp-style remotes out of git's stderr. */
 export const redact = (s: string) => s.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s'"]+/gi, '<url>').replace(/\b[\w.-]+@[\w.-]+:[^\s'"]+/g, '<url>');
 
 /** Where the over-ceiling selection's policy stands: decides the fix the line prints. */
-export interface CeilingContext { state: 'none' | 'head-only' | 'active'; base: string; source: string; floor?: string | null; headPatterns?: string[]; record?: Pick<ExcludeRecord, 'patterns' | 'skipped' | 'excluded'> }
+export interface CeilingContext { state: 'none' | 'head-only' | 'active'; base: string; source: string; floor?: string | null; headPatterns?: string[]; record?: Pick<ExcludeRecord, 'patterns' | 'excluded'> }
 
 /** The policy hunk to land, as JSON a person can paste: the patterns, and a floor at least this key's version. */
 function policyJson(patterns: readonly string[], floor?: string | null): string {
@@ -493,18 +631,20 @@ function suggest(byDir: ReadonlyArray<[string, number]>, bytes: number): string[
   return out;
 }
 
-/** The REVIEW_DIFF_TOO_LARGE line and object: the reader's bytes, the largest folders and a fix chosen by where the policy stands. */
-export function tooLargeLine(context: string, reader: string, d: { bytes: number; byDir: ReadonlyArray<[string, number]> }, c: CeilingContext): { line: string; json: Record<string, unknown> } {
-  const top = d.byDir.slice(0, 5).map(([dir, n]) => `${dir}:${n}`).join(',') || 'none';
-  const land = (patterns: readonly string[]) => `ask the repo owner to land ${policyJson(patterns, c.floor)} in ${SHIP_POLICY_PATH} on ${c.base} as its own PR (docs/ship-policy.md#review-exclude-paths), then bring ${c.base} into this branch and rerun once; if it is still over, split the PR`;
+/** The REVIEW_DIFF_TOO_LARGE line and object: the reader's bytes, the largest folders and files, and a fix chosen by where the policy stands. */
+export function tooLargeLine(context: string, reader: string, d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byFile?: ReadonlyArray<[string, number]> }, c: CeilingContext): { line: string; json: Record<string, unknown> } {
+  const named = (name: string) => (/[\x00-\x1f\x7f]/.test(name) ? JSON.stringify(name) : name);
+  const top = d.byDir.slice(0, 5).map(([dir, n]) => `${named(dir)}:${n}`).join(',') || 'none';
+  const largest = (d.byFile ?? []).slice(0, 5);
+  const split = largest.length ? `split the PR (largest files: ${largest.map(([f, n]) => `${named(f)} (${n} bytes)`).join(', ')})` : 'split the PR';
+  const land = (patterns: readonly string[]) => `ask the repo owner to land ${policyJson(patterns, c.floor)} in ${SHIP_POLICY_PATH} on ${c.base} as its own PR (docs/ship-policy.md#review-exclude-paths), then bring ${c.base} into this branch and rerun once; if it is still over, ${split}`;
   const dirs = suggest(d.byDir, d.bytes);
-  const s = c.record?.skipped[0];
   const fix = c.state === 'head-only' ? `this branch declares review_exclude_paths, but only the copy on ${c.base} applies: ${land(c.headPatterns ?? [])}`
-    : s ? `pattern ${s.pattern} was not applied: its ${s.kept} kept files need ${s.bytes} argument bytes (more than ${KEEP_ARG_MAX_BYTES}); narrow the pattern on ${c.base} or move the kept files out of it, or split the PR`
-    : c.state === 'active' ? `still over after excluding ${c.record?.excluded ?? 0} files; ${dirs.length ? land([...(c.record?.patterns ?? []), ...dirs.filter(p => !c.record?.patterns.includes(p))]) : 'split the PR'}`
-    : dirs.length ? land(dirs) : 'split the PR';
-  const line = `${context}: the reader's diff is over the review ceiling (reader=${reader} bytes=${d.bytes} max=${REVIEW_DIFF_MAX_BYTES} top=${top} policy=${c.source}); fix: ${fix}; nothing was written (REVIEW_DIFF_TOO_LARGE)`;
-  return { line, json: { code: 'REVIEW_DIFF_TOO_LARGE', reader, bytes: d.bytes, max: REVIEW_DIFF_MAX_BYTES, top: d.byDir.slice(0, 5).map(([dir, bytes]) => ({ dir, bytes })), policy: c.source, state: c.state, fix, side_effects: 'none' } };
+    : c.state === 'active' ? `still over after excluding ${c.record?.excluded ?? 0} files; ${dirs.length ? land([...(c.record?.patterns ?? []), ...dirs.filter(p => !c.record?.patterns.includes(p))]) : split}`
+    : dirs.length ? land(dirs) : split;
+  const files = largest.length ? ` files=${largest.map(([f, n]) => `${/[\s,:"]/.test(f) ? JSON.stringify(f) : f}:${n}`).join(',')}` : '';
+  const line = `${context}: the reader's diff is over the review ceiling (reader=${reader} bytes=${d.bytes} max=${REVIEW_DIFF_MAX_BYTES} top=${top}${files} policy=${c.source}); fix: ${fix}; nothing was written (REVIEW_DIFF_TOO_LARGE)`;
+  return { line, json: { code: 'REVIEW_DIFF_TOO_LARGE', reader, bytes: d.bytes, max: REVIEW_DIFF_MAX_BYTES, top: d.byDir.slice(0, 5).map(([dir, bytes]) => ({ dir, bytes })), files: largest.map(([file, bytes]) => ({ file, bytes })), policy: c.source, state: c.state, fix, side_effects: 'none' } };
 }
 
 /** The REVIEW_DIFF_UNREADABLE line: timeout or git exit, the timeout, the base, a redacted first stderr line, and the whole (redacted) stderr written under `logDir`. */
@@ -519,7 +659,7 @@ export function unreadableLine(context: string, reader: string, d: Extract<Reade
 }
 
 /** The plan's review_exclude object (gstack-review-plan --json), or null for a repository without the key. */
-export type PlanExclude = { state: string; patterns?: string[]; skipped?: ExcludeRecord['skipped']; excluded?: number } | null;
+export type PlanExclude = { state: string; patterns?: string[]; excluded?: number } | null;
 
 /**
  * Where <base>'s policy stands for a REVIEW_DIFF_TOO_LARGE fix: the source commit, its min_gstack_version, and the exclusion
@@ -541,5 +681,6 @@ export function ceilingContext(root: string, base: string, known?: PlanExclude):
   const floor = read?.policy.min_gstack_version ?? null;
   if (!x) return { state: 'none', base: b, source, floor };
   if (x.state === 'head-only') return { state: 'head-only', base: b, source, floor, headPatterns: x.patterns ?? [] };
-  return { state: 'active', base: b, source, floor, record: { patterns: x.patterns ?? [], skipped: x.skipped ?? [], excluded: x.excluded ?? 0 } };
+  if (x.state !== 'active') return { state: 'none', base: b, source, floor };
+  return { state: 'active', base: b, source, floor, record: { patterns: x.patterns ?? [], excluded: x.excluded ?? 0 } };
 }

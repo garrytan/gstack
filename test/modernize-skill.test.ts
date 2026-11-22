@@ -20,7 +20,7 @@ describe('/modernize skill', () => {
   test('frontmatter: tier 2, sensitive, a Codex default prompt and the four triggers', () => {
     expect(tmpl.startsWith('---\nname: modernize\npreamble-tier: 2\n')).toBe(true);
     expect(tmpl).toMatch(/^sensitive: true$/m);
-    expect(tmpl).toMatch(/^codex_default_prompt: "Use \$gstack-modernize to /m);
+    expect(tmpl).toMatch(/^codex_default_prompt: "Use \$modernize to /m);
     for (const t of ['modernize this pr', 'rebase this old pr', 'revive this branch', 'is this pr still worth landing']) {
       expect(tmpl, t).toContain('  - ' + t + '\n');
     }

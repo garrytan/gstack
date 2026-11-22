@@ -99,7 +99,7 @@ describe('PR profile paid-runner integration', () => {
     expect(fallback.selection.e2e).toContain('qa-only-no-fix');
     expect(fallback.selection.e2e).not.toContain('autoplan-dual-voice');
     expect(fallback.coverage?.deferred.some(item => item.id === 'autoplan-dual-voice')).toBe(true);
-    expect(() => computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['unregistered/nested/SKILL.md'] })).toThrow('requires full validation');
+    expect(() => computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['test/fixtures/context-bill/tree-a/alpha/SKILL.md'] })).toThrow('requires full validation');
     const ethos = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['ETHOS.md'] });
     expect(ethos.coverage?.mode).toBe('pr');
     expect(ethos.coverage?.unknownFiles).toEqual([]);

@@ -9,7 +9,7 @@ import * as path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DOC = 'docs/TESTING_INTERNALS.md';
-const SCAN = ['scripts', 'test', 'lib', 'bin', '.github'];
+const SCAN = ['scripts', 'test', 'lib', 'bin', 'crew', '.github'];
 
 function githubSlug(heading: string): string {
   return heading.trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, '').replace(/\s/g, '-');

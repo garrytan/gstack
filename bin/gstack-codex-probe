@@ -5,7 +5,9 @@
 # went before, and sets nothing in the caller's shell.
 #
 # Subcommands (each wraps one function below):
-#   select-model <exec|review> [--model <id>]  CODEX_SEL:, CODEX_SEL_KIND:, CODEX_SANDBOX:
+#   select-model <exec|review> [--model <id>] [--role plan-review]
+#                                              CODEX_SEL:, CODEX_SEL_KIND:, CODEX_SANDBOX:
+#                                              (--role: role-ready's selection, without its checks)
 #   check-effort <default-effort> [--request <level>]
 #                                              CODEX_EFFORT:; exit 0, or 1 on an invalid setting
 #   check-auth                                 exit 0 authed, 1 not
@@ -103,6 +105,7 @@ fi
 # === end gstack self-locate ===
 _GSTACK_CODEX_BIN="$_gstack_helper_dir"
 unset _gstack_helper _gstack_helper_dir _gstack_helper_shell
+. "$_GSTACK_CODEX_BIN/gstack-lock.sh" 2>/dev/null || gstack_lock_take() { return 2; }
 
 # --- Auth probe -------------------------------------------------------------
 
@@ -631,19 +634,16 @@ _gstack_codex_probe_cache_store() {
 
 _gstack_codex_lock_acquire() {
   # $1 lock directory, $2 seconds to wait, $3 seconds after which even a live
-  # owner is abandoned. mkdir is atomic on every platform bash runs on. A dead
-  # owner on this host is recovered at once; a missing owner file is the
+  # owner is abandoned. gstack_lock_take (bin/gstack-lock.sh) creates the owner
+  # file with O_EXCL, since mkdir's exit status is not a lock on Ubuntu 26.04's
+  # uutils mkdir. A dead owner on this host is recovered at once; a missing owner file is the
   # creation window and becomes stale after 5 seconds. 0 = held, 1 = timed
   # out, 2 = the lock or its owner record cannot be created.
   local _dir="$1" _tries=$(( ${2:-45} * 10 )) _stale="${3:-90}" _host _owner _pid _ohost _ts _now _i=0 _dead
   _host=$(uname -n 2>/dev/null || echo unknown)
   while :; do
-    if mkdir "$_dir" 2>/dev/null; then
-      printf '%s %s %s\n' "$$" "$_host" "$(date +%s 2>/dev/null || echo 0)" > "$_dir/owner" 2>/dev/null && return 0
-      rm -f "$_dir/owner" 2>/dev/null
-      rmdir "$_dir" 2>/dev/null
-      return 2
-    fi
+    gstack_lock_take "$_dir" owner "$$ $_host $(date +%s 2>/dev/null || echo 0)"
+    case $? in 0) return 0 ;; 3) return 2 ;; esac
     if [ ! -d "$_dir" ]; then
       { [ -e "$_dir" ] || [ -L "$_dir" ]; } && return 2
       { [ -d "${_dir%/*}" ] && [ -w "${_dir%/*}" ] && [ -x "${_dir%/*}" ]; } || return 2
@@ -677,15 +677,15 @@ _gstack_codex_lock_break() {
   # Breakers serialize on $1.break and remove the lock only if it still has the
   # owner they judged abandoned, so a lock re-taken meanwhile survives.
   local _dir="$1" _seen="$2" _bt _now
-  if mkdir "$_dir.break" 2>/dev/null; then
+  if gstack_lock_take "$_dir.break" pid "$$"; then
     [ "$(cat "$_dir/owner" 2>/dev/null)" = "$_seen" ] && rm -rf "$_dir" 2>/dev/null
-    rmdir "$_dir.break" 2>/dev/null
+    rm -rf "$_dir.break" 2>/dev/null
     return 0
   fi
   _now=$(date +%s 2>/dev/null || echo 0)
   _bt=$(stat -c %Y "$_dir.break" 2>/dev/null || stat -f %m "$_dir.break" 2>/dev/null || echo "$_now")
   case "$_bt" in ''|*[!0-9]*) _bt="$_now" ;; esac
-  [ $((_now - _bt)) -ge 10 ] && rmdir "$_dir.break" 2>/dev/null
+  [ $((_now - _bt)) -ge 10 ] && rm -rf "$_dir.break" 2>/dev/null
   return 0
 }
 
@@ -837,7 +837,7 @@ _gstack_codex_log_event() {
 
 _gstack_codex_log_hang() {
   # Invoked when a codex invocation times out (exit 124). Records an
-  # operational learning so future /investigate sessions surface the pattern.
+  # operational learning so future debugging sessions surface the pattern.
   # Best-effort: errors swallowed.
   local _mode="${1:-unknown}"
   local _prompt_size="${2:-0}"
@@ -894,7 +894,9 @@ _gstack_codex_effort_check() {
 _gstack_codex_usage() {
   printf '%s\n' \
     'Usage: gstack-codex-probe <subcommand> [args]' \
-    '  select-model <exec|review> [--model <id>]  print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1' \
+    '  select-model <exec|review> [--model <id>] [--role plan-review]' \
+    '                                             print CODEX_SEL:, CODEX_SEL_KIND: and CODEX_SANDBOX:; exit 0 or 1;' \
+    '                                             --role selects as role-ready does, without its checks' \
     '  check-effort <default-effort> [--request <level>]' \
     '                                             the request level, else GSTACK_CODEX_EFFORT, else codex_effort,' \
     '                                             else the default; print CODEX_EFFORT:; exit 0, 1 on an invalid setting' \
@@ -932,17 +934,22 @@ _gstack_codex_kind_args() {
   fi
 }
 
-# Parses "<exec|review> [--model <id>] [--cwd <dir>]" for role-ready.
+# Parses "<exec|review> [--model <id>] [--cwd <dir>]" for role-ready, and
+# "<exec|review> [--model <id>] [--role plan-review]" for select-model ($1 = select).
 _gstack_codex_role_args() {
+  local _for="$1"
+  shift
   _GSTACK_CODEX_ARG_KIND="${1:-}"
   _GSTACK_CODEX_ARG_MODEL=""
   _GSTACK_CODEX_ARG_CWD=""
+  _GSTACK_CODEX_ARG_ROLE=""
   case "$_GSTACK_CODEX_ARG_KIND" in exec|review) shift ;; *) return 64 ;; esac
   while [ "$#" -gt 0 ]; do
     { [ "$#" -ge 2 ] && [ -n "$2" ]; } || return 64
-    case "$1" in
-      --model) _GSTACK_CODEX_ARG_MODEL="$2" ;;
-      --cwd) _GSTACK_CODEX_ARG_CWD="$2" ;;
+    case "$_for:$1" in
+      *:--model) _GSTACK_CODEX_ARG_MODEL="$2" ;;
+      ready:--cwd) _GSTACK_CODEX_ARG_CWD="$2" ;;
+      select:--role) [ "$2" = plan-review ] || return 64; _GSTACK_CODEX_ARG_ROLE="$2" ;;
       *) return 64 ;;
     esac
     shift 2
@@ -960,8 +967,8 @@ _gstack_codex_main() {
   case "$_cmd" in
     help|-h|--help) _gstack_codex_usage ;;
     select-model)
-      _gstack_codex_kind_args "$@" || { _gstack_codex_usage >&2; return 64; }
-      _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL" || return 1
+      _gstack_codex_role_args select "$@" || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_select_model "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_MODEL" "$_GSTACK_CODEX_ARG_ROLE" || return 1
       printf 'CODEX_SEL: %s\nCODEX_SEL_KIND: %s\nCODEX_SANDBOX: %s\n' "$_GSTACK_CODEX_SEL" "$_GSTACK_CODEX_SEL_KIND" "$_GSTACK_CODEX_SANDBOX" ;;
     check-effort)
       { [ "$#" -eq 1 ] || { [ "$#" -eq 3 ] && [ "$2" = "--request" ]; }; } || { _gstack_codex_usage >&2; return 64; }
@@ -994,7 +1001,7 @@ _gstack_codex_main() {
       esac
       return "$_rc" ;;
     role-ready)
-      _gstack_codex_role_args "$@" || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_role_args ready "$@" || { _gstack_codex_usage >&2; return 64; }
       _gstack_codex_role_ready "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_CWD" "$_GSTACK_CODEX_ARG_MODEL" >&2
       _rc=$?
       [ "$_rc" -eq 0 ] || return "$_rc"

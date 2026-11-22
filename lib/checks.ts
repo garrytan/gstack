@@ -12,12 +12,20 @@
  * caller passes --allow-repo-commands.
  * status: reads the last run's ledger; READY_FOR_SHIP only when every check
  * passed at the current tree and command set. It runs nothing.
+ * quick: the pass /verify runs when the agent calls it right before a commit
+ * (GST-3150). Same checks and selection as run, but it never asks for consent:
+ * an untrusted command set, a missing policy source or the verify_before_commit
+ * switch ends it with one `VERIFY skipped: <reason>` line, and a not-run result
+ * (ENV, UNMAPPED, TOO_BROAD) is named, never a red. A TIMEOUT is a red: a check
+ * that never finished proved nothing. The checks share one deadline, and the
+ * test stage starts with what is left (its runner can still run past it).
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { slugFromEnvironment } from './bin-context';
 import { resolveStateRoot } from './state-root';
+import { gbrainConfigDir } from './gbrain-exec';
 import { wtreeFingerprint } from './script-invocation';
 import type { PregateConfig } from './pregate/config';
 import { buildContext, defaultUserConfigPath, describeRefusal, withFingerprint } from './pregate/context';
@@ -151,6 +159,8 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
   try { testScript = pkgText?.includes('"test"') ? JSON.parse(pkgText).scripts?.test : undefined; } catch { /* an unreadable package.json declares nothing */ }
   const listDir = (dir: string) => { try { return fs.readdirSync(dir); } catch { return []; } };
   const shellFiles = ['.', 'scripts', 'bin'].some(dir => listDir(path.join(root, dir)).some(f => f.endsWith('.sh')));
+  const gbrainDir = gbrainConfigDir(env);
+  const gbrainConfigLabel = env.GBRAIN_HOME?.trim() ? '$GBRAIN_HOME/.gbrain/config.json' : '~/.gbrain/config.json';
   const found: Array<[string, string, string] | false> = [
     has('tsconfig.json') && ['typecheck', 'tsc --noEmit', 'tsconfig.json'],
     (has('biome.json') || has('biome.jsonc')) && ['lint', 'biome check .', 'biome.json'],
@@ -163,7 +173,7 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
     which('knip') && ['deadcode', 'knip', 'PATH'],
     !!pkgText?.includes('"knip"') && ['deadcode', 'npx knip', 'package.json'],
     which('shellcheck') && shellFiles && ['shell', 'shellcheck', 'PATH, *.sh in the root, scripts/ or bin/'],
-    which('gbrain') && !!env.HOME && fs.existsSync(path.join(env.HOME, '.gbrain', 'config.json')) && ['gbrain', 'timeout 5s gbrain doctor --json', 'PATH, ~/.gbrain/config.json'],
+    which('gbrain') && !!env.HOME && !!gbrainDir && fs.existsSync(path.join(gbrainDir, 'config.json')) && ['gbrain', 'timeout 5s gbrain doctor --json', `PATH, ${gbrainConfigLabel}`],
   ];
   const checks = found.filter((c): c is [string, string, string] => !!c).map(([dimension, command, source]) => ({ dimension, command, source }));
   const reasons: Record<string, string> = {
@@ -172,7 +182,7 @@ export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.
     test: typeof testScript === 'string' && /[\r\n]/.test(testScript) ? 'the package.json test script spans lines; list it in a CLAUDE.md Health Stack section' : 'no package.json test script, pytest in pyproject.toml, Cargo.toml or go.mod',
     deadcode: 'knip is not on PATH or in package.json',
     shell: which('shellcheck') ? 'no *.sh file in the root, scripts/ or bin/' : 'shellcheck is not on PATH',
-    gbrain: 'gbrain is not on PATH or ~/.gbrain/config.json is absent',
+    gbrain: gbrainDir ? `gbrain is not on PATH or ${gbrainConfigLabel} is absent` : 'GBRAIN_HOME is relative or has a ".." segment, which gbrain refuses',
   };
   return { checks, missing: HEALTH_DIMENSIONS.filter(d => !checks.some(c => c.dimension === d)).map(dimension => ({ dimension, reason: reasons[dimension] })) };
 }
@@ -247,7 +257,8 @@ export function testVerdict(r: CheckResult): Pick<Outcome, 'verdict' | 'detail' 
   return { verdict: 'INCOMPLETE', detail };
 }
 
-export interface RunOptions { root: string; only?: string[]; timeoutMs: number; env?: NodeJS.ProcessEnv }
+/** deadline (epoch ms) bounds the whole run: each check gets the time left, and one that cannot start before it is a TIMEOUT. */
+export interface RunOptions { root: string; only?: string[]; timeoutMs: number; deadline?: number; env?: NodeJS.ProcessEnv }
 export interface Loaded { ctx: PregateContext; checks: Check[]; set: string }
 const basisOf = (ctx: PregateContext) => sha256(JSON.stringify([ctx.baseRef, ctx.baseSha, ctx.configLabel, ctx.configDigest ?? '']));
 
@@ -294,8 +305,10 @@ export async function runChecks(l: Loaded, o: RunOptions): Promise<{ outcomes: O
   const dir = path.join(path.dirname(file), 'logs');
   fs.mkdirSync(dir, { recursive: true });
   const outcomes: Outcome[] = [];
-  for (const check of l.checks) if (want(check.name)) outcomes.push(await runCommand(l.ctx, check, dir, o.timeoutMs));
-  if (want(TESTS)) outcomes.push(await runTests(l.ctx));
+  const left = () => Math.min(o.timeoutMs, (o.deadline ?? Infinity) - Date.now());
+  const spent = (name: string): Outcome => ({ name, verdict: 'TIMEOUT', ms: 0, detail: 'not started: the run\'s time budget ran out', lines: [] });
+  for (const check of l.checks) if (want(check.name)) outcomes.push(left() > 0 ? await runCommand(l.ctx, check, dir, left()) : spent(check.name));
+  if (want(TESTS)) outcomes.push(left() > 0 ? await runTests({ ...l.ctx, timeoutMs: Math.min(l.ctx.timeoutMs, left()) }) : spent(TESTS));
   const after = wtreeFingerprint({ cwd: o.root, env: o.env });
   const moved = 'error' in after || after.tree !== l.ctx.wtree;
   const final = moved ? outcomes.map(x => (x.verdict === 'PASS' ? { ...x, verdict: 'INCOMPLETE' as Verdict, detail: 'the working tree changed during the run; rerun' } : x)) : outcomes;
@@ -309,6 +322,17 @@ export async function runChecks(l: Loaded, o: RunOptions): Promise<{ outcomes: O
   fs.writeFileSync(tmp, JSON.stringify(ledger, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(tmp, file);
   return { outcomes: final, ledger };
+}
+
+/** The quick pass's last line: FAIL on a red, PASS when something passed and nothing is red, else skipped. */
+export function quickLine(outcomes: readonly Outcome[]): { line: string; red: Outcome[] } {
+  const red = outcomes.filter(o => o.verdict === 'FAIL' || o.verdict === 'ZERO_RUN' || o.verdict === 'INCOMPLETE' || o.verdict === 'TIMEOUT');
+  const passed = outcomes.filter(o => o.verdict === 'PASS');
+  const notRun = outcomes.filter(o => o.verdict !== 'PASS' && !red.includes(o)).map(o => `${o.name} ${o.verdict}`);
+  const secs = (outcomes.reduce((sum, o) => sum + o.ms, 0) / 1000).toFixed(1);
+  if (red.length) return { red, line: `VERIFY FAIL: ${red.map(o => `${o.name} ${o.verdict === 'FAIL' ? o.detail : o.verdict}`).join(', ')}${red[0].log ? `; log ${red[0].log}` : ''}` };
+  if (!passed.length) return { red, line: `VERIFY skipped: nothing ran to a result (${notRun.join(', ') || 'no checks'})` };
+  return { red, line: `VERIFY PASS: ${passed.map(o => o.name).join(', ')} in ${secs}s${notRun.length ? ` (not run: ${notRun.join(', ')})` : ''}` };
 }
 
 /** READY_FOR_SHIP only when the ledger is for this tree and command set and every check and the tests passed. */

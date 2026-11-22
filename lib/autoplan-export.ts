@@ -3,7 +3,7 @@
  * B2): `plan.md` (the `## URGENT, outside this plan` block above the
  * `## Implementation plan` section; warns above 30 KB), `review-record.md`
  * (the `## Review record` section plus the run log: phases, voices, consensus
- * tables, the gate and the GUARD_NOT_INSTALLED line the validator requires),
+ * tables, the gate and the guard line the validator requires),
  * `findings.jsonl`, `tasks.jsonl`, `decisions.jsonl` (already written by the
  * gate), `timing.json`, and `run.json` with every artifact's path and hash
  * and the counts `gstack-artifact validate` checks against the files, plus

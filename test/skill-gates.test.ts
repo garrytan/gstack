@@ -1,6 +1,6 @@
 /**
  * gstack-skill-gates (GST-1461): settings prints a --settings JSON that
- * registers the /investigate gate headless; report counts markers from the
+ * registers the opt-in gates headless; report counts markers from the
  * session records and exits GATE_NOT_ARMED (2) or GATE_ERRORED (3).
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -19,30 +19,16 @@ const cli = (...args: string[]) => spawnSync(process.execPath, [...bunIsolationA
 function seed(session: string, run: Record<string, unknown> | null, errors: Array<{ code: string }> = []) {
   const dir = path.join(state, 'skill-gates', session);
   fs.mkdirSync(dir, { recursive: true });
-  const runs = run ? { 'investigate@3': { skill: 'investigate', load_line: 3, fired_at: '2026-11-05T00:00:00Z', blocked: 0, observed: 0, ...run } } : {};
-  fs.writeFileSync(path.join(dir, 'record.json'), JSON.stringify({ version: 1, session_id: session, transcript_path: '/t', hooks: { 'investigate-gate': { runs, errors: errors.map(e => ({ at: 'x', why: 'y', ...e })), skipped: {} } } }));
+  const runs = run ? { 'plan-ceo-review@3': { skill: 'plan-ceo-review', load_line: 3, fired_at: '2026-11-05T00:00:00Z', blocked: 0, observed: 0, ...run } } : {};
+  fs.writeFileSync(path.join(dir, 'record.json'), JSON.stringify({ version: 1, session_id: session, transcript_path: '/t', hooks: { 'ceo-review-gate': { runs, errors: errors.map(e => ({ at: 'x', why: 'y', ...e })), skipped: {} } } }));
 }
 
 test('the marker line has one fixed shape', () => {
-  expect(gateMarker('investigate-gate', 'blocked', 'sess 1/../x', { skill: 'investigate', via: 'bash', files: 'a b.ts', n: 2 }))
-    .toBe('GSTACK_GATE investigate-gate blocked session=sess1x skill=investigate via=bash files=a_b.ts n=2');
+  expect(gateMarker('ceo-review-gate', 'blocked', 'sess 1/../x', { skill: 'plan-ceo-review', via: 'stop', files: 'a b.md', n: 2 }))
+    .toBe('GSTACK_GATE ceo-review-gate blocked session=sess1x skill=plan-ceo-review via=stop files=a_b.md n=2');
 });
 
 describe('settings', () => {
-  test('--investigate registers four events on this checkout\'s shims and turns the switch on', () => {
-    const r = cli('settings', '--investigate');
-    expect(r.status).toBe(0);
-    const s = JSON.parse(r.stdout);
-    expect(s.env).toEqual({ GSTACK_INVESTIGATE_GATE: 'on' });
-    expect(Object.keys(s.hooks).sort()).toEqual(['PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop']);
-    expect(s.hooks.PreToolUse[0].matcher).toBe('Edit|Write|MultiEdit|NotebookEdit|Bash');
-    for (const entries of Object.values(s.hooks) as Array<Array<{ hooks: Array<{ command: string }> }>>) {
-      const cmd = entries[0].hooks[0].command;
-      expect(cmd.startsWith(path.join(ROOT, 'hosts', 'claude', 'hooks', 'investigate-gate-'))).toBe(true);
-      expect(fs.statSync(cmd).mode & 0o111).not.toBe(0);
-    }
-  });
-
   test('--ceo-review registers Stop and SubagentStop on the ceo-review-gate shims with no matcher and turns its switch on', () => {
     const r = cli('settings', '--ceo-review');
     expect(r.status).toBe(0);
@@ -58,26 +44,30 @@ describe('settings', () => {
     }
   });
 
-  test('--autoplan registers Stop on the autoplan-stop-gate shim with no matcher and turns its switch on (GST-1666)', () => {
+  test('--autoplan registers Stop (no matcher, GST-1666) and PreToolUse on Bash (the publish check, GST-1814) and turns its switch on', () => {
     const r = cli('settings', '--autoplan');
     expect(r.status).toBe(0);
     const s = JSON.parse(r.stdout);
     expect(s.env).toEqual({ GSTACK_AUTOPLAN_GATE: 'on' });
-    expect(Object.keys(s.hooks)).toEqual(['Stop']);
+    expect(Object.keys(s.hooks)).toEqual(['Stop', 'PreToolUse']);
     expect(s.hooks.Stop).toHaveLength(1);
     expect(s.hooks.Stop[0].matcher).toBeUndefined();
-    const cmd = s.hooks.Stop[0].hooks[0].command;
-    expect(cmd).toBe(path.join(ROOT, 'hosts', 'claude', 'hooks', 'autoplan-stop-gate-stop'));
-    expect(fs.statSync(cmd).mode & 0o111).not.toBe(0);
+    expect(s.hooks.PreToolUse).toHaveLength(1);
+    expect(s.hooks.PreToolUse[0].matcher).toBe('Bash');
+    for (const [event, shim] of [['Stop', 'autoplan-stop-gate-stop'], ['PreToolUse', 'autoplan-stop-gate-publish']]) {
+      const cmd = s.hooks[event][0].hooks[0].command;
+      expect(cmd).toBe(path.join(ROOT, 'hosts', 'claude', 'hooks', shim));
+      expect(fs.statSync(cmd).mode & 0o111).not.toBe(0);
+    }
   });
 
-  test('--investigate --ceo-review together: both switches on, Stop runs both gates', () => {
-    const r = cli('settings', '--investigate', '--ceo-review');
+  test('--ceo-review --autoplan together: both switches on, Stop runs both gates', () => {
+    const r = cli('settings', '--ceo-review', '--autoplan');
     expect(r.status).toBe(0);
     const s = JSON.parse(r.stdout);
-    expect(s.env).toEqual({ GSTACK_INVESTIGATE_GATE: 'on', GSTACK_CEO_REVIEW_GATE: 'on' });
-    expect(Object.keys(s.hooks).sort()).toEqual(['PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop', 'SubagentStop']);
-    expect(s.hooks.Stop.map((e: { hooks: Array<{ command: string }> }) => path.basename(e.hooks[0].command))).toEqual(['investigate-gate-stop', 'ceo-review-gate-stop']);
+    expect(s.env).toEqual({ GSTACK_CEO_REVIEW_GATE: 'on', GSTACK_AUTOPLAN_GATE: 'on' });
+    expect(Object.keys(s.hooks).sort()).toEqual(['PreToolUse', 'Stop', 'SubagentStop']);
+    expect(s.hooks.Stop.map((e: { hooks: Array<{ command: string }> }) => path.basename(e.hooks[0].command))).toEqual(['ceo-review-gate-stop', 'autoplan-stop-gate-stop']);
   });
 
   test('a root containing a space: each command still runs its shim through sh -c', () => {
@@ -104,11 +94,11 @@ describe('settings', () => {
 
 describe('hook timeout covers the gate deadline (GST-1615)', () => {
   test('every hook settings registers for both gates outlives the deadline ceiling plus the margin', () => {
-    const r = cli('settings', '--investigate', '--ceo-review');
+    const r = cli('settings', '--ceo-review', '--autoplan');
     expect(r.status).toBe(0);
     const hooks = JSON.parse(r.stdout).hooks as Record<string, Array<{ hooks: Array<{ timeout: number }> }>>;
     const timeouts = Object.values(hooks).flatMap(entries => entries.flatMap(e => e.hooks.map(h => h.timeout)));
-    expect(timeouts).toHaveLength(6);
+    expect(timeouts).toHaveLength(4);
     for (const t of timeouts) {
       expect(t * 1000).toBeGreaterThanOrEqual(DEADLINE_MAX_MS + HOOK_MARGIN_MS);
       expect(t).toBe(HOOK_TIMEOUT_S);
@@ -146,7 +136,7 @@ describe('report', () => {
     seed('s1', { blocked: 2, released_at: '2026-11-05T00:01:00Z' });
     const r = cli('report', '--json');
     expect(r.status).toBe(0);
-    expect(JSON.parse(r.stdout).rows).toEqual([{ session: 's1', hook: 'investigate-gate', runs: 1, fired: 1, blocked: 2, released: 1, exhausted: 0, observed: 0, errors: 0, error_codes: [], skipped: [] }]);
+    expect(JSON.parse(r.stdout).rows).toEqual([{ session: 's1', hook: 'ceo-review-gate', runs: 1, fired: 1, blocked: 2, released: 1, exhausted: 0, observed: 0, errors: 0, error_codes: [], skipped: [] }]);
   });
 
   test('counts a ceo-review-gate run that was exhausted after its three blocks', () => {

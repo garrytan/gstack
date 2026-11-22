@@ -609,19 +609,20 @@ export async function inlineLocalImages(html: string, opts: PrepassImageOptions)
       return buildMissingImagePlaceholder(src);
     }
 
-    // Out-of-tree reads are legal (local CLI semantics — like pandoc) but
-    // never silent: an agent PDF-ing untrusted markdown should not quietly
-    // embed ~/.ssh/config into a shareable document. --strict makes it fatal.
+    // Out-of-tree files are never read: rendering untrusted markdown must not
+    // copy files from elsewhere on disk into a shareable document. Visible
+    // placeholder by default; --strict makes it fatal.
     // Compare REAL paths — a symlink inside the input dir pointing outside
     // would otherwise pass a string-prefix check (Codex adversarial finding).
     // Runs after the existence check: realpath of a missing file can't
     // resolve, and on macOS /var vs /private/var would false-positive.
-    const inputRoot = safeRealpath(path.resolve(opts.inputDir)) + path.sep;
+    const inputRoot = safeRealpath(path.resolve(opts.inputDir));
     const realFilePath = safeRealpath(filePath);
-    if (!realFilePath.startsWith(inputRoot)) {
+    if (!isInsideDir(realFilePath, inputRoot)) {
       const msg = `image resolves OUTSIDE the input directory: ${src} → ${realFilePath}`;
-      if (opts.strict) throw new StrictModeError(msg + " — move it under the markdown's directory or drop --strict");
+      if (opts.strict) throw new StrictModeError(msg + " — move it under the markdown's directory");
       opts.warn(msg);
+      return buildBlockedLocalPlaceholder("outside the document directory", src);
     }
 
     // Bound the read BEFORE reading: a markdown image pointing at a special
@@ -649,7 +650,13 @@ export async function inlineLocalImages(html: string, opts: PrepassImageOptions)
 
     const buf = fs.readFileSync(filePath);
     const dims = imageDims(buf);
-    const mime = dims?.mime ?? mimeFromExtension(filePath);
+    const mime = dims?.mime ?? signedExtensionMime(buf, filePath);
+    if (mime === "application/octet-stream") {
+      const msg = `not a recognized image (png, jpeg, gif, webp, svg): ${src}`;
+      if (opts.strict) throw new StrictModeError(msg);
+      opts.warn(msg);
+      return buildBlockedLocalPlaceholder("not an image", src);
+    }
 
     // Print-resolution normalization (D4): rasters only — SVG scales free.
     if (dims && mime !== "image/svg+xml" && dims.width > maxPx && opts.run) {
@@ -735,6 +742,18 @@ function buildBlockedRemotePlaceholder(src: string): string {
   );
 }
 
+function buildBlockedLocalPlaceholder(reason: string, src: string): string {
+  return (
+    `<span class="image-missing" role="img" aria-label="image blocked">` +
+    `[image blocked (${reason}): ${escapeHtml(src)}]</span>`
+  );
+}
+
+function isInsideDir(p: string, dir: string): boolean {
+  const rel = path.relative(dir, p);
+  return rel !== "" && rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel);
+}
+
 /** realpath that degrades to the input path when resolution fails. */
 function safeRealpath(p: string): string {
   try {
@@ -742,6 +761,20 @@ function safeRealpath(p: string): string {
   } catch {
     return p;
   }
+}
+
+const IMAGE_SIGNATURES: Record<string, (b: Buffer) => boolean> = {
+  "image/png": (b) => b.length >= 8 && b.readUInt32BE(0) === 0x89504e47 && b.readUInt32BE(4) === 0x0d0a1a0a,
+  "image/jpeg": (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  "image/gif": (b) => /^GIF8[79]a/.test(b.toString("ascii", 0, 6)),
+  "image/webp": (b) => b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP",
+  "image/svg+xml": (b) => /<svg[\s>]/i.test(b.toString("utf8", 0, 65536)),
+};
+
+/** The extension's image MIME, only when the bytes carry that format's signature. */
+function signedExtensionMime(buf: Buffer, p: string): string {
+  const mime = mimeFromExtension(p);
+  return IMAGE_SIGNATURES[mime]?.(buf) ? mime : "application/octet-stream";
 }
 
 function mimeFromExtension(p: string): string {

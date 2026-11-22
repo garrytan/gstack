@@ -124,6 +124,8 @@ describe('GST-1350: founderstar#546 shape, a copy-only edit to a Godot token fil
  * the specialist effort on the three key files that rise to full, while the Red Team keeps full effort as its own dispatch.
  */
 const MAIN_1350_PLANS = 'bafc2b5329237dbb994ab85d5ee0a696e7bd479615f81206c9b4ce7507af108e';
+// GST-3187: on the stand-ins, a full pass whose only fix flag is touchedGate now plans its review where main planned done; those
+// cases are checked to be a review step and read back as main's plan (the same input with touchedGate unset).
 describe('GST-1350 no-loss check', () => {
   // Value: protects=the no-loss rule for review-depth changes: narrowing the token name drops readers only on benign token files;
   //   fails_when=a stand-in stops matching main's plans, a token file with a secret or a secrets, credentials or key file loses a
@@ -154,7 +156,13 @@ describe('GST-1350 no-loss check', () => {
         const t = targetedClasses({ paths, added, removed: {}, scope: {}, gateTagged: 0, consumed: [] }).classes;
         for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
           const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
-          const p = planReview({ paths, added, removed: {}, scope: {}, gateTagged: 0, diffLines: 40, consumed: [], numbers: none, history, adversarialRan, targeted: { classes: t } });
+          const input = { paths, added, removed: {}, scope: {}, gateTagged: 0, diffLines: 40, consumed: [], numbers: none, history, adversarialRan, targeted: { classes: t } };
+          let p = planReview(input);
+          if (pick && last === 'full' && bits === 8) {
+            expect(['full', 'stop', 'voices']).toContain(p.next.step);
+            p = planReview({ ...input, history: { ...history, touchedGate: false } });
+            expect(p.next).toEqual({ step: 'done', reason: 'the step applied no edits' });
+          }
           rows.push({ name, fullPasses, last, bits, adversarialRan, targeted: t, class: p.class, depth: p.depth, step: p.next.step, dispatches: p.dispatches.map(d => ({ role: d.role, name: d.name, effort: d.effort, checklists: d.checklists ?? [] })) });
         }
       }

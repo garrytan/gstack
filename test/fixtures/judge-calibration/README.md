@@ -15,7 +15,7 @@ labels) before any schema was written (for `cookie-workflow`, before any request
 schema was sent). `second_review` records that verdict, and each
 disagreement carries `author_expected` and the third reviewer's `adjudication`.
 
-`scripts/judge-calibration.ts` runs the comparison and `scripts/judge-calibration-configs.ts`
+`scripts/judge-calibration.ts` runs the comparison and `crew/scripts/judge-calibration-configs.ts`
 defines each configuration. Run outputs land in `<config>/runs/`:
 `comparison-1.samples.jsonl` holds every sample with its value or error kind, latency
 and priced usage, and `comparison-1.result.json` holds the flip rates, agreement,

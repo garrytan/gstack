@@ -26,16 +26,18 @@ import { GSTACK_VERSION } from './autoplan-migrate';
 import { driftLine, normalizeFindingFile, reviewHash, scaffold } from './autoplan-plan-text';
 import { PHASES, SNAPSHOT_TOOL, attemptFile, bindPromptResult, detectScope, driverFile, extractHeading, phaseOrder, reviewSkillFile, scopeLines, scopeSourceLabel, sectionLoadFor, snapshotTool, writePrompts, type Phase, type Scope, type ScopeFlags } from './autoplan-prompts';
 import { recoverRevise } from './autoplan-revise';
+import { autoplanGuardLine } from './autoplan-guard-status';
 import { FILES, RunError, journal, now, pendingAmendments, readDecisions, readJournal, readState, voiceTerminal, writeState, type AttemptState, type PhaseState, type RunState, type Voice, type VoiceState } from './autoplan-state';
 import { checkPlanReality, checkRealityRows, PLAN_REALITY_CHECKER } from './plan-reality';
 import type { RunStatus } from './headless-artifacts';
 import { sha256File } from './headless-artifacts';
-import { outsideConsent } from './outside-consent';
+import { outsideConsent, readStoredCodexReviews } from './outside-consent';
 import { familyConflict, modelFamily } from './outside-voice-runner';
 import { SpendCapExceeded, release, renderSpend, reserve, settle, summarize, readLedger } from './spend-ledger';
 import { DEFAULT_MAX_ROUNDS, attemptEstimate, overCap, resumeStop, roundCap, roundOf, roundsLine, stopForBudget, stopLines } from './autoplan-budget';
 import { annotateConfirm, confirmBlock } from './autoplan-confirm';
-import { LEAN_SKIPPED, captureDraft, checkDraftReceipt, draftLine, leanLine, leanMode, leanPrompt, type AutoplanKind } from './autoplan-lean';
+import { ownerWordsLine, parseOwnerWords } from './autoplan-owner-text';
+import { LEAN_SKIPPED, captureDraft, checkDraftReceipt, draftLine, leanLenses, leanLine, leanMode, leanPrompt, type AutoplanKind } from './autoplan-lean';
 
 /** An unreadable run.lock younger than this is a lock some other gstack is still writing, never a stale one. */
 const LOCK_WRITE_GRACE_MS = 30_000;
@@ -115,19 +117,20 @@ export function initRun(o: InitOptions, lines: string[] = []): RunState {
   const sessionKind = o.sessionKind ?? process.env.GSTACK_SESSION_KIND ?? 'unattended';
   const lean = leanMode({ kind: o.kind, full: o.full, ceoOnly: o.ceoOnly, base: o.base, sessionKind, env: process.env });
   const order: Phase[] = o.ceoOnly ? ['ceo'] : lean ? ['eng'] : phaseOrder(scope);
-  const run = o.runId ?? `${path.basename(out)}-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`;
+  const run = o.runId ?? `${path.basename(out)}-${Array.from(crypto.randomBytes(6), b => String.fromCharCode(97 + b % 26)).join('')}-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`;
   // codex_reviews gates the outside voice here, before any dispatch: a refusal is a terminal not_run outcome per phase.
   const consent = (o.outsideEnabled ?? true) && !lean ? outsideConsent({ userInvoked: false }) : undefined;
   const consentMissing = consent && !consent.allowed ? consent.lines[0] : undefined;
   const phases: Record<string, PhaseState> = {};
-  for (const p of PHASES) if (!order.includes(p)) phases[p] = { skipped: o.ceoOnly ? 'ceo-only run' : lean ? LEAN_SKIPPED : scope.docs_only ? 'docs-only plan' : p === 'design' ? 'no UI scope detected' : 'no developer-facing scope detected', native: { status: 'skipped' }, outside: { status: 'skipped' } };
+  const why = (p: Phase) => scope.docs_only ? 'docs-only plan' : p === 'design' ? 'no UI scope detected' : 'no developer-facing scope detected';
+  for (const p of PHASES) if (!order.includes(p)) phases[p] = { skipped: o.ceoOnly ? 'ceo-only run' : !lean ? why(p) : leanLenses(scope).includes(p) ? LEAN_SKIPPED : `${why(p)} (lean)`, native: { status: 'skipped' }, outside: { status: 'skipped' } };
   const state: RunState = {
     schema_version: 1, run, status: 'running', required_phases: order, phases, artifacts: {}, revision: 0, out,
     plan_source: init.sourcePlan, active_plan: init.activePlan, restore: init.restorePath, scope, phase_order: order,
     outside_enabled: (o.outsideEnabled ?? true) && !consentMissing && !lean, attempt_counter: 0, spend_cap_usd: o.spendCap ?? null,
     ...(consentMissing ? { outside_not_run: { reason: 'consent_missing', detail: consentMissing } } : {}),
     session_kind: sessionKind, host: 'gstack-autoplan', max_rounds: o.maxRounds ?? (lean ? 1 : sessionKind === 'unattended' ? DEFAULT_MAX_ROUNDS : null), history: [], created_at: now(), updated_at: now(),
-    deviations: ['autoplan guard: not enforced by this host; publication order is unverified (GUARD_NOT_INSTALLED)'],
+    deviations: [autoplanGuardLine(process.env, path.resolve(import.meta.dir, '..'))],
     ...(o.deadlineMin ? { deadline_at: new Date(Date.now() + o.deadlineMin * 60_000).toISOString() } : {}),
     ...(o.light ? { light: true } : {}),
     ...(o.ceoOnly ? { ceo_only: true } : {}), ...(o.shadow ? { shadow: o.shadow } : {}), gstack_version: GSTACK_VERSION, plan_input: input, scope_flags: { ...(o.scope ?? {}) },
@@ -281,6 +284,7 @@ export function nextStep(o: NextOptions): NextResult {
   state.status = 'awaiting_result';
   writeState(state);
   for (const a of result.attempts) lines.push(`ATTEMPT: ${a.attempt} phase=${phase} voice=${a.voice} prompt=${a.prompt} result=${a.result} model_family=${a.model_family}${a.new ? '' : ' (open)'}`);
+  if (result.attempts.some(a => a.voice === 'outside') && readStoredCodexReviews().value === 'enabled') lines.push("OUTSIDE_CONSENT: given by codex_reviews=enabled (the owner's standing consent to send this review input to the outside model: run the outside attempt in the foreground, ask nothing, and never close it --unavailable over consent)");
   lines.push(renderSpend(summarize(readLedger(path.join(state.out, FILES.spend)))), roundsLine(state));
   return result;
 }
@@ -312,7 +316,7 @@ function recordPlanReality(state: RunState): string[] {
   const verdict = rows.verdict !== 'complete' ? rows.verdict : plan.verdict;
   state.plan_reality = { plan_sha256: sha, checker: PLAN_REALITY_CHECKER, verdict, line: `${rows.line}; ${plan.line}` };
   journal(state.out, { event: 'plan_reality', plan_sha256: sha, checker: PLAN_REALITY_CHECKER, verdict });
-  return [`${rows.line} (report only)`, `${plan.line} (report only)`, ...plan.numberLines];
+  return [`${rows.line} (report only)`, `${plan.line} (report only)`, ...plan.numberLines, ownerWordsLine(parseOwnerWords(text))];
 }
 
 function resolveAttempt(v: VoiceState, attempt: string | undefined, phase: string, voice: Voice): AttemptState {

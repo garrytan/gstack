@@ -168,7 +168,7 @@ Supported interactions, declared before launch:
 - Edit or Write: ${invoice} only, and only to apply a fix for a finding the classified output scopes \`fix\`. ${payments} is never written in this fixture. Write also accepts ${draft}, the item-6 review record of the current pass: the JSON object the gstack-review-log example takes (skill, timestamp, status, issues_found, critical, informational, quality_score 10.0, specialists {}, findings with fingerprint, severity, action and the copied locus, kind and blocking, commit, via "ship", completed, converged, cycles, pass, review_scope, range_base). The record's commit is the short HEAD: ${head.slice(0, 7)} now, and the sha the commit adapter prints after it commits a fix; no git command is needed for it.
 - Bash accepts exactly these single commands, without chaining, redirection or backgrounding. Each is the bound adapter for the generated helper command it names and does not decide which item or decision applies:
   ${commands.classify} runs gstack-review-scope classify for the current pass against this pass's .gstack/tmp/review-findings-p$PASS.json (--range-base is bound from pass 2 on); it writes .gstack/tmp/review-classified-p$PASS.json and prints the REVIEW_SCOPE line and the classified JSON.
-  ${commands.defer} runs gstack-review-scope defer on the current pass's classified file; it writes .gstack/tmp/review-deferred.json and prints the DEFERRED lines and the rendered PR-body sections (gh is absent here, so a deferred finding stays unfiled with its reason).
+  ${commands.defer} runs gstack-review-scope defer on the current pass's classified file; it writes .gstack/tmp/review-deferred.json and prints the DEFERRED lines and the rendered PR-body sections (a deferred finding stays on the PR; no issue is filed).
   ${commands.persist} passes ${draft} to the real gstack-review-log with this pass's REVIEW_START token (--finish); the pass-1 token was captured before this prompt, and the repeat adapter captures the next one.
   ${commands.commit} runs item 4's commit of the fixed file (git add invoice.ts && git commit -m "fix: pre-landing review fixes").
   ${commands.repeat} takes decision 3: it runs the next pass's Steps 5 through 9.3 on the range since the previous pass, writes that pass's .gstack/tmp/review-findings-p$PASS.json and prints the result with the new REVIEW_START captured.
@@ -221,7 +221,7 @@ export async function shipFrozenScopeFailures(fixture: ReturnType<typeof createS
   const fixed = (first?.findings ?? []).find((f: Record<string, any>) => identity(f) === FROZEN_SCOPE_FIX_IDENTITY);
   const deferred = (first?.findings ?? []).find((f: Record<string, any>) => identity(f) === FROZEN_SCOPE_DEFER_IDENTITY);
   check(['fixed', 'auto-fixed'].includes(fixed?.action) && fixed?.blocking === true && fixed?.locus === 'diff', 'pass 1 did not record the in-diff defect as fixed');
-  check(deferred?.action === 'deferred' && deferred?.issue === null && deferred?.blocking === true && deferred?.locus === 'outside', 'pass 1 did not record the pre-existing defect as deferred');
+  check(deferred?.action === 'deferred' && deferred?.blocking === true && deferred?.locus === 'outside', 'pass 1 did not record the pre-existing defect as deferred');
   check(first?.review_scope === 'frozen' && second?.review_scope === 'frozen', 'rows do not carry the frozen policy');
   check(typeof second?.range_base === 'string' && second.range_base.length >= 7 && evidence.head.startsWith(second.range_base), 'pass 2 did not record the pass-1 head as its range base');
   check(!(second?.findings ?? []).some((f: Record<string, any>) => ['fixed', 'auto-fixed'].includes(f?.action)) && Number(second?.issues_found) === 0, 'pass 2 recorded fixes or open defects on an empty range review');
@@ -327,7 +327,7 @@ if (import.meta.main && process.argv[2] === '--fixture') {
   } else if (action === 'defer') {
     if (!fs.existsSync(classified)) throw new Error(`Classify pass ${pass} first`);
     const deferred = file('review-deferred.json');
-    const run = bin('gstack-review-scope', ['defer', '--findings', classified, '--out', deferred, '--dry-run']);
+    const run = bin('gstack-review-scope', ['defer', '--findings', classified, '--out', deferred]);
     output = [run.stderr.trim(), run.stdout.trim()].filter(Boolean).join('\n');
   } else if (action === 'persist') {
     if (!fs.existsSync(config.draft)) throw new Error('Write the review record first');

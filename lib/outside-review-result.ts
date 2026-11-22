@@ -7,9 +7,11 @@
  * the highest finding severity, and the verdict. validateOutsideReview() is the
  * older text-only shape, kept for direct importers and stale rendered skills.
  */
+import { parseReviewResult } from './autoplan-reconcile';
 import { GATE_OUTCOMES, gateOutcomeLine, type GateReason } from './gate-outcomes';
 
-export type OutsideGate = 'review' | 'structured' | 'spec' | 'execution' | 'proposal';
+/** autoplan: the INPUT receipt and gstack-findings fence that lib/autoplan-prompts.ts RESULT_FORMAT asks every plan reviewer for. */
+export type OutsideGate = 'review' | 'structured' | 'spec' | 'execution' | 'proposal' | 'autoplan';
 export type OutsideVerdict = 'clean' | 'findings' | 'unverified' | 'unavailable';
 export type Severity = 'P0' | 'P1' | 'P2' | 'P3';
 
@@ -20,11 +22,13 @@ export interface OutsideReviewInput {
   exit?: number;
   /** JSONL from `codex exec --json`: command events are positive execution evidence. */
   events?: string;
+  /** The host's own error for the reviewer, such as a Capy subagent's latest_error; never a prompt echo. */
+  providerError?: string;
 }
 
 export interface OutsideReviewClassification {
   execution: { state: 'ran' } | { state: 'unavailable'; reason: GateReason; detail?: string };
-  /** unlabeled: numbered findings with no readable severity, in a reply with a `Verdict:` line; set only when non-zero. */
+  /** unlabeled: numbered findings with no readable severity, in a reply with a `Verdict:` line or ending `VERDICT: CLEAN`; set only when non-zero. */
   findings: { highest: Severity | null; unlabeled?: number };
   verdict: OutsideVerdict;
   /** Set for every verdict except clean/findings. */
@@ -62,6 +66,15 @@ function codexErrorLines(stderr: string): string[] {
 }
 /** The account's usage limit: Codex's line carries the reset time, so it is relayed verbatim. Same signature as the probe. */
 export const QUOTA_FAILURE = /usage limit|insufficient_quota|exceeded your current quota|quota exceeded/i;
+/**
+ * HTTP 402 Payment Required: a metering proxy's allowance or the account's budget, never an auth failure. The 402 counts only
+ * as a status (`status 402`, `HTTP 402`, `"code":402`, `Error: 402`, `402 Payment Required`), never inside a request id or a duration.
+ */
+export const BUDGET_FAILURE = /(?:http(?:\/\d(?:\.\d)?)?|status|code|error)\b[\s:="']{0,4}402\b|\b402\s+payment|payment[\s_-]?required/i;
+/** How lib/claude-code.ts opens its budget stop (a 402 or a usage limit): read as budget_exhausted, never as Codex's quota stop. */
+export const CLAUDE_CODE_BUDGET_STOP = "Claude Code's provider refused the call because";
+/** OpenAI's cyber-security refusal (R95): Capy relays it as `OpenAI key declined the request: cyber_policy: ...`; read from error lines only. */
+export const CYBER_POLICY_REFUSAL = /\bcyber_policy\b/;
 /** A plain HTTP 429 or rate limit: transient, so a separate reason from the quota. */
 export const RATE_LIMIT_FAILURE = /rate.?limit|too many requests|(?:^|[^0-9])429(?:[^0-9]|$)/i;
 /** `codex review` transcript on stderr: a command that ran prints " succeeded in Nms:". */
@@ -82,6 +95,19 @@ function commandEvidence(events: string): { attempted: number; succeeded: number
   return { attempted, succeeded, failedOutput };
 }
 
+/** Codex's own failure events under `--json` (`error`, `turn.failed`): its stderr carries no error line for an HTTP refusal. */
+function failureEventMessages(events: string): string[] {
+  const messages: string[] = [];
+  for (const line of events.split(/\r?\n/)) {
+    if (!line.trim().startsWith('{')) continue;
+    let event: any;
+    try { event = JSON.parse(line); } catch { continue; }
+    const message = event?.type === 'error' ? event.message : event?.type === 'turn.failed' ? event.error?.message : undefined;
+    if (typeof message === 'string' && message.trim()) messages.push(message.trim());
+  }
+  return messages;
+}
+
 function stderrHead(stderr: string): string | undefined {
   return stderr.split(/\r?\n/).map(line => line.trim()).find(Boolean)?.slice(0, 240);
 }
@@ -90,15 +116,27 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
   const stderr = input.stderr ?? '';
   const exit = input.exit ?? 0;
   const sandbox = (output: string) => output.match(SANDBOX_FAILURE)?.[0].trim().slice(0, 240);
+  const hostErrors = (input.providerError ?? '').split(/\r?\n/).map(line => line.trim());
+  const cyber = hostErrors.find(line => CYBER_POLICY_REFUSAL.test(line));
+  if (cyber) return { state: 'unavailable', reason: 'cyber_policy_refused', detail: cyber.slice(0, 240) };
+  const hostBudget = hostErrors.find(line => BUDGET_FAILURE.test(line));
+  if (hostBudget) return { state: 'unavailable', reason: 'budget_exhausted', detail: hostBudget.slice(0, 240) };
+  const hostQuota = hostErrors.find(line => QUOTA_FAILURE.test(line));
+  if (hostQuota) return { state: 'unavailable', reason: 'quota_exhausted', detail: hostQuota.slice(0, 240) };
   if (exit !== 0) {
     const detail = sandbox(stderr);
     if (detail) return { state: 'unavailable', reason: 'sandbox_unavailable', detail };
-    const errors = exit !== 124 ? codexErrorLines(stderr) : [];
+    const final = exit !== 124 ? failureEventMessages(input.events ?? '').at(-1) : undefined;
+    const errors = exit === 124 ? [] : final !== undefined ? [final] : codexErrorLines(stderr);
+    const refusal = errors.find(line => CYBER_POLICY_REFUSAL.test(line));
+    if (refusal) return { state: 'unavailable', reason: 'cyber_policy_refused', detail: refusal.slice(0, 240) };
+    const budget = errors.find(line => BUDGET_FAILURE.test(line) || line.includes(CLAUDE_CODE_BUDGET_STOP));
+    if (budget) return { state: 'unavailable', reason: 'budget_exhausted', detail: budget.slice(0, 240) };
     const quota = errors.find(line => QUOTA_FAILURE.test(line));
     if (quota) return { state: 'unavailable', reason: 'quota_exhausted', detail: quota.slice(0, 240) };
     const rateLimit = errors.find(line => RATE_LIMIT_FAILURE.test(line));
     if (rateLimit) return { state: 'unavailable', reason: 'rate_limited', detail: rateLimit.slice(0, 240) };
-    const head = stderrHead(stderr);
+    const head = final?.slice(0, 240) ?? stderrHead(stderr);
     return { state: 'unavailable', reason: exit === 124 ? 'timeout' : 'execution_failed', detail: head ? `exit ${exit}: ${head}` : `exit ${exit}` };
   }
   const commands = commandEvidence(input.events ?? '');
@@ -124,6 +162,7 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
  * Critical and high block like P0/P1; medium and low are advisory like P2/P3.
  */
 const SEVERITY_WORDS: Record<string, Severity> = { critical: 'P0', high: 'P1', medium: 'P2', low: 'P3' };
+const AUTOPLAN_LEVEL: Record<string, Severity | undefined> = { Critical: 'P0', High: 'P1', Medium: 'P2', Low: 'P3' };
 const WORD = '(critical|high|medium|low)';
 const SEVERITY_LABELS = [
   new RegExp(`\\b(?:severity|priority)\\b[\\t ]*[:=][\\t ]*(?:\\*\\*|__|\\[|\`)*${WORD}\\b`, 'gim'),
@@ -137,54 +176,21 @@ function severityWords(text: string): Severity[] {
   return SEVERITY_LABELS.flatMap(re => [...text.matchAll(re)].map(m => SEVERITY_WORDS[m[1]!.toLowerCase()]!));
 }
 /**
- * A no-findings statement opening a sentence: NO_FINDINGS (its underscore is
- * gone after plainReview), "No issues found", "I found no actionable
- * regressions", "I did not find any bugs". Never a phrase inside another
- * clause ("renaming the flag is no problem for callers, but ...").
+ * The reviewer's required last line (GST-1821) and the only evidence for clean
+ * on the review and structured gates: `VERDICT: CLEAN` or `VERDICT: FINDINGS`,
+ * alone on the reply's last non-empty line and outside code. Bold, inline code or
+ * a list marker around the whole line is formatting. Prose never stands in for it:
+ * every earlier form of a no-findings sentence leaked a false clean (GST-1808).
  */
-const FINDING_NOUN = '(?:(?:actionable|significant|new|concrete)\\s+)?(?:bugs?|issues?|findings?|problems?|regressions?|defects?)\\b';
-const NO_FINDINGS_LEAD = '(?:(?:overall|in summary|in short|summary|conclusion|result)[,:]?\\s+|(?:after|having|on|upon)\\s+(?:reviewing|reading|checking|inspecting|reviewed|read|checked|inspected)\\b[^,.;]{0,80},\\s+)?';
-const NO_FINDINGS = new RegExp(`^${NO_FINDINGS_LEAD}(?:NO_?FINDINGS\\b|(?:(?:i|we)\\s+(?:found|see|saw|identified)\\s+|there\\s+(?:are|were|is)\\s+)?no\\s+${FINDING_NOUN}|(?:i|we)\\s+(?:did not|didn't|could not|couldn't|cannot|can't)\\s+(?:find|identify|see)\\s+any\\s+${FINDING_NOUN})`, 'i');
-/** A contrast or exception qualifies the claim, so the sentence does not conclude that nothing was found. */
-const NO_FINDINGS_EXCEPTION = /(?<![\w-])(?:but|however|although|though|yet|except|excluding|unless|only|apart from|aside from|other than|besides|beyond|elsewhere|otherwise)(?![\w-])/i;
-const NO_FINDINGS_PREDICATE = /^\s*(?:(?:was|were|is|are|has been|have been)\s+)?(?:found|identified|detected|evident|apparent|introduced|remain|exist|to report)?/i;
-const WHOLE_CHANGE_SCOPE = /^(?:in|within|across|throughout|with|from|for)\s.*\b(?:chang(?:e|es|ed)|diffs?|patch(?:es)?|staged|unstaged|untracked|branch|commits?|pull request|PR)\b/i;
-
-/**
- * The review's conclusion says it found nothing: its last prose sentence or
- * ", and" clause (a wrapped line that continues in lowercase joined), or the because-clause of its
- * Recommendation line, is an unqualified no-findings statement. When other
- * prose precedes it, anything after the statement other than a predicate
- * ("were found", "is evident") or a colon explanation must scope it to the
- * change as a whole: "No issues in the parser." or "No regressions were found
- * by the tests." says nothing about the rest of the reply.
- */
-function concludesNoFindings(code: string): boolean {
-  let prose = '', because: string | undefined, recommendationOpen = false;
-  for (const line of code.split(/\r?\n/)) {
-    const text = plainReview(line).trim();
-    const listed = /^[\t ]*(?:#{1,6}|[-+*])[\t ]/.test(line);
-    if (recommendationOpen && text && !listed) {
-      because = `${because} ${text}`;
-      recommendationOpen = !/[.!?]$/.test(text);
-      continue;
-    }
-    recommendationOpen = false;
-    if (!text || /^(?:Recommendation|Verdict)[\t ]*:/i.test(text)) {
-      const clause = text.match(/^Recommendation[\t ]*:.*?\bbecause\b[\t ]*(\S.*)$/i)?.[1];
-      if (clause) { because = clause; recommendationOpen = !/[.!?]$/.test(clause); }
-      prose += '\n';
-    } else if (/^[\t ]*#{1,6}[\t ]/.test(line)) prose += `\n${text}\n`;
-    else prose += listed || prose.endsWith('\n') || /[.!?;:]$/.test(prose) || !/^[a-z]/.test(text) ? `\n${text}` : ` ${text}`;
-  }
-  const sentences = prose.split(/(?<=[.!?;])\s+|\n|,\s+and\s+/i).map(sentence => sentence.trim()).filter(Boolean);
-  const total = sentences.length + (because ? 1 : 0);
-  return [sentences.at(-1), because].some(conclusion => {
-    const statement = conclusion?.match(NO_FINDINGS)?.[0];
-    if (!conclusion || !statement || NO_FINDINGS_EXCEPTION.test(conclusion)) return false;
-    const qualifier = conclusion.slice(statement.length).replace(NO_FINDINGS_PREDICATE, '').replace(/[\s.!]+$/, '').trim();
-    return total === 1 || !qualifier || qualifier.startsWith(':') || WHOLE_CHANGE_SCOPE.test(qualifier);
-  });
+const VERDICT_LINE = /^VERDICT: (CLEAN|FINDINGS)$/;
+type VerdictToken = 'CLEAN' | 'FINDINGS';
+/** The verdict token and the reply without its line; the whole reply when it has none. */
+function verdictLine(text: string): { token?: VerdictToken; body: string } {
+  const lines = text.trimEnd().split(/\r?\n/);
+  const last = lines.length - 1;
+  const outsideCode = withoutCode(text).split('\n')[last]?.trim();
+  const token = outsideCode ? VERDICT_LINE.exec(plainReview(lines[last]!).trim())?.[1] as VerdictToken | undefined : undefined;
+  return token ? { token, body: lines.slice(0, last).join('\n') } : { body: text };
 }
 
 /** Formatting the requested marker in bold, inline code, or a list does not invalidate a completed review. */
@@ -233,7 +239,7 @@ function withoutCode(text: string, readUnclosed = false): string {
     }
     if (marker) { if (closes[i]) fence = marker; return ''; }
     return line.replace(/`([^`]+)`/g, (span, inner: string, at: number) =>
-      inner.trim() === 'NO_FINDINGS' || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
+      inner.trim() === 'NO_FINDINGS' || VERDICT_LINE.test(inner.trim()) || /^\[?(?:P[0-3]|critical|high|medium|low)\]?$/i.test(inner.trim()) && CODE_LABEL_BEFORE.test(line.slice(0, at)) ? inner : ' ');
   }).join('\n');
 }
 
@@ -271,24 +277,30 @@ const UNVERIFIED_CLAIM = /\b(?:can['\u2019]?t|cannot|can not|couldn['\u2019]t|co
 const NUMBERED_ITEM = /^(?:\*\*|__)?\(?\d{1,3}[.)][\t ]+\S.*$/gm;
 
 export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewClassification {
-  const plain = plainReview(input.text);
+  const { token, body } = verdictLine(input.text);
+  const plain = plainReview(body);
   const reviewed = input.gate !== 'proposal';
-  const code = withoutCode(input.text), plainCode = plainReview(code);
-  const read = withoutCode(input.text, true), plainRead = plainReview(read);
+  const code = withoutCode(body), plainCode = plainReview(code);
+  const read = withoutCode(body, true), plainRead = plainReview(read);
   const marked = recommendationHeading(code);
   const levelsOf = (c: string, p: string) => [...[...p.matchAll(/\[(P[0-3])\]|^(P[0-3]):/gm)].map(m => (m[1] ?? m[2]) as Severity),
     ...severityTokens(c), ...(reviewed ? severityWords(c) : [])];
   const levels = levelsOf(read, plainRead);
   const verdicts = [lastVerdict(plainCode), lastVerdict(plainRead)];
-  const unlabeled = reviewed && verdicts[1] !== undefined && !concludesNoFindings(marked)
+  const unlabeled = reviewed && (verdicts[1] !== undefined || token === 'CLEAN')
     ? [...read.matchAll(NUMBERED_ITEM)].filter(m => !levelsOf(m[0], plainReview(m[0])).length).length : 0;
   const findings = { highest: levels.length ? levels.sort()[0]! : null, ...(unlabeled ? { unlabeled } : {}) };
-  const cleanEvidence = levelsOf(code, plainCode).length > 0;
   const ran = execution(input);
   if (ran.state === 'unavailable') return { execution: ran, findings, verdict: 'unavailable', reason: ran.reason, detail: ran.detail };
   const blocking = findings.highest === 'P0' || findings.highest === 'P1';
   const result = (verdict: OutsideVerdict, reason?: GateReason, detail?: string): OutsideReviewClassification =>
     ({ execution: ran, findings, verdict, ...(reason ? { reason } : {}), ...(detail ? { detail } : {}) });
+  if (input.gate === 'autoplan') {
+    const parsed = parseReviewResult(input.text);
+    if (parsed.errors.length) return result('unavailable', 'missing_markers', `autoplan result: ${parsed.errors.join('; ')}`.slice(0, 240));
+    const highest = parsed.findings.map(f => AUTOPLAN_LEVEL[f.severity]).filter((s): s is Severity => !!s).sort()[0] ?? null;
+    return { execution: ran, findings: { highest }, verdict: highest === 'P0' || highest === 'P1' ? 'findings' : 'clean' };
+  }
   if (input.gate === 'spec') {
     const scores = [...input.text.matchAll(/^SCORE:[\t ]*(10|[0-9])[\t ]*\r?$/gm)];
     const ambiguities = [...input.text.matchAll(/^AMBIGUITIES:[\t ]*(\S[^\r\n]*)\r?$/gm)];
@@ -307,8 +319,10 @@ export function classifyOutsideReview(input: OutsideReviewInput): OutsideReviewC
   if (unparsed) return { ...result('unverified', 'unparsed_severity', unparsed), unparsed };
   const unready = verdicts.find(v => v !== undefined && !/^NO_?FINDINGS$/.test(v) && (!READY_VERDICT.test(v) || v.includes('?') || UNVERIFIED_CLAIM.test(v)));
   if (unready !== undefined) return result('unverified', 'unverified_verdict', `Verdict: ${unready}`.trim().slice(0, 160));
-  if ((input.gate === 'structured' || input.gate === 'review') && !cleanEvidence && !concludesNoFindings(marked)) {
-    return result('unverified', 'untagged_review', 'missing severity or explicit no-findings conclusion');
+  if (input.gate === 'structured' || input.gate === 'review') {
+    if (!token) return result('unverified', 'missing_verdict');
+    if (token === 'FINDINGS' && !findings.highest) return result('unverified', 'untagged_review', 'VERDICT: FINDINGS with no readable severity');
+    if (token === 'CLEAN' && findings.unlabeled) return result('unverified', 'untagged_review', 'VERDICT: CLEAN beside numbered items with no readable severity');
   }
   return result('clean');
 }
@@ -373,9 +387,9 @@ export function validateOutsideReview(text: string, gate: OutsideGate): { comple
 }
 
 const VERDICT_EXIT: Record<OutsideVerdict, number> = { clean: 0, findings: 3, unverified: 4, unavailable: 1 };
-const GATES = ['review', 'structured', 'spec', 'execution', 'proposal'];
+const GATES = ['review', 'structured', 'spec', 'execution', 'proposal', 'autoplan'];
 const USAGE = `Usage: outside-review-result.ts <gate> <response-file>
-       outside-review-result.ts --verdict [--stderr <file>] [--exit <code>] [--events <file>] [--label <name>] <gate> <response-file>
+       outside-review-result.ts --verdict [--stderr <file>] [--exit <code>] [--events <file>] [--provider-error <file>] [--label <name>] <gate> <response-file>
 Gates: ${GATES.join('|')}. Two-argument form exits 0 completed, 1 unavailable, 2 usage.
 Verdict form prints VERDICT: clean|findings|unverified|unavailable and exits 0, 3, 4 or 1.`;
 
@@ -392,7 +406,7 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--verdict') verdictMode = true;
-    else if (['--stderr', '--exit', '--events', '--label'].includes(arg) && i + 1 < args.length) { flags[arg] = args[++i]!; verdictMode ||= arg !== '--label'; }
+    else if (['--stderr', '--exit', '--events', '--provider-error', '--label'].includes(arg) && i + 1 < args.length) { flags[arg] = args[++i]!; verdictMode ||= arg !== '--label'; }
     else if (arg.startsWith('--')) { console.error(USAGE); process.exit(2); }
     else positional.push(arg);
   }
@@ -411,7 +425,7 @@ if (import.meta.main) {
     process.exit(0);
   }
   const events = await readOptional(flags['--events']);
-  const checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit, stderr: await readOptional(flags['--stderr']), events });
+  const checked = classifyOutsideReview({ text, gate: gate as OutsideGate, exit, stderr: await readOptional(flags['--stderr']), events, providerError: await readOptional(flags['--provider-error']) });
   const label = flags['--label'] ?? 'Outside review';
   console.log(`VERDICT: ${checked.verdict}`);
   console.log(`FINDINGS: ${findingsLabel(checked)}`);

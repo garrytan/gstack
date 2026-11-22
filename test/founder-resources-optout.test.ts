@@ -61,7 +61,7 @@ describe("office-hours section gates on the key (#538)", () => {
 
   test("the opt-out check precedes any resource content", () => {
     const gate = src.indexOf("gstack-config get founder_resources");
-    const pool = src.indexOf("Resource Pool");
+    const pool = src.indexOf("bin/gstack-founder-resources");
     expect(gate).toBeGreaterThan(-1);
     expect(pool).toBeGreaterThan(-1);
     expect(gate).toBeLessThan(pool);

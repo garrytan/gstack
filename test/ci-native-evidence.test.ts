@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { runPaidShard, shardSlug } from '../scripts/test-paid-shards';
-import { CENSUS_ARMS } from '../scripts/census-arms';
+import { CENSUS_ARMS } from '../crew/scripts/census-arms';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const workflows = ['evals.yml', 'evals-periodic.yml', 'evals-marathon.yml'].map(name => ({
@@ -53,7 +53,7 @@ test('every direct CI paid executor binds a safe unique run/attempt/job/slice id
     else expect(step.run).toContain('--user "$(id -u):$(id -g)"');
     const env = executorEnv(job, step);
     expect(env.EVALS_RUN_ID).toBeString();
-    // The gate census matrix is one row per census arm and planned slice (scripts/census-arms.ts).
+    // The gate census matrix is one row per census arm and planned slice (crew/scripts/census-arms.ts).
     const armed = job.strategy.matrix.include !== undefined;
     for (const run of ['36302678692', '36302678693']) {
       for (const attempt of ['1', '2']) {

@@ -57,6 +57,37 @@ permissions:
   contents: read
 
 jobs:
+  # Trunk Dynamic CI, LEARNING ONLY (GST-1847; free-tests.yml has the full
+  # rationale). Trunk records whether it would have run or skipped windows-scoped-shard
+  # on same-repository pull requests; every job still runs. Trunk keys verdicts
+  # by workflow file, so each observed workflow carries its own observer. No job
+  # needs it, no condition reads it and it exports no outputs, so a mode change
+  # in Trunk's dashboard cannot skip anything. It checks out nothing, runs no
+  # pull-request code, holds no GITHUB_TOKEN scopes, never fails the run, and
+  # skips fork pull requests, pushes and dispatches. docs/TESTING_INTERNALS.md.
+  trunk-dynamic-ci:
+    name: Trunk Dynamic CI (learning only, windows-scoped-tests)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions: {}
+    env:
+      TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+    steps:
+      - name: Record Trunk's verdicts for windows-scoped-shard (nothing reads them)
+        if: env.TRUNK_API_TOKEN != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: trunk-io/dynamic-ci@5bcddbf3615c2b032c21eed1b514c91164bda4a8 # v0.1.7
+        env:
+          TRUNK_DISABLE_TELEMETRY: 'true'
+        with:
+          token: ${{ env.TRUNK_API_TOKEN }}
+          job-keys: windows-scoped-shard
+          github-token: ''
+          enable-annotation: 'true'
+
   windows-scope:
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project settings: nested open shadow roots</title>
+<script src="sharing.js"></script>
+</head>
+<body>
+<main>
+<qm-settings></qm-settings>
+<script>
+customElements.define('qm-sharing', class extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: 'open' }).innerHTML = '<link rel="stylesheet" href="replica.css">' + window.SHARING_HTML; }
+});
+customElements.define('qm-settings', class extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: 'open' }).innerHTML = '<div class="frame"><qm-sharing></qm-sharing></div>'; }
+});
+</script>
+</main>
+</body>
+</html>

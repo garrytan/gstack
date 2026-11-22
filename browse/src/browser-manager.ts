@@ -26,6 +26,7 @@ import { TabSession, type DeviceProfile, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks, resolveConfig } from './config';
 import { ensureProjectProfile } from './chromium-profiles';
 import { launchWithXProtectHeal } from './xprotect-heal';
+import { explainSandboxFailure, sandboxBlockedByHost, shouldEnableChromiumSandbox } from './chromium-sandbox';
 import { DIRECT_PROXY_ARG, forcesDirect } from './proxy-config';
 import { readPidStartTime, shouldSpawnXvfb, spawnFreeXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
 import { withCdpSession } from './cdp-bridge';
@@ -75,35 +76,7 @@ export function isCustomChromium(): boolean {
   return p.includes('GBrowser') || p.includes('gbrowser');
 }
 
-/**
- * Decide whether Playwright should request Chromium's sandbox.
- *
- * Returns false on Windows (Bun→Node→Chromium chain breaks the sandbox,
- * GitHub #276) and on Linux under root / CI / container (sandbox needs
- * unprivileged user namespaces, which are missing for root and typically
- * disabled in containers).
- *
- * When false, Playwright auto-adds --no-sandbox to the launch args — the
- * desired behavior in those environments. When true, Playwright does NOT
- * add --no-sandbox, which keeps Chromium's "unsupported command-line flag"
- * yellow infobar from appearing on every headed launch.
- *
- * The headless launch path also pushes an explicit '--no-sandbox' into args
- * when CI/CONTAINER/root is set; that push is now defensively redundant
- * (Playwright will add it anyway when this returns false) and harmless.
- */
-export function shouldEnableChromiumSandbox(): boolean {
-  if (process.platform === 'win32') return false;
-  // Explicit user override for Ubuntu/AppArmor and similar environments where
-  // unprivileged Chromium sandboxing is blocked even for normal users (the
-  // sandbox needs unprivileged user namespaces that the host policy denies,
-  // so /qa hangs without --no-sandbox). Setting GSTACK_CHROMIUM_NO_SANDBOX=1
-  // forces the sandbox off without changing the default for everyone else.
-  // See #1562.
-  if (process.env.GSTACK_CHROMIUM_NO_SANDBOX === '1') return false;
-  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
-  return !(process.env.CI || process.env.CONTAINER || isRoot);
-}
+export { shouldEnableChromiumSandbox } from './chromium-sandbox';
 
 /**
  * Thrown by probePoisonedChromiumBundle() when it finds — and removes — a
@@ -680,9 +653,8 @@ export class BrowserManager {
 
     // Docker/CI/root: Chromium sandbox requires unprivileged user namespaces which
     // are typically disabled in containers and are never available for the root
-    // user on Linux. Detect all three cases and add --no-sandbox automatically.
-    const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
-    if (process.env.CI || process.env.CONTAINER || isRoot) {
+    // user on Linux. Detect those cases and add --no-sandbox automatically.
+    if (sandboxBlockedByHost()) {
       launchArgs.push('--no-sandbox');
     }
 
@@ -726,7 +698,7 @@ export class BrowserManager {
         ...contextOptions,
         ...(executablePath ? { executablePath } : {}),
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
-      }), { usesCustomExecutable: Boolean(executablePath) }).catch(nameCustomChromium);
+      }), { usesCustomExecutable: Boolean(executablePath) }).catch(nameCustomChromium).catch(explainSandboxFailure);
       this.extensionContext = true;
       this.browser = this.context.browser();
       this.onBrowserDisconnected(this.browser, () => {
@@ -768,7 +740,7 @@ export class BrowserManager {
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
       ...(executablePath ? { executablePath } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
-    }), { usesCustomExecutable: Boolean(executablePath) }).catch(nameCustomChromium);
+    }), { usesCustomExecutable: Boolean(executablePath) }).catch(nameCustomChromium).catch(explainSandboxFailure);
 
     // Chromium disconnect → distinguish clean user-quit from crash. Both
     // events look identical to Playwright (one 'disconnected' fires), but
@@ -976,7 +948,7 @@ export class BrowserManager {
       ...(executablePath ? { executablePath } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
       ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
-    }), { usesCustomExecutable: Boolean(executablePath) });
+    }), { usesCustomExecutable: Boolean(executablePath) }).catch(explainSandboxFailure);
     this.browser = this.context.browser();
     this.connectionMode = 'headed';
     this.intentionalDisconnect = false;
@@ -2280,7 +2252,7 @@ export class BrowserManager {
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
         ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
         timeout: 15000,
-      }), { usesCustomExecutable: Boolean(executablePath) });
+      }), { usesCustomExecutable: Boolean(executablePath) }).catch(explainSandboxFailure);
       if (this.closing) {
         await newContext.close().catch(() => {});
         throw new Error('Browser is shutting down');

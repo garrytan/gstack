@@ -13,7 +13,7 @@
  * for the full review; --write also saves brief.md in the run directory.
  * `render --captain` prints the plan ask in the shape Capy Captains relay (lib/captain-brief.ts): header with
  * the "do it" reply, Before → after, Why it matters, What caused this work, Big decisions, What we need from
- * you (the lettered ask lines of docs/captain.md § The ask format, headed by --captain-name), and one
+ * you (the lettered ask lines of crew/docs/captain.md § The ask format, headed by --captain-name), and one
  * trailing line for the relaying agent; a plan missing a section exits 1
  * (CAPTAIN_BRIEF_INCOMPLETE) unless --allow-incomplete. --write saves captain-brief.md.
  * `close` rewrites every `draft direction stands until the owner decides` line in

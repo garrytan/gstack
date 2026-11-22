@@ -1,0 +1,51 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-docs-only — is this change human-facing docs only? (R81; docs/pregate.md#docs-only; logic: lib/docs-only.ts)
+ *
+ *   gstack-docs-only --base <ref> [--head <ref>] [--repo <dir>] [--json] [--github-output <file>]
+ *
+ * --head given: the diff between the two commits (CI: --base HEAD^1 --head HEAD on the pull request merge commit).
+ * --head omitted: the merge base of <ref> and HEAD to the working tree, untracked files included (pregate, ci-carry).
+ * Prints DOCS_ONLY: yes (...) and exits 0, DOCS_ONLY: no (...) and exits 1, or DOCS_ONLY: error (DOCS_ONLY_ERROR ...)
+ * and exits 2. --github-output appends docs_only=true|false and tests=<files> to that file; it writes true only for a
+ * pull_request event (GITHUB_EVENT_NAME), so a push, dispatch or merge-group run always takes the full suites.
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { classifyDocsOnly, DocsOnlyError, DOCS_ONLY_ANCHOR, DOCS_ONLY_ERROR } from '../lib/docs-only';
+
+const args = process.argv.slice(2);
+const flag = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const base = flag('--base');
+const head = flag('--head');
+const ghOut = flag('--github-output');
+const repo = path.resolve(flag('--repo') ?? process.cwd());
+const write = (docsOnly: boolean, tests: string[] = []) => { if (ghOut) fs.appendFileSync(ghOut, `docs_only=${docsOnly}\ntests=${tests.join(' ')}\n`); };
+
+if (!base || args.includes('--help')) {
+  console.log('usage: gstack-docs-only --base <ref> [--head <ref>] [--repo <dir>] [--json] [--github-output <file>]');
+  process.exit(base ? 0 : 2);
+}
+const event = process.env.GITHUB_EVENT_NAME;
+if (ghOut && event !== 'pull_request') {
+  write(false);
+  console.log(`DOCS_ONLY: no (event ${event || 'unset'}: only a pull_request run may skip the test suites)`);
+  process.exit(1);
+}
+try {
+  const r = classifyDocsOnly({ root: repo, base, head });
+  write(r.docsOnly, r.tests);
+  if (args.includes('--json')) console.log(JSON.stringify(r));
+  if (r.docsOnly) {
+    console.log(`DOCS_ONLY: yes (${r.files.length} file(s); docs lane tests: ${r.tests.join(' ') || 'none'})`);
+    process.exit(0);
+  }
+  const [first] = r.refusals;
+  console.log(`DOCS_ONLY: no (${r.files.length} file(s); ${first!.path}: ${first!.reason}${r.refusals.length > 1 ? `; +${r.refusals.length - 1} more` : ''})`);
+  process.exit(1);
+} catch (e) {
+  write(false);
+  const err = e instanceof DocsOnlyError ? e : new DocsOnlyError('gstack-docs-only', String((e as Error)?.message ?? e), 'rerun in a git checkout of this repository');
+  console.log(`DOCS_ONLY: error (${DOCS_ONLY_ERROR}: ${err.command}: ${err.detail}; fix: ${err.fix}; see ${DOCS_ONLY_ANCHOR})`);
+  process.exit(2);
+}

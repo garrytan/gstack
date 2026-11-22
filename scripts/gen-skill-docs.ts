@@ -9,7 +9,7 @@
  * Used by skill:check and CI freshness checks.
  */
 
-import { discoverTemplates, discoverSectionTemplates, includesSkill, RETIRED_SKILLS } from './discover-skills';
+import { discoverTemplates, discoverSectionTemplates, includesSkill, AUTOPLAN_SIBLING_METHODOLOGIES } from './discover-skills';
 import { externalSkillName, extractNameAndDescription } from './external-skill-names';
 export { extractNameAndDescription } from './external-skill-names';
 import { generateLlmsTxt } from './gen-llms-txt';
@@ -28,8 +28,9 @@ import { ModuleError, excludedSkillDirs, selectModules } from './modules';
 import type { ModuleFilter } from './resolvers/types';
 import { insertRuntimePreludes } from './resolvers/runtime-root';
 import { generateSharedPreambleFile, hoistsPreamble, SHARED_PREAMBLE_FILE } from './resolvers/preamble-hoist';
+import { addLoadGrant } from './resolvers/load-injection';
 import { extractVoiceTriggers } from './resolvers/voice-triggers';
-import { frontmatterList, withTriggerLead } from '../lib/skill-triggers';
+import { cutWords, frontmatterList, triggerList, triggerSentence, withTriggerLead } from '../lib/skill-triggers';
 import { ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
 import type { HostConfig } from './host-config';
 
@@ -279,11 +280,14 @@ export { extractVoiceTriggers, processVoiceTriggers };
 // asked to..." voice triggers, "Proactively..." routing guidance, and a
 // "(gstack)" tag. This pile is the always-loaded catalog surface — every
 // session pays for the full text. The catalog trim splits the description
-// into a one-line catalog entry (lead sentence + "(gstack)") that stays in
-// the frontmatter and drops the routing/voice prose. The body is not a home
-// for it: Claude Code loads a skill body only after the skill is invoked, so
-// routing text there can no longer route anything. Voice triggers live on in
-// the root router's routing block ({{VOICE_TRIGGER_ROUTING}}).
+// into a one-line catalog entry (lead sentence + a short when-to-use clause +
+// "(gstack)") that stays in the frontmatter and drops the rest of the
+// routing/voice prose. The clause is built by lib/skill-triggers.ts: the
+// skill's `triggers:` list ("Use for: a, b."), else its "Use when" sentence. Without it the listing says what a skill is but not when to load
+// it, and Opus 5.5 skipped /review on "review my changes" (GSTA-558). The body
+// is not a home for routing text: Claude Code loads a skill body only after
+// the skill is invoked. Voice triggers live on in the root router's routing
+// block ({{VOICE_TRIGGER_ROUTING}}).
 //
 // Opt-out: `--catalog-mode=full` keeps v1.44 behavior (no trim, full
 // description in frontmatter). Use when debugging routing regressions or
@@ -362,11 +366,18 @@ export function splitCatalogDescription(description: string): CatalogParts {
   return { lead, routingProse, voiceLine, hasGstackTag };
 }
 
-/** Build the catalog-trimmed `description:` block. */
-export function buildTrimmedDescription(parts: CatalogParts): string {
+/** The when-to-use clause gets at most this many chars, and the whole trimmed description at most CATALOG_DESCRIPTION_MAX (test/catalog-budget.test.ts caps name + description at 260 bytes). */
+const CATALOG_WHEN_MAX = 64;
+const CATALOG_DESCRIPTION_MAX = 230;
+
+/** Build the catalog-trimmed `description:` block: the lead, then the when-to-use clause when it fits and adds something. */
+export function buildTrimmedDescription(parts: CatalogParts, triggers: string[] = []): string {
   const lead = parts.lead.trim();
   const suffix = parts.hasGstackTag ? ' (gstack)' : '';
-  return `${lead}${suffix}`;
+  const room = Math.min(CATALOG_WHEN_MAX, CATALOG_DESCRIPTION_MAX - lead.length - suffix.length - 1);
+  const sentence = triggerSentence(`${lead} ${parts.routingProse}`);
+  const when = room < 24 ? '' : triggerList(triggers, room) || (sentence && sentence !== lead ? cutWords(sentence, room) : '');
+  return when ? `${lead} ${when}${suffix}` : `${lead}${suffix}`;
 }
 
 /**
@@ -424,8 +435,8 @@ export function applyCatalogTrim(content: string, skillName: string): { content:
 
   const parts = splitCatalogDescription(descText);
   // If lead + (gstack) is already most of the text, no trim needed.
-  const trimmedLen = buildTrimmedDescription(parts).length;
-  if (trimmedLen >= descText.length - 20) return null;
+  if (buildTrimmedDescription({ ...parts, routingProse: '' }).length >= descText.length - 20) return null;
+  const newDesc = buildTrimmedDescription(parts, frontmatterList(content, 'triggers'));
 
   // Replace description in frontmatter — keep trailing newline so the next
   // YAML field doesn't collide on the same line as the description value.
@@ -433,7 +444,6 @@ export function applyCatalogTrim(content: string, skillName: string): { content:
   // case: an interior ": " like "Ship workflow: detect..." which a strict YAML
   // parser reads as a nested mapping and rejects — #1778). toYamlInlineScalar
   // only quotes when needed, so descriptions without special chars stay plain.
-  const newDesc = buildTrimmedDescription(parts);
   // Function replacer (not a string) so a `$` in the description — e.g. a future
   // skill referencing `$B`/`$D` — can't be interpreted as a `$&`/`$1` replacement
   // pattern and silently corrupt the frontmatter.
@@ -755,10 +765,9 @@ function processExternalHost(
   const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
-  const retired = RETIRED_SKILLS.includes(skillDir);
   // --out-dir mirrors the host tree (outputs only; inputs read from ROOT).
-  const outputDir = path.join(options.outputRoot, hostConfig.hostSubdir, 'skills', retired ? 'gstack-autoplan' : name);
-  const outputPath = path.join(outputDir, retired ? `${skillDir}.md` : 'SKILL.md');
+  const outputDir = path.join(options.outputRoot, hostConfig.hostSubdir, 'skills', name);
+  const outputPath = path.join(outputDir, 'SKILL.md');
 
   // Guard against symlink loops
   let symlinkLoop = false;
@@ -791,7 +800,7 @@ function processExternalHost(
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex). The
   // default_prompt comes from the template's codex_default_prompt: key when set.
-  const metadata = hostConfig.generation.generateMetadata && !symlinkLoop && !retired ? {
+  const metadata = hostConfig.generation.generateMetadata && !symlinkLoop ? {
     outputPath: path.join(outputDir, 'agents', 'openai.yaml'),
     content: generateOpenAIYaml(name, condenseOpenAIShortDescription(extractedDescription), extractCodexDefaultPrompt(tmplContent)),
   } : undefined;
@@ -807,7 +816,7 @@ function renderSharedPreamble(ctx: TemplateContext, hostConfig: HostConfig, opti
   return GENERATED_HEADER.replace('{{SOURCE}}', 'scripts/resolvers/preamble-hoist.ts') + content;
 }
 
-function processTemplate(tmplPath: string, host: Host, options: RenderOptions): { outputPath: string; content: string; symlinkLoop?: boolean; metadata?: { outputPath: string; content: string }; preamble?: { outputPath: string; content: string } } {
+function processTemplate(tmplPath: string, host: Host, options: RenderOptions): { outputPath: string; content: string; symlinkLoop?: boolean; metadata?: { outputPath: string; content: string }; preamble?: { outputPath: string; content: string }; autoplanSibling?: string } {
   // Normalize to LF at the entry point. Templates may have CRLF on disk when
   // checked out on Windows with core.autocrlf=true. Downstream regexes
   // (processVoiceTriggers, transformFrontmatter) hardcode \n, so without
@@ -855,7 +864,7 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
   let symlinkLoop = false;
   let metadata: { outputPath: string; content: string } | undefined;
   if (host === 'claude') {
-    content = transformFrontmatter(content, host);
+    content = addLoadGrant(transformFrontmatter(content, host), ctx);
   } else {
     const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, options, extractedName || undefined);
     content = result.content;
@@ -885,10 +894,13 @@ function processTemplate(tmplPath: string, host: Host, options: RenderOptions): 
   if (skillDir === '' || skillDir === '.') content = omitDisabledSkills(content, [...options.disabledSkills, ...excludedSkillDirs(options.modules)]);
   content = rewriteInstallRoot(insertRuntimePreludes(rewriteCarvedSectionRefs(content, ctx), ctx), currentHostConfig, options.installRoot);
 
-  const preamble = !(host !== 'claude' && RETIRED_SKILLS.includes(skillDir)) && hoistsPreamble(ctx) && tmplContent.includes('{{PREAMBLE}}') && !effectiveSuppressedResolvers(currentHostConfig, options).has('PREAMBLE')
+  const preamble = hoistsPreamble(ctx) && tmplContent.includes('{{PREAMBLE}}') && !effectiveSuppressedResolvers(currentHostConfig, options).has('PREAMBLE')
     ? { outputPath: path.join(path.dirname(outputPath), 'sections', SHARED_PREAMBLE_FILE), content: renderSharedPreamble(ctx, currentHostConfig, options) }
     : undefined;
-  return { outputPath, content, symlinkLoop, metadata, preamble };
+  const autoplanSibling = host !== 'claude' && AUTOPLAN_SIBLING_METHODOLOGIES.includes(skillDir)
+    ? path.join(options.outputRoot, currentHostConfig.hostSubdir, 'skills', 'gstack-autoplan', `${skillDir}.md`)
+    : undefined;
+  return { outputPath, content, symlinkLoop, metadata, preamble, autoplanSibling };
 }
 
 /** autoplan/DRIVER.md (field wave item 13): one host-neutral render of autoplan/DRIVER.md.tmpl through the same resolvers. */
@@ -1066,6 +1078,7 @@ export async function runGeneration(settings: GenerationOptions = {}): Promise<G
           continue;
         }
         emit(result.outputPath, result.content, 'skill', host);
+        if (result.autoplanSibling) emit(result.autoplanSibling, result.content, 'skill', host);
         if (result.metadata) emit(result.metadata.outputPath, result.metadata.content, 'metadata', host);
         if (result.preamble) emit(result.preamble.outputPath, result.preamble.content, 'preamble', host);
         if (skillDir === 'qa') {

@@ -17,7 +17,7 @@
  * Callers: bin/gstack-approval-classes, bin/gstack-ship-receipt.
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { addedLines } from './banned-terms';

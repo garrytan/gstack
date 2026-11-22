@@ -42,7 +42,7 @@ if (process.env.FAKE_MODE === 'timeout') {
   await new Promise(() => {});
 }
 if (process.env.FAKE_MODE === 'auth') { console.error('authentication_error: please log in'); process.exit(1); }
-const response = process.env.FAKE_RESPONSE || 'Medium: changed.ts loses data on retry.\\nRecommendation: fix the seeded defect because changed.ts loses data.';
+const response = process.env.FAKE_RESPONSE || 'Medium: changed.ts loses data on retry.\\nRecommendation: fix the seeded defect because changed.ts loses data.\\nVERDICT: FINDINGS';
 if (claude) {
   if (process.env.FAKE_MODE === 'malformed') {console.log('{broken');process.exit(0);}
   console.log(JSON.stringify({result:response,session_id:'outside-session',modelUsage:{'model-a':{inputTokens:4},'model-b':{inputTokens:8}}}));
@@ -233,33 +233,40 @@ describe('generated outside-review dispatch', () => {
     expect(capture().prompt).toContain('+working tree change');
   });
 
-  test('Codex structured review preserves its base argument and accepts concrete severities', () => {
-    const result = invoke('claude',{structuredBase:'main',gate:'structured'},{FAKE_RESPONSE:'[P1] Seeded data-loss bug\nREVIEW_COMPLETE'});
+  test('Codex structured review runs codex exec on the prepared prompt with --events and accepts concrete severities', () => {
+    const ctx: TemplateContext = {skillName:'review',tmplPath:'review/SKILL.md.tmpl',host:'claude',paths:HOST_PATHS.codex};
+    const command = outsideVoiceCommand(ctx,{promptFile:PROMPT,timeoutMs:3000,gate:'structured'});
+    expect(command).toContain('--events "$_OUTSIDE_TMP/events" structured "$_OUTSIDE_TMP/text"');
+    expect(command).not.toMatch(/\bcodex review\b/);
+    const result = invoke('claude',{gate:'structured'},{FAKE_RESPONSE:'[P1] Seeded data-loss bug\nREVIEW_COMPLETE\nVERDICT: FINDINGS'});
     expect(result.status).toBe(0);
-    expect(capture().args.slice(0,3)).toEqual(['review','--base','main']);
-    // Native review carries the review-kind selection in both settings and no skill catalog (#2914, #2847).
-    expect(capture().args).toContain('review_model="gpt-6-astra"');
+    expect(capture().args.slice(0,2)).toEqual(['exec','-']);
+    expect(capture().args).not.toContain('--base');
+    expect(capture().args).toContain('--json');
+    // exec carries the exec-kind selection, no review_model, and no skill catalog (#2914, #2847).
+    expect(capture().args.some((arg: string) => arg.startsWith('review_model='))).toBe(false);
     expect(capture().args).toContain('model="gpt-6-astra"');
     expect(capture().args).toContain('skills.include_instructions=false');
-    expect(capture().prompt).toBe('');
+    expect(capture().prompt).toBe(PROMPT_TEXT);
     // Completion is distinct from approval; the caller retains the P1 fail gate.
     expect(validateOutsideReview('[P1] Seeded data-loss bug','structured')).toEqual({completed:true,gate:'fail'});
     for (const [severity, gate] of [['P1', 'fail'], ['P2', 'pass']]) {
-      const response = `**${severity}:** Seeded data-loss bug`;
-      expect(invoke('claude', { structuredBase: 'main', gate: 'structured' }, { FAKE_RESPONSE: response }).status).toBe(0);
+      const response = `**${severity}:** Seeded data-loss bug\nVERDICT: FINDINGS`;
+      expect(invoke('claude', { gate: 'structured' }, { FAKE_RESPONSE: response }).status).toBe(0);
       expect(validateOutsideReview(response, 'structured')).toEqual({ completed: true, gate });
     }
   });
 
   test('INV-1: the generated caller branches on VERDICT: findings complete, untagged is unverified', () => {
     for (const host of ['claude', 'codex'] as const) {
-      const findings = invoke(host, { structuredBase: 'main', gate: 'structured' }, { FAKE_RESPONSE: '[P0] Seeded corruption' });
+      const findings = invoke(host, { gate: 'structured' }, { FAKE_RESPONSE: '[P0] Seeded corruption' });
       expect(findings.status).toBe(0);
       expect(findings.stdout).toContain('VERDICT: findings\nFINDINGS: P0\n');
       expect(findings.stdout).toContain('OUTSIDE_STATUS: completed');
-      const untagged = invoke(host, { structuredBase: 'main', gate: 'structured' }, { FAKE_RESPONSE: 'The change reads fine to me.' });
+      const untagged = invoke(host, { gate: 'structured' }, { FAKE_RESPONSE: 'The change reads fine to me.' });
       expect(untagged.status).toBe(4);
       expect(untagged.stdout).toContain('VERDICT: unverified');
+      expect(untagged.stdout).toContain('REASON: missing_verdict');
       expect(untagged.stdout).toContain('OUTSIDE_STATUS: unverified');
       expect(untagged.stdout).not.toContain('OUTSIDE_STATUS: completed');
       expect(untagged.stderr).toContain('ran, verdict unverified');
@@ -289,15 +296,15 @@ describe('generated outside-review dispatch', () => {
     });
 
     test('structured review: captured container transcript on stderr is unavailable, healthy transcript completes', () => {
-      const failed = invoke('claude', { structuredBase: 'main', gate: 'structured' }, {
+      const failed = invoke('claude', { gate: 'structured' }, {
         FAKE_RESPONSE: fs.readFileSync(path.join(FIX, 'review-userns-denied.stdout'), 'utf8'),
         FAKE_STDERR_FILE: path.join(FIX, 'review-userns-denied.stderr') });
       expect(failed.status).toBe(1);
       expect(failed.stderr).toContain(SANDBOX_LINE);
       expect(failed.stdout).not.toContain('OUTSIDE_STATUS: completed');
-      expect(capture().args).toContain('sandbox_mode="read-only"');
-      const healthy = invoke('claude', { structuredBase: 'main', gate: 'structured' }, {
-        FAKE_RESPONSE: '[P2] naming nit', FAKE_STDERR_FILE: path.join(FIX, 'review-healthy.stderr') });
+      expect(capture().args.slice(capture().args.indexOf('-s'), capture().args.indexOf('-s') + 2)).toEqual(['-s', 'read-only']);
+      const healthy = invoke('claude', { gate: 'structured' }, {
+        FAKE_RESPONSE: '[P2] naming nit\nVERDICT: FINDINGS', FAKE_STDERR_FILE: path.join(FIX, 'review-healthy.stderr') });
       expect(healthy.status).toBe(0);
       expect(healthy.stdout).toContain('OUTSIDE_STATUS: completed');
     });
@@ -308,8 +315,8 @@ describe('generated outside-review dispatch', () => {
       expect(exec.status).toBe(0);
       expect(capture().args.slice(capture().args.indexOf('-s'), capture().args.indexOf('-s') + 2)).toEqual(['-s', 'danger-full-access']);
       expect(exec.stderr).toContain('WARNING: GSTACK_CODEX_NO_SANDBOX=1: Codex runs this review without a sandbox');
-      expect(invoke('claude', { structuredBase: 'main', gate: 'structured' }, { ...env, FAKE_RESPONSE: '[P2] nit' }).status).toBe(0);
-      expect(capture().args).toContain('sandbox_mode="danger-full-access"');
+      expect(invoke('claude', { gate: 'structured' }, { ...env, FAKE_RESPONSE: '[P2] nit\nVERDICT: FINDINGS' }).status).toBe(0);
+      expect(capture().args.slice(capture().args.indexOf('-s'), capture().args.indexOf('-s') + 2)).toEqual(['-s', 'danger-full-access']);
       expect(invoke('claude', {}, { GSTACK_CODEX_NO_SANDBOX: 'true' }).status).toBe(0);
       expect(capture().args.slice(capture().args.indexOf('-s'), capture().args.indexOf('-s') + 2)).toEqual(['-s', 'read-only']);
     });
@@ -372,7 +379,7 @@ describe('generated outside-review dispatch', () => {
   });
 
   test('a clean conclusion using “cannot find” is not a refusal', () => {
-    const response = 'I cannot find any issues.\nRecommendation: approve because the changed behavior is correct.';
+    const response = 'I cannot find any issues.\nRecommendation: approve because the changed behavior is correct.\nVERDICT: CLEAN';
     expect(invoke('codex',{}, {FAKE_RESPONSE:response}).status).toBe(0);
   });
 
@@ -406,7 +413,7 @@ esac
     '### Recommendation: fix the guard because it loses data.',
   ]) {
     test(`formatted completion remains valid: ${response}`, () => {
-      expect(invoke('claude', {}, { FAKE_RESPONSE: `[P2] the guard drops one write.\n${response}` }).status).toBe(0);
+      expect(invoke('claude', {}, { FAKE_RESPONSE: `[P2] the guard drops one write.\n${response}\nVERDICT: FINDINGS` }).status).toBe(0);
     });
   }
 
@@ -469,5 +476,51 @@ echo 'Recommendation: approve because the late answer arrived.'
         else expect(rendered).toContain(`--timeout-ms ${provider}`);
       }
     }
+  });
+});
+
+describe('a 402 budget stop reads as a budget stop on both outside voices; 401 and 403 do not', () => {
+  const stderrFile = (name: string, text: string) => { const p = path.join(TMP, name); fs.writeFileSync(p, `${text}\n`); return p; };
+  const BUDGET = 'outside review unavailable: the provider refused the review with HTTP 402';
+
+  test('Codex voice: a metering proxy\'s 402 is unavailable with the budget line and no login advice', () => {
+    const result = invoke('claude', {}, { FAKE_MODE: 'nonzero', FAKE_STDERR_FILE: stderrFile('codex-402.stderr', 'ERROR: unexpected status 402 Payment Required: {"error":{"message":"API key allowance exhausted"}}') });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(`Codex ${BUDGET}`);
+    expect(result.stderr).toContain('#outside-review-budget-exhausted');
+    expect(result.stderr).not.toContain('codex login');
+    expect(result.stdout).not.toContain('OUTSIDE_STATUS: completed');
+  });
+
+  test('Codex voice: a 402 that appears only in Codex\'s JSON failure events (its stderr names no cause) is the budget line', () => {
+    const message = 'unexpected status 402 Payment Required: {"title":"E_ALLOWANCE","status":402,"code":"E_ALLOWANCE","detail":"E_ALLOWANCE: metering proxy: the slot\'s allowance of $15 cannot hold this call\'s worst case"}';
+    const events = stderrFile('codex-402.events.jsonl', [JSON.stringify({ type: 'turn.started' }), JSON.stringify({ type: 'error', message }), JSON.stringify({ type: 'turn.failed', error: { message } })].join('\n'));
+    const result = invoke('claude', {}, { FAKE_MODE: 'nonzero', FAKE_EVENTS_FILE: events, FAKE_STDERR_FILE: stderrFile('codex-402-plain.stderr', 'Reading additional input from stdin...') });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(`Codex ${BUDGET}`);
+    expect(result.stderr).toContain('E_ALLOWANCE');
+  });
+
+  for (const [status, line] of [
+    ['401', 'ERROR: unexpected status 401 Unauthorized: {"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}'],
+    ['403', 'ERROR: unexpected status 403 Forbidden: {"error":{"message":"This API key is not allowed to use this project"}}'],
+  ] as const) {
+    test(`Codex voice: a ${status} is missing coverage with its status shown, never a budget stop`, () => {
+      const result = invoke('claude', {}, { FAKE_MODE: 'nonzero', FAKE_STDERR_FILE: stderrFile(`codex-${status}.stderr`, line) });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(`Codex outside review unavailable: the reviewer process failed (exit 4: ${line.slice(0, 60)}`);
+      expect(result.stderr).not.toContain('HTTP 402');
+    });
+  }
+
+  test('Claude Code voice: a 402 is unavailable with the budget line; a 401 stays an authentication failure', () => {
+    const budget = invoke('codex', {}, { FAKE_MODE: 'nonzero', FAKE_RESPONSE: 'API Error: 402 Payment Required {"error":{"message":"API key allowance exhausted"}}' });
+    expect(budget.status).not.toBe(0);
+    expect(budget.stderr).toContain(`Claude Code ${BUDGET}`);
+    expect(budget.stdout).toContain('"code":"budget"');
+    const auth = invoke('codex', {}, { FAKE_MODE: 'nonzero', FAKE_RESPONSE: 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}' });
+    expect(auth.status).not.toBe(0);
+    expect(auth.stdout).toContain('"code":"authentication"');
+    expect(auth.stderr).not.toContain('HTTP 402');
   });
 });

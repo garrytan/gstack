@@ -307,6 +307,23 @@ exit 0
     }
   });
 
+  it("a GBRAIN_HOME gbrain refuses reads no config, with no ~/.gbrain fallback, and still prints JSON", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "detect-refused-"));
+    try {
+      mkdirSync(join(tmp, ".gbrain"), { recursive: true });
+      writeFileSync(join(tmp, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite" }));
+      for (const refused of ["relative/home", "/srv/../brain"]) {
+        const parsed = JSON.parse(
+          runDetect({ HOME: tmp, PATH: "/usr/bin:/bin", GSTACK_HOME: tmp, GSTACK_DETECT_NO_CACHE: "1", GBRAIN_HOME: refused }),
+        ) as DetectShape;
+        expect(parsed.gbrain_config_exists).toBe(false);
+        expect(parsed.gbrain_engine).toBeNull();
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("exit code agrees with the JSON gbrain_local_status (no skew)", () => {
     // Run both surfaces against the same env and assert they never disagree.
     const tmp = mkdtempSync(join(tmpdir(), "detect-isok-"));

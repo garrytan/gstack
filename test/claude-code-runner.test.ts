@@ -3,7 +3,9 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runClaudeCode } from '../lib/claude-code';
+import { parseClaudeCodeResult, runClaudeCode } from '../lib/claude-code';
+import { classifyOutsideReview } from '../lib/outside-review-result';
+import { gateOutcomeLine } from '../lib/gate-outcomes';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DIR = mkdtempSync(path.join(tmpdir(), 'claude-code-runner-'));
@@ -81,6 +83,12 @@ if (mode === 'overflow') {
   const block = Buffer.alloc(1024 * 1024, 120);
   for(let i=0;i<18;i++) { process.stdout.write(block); process.stderr.write(block); }
   await new Promise(() => {});
+}
+if (mode === 'payment' || mode === 'http401' || mode === 'http401-402-fields' || mode === 'usage-limit') {
+  const reply = mode === 'payment' ? 'API Error: 402 Payment Required {"error":{"message":"API key allowance exhausted"}}' : mode === 'usage-limit' ? 'Claude AI usage limit reached|1763600000' : 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}';
+  const fields = mode === 'http401-402-fields' ? { session_id: '5c1e-402a-9b7f', duration_ms: 402, total_cost_usd: 0.402 } : { session_id: 'session-123' };
+  process.stdout.write(JSON.stringify({ type: 'result', is_error: true, result: reply, ...fields }));
+  process.exit(1);
 }
 if (mode === 'malformed') { process.stdout.write('broken JSON'); process.exit(0); }
 if (mode === 'array') { process.stdout.write('[]'); process.exit(0); }
@@ -276,6 +284,25 @@ describe('Claude Code restricted execution', () => {
     });
   }
 
+  test('a 402 from the provider is a budget stop, not a login; a 401 stays an authentication failure', async () => {
+    const budget = await run('payment');
+    expect([budget.status, budget.error?.code]).toEqual(['unavailable', 'budget']);
+    expect(budget.error?.message).toContain('API Error: 402 Payment Required');
+    expect(budget.error?.message).toContain('allowance');
+    expect(budget.error?.message).not.toMatch(/log ?in|authenticat/i);
+    const auth = await run('http401');
+    expect([auth.status, auth.error?.code]).toEqual(['unavailable', 'authentication']);
+  });
+
+  test('a 401 whose result JSON carries 402 in other fields stays authentication; a usage limit is not called a 402', async () => {
+    const auth = await run('http401-402-fields');
+    expect([auth.status, auth.error?.code]).toEqual(['unavailable', 'authentication']);
+    const quota = await run('usage-limit');
+    expect([quota.status, quota.error?.code]).toEqual(['unavailable', 'budget']);
+    expect(quota.error?.message).toContain('Claude AI usage limit reached');
+    expect(quota.error?.message).not.toMatch(/402|payment required/i);
+  });
+
   test('the combined stdout/stderr limit terminates a noisy CLI', async () => {
     const result = await run('overflow');
     expect(result.status).toBe('error');
@@ -389,5 +416,21 @@ describe('Claude Code restricted execution', () => {
     const parsed = JSON.parse(result.stdout);
     expect(parsed.status).toBe('completed');
     expect(parsed.result.length).toBe(2 * 1024 * 1024);
+  });
+});
+
+describe('Claude Code budget stops (GST-3188)', () => {
+  test('exit 0 with subtype error_during_execution and a 402 in result is a budget stop, not a generic provider error', () => {
+    const stdout = JSON.stringify({ type: 'result', subtype: 'error_during_execution', result: 'API Error: 402 Payment Required {"error":{"message":"API key allowance exhausted"}}', session_id: 's-1' });
+    const result = parseClaudeCodeResult(stdout, '', 0);
+    expect([result.status, result.error?.code]).toEqual(['unavailable', 'budget']);
+    expect(result.stderr).toContain('402 Payment Required');
+  });
+
+  test('a Claude Code usage limit is reported as budget_exhausted, never with Codex\'s usage-limit message', () => {
+    const failed = parseClaudeCodeResult(JSON.stringify({ type: 'result', is_error: true, result: 'Claude AI usage limit reached|1763600000' }), '', 1);
+    const verdict = classifyOutsideReview({ text: '', gate: 'review', exit: 1, stderr: failed.stderr });
+    expect([verdict.verdict, verdict.reason]).toEqual(['unavailable', 'budget_exhausted']);
+    expect(gateOutcomeLine('Claude Code outside review', verdict.reason!, verdict.detail)).not.toMatch(/Codex|GSTACK_CODEX/);
   });
 });

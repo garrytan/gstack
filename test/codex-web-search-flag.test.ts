@@ -115,7 +115,7 @@ describe('codex frontier model flag is present', () => {
     expect(() => execFileSync('bash', ['-c', `printf '%s\\n' ${CODEX_MODEL_CONFIG_FLAG}`], { encoding: 'utf8', timeout: 5000, stdio: 'pipe' })).toThrow();
   });
 
-  test('native review overrides both model settings with the same selection', () => {
+  test('the review model flag overrides both model settings with the same selection, and review sites run codex exec with the plain model flag', () => {
     for (const [env, config, expected] of [
       [{}, undefined, 'gpt-6-astra'],
       [{ GSTACK_CODEX_MODEL: 'custom-codex' }, 'review_model = "gpt-5.6-luna"\n', 'custom-codex'],
@@ -126,9 +126,13 @@ describe('codex frontier model flag is present', () => {
     }
     for (const file of ['codex/sections/review-mode.md', 'review/sections/adversarial.md', 'ship/sections/adversarial.md']) {
       const rendered = fs.readFileSync(path.join(ROOT, file), 'utf8');
-      const calls = rendered.split('\n').filter(line => line.includes('codex review --base') && line.includes('2>'));
+      expect(rendered.split('\n').filter(line => /\bcodex review\b/.test(line) && line.includes('2>'))).toEqual([]);
+      const calls = rendered.split('\n').filter(line => line.includes('codex exec -') && line.includes('2>'));
       expect(calls.length).toBeGreaterThan(0);
-      for (const call of calls) expect(call).toContain(CODEX_REVIEW_MODEL_CONFIG_FLAG);
+      for (const call of calls) {
+        expect(call).toContain(CODEX_MODEL_CONFIG_FLAG);
+        expect(call).not.toContain('review_model=');
+      }
     }
   });
 

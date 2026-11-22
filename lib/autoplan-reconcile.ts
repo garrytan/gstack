@@ -15,6 +15,8 @@
 import type { FindingRow, Severity, Voice } from './headless-artifacts';
 
 export const SEVERITIES: readonly Severity[] = ['Critical', 'High', 'Medium', 'Low', 'Informational'];
+/** The RESULT FORMAT block's opening words (lib/autoplan-prompts.ts); a prompt that carries them asks for this contract. */
+export const RESULT_FORMAT_HEADER = 'RESULT FORMAT (required by gstack-autoplan; the parent binds your file by this contract):';
 const SEVERITY_ALIASES: Record<string, Severity> = {
   critical: 'Critical', p0: 'Critical', blocker: 'Critical',
   high: 'High', p1: 'High', major: 'High',
@@ -28,6 +30,10 @@ export interface CanonicalFinding {
   user_challenge?: boolean; urgent?: boolean; suggested_owner?: string; plan_items?: string[]; dimension?: string;
   /** What a user challenge changes: scope, cost or direction (plan B2a), or packaging/ordering (settled without a plan edit). */
   changes?: Changes;
+  /** A challenge to the owner's own words: the 1-based bullet of the plan's `### Owner's words` it would change. */
+  owner_quote?: number;
+  /** A confirm round's row naming the earlier challenge id the revised plan now fixes. */
+  resolves?: string;
 }
 export const CHANGES = ['scope', 'cost', 'direction', 'packaging', 'ordering'] as const;
 /** Accepted changes of these kinds need no Implementation-plan edit: `revise --settle` records them. */
@@ -45,8 +51,8 @@ export function severityOf(value: unknown): Severity | undefined {
   return SEVERITY_ALIASES[value.trim().toLowerCase()];
 }
 
-/** Parse a reviewer's result: the INPUT receipt for this phase and snapshot, then the canonical findings fence(s). */
-export function parseReviewResult(text: string, expected: { phase: string; sha256: string }): ParsedReviewResult {
+/** Parse a reviewer's result: the INPUT receipt for this phase and snapshot (any, without expected), then the canonical findings fence(s). */
+export function parseReviewResult(text: string, expected?: { phase: string; sha256: string }): ParsedReviewResult {
   const errors: string[] = [];
   const receipt = parseReceipt(text, expected);
   if (!receipt.ok) errors.push(receipt.error!);
@@ -55,12 +61,13 @@ export function parseReviewResult(text: string, expected: { phase: string; sha25
   return { receipt, findings, fenceFound, errors };
 }
 
-/** The full-read receipt: `INPUT: <phase> <sha256>` in the first five non-empty lines, matching this phase and snapshot. */
-export function parseReceipt(text: string, expected: { phase: string; sha256: string }): ParsedReviewResult['receipt'] & { present: boolean; error?: string } {
+/** The full-read receipt: `INPUT: <phase> <sha256>` in the first five non-empty lines, matching this phase and snapshot when expected is given. */
+export function parseReceipt(text: string, expected?: { phase: string; sha256: string }): ParsedReviewResult['receipt'] & { present: boolean; error?: string } {
   const head = text.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 5);
   const receiptLine = head.find(l => /^INPUT:\s*\S+\s+[0-9a-f]{64}\b/i.test(l));
   const m = receiptLine ? /^INPUT:\s*(\S+)\s+([0-9a-f]{64})/i.exec(receiptLine) : null;
   if (!m) return { ok: false, present: false, error: 'no INPUT: <phase> <sha256> line in the first five lines' };
+  if (!expected) return { ok: true, present: true, phase: m[1]!.toLowerCase(), sha256: m[2]!.toLowerCase(), line: receiptLine };
   const ok = m[1]!.toLowerCase() === expected.phase && m[2]!.toLowerCase() === expected.sha256.toLowerCase();
   return { ok, present: true, phase: m[1]!.toLowerCase(), sha256: m[2]!.toLowerCase(), line: receiptLine,
     ...(ok ? {} : { error: `receipt names ${m[1]} ${m[2]!.slice(0, 12)}…, expected ${expected.phase} ${expected.sha256.slice(0, 12)}…` }) };
@@ -90,6 +97,8 @@ function parseFences(text: string, errors: string[]): { findings: CanonicalFindi
       if (typeof row.suggested_owner === 'string') finding.suggested_owner = row.suggested_owner;
       if (Array.isArray(row.plan_items)) finding.plan_items = row.plan_items.filter((p: unknown): p is string => typeof p === 'string');
       if (typeof row.dimension === 'string') finding.dimension = row.dimension;
+      if (Number.isInteger(row.owner_quote) && row.owner_quote > 0) finding.owner_quote = row.owner_quote;
+      if (typeof row.resolves === 'string' && row.resolves.trim()) finding.resolves = row.resolves.trim();
       if (row.changes !== undefined) {
         if (!(CHANGES as readonly unknown[]).includes(row.changes)) { errors.push(`findings row ${i + 1}: changes ${JSON.stringify(row.changes)} is not one of ${CHANGES.join('|')}`); return; }
         finding.changes = row.changes;
@@ -186,7 +195,7 @@ export function canonicalRows(findings: CanonicalFinding[], ctx: { run: string; 
     ...(f.local_id ? { source: f.local_id } : {}),
     ...(f.user_challenge ? { user_challenge: true } : {}), ...(f.urgent ? { urgent: true } : {}),
     ...(f.suggested_owner ? { suggested_owner: f.suggested_owner } : {}), ...(f.dimension ? { dimension: f.dimension } : {}),
-    ...(f.changes ? { changes: f.changes } : {}),
+    ...(f.changes ? { changes: f.changes } : {}), ...(f.owner_quote ? { owner_quote: f.owner_quote } : {}), ...(f.resolves ? { resolves: f.resolves } : {}),
   } as FindingRow));
 }
 

@@ -9,7 +9,8 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
 import { BUMP_NEVER_KEY_VERSION, CHANGELOG_FRAGMENTS_KEY_VERSION, DEFAULT_POLICY, POLICY_KEYS, POLICY_KEY_INTRODUCED, REVIEW_SCOPE_KEY_VERSION, STAMP_PLACEHOLDERS_KEY_VERSION, globToRegExp, matchesAny, minimumReader, shipConsequences, validatePolicy } from '../lib/ship-policy';
-import { fillDue } from '../lib/ship-queue-train';
+import { HISTORY_NO_REWRITE_KEY_VERSION, LAND_MERGE_COMMIT_PATHS_KEY_VERSION, PLAN_RECORD_KEY_VERSION } from '../lib/ship-policy-keys';
+import { fillDue } from '../crew/lib/ship-queue-train';
 import { cmpVersion, parseVersion } from '../lib/version-source';
 import { BASE_POLICY, cleanup, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
@@ -40,6 +41,10 @@ describe('validatePolicy (schema + containment, pure)', () => {
     const earlier = REVIEW_SCOPE_KEY_VERSION.replace(/(\d+)\.0$/, (_, p) => `${Number(p) - 7}.0`);
     expect(codes({ review_scope: 'all', min_gstack_version: earlier })).toEqual(['POLICY_INVALID:review_scope']);
     expect(codes({ review_scope: 'frozen' })).toEqual([]);
+    // Value: protects=plan_record accepts only off|warn|require; fails_when=the enum guard is removed or loosened; why_new=no plan_record row; seam=none; no_claim=ready/land enforcement
+    expect(codes({ plan_record: 'strict' })).toContain('POLICY_INVALID:plan_record');
+    expect(codes({ plan_record: true })).toContain('POLICY_INVALID:plan_record');
+    for (const v of ['off', 'warn', 'require']) expect(codes({ plan_record: v, min_gstack_version: PLAN_RECORD_KEY_VERSION })).toEqual([]);
     expect(codes([])).toEqual(['POLICY_INVALID:']);
   });
 
@@ -178,7 +183,7 @@ describe("gstack's own .gstack/ship-policy.json", () => {
     for (const f of fs.readdirSync(path.join(root, '.github/workflows')).filter(f => f.endsWith('.yml'))) {
       const text = fs.readFileSync(path.join(root, '.github/workflows', f), 'utf8');
       const on = text.slice(text.search(/^on:/m), text.search(/^jobs:/m));
-      if (!/^\s+pull_request:/m.test(on) || /^\s+paths(-ignore)?:/m.test(on)) continue;
+      if (!/^\s+pull_request(?:_target)?:/m.test(on) || /^\s+paths(-ignore)?:/m.test(on)) continue;
       const body = text.slice(text.search(/^jobs:/m));
       for (const m of body.matchAll(/^  ([A-Za-z0-9_-]+):\n((?:    .*\n|\s*\n)*)/gm)) {
         const name = /^    name:\s*(.+)$/m.exec(m[2]!)?.[1]?.trim();
@@ -340,5 +345,32 @@ describe('gstack-ship-policy (bin)', () => {
     const lax = fixture();
     expect(runBin(lax, 'gstack-ship-policy', ['check-history', '--base', 'main']).out).toBe('HISTORY: squash-ok (no check; policy history=squash-ok; plan=merge)\n');
     expect(runBin(lax, 'gstack-ship-policy', ['check-history', '--base', 'main', '--plan', 'rebase']).status).toBe(EXIT.ok);
+  });
+
+  // Value: protects=history: no-rewrite refuses a rebase plan or a rewritten branch but allows a squash landing, and an
+  // older gstack refuses the value and land.merge_commit_paths by name; fails_when=no-rewrite acts like squash-ok or
+  // merge-only, or a policy without min_gstack_version validates; why_new=I1 and G1 (GST-2737)
+  test('history: no-rewrite refuses a rebase plan and a rewritten branch, allows squash; it and land.merge_commit_paths need min_gstack_version', () => {
+    const repo = fixture({ policy: { ...BASE_POLICY, history: 'no-rewrite', min_gstack_version: HISTORY_NO_REWRITE_KEY_VERSION } });
+    repo.git('checkout', '-q', '-b', 'pr');
+    fs.writeFileSync(path.join(repo.work, 'a.txt'), 'a\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'a');
+    repo.git('push', '-q', '-u', 'origin', 'pr');
+    expect(runBin(repo, 'gstack-ship-policy', ['check-history', '--base', 'main', '--plan', 'squash']).out).toMatch(/^HISTORY: ok \(no-rewrite; origin\/pr is an ancestor of HEAD\)$/m);
+    const rebase = runBin(repo, 'gstack-ship-policy', ['check-history', '--base', 'main', '--plan', 'rebase']);
+    expect(rebase.status).toBe(EXIT.refused);
+    expect(rebase.out).toMatch(/^HISTORY: refused \(plan=rebase rewrites the branch; .*\(HISTORY_POLICY_VIOLATION\)$/m);
+    repo.git('commit', '-q', '--amend', '-m', 'a, amended');
+    expect(runBin(repo, 'gstack-ship-policy', ['check-history', '--base', 'main']).status).toBe(EXIT.fail);
+    const codes = (p: Record<string, unknown>) => validatePolicy(p, { gstackVersion: HISTORY_NO_REWRITE_KEY_VERSION }).map(e => `${e.code}:${e.path}`);
+    expect(codes({ history: 'no-rewrite' })).toEqual(['POLICY_INVALID:history']);
+    expect(codes({ history: 'no-rewrite', min_gstack_version: HISTORY_NO_REWRITE_KEY_VERSION })).toEqual([]);
+    expect(codes({ land: { merge_commit_paths: ['evals/**'] }, min_gstack_version: '1.99.0.0' })).toEqual(['POLICY_INVALID:land.merge_commit_paths']);
+    expect(codes({ land: { merge_commit_paths: ['evals/**'] }, min_gstack_version: LAND_MERGE_COMMIT_PATHS_KEY_VERSION })).toEqual([]);
+    expect(codes({ land: { merge_commit_paths: ['../out'] }, min_gstack_version: LAND_MERGE_COMMIT_PATHS_KEY_VERSION })).toEqual(['POLICY_INVALID:land.merge_commit_paths']);
+    expect(validatePolicy({ history: 'no-rewrite', min_gstack_version: HISTORY_NO_REWRITE_KEY_VERSION }, { gstackVersion: '1.99.5.0' }).map(e => e.code)).toContain('POLICY_GSTACK_TOO_OLD');
+    expect(minimumReader({ history: 'no-rewrite' })).toBe(HISTORY_NO_REWRITE_KEY_VERSION);
+    expect(minimumReader({ land: { merge_commit_paths: ['evals/**'] } })).toBe(LAND_MERGE_COMMIT_PATHS_KEY_VERSION);
+    expect(shipConsequences({ ...DEFAULT_POLICY, history: 'no-rewrite' }, 'main').join('\n')).toContain('never rebase or force-push this branch');
   });
 });

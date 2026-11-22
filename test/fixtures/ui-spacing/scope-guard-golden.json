@@ -1,0 +1,131 @@
+{
+ "generatedFrom": "bin/gstack-design-lint at e58be61 (origin/main before GST-1741 PR 1), run from the repository root",
+ "cases": [
+  {
+   "args": [
+    "test/fixtures/design-lint/slopped.html"
+   ],
+   "code": 2,
+   "lines": 46,
+   "sha256": "295bbc0c354f8064459d30e389aa230eb53f257ad781ba844159230ddcf91515"
+  },
+  {
+   "args": [
+    "test/fixtures/design-lint/clean"
+   ],
+   "code": 0,
+   "lines": 1,
+   "sha256": "90680fde67b703ba3f12bbae8638f8ff7053561d76b9722cf7cb0dda37cc6ea1"
+  },
+  {
+   "args": [
+    "test/fixtures/design-lint/eyebrow-fail"
+   ],
+   "code": 2,
+   "lines": 18,
+   "sha256": "61350c90e70845368095ef0b61b650fbbef9f9206a70c8e70ff3cbda966c183c"
+  },
+  {
+   "args": [
+    "test/fixtures/design-lint/eyebrow-pass"
+   ],
+   "code": 0,
+   "lines": 3,
+   "sha256": "9da5caa6d3bea8f7624f2938e22466e60791ca61afbddfeba560f69c4d2bdf28"
+  },
+  {
+   "args": [
+    "test/fixtures/design-lint/tailwind-fail"
+   ],
+   "code": 2,
+   "lines": 41,
+   "sha256": "e6901b66a090638abca7e22ec89843de64e719900618b7c37e01c3cad39e0f90"
+  },
+  {
+   "args": [
+    "test/fixtures/design-lint/tailwind-pass"
+   ],
+   "code": 0,
+   "lines": 2,
+   "sha256": "727a01dee14590f39de8607303db1fbe20a1236bc06bf753395b169a6fbbb326"
+  },
+  {
+   "args": [
+    "test/fixtures/design-lint/waiver"
+   ],
+   "code": 1,
+   "lines": 12,
+   "sha256": "e6c850be2214066f74469e3483b4a3ee73bc0da4ff6da1e5319225df5a516d15"
+  },
+  {
+   "args": [
+    "test/fixtures/design-lint"
+   ],
+   "code": 2,
+   "lines": 110,
+   "sha256": "71e69ecf0e2b93437ff29bc5f2e94bfb85089fc64f8e318191f93331cdf1626f"
+  },
+  {
+   "args": [
+    "--scope",
+    "component",
+    "test/fixtures/design-lint/tailwind-fail"
+   ],
+   "code": 2,
+   "lines": 33,
+   "sha256": "2c18f9e7e5ca30bae2543d5b7aaf54c958feadecada1be9aa19e47e598231279"
+  },
+  {
+   "args": [
+    "--scope",
+    "component",
+    "test/fixtures/design-lint/tailwind-pass"
+   ],
+   "code": 0,
+   "lines": 1,
+   "sha256": "90680fde67b703ba3f12bbae8638f8ff7053561d76b9722cf7cb0dda37cc6ea1"
+  },
+  {
+   "args": [
+    "--scope",
+    "component",
+    "test/fixtures/design-lint/slopped.html"
+   ],
+   "code": 2,
+   "lines": 37,
+   "sha256": "e6305053b6de5a3ce42eb165875b1a135636fe6daf903b18a05078bc469aca20"
+  },
+  {
+   "args": [
+    "--scope",
+    "page",
+    "--job",
+    "book",
+    "test/fixtures/design-lint/slopped.html"
+   ],
+   "code": 2,
+   "lines": 46,
+   "sha256": "295bbc0c354f8064459d30e389aa230eb53f257ad781ba844159230ddcf91515"
+  },
+  {
+   "args": [
+    "--json",
+    "test/fixtures/design-lint/slopped.html"
+   ],
+   "code": 2,
+   "lines": 462,
+   "sha256": "61a824bec090e297fdbadd2a753892c2fa1e0ae232d1dee0ff05922fa167a18f"
+  },
+  {
+   "args": [
+    "--json",
+    "--scope",
+    "component",
+    "test/fixtures/design-lint/tailwind-fail"
+   ],
+   "code": 2,
+   "lines": 332,
+   "sha256": "2c8c88c80449a9cefbadacfbc4886b7404378087a525fd627cc9cd0607e836a8"
+  }
+ ]
+}

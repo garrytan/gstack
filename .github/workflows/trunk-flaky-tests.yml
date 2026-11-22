@@ -1,0 +1,106 @@
+# Trunk Flaky Tests, DETECTION ONLY (GST-1859). After every Free Tests run
+# completes, this uploads that run's JUnit reports, failures included, to the
+# Trunk test collection 7yDVXXE3 so Trunk can flag tests that fail and then
+# pass on the same code: every free-suite shard's reports (free-junit-*), and
+# the quick tier's on the install-default Bun (quick-junit) as the separate
+# bun-default variant, since the same files also run on the pinned Bun.
+#
+# It runs from workflow_run instead of as a free-tests.yml job (GST-3303), so a
+# pull request's checks no longer wait on it; it was the last job to finish in
+# about one Free Tests run in four (61 of 223, 11-06 to 11-20). A workflow_run
+# workflow runs from the default branch's copy of this file, never from the
+# pull request's.
+#
+# Nothing is quarantined or skipped: the uploader runs with quarantine off, the
+# collection has quarantining off, and nothing reads this workflow's result, so
+# it cannot change which tests gate or turn a check red. It is the only job that
+# sees TRUNK_ORG_API_TOKEN (Trunk's v1 organization token; the v2 API key in
+# TRUNK_API_TOKEN does not work with the uploader). It checks out nothing, runs
+# no shell, downloads only the XML artifacts of the run that triggered it, and
+# its GITHUB_TOKEN can only read Actions artifacts. The CLI version is pinned
+# and use-cache is off, so the binary always comes from Trunk's checksummed
+# release, never from an Actions cache entry a pull-request job could write.
+# Same-repository pull requests, main pushes and dispatch runs (which only
+# someone with write access can start), as before; fork pull requests are
+# skipped because workflow_run hands this workflow repository secrets, which
+# must never meet a fork's artifacts.
+# A missing token skips every step. Fail-open at step and job level. Review:
+# docs/TESTING_INTERNALS.md.
+name: Trunk Flaky Tests
+
+on:
+  workflow_run:
+    workflows: [Free Tests]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  trunk-flaky-tests:
+    name: Trunk Flaky Tests (detection only)
+    if: github.event.workflow_run.conclusion != 'skipped' && ((github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') || github.event.workflow_run.event == 'workflow_dispatch' || (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      actions: read
+    env:
+      TRUNK_ORG_API_TOKEN: ${{ secrets.TRUNK_ORG_API_TOKEN }}
+    steps:
+      - name: Download every shard's JUnit reports from the Free Tests run
+        if: env.TRUNK_ORG_API_TOKEN != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: free-junit-*
+          path: ${{ github.workspace }}/free-junit
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Download the quick tier's JUnit reports from the Free Tests run
+        if: env.TRUNK_ORG_API_TOKEN != ''
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: quick-junit
+          path: ${{ github.workspace }}/quick-junit
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Upload the shard reports to Trunk Flaky Tests (detection only, quarantine off)
+        if: env.TRUNK_ORG_API_TOKEN != '' && hashFiles('free-junit/**/*.xml') != ''
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
+        with:
+          junit-paths: ${{ github.workspace }}/free-junit/**/*.xml
+          org-slug: garry-tan
+          token: ${{ env.TRUNK_ORG_API_TOKEN }}
+          test-collection-id: 7yDVXXE3
+          cli-version: 0.17.0
+          use-cache: 'false'
+          quarantine: 'false'
+          use-uncloned-repo: 'true'
+          github-token: ''
+          gh-repo-url: ${{ github.server_url }}/${{ github.repository }}
+          gh-repo-head-sha: ${{ github.event.workflow_run.head_sha }}
+          gh-repo-head-branch: ${{ github.event.workflow_run.head_branch }}
+      - name: Upload the quick tier's reports as the bun-default variant (detection only, quarantine off)
+        if: env.TRUNK_ORG_API_TOKEN != '' && hashFiles('quick-junit/**/*.xml') != ''
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
+        with:
+          junit-paths: ${{ github.workspace }}/quick-junit/**/*.xml
+          org-slug: garry-tan
+          token: ${{ env.TRUNK_ORG_API_TOKEN }}
+          test-collection-id: 7yDVXXE3
+          cli-version: 0.17.0
+          use-cache: 'false'
+          quarantine: 'false'
+          use-uncloned-repo: 'true'
+          variant: bun-default
+          github-token: ''
+          gh-repo-url: ${{ github.server_url }}/${{ github.repository }}
+          gh-repo-head-sha: ${{ github.event.workflow_run.head_sha }}
+          gh-repo-head-branch: ${{ github.event.workflow_run.head_branch }}

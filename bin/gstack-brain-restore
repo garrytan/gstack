@@ -202,31 +202,35 @@ git -C "$GSTACK_HOME" config merge.union.name "union concat"
 # ---- install pre-commit hook (same as init) ----
 HOOK="$GSTACK_HOME/.git/hooks/pre-commit"
 mkdir -p "$(dirname "$HOOK")"
+cp "$SCRIPT_DIR/gstack-brain-secret-scan.py" "$(dirname "$HOOK")/gstack-brain-secret-scan.py"
 cat > "$HOOK" <<'HOOK_EOF'
 #!/usr/bin/env bash
+# gstack-brain pre-commit hook: secret-scan defense-in-depth. It runs a copy of the
+# scanner gstack-brain-sync runs before staging (same families, the whole
+# staged diff, JSON string values decoded), written beside this hook by
+# gstack-artifacts-init and gstack-brain-restore, so a manual `git commit` against
+# the artifacts repo is held the same way.
 set -uo pipefail
-python3 -c "
-import sys, re, subprocess
-try:
-    out = subprocess.check_output(['git', 'diff', '--cached'], stderr=subprocess.DEVNULL).decode('utf-8', 'replace')
-except Exception:
-    sys.exit(0)
-patterns = [
-    ('aws-access-key', re.compile(r'AKIA[0-9A-Z]{16}')),
-    ('github-token', re.compile(r'\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})')),
-    ('openai-key', re.compile(r'\bsk-[A-Za-z0-9_-]{20,}')),
-    ('pem-block', re.compile(r'-----BEGIN [A-Z ]{3,}-----')),
-    ('jwt', re.compile(r'\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b')),
-    ('bearer-token-json',
-     re.compile(r'\"(authorization|api[_-]?key|apikey|token|secret|password)\"\s*:\s*\"(Bearer |Basic |Token )?[A-Za-z0-9_./+=-]{16,}\"',
-                re.IGNORECASE)),
-]
-for name, rx in patterns:
-    if rx.search(out):
-        sys.stderr.write(f'gstack-brain pre-commit: refusing commit — {name} detected.\n')
-        sys.exit(1)
-sys.exit(0)
-"
+SCAN="$(dirname "$0")/gstack-brain-secret-scan.py"
+if [ ! -f "$SCAN" ]; then
+  echo "gstack-brain pre-commit: refusing commit — the secret scanner $SCAN is missing; rerun gstack-brain-restore to reinstall this hook." >&2
+  exit 1
+fi
+TEXT=$(mktemp) || { echo "gstack-brain pre-commit: refusing commit — could not create a temporary file for the secret scan." >&2; exit 1; }
+trap 'rm -f "$TEXT"' EXIT
+if ! git diff --cached --no-renames --no-color --no-ext-diff --text --no-textconv -U3 > "$TEXT"; then
+  echo "gstack-brain pre-commit: refusing commit — git could not read the staged diff for the secret scan." >&2
+  exit 1
+fi
+hits=$(git diff --cached --no-renames --no-color --no-ext-diff | python3 "$SCAN" gate - "$TEXT")
+rc=$?
+[ "$rc" -eq 0 ] && exit 0
+if [ "$rc" -eq 3 ]; then
+  echo "gstack-brain pre-commit: refusing commit — $hits detected in staged diff." >&2
+else
+  echo "gstack-brain pre-commit: refusing commit — the secret scan failed (exit $rc)." >&2
+fi
+exit 1
 HOOK_EOF
 chmod +x "$HOOK"
 

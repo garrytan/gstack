@@ -175,8 +175,7 @@ test moves, because its calibration fixtures are keyed to it:
 - Claude session, PTY, and Agent SDK eval runners and the Claude benchmark adapter: explicit model > `EVALS_MODEL` > `GSTACK_EVAL_MODEL_CAPTURE` > `GSTACK_EVAL_MODEL` > default.
 - Shared judge calls (including benchmark quality scoring): explicit model > `GSTACK_EVAL_MODEL_JUDGE` > `GSTACK_EVAL_MODEL` > default. `EVALS_MODEL` applies to capture runners, not judges.
 
-Warmup stays on `claude-haiku-4-5`; distill stays on
-`claude-haiku-4-5-20251001`. Explicit test and historical benchmark model
+Warmup and distill stay on `claude-haiku-5-5`. Explicit test and historical benchmark model
 selections still win. These eval defaults stay pinned independently from the
 [runtime model tiers](docs/model-policy.md); the tier freshness workflow does
 not discover or change evaluation models automatically. Paid-run costs shown below are
@@ -193,7 +192,7 @@ the new defaults.
 | Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY`, `UBI_OWNER` |
 | Clear pregate's test tier on a machine under 8 cores from CI, the default on gstack ([CI carry](docs/pregate.md#ci-carry)) | push, `gstack-ci-carry wait --base main`, then `gstack-pregate --allow-repo-commands` (a branch behind main first runs `gh workflow run free-tests.yml --ref <branch>`) | Free; reuses the green Free Tests run at your pushed tree | Pushed branch, `gh` |
 | Clear pregate's test tier on a machine under 8 cores when no CI run covers your tree ([remote gate](docs/pregate.md#remote-gate), opt-in) | `gstack-pregate --stage tests --remote --spend-cap 2 --timeout 2700 --allow-repo-commands` (same command keyed or keyless) | Keyed: one billed 16-vCPU VM, about 7 minutes and $0.06 for the whole free tier, worst case $0.38; keyless: free, local parallel shards, practical for small selections only (98 files took 103 s on 4 cores) | Keyed: `UBICLOUD_API_KEY`, `UBI_OWNER`; keyless: nothing |
-| Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs, nightly on main; PRs run the shorter `windows-smoke` check, and a PR that touches path, file-name or process code also runs its changed Windows-safe test files in `Windows Scoped Tests`) | Free | Windows, Git Bash |
+| Run the curated Windows-safe subset | `bun run test:windows` (CI: eight `windows-latest` jobs, nightly on main; PRs run the shorter `windows-smoke` check, and a PR that touches path, file-name or process code also runs its changed Windows-safe test files in `Windows Scoped Tests`) | Free | Windows, Git Bash |
 | Rerun chosen Windows-safe test files on Windows CI | `gh workflow run windows-scoped-tests.yml --ref <branch> -f files='<file> <file>'` (pick files from `bun run test:windows --list`) | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Refresh the Windows duration seed | `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`, then commit the `free-test-durations-windows` artifact | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Run a native Windows qualification campaign | `gh workflow run native-qualification.yml --ref <branch> -f mode=<mode>` ([modes](docs/TESTING_INTERNALS.md#windows-free-lane)) | Free CI runners | Pushed branch, `gh` with workflow rights |
@@ -213,7 +212,7 @@ the new defaults.
 | See a case's pass rate across recent weekly runs | `bun run eval:pass-rates --case <case-id>` | Free | `gh` with repo read access |
 | Measure one red case alone against the ship bar (MEETS 9/10) | `bun run scripts/ship-measure.ts measure --case <case-id> --round baseline` ([bar](docs/TESTING_INTERNALS.md#ship-measure)) | API spend for 10 trials (12 for behavior); asks above $2/trial, stops at $25/case | Same as paid coverage |
 | Measure main's flakiest gate cases (the weekly sweep) | `gh workflow run eval-sweep.yml --ref main [-f k=5] [-f cap_usd=150] [-f dry_run=true]`, or locally `bun run scripts/ship-measure.ts sweep --dry-run` ([sweep](docs/TESTING_INTERNALS.md#ship-measure-sweep)) | API spend up to $150 per 7 days (`ship_measure_sweep_budget_usd`); `--dry-run` is free | `gh` with repo read access; CI dispatch needs workflow rights |
-| Replay what the paid gate costs and what each selection or train policy would have cost ([replay](docs/TESTING_INTERNALS.md#replay-gate-cost)) | `bun run scripts/gate-cost-replay.ts --runs <full-gate run ids> --since <date> --until <date>` (screening figures print as screen-provisional, heuristic until T2 lands) | Free; `gh` reads, cached in `.context/gate-cost-cache` | `gh` with repo read access |
+| Replay what the paid gate costs and what each selection or train policy would have cost ([replay](docs/TESTING_INTERNALS.md#replay-gate-cost)) | `bun run crew/scripts/gate-cost-replay.ts --runs <full-gate run ids> --since <date> --until <date>` (screening figures print as screen-provisional, heuristic until T2 lands) | Free; `gh` reads, cached in `.context/gate-cost-cache` | `gh` with repo read access |
 | See the audit success metrics and weekly health | `bun run test:health [--since-days 7] [--json] [--enforce]` | Free; 5–20 minutes of `gh` reads | `gh` with repo read access |
 
 Old command names are listed under [Retired commands](#retired-commands).
@@ -429,10 +428,10 @@ eval files, and misses the strict classifier. No API keys needed.
 - **Generator tests** (`test/gen-skill-docs.test.ts`) — Tests the template system: verifies placeholders resolve correctly, output includes value hints for flags (e.g. `-d <N>` not just `-d`), enriched descriptions for key commands (e.g. `is` lists valid states, `press` lists key examples), and that a template's `codex_default_prompt:` frontmatter key reaches the Codex `agents/openai.yaml` `default_prompt` (a template without the key keeps `Use <name> for this task.`) while no host's SKILL.md render carries the key.
 - **Design detector, catalog, and DESIGN.md** (`test/gstack-design-detect.test.ts`, `test/design-detect-contract.test.ts`, `test/design-catalog.test.ts`, `test/design-checklist-sync.test.ts`, `test/design-md.test.ts`, `test/frontend-scope.test.ts`, `test/impeccable-fixtures.test.ts`) — Drive `bin/gstack-design-detect.ts` through the fake engine in `test/fixtures/fake-impeccable.ts` (probe order, the never-execute-a-repository-file rule, the `--changed` target allow-list, `design_detector: off`, analytics lines, output sanitizing), pin the catalog invariants and the generated `review/design-checklist.md`, round-trip the open DESIGN.md reader/writer, and check the real engine captures (`test/fixtures/impeccable-*.json`, engine 0.1.3) against the contract. `test/dom-dump-hygiene.test.ts` runs `lib/dom-dump.js` in a real Chromium page through the built browse binary; it self-skips without the binary and is opt-in outside CI (`GSTACK_DOM_DUMP_HYGIENE=1`).
 - **Tier-alignment invariant** (`test/e2e-tier-alignment.test.ts`) — For every self-gated `test/skill-e2e-*.test.ts` named in a touchfiles dep list, the file's `EVALS_TIER` self-gate must match its declared tier in `E2E_TIERS`. Kills the "inert demotion" class where a test is re-tiered in `touchfiles.ts` but the file still gates on the old tier and keeps running in the wrong lane. Unmapped or mixed-tier files are reported, never silently skipped.
-- **Catalog budget** (`test/catalog-budget.test.ts`) — Caps the aggregate discovery surface: the sum of every skill's frontmatter `name` + `description` (what every host loads at discovery, every session) must stay under 1,452 token-equivalents, with a 260-byte per-skill cap. Counting goes through the shared census in `test/helpers/skill-census.ts` (physical files vs authored skills vs registry entries — three deliberately different counts). Adding a skill? The failure message carries the re-measure + ratchet protocol.
+- **Catalog budget** (`test/catalog-budget.test.ts`) — Caps the aggregate discovery surface: the sum of every skill's frontmatter `name` + `description` (what every host loads at discovery, every session) must stay under 2,290 token-equivalents, with a 260-byte per-skill cap. Counting goes through the shared census in `test/helpers/skill-census.ts` (physical files vs authored skills vs registry entries — three deliberately different counts). Adding a skill? The failure message carries the re-measure + ratchet protocol.
 - **Context-budget ratchet** (`test/context-budget-ratchet.test.ts`) — CI ceilings on the two token ledgers the catalog budget doesn't cover: the always-on full-frontmatter aggregate and each skill's per-invocation eager tokens (SKILL.md + forced-read references), graded against `test/fixtures/context-budget.json` via `lib/context-bill.ts`. New skills fail until they have a ceiling; ceilings for removed skills must be pruned. Legitimate growth or a landed reduction: re-run `bun test/helpers/capture-context-budget.ts` and commit the refreshed fixture in the same commit, so the change is a visible decision in the diff.
 - **Skill-to-bin drift ratchet** (`test/skill-bin-drift.test.ts`) — `scripts/skill-bin-drift.ts` statically reads every gstack bin call in skill templates, carved sections, references and the Claude-host renders (it never executes a bin) and fails with `DRIFT_UNKNOWN_BIN` or `DRIFT_UNKNOWN_FLAG` at file:line when a skill names a bin missing from `bin/` or a flag that bin's parser does not accept. Known misses live in `test/fixtures/skill-bin-drift-allowlist.json`, which only shrinks: a new finding fails, and so does an entry that no longer reproduces. Check one skill with `bun run scripts/skill-bin-drift.ts --skill <name>`; bins with permissive parsers or no usage text are reported, never failed.
-- **Dependency security regressions** (`test/dependency-security.test.ts`) — Run `bun test test/dependency-security.test.ts` to check the resolved `sharp`, `adm-zip`, `qs` and `@hono/node-server` version floors, load Sharp, verify ordinary ZIP extraction, and reject extraction through destination-file and destination-directory symlinks. The symlink cases skip Windows. These checks complement the OSV scan; they do not change its existing exceptions.
+- **Dependency security regressions** (`test/dependency-security.test.ts`) — Run `bun test test/dependency-security.test.ts` to check the resolved `sharp`, `adm-zip`, `qs`, `@hono/node-server` and `hono` version floors, load Sharp, verify ordinary ZIP extraction, and reject extraction through destination-file and destination-directory symlinks. The symlink cases skip Windows. These checks complement the OSV scan; they do not change its existing exceptions.
 
 ### Tier 2: E2E via `claude -p`
 
@@ -922,66 +921,103 @@ triaging for the maintainer posts these comments under its bot identity
 `gh` runs as the maintainer. The full rule,
 including the labels and the close reasons, is in [docs/triage.md](docs/triage.md).
 
-## Community PR triage (wave process)
+## Sending a report or a PR
 
-When community PRs accumulate, batch them into themed waves:
+gstack is maintained day to day by AI agents working for Garry Tan. They triage issues
+and PRs, rebuild good patches on current main, and land them with the author credited.
+That's why nearly every commit on main reads as Garry's: the agents commit under his
+account, and your credit is a `Co-authored-by:` trailer plus a line in the PR body.
 
-1. **Categorize** — group by theme (security, features, infra, docs)
-2. **Deduplicate** — if two PRs fix the same thing, pick the one that
-   changes fewer lines. Close the other with a note pointing to the winner.
-3. **Collector branch** — create `pr-wave-N`, merge clean PRs, resolve
-   conflicts for dirty ones, verify with `bun run test && bun run build`
-4. **Close with context** — every closed PR gets a comment explaining
-   why and what (if anything) supersedes it. Contributors did real work;
-   respect that with clear communication. An agent running the wave posts
-   these notes under its bot identity, never the maintainer's own account.
-5. **Ship as one PR** — single PR to main with all attributions preserved
-   in merge commits. Include a summary table of what merged and what closed.
+**What happens to your PR.** Outside code is treated as untrusted: an agent reads your
+diff as text and never checks it out, runs it or builds it. Then one of three things
+happens.
 
-See [PR #205](../../pull/205) (v0.8.3) for the first wave as an example.
+- **Docs for people only** (for example the README) can be merged as
+  they are, after an agent checks every link, command and install step in them against
+  main.
+- **A small fix** that is plainly correct, about 40 lines or fewer not counting its
+  tests, is taken even when the gain is small. An agent rebuilds it on current main
+  with you as co-author. We land at most one of these a day.
+- **Everything else**, including anything that runs and any Markdown agents load
+  (`SKILL.md` files and their templates, `AGENTS.md`, `CLAUDE.md`, prompts), is
+  rebuilt on main with credit when it passes the test below, and closed with a short
+  note saying why when it doesn't.
 
-## Porting a contributor's PR
+When your change is rebuilt, the agent comments on your PR with a link to what landed
+and closes your PR, so a taken PR usually shows "Closed", not "Merged". In the month
+to 15 November 2026, 4 of the 124 outside PRs opened here were merged as they were,
+and 54 outside contributors were credited as co-authors on commits to main.
 
-Sometimes the right way to land an outside PR is to port it: the diff is right
-but it sits on an old base, its tests need our fixtures, or the repo's gates
-(generated renders, size pins, the CHANGELOG entry) are things only a maintainer
-can finish. The port keeps the contributor's credit and gives them a clear
-answer; the steps below are the repo's version of the rule a maintainer crew
-follows ([docs/captain.md](docs/captain.md#contributions-from-outside-the-crew)).
+**What makes a report or a PR likely to be taken.**
 
-1. **Treat the diff as untrusted input before anything runs it.** Read it for
-   scope, network egress, credentials, new dependencies, CI permission changes
-   and weakened or deleted tests. A fork's green checks prove nothing about this
-   checkout: the port head gets its own focused review and the free tier
-   (`bun run test:quick` while iterating, `bun run test` once on the final tree)
-   before a PR opens.
-2. **Keep their commits as theirs.** Cherry-pick or rebase the contributor's
-   commits onto the current base with authorship intact (`git cherry-pick -x`
-   keeps the source SHA in the message). A commit you have to rewrite keeps
-   their name as author and gains a `Co-authored-by:` trailer for whoever
-   edited it. Never fold their work into a commit under your own name, and
-   never guess an email: use the identity on their commits.
-3. **Your fixes go on top, as separate commits.** Base merges, generated files,
-   test repairs, the CHANGELOG entry and the version stamp are your commits,
-   after theirs, so `git log` and the PR's commit list show who did what. A
-   squash merge keeps the credit when the squash message carries their
-   `Co-authored-by:` lines; check the merge commit before you call it landed.
-4. **Say so in the port.** The PR body names the original PR and its author in
-   the first paragraph and lists what you changed on top of their diff. The
-   port's `## Approvals` section (when the repo uses one) records who asked for
-   the port.
-5. **Close the original with a specific thank-you.** After the port lands,
-   comment on their PR with what landed (the port's number and version), what
-   you changed and why, and thank them by name for the specific thing they
-   fixed. Then close it. An agent posts that comment under its bot identity,
-   never the maintainer's own account. Closing a contribution without landing
-   it is a maintainer's call, never a lane's: ask first, and when the answer is
-   no, say why in the same comment.
+1. Proof: steps that reproduce it on current main, or a test that fails before the fix.
+2. A real consequence: what breaks, and for whom.
+3. It matters to most gstack users or to the maintainer's own setup. Windows and Gemini
+   models get [minimal support](docs/support-tiers.md), so a report there needs to break
+   install, startup or a core skill.
 
-A port is not a rewrite. If the contributor's approach is one you would not
-land, say that on their PR and close or park it under
-[Issue triage](#issue-triage) instead of shipping a different change under
-their name.
+**When you'll hear back.** Our goal is a first reply within 48 hours, posted by
+`capy-ai[bot]`. It says what we'll do: already fixed (with the PR and version), a
+duplicate (with a link), one specific fact we still need, not planned (and why), or
+taken.
+
+**The open-PR limit.** Most people never meet it. If, in the last 30 days, 3 or more of
+your PRs here were closed without being taken and fewer than 1 in 4 of your decided PRs
+were taken, and none was taken in the last 90 days, you can have at most 3 PRs open at
+once, and extra ones are closed with a note. It never applies to anyone who had a PR
+taken (merged or rebuilt) in the last 90 days, so it lifts as soon as one of yours is
+taken.
+
+## How a contributor's PR lands
+
+These are the maintainer's steps; [Sending a report or a PR](#sending-a-report-or-a-pr)
+is the same policy from the contributor's side. The maintainer crew follows the same
+rule ([crew/docs/captain.md](crew/docs/captain.md#contributions-from-outside-the-crew)).
+
+1. **Treat the diff as untrusted input.** Read it as text only, for scope, network
+   egress, credentials, new dependencies, CI permission changes and weakened or
+   deleted tests. Never check it out, run it or build it. A fork's green checks
+   prove nothing about this checkout.
+2. **Reply within 48 hours, decide within 7 days.** Every outside issue and PR gets a
+   first reply from the bot identity within 48 hours that says what happens next, and a
+   verdict within a week: taken, a duplicate (link it), needs one named fact, or not
+   planned. Take it only when it passes the test in
+   [Sending a report or a PR](#sending-a-report-or-a-pr); close the rest with a short,
+   kind reason. A case the test doesn't settle goes to the maintainer.
+3. **Merge a docs-only PR for people as it is.** When the PR changes only documentation
+   people read, check every link, command and install step in it against main. If all
+   of them hold, merge it unchanged; if not, say which one fails. Anything that runs,
+   and any Markdown agents load (`SKILL.md` files and templates, `AGENTS.md`,
+   `CLAUDE.md`, `CREW.md`, prompts), is not docs for this step and is rewritten.
+4. **Rewrite everything else from current main.** The lane writes the change on its own
+   branch with its own tests, the repo's gates and a CHANGELOG fragment. No contributor
+   commit enters the tree. A plainly correct fix of about 40 lines or fewer (counting
+   the fix, not its tests) is taken even when the gain is small, at most one such PR a
+   day. A commit that carries the contributor's lines over
+   unchanged gets a `Co-authored-by:` trailer for them. Fetch their PR head as a ref
+   without checking it out (`git fetch origin +pull/<n>/head:refs/contrib/<n>`; the
+   `+` lets a re-fetch follow a force-push), then run
+   `crew/bin/gstack-coauthor-trailers origin/main..refs/contrib/<n>` to list the
+   authors of their commits; its default range holds only your own commits and finds
+   no co-author. A fork's commits can name anyone, so keep only the authors whose
+   lines you carry: drop the rest with `--exclude <email>` when you rerun it with
+   `--message <msgfile>`. Never guess an email: use the identity on their commits.
+5. **Credit them in the fix.** The PR body names the original PR and its author in
+   the first paragraph and says what differs from their diff. The CHANGELOG fragment
+   thanks them by handle.
+6. **Close the original with a specific thank-you.** After the fix lands, comment on
+   their PR with what landed (the PR number and version), what changed from their
+   diff and why, and thank them by name for the specific thing they found. Then close
+   it. An agent posts that comment under its bot identity, never the maintainer's own
+   account.
+7. **Apply the open-PR limit only to chronic authors.** An author is capped at 3 open
+   PRs only when, in the last 30 days, 3 or more of their PRs closed untaken and fewer
+   than 1 in 4 of their decided PRs were taken, and none of their PRs was taken in the
+   last 90 days. Taken means merged, or rebuilt by the crew. Close the extra PRs with a
+   note that names the limit and says it lifts once one of their PRs is taken.
+
+If we won't fix what the PR reports, say why on the PR and close or park it under
+[Issue triage](#issue-triage).
 
 ## Upgrade migrations
 
@@ -1035,6 +1071,12 @@ executable and parse without syntax errors.
 
 ## Shipping your changes
 
+Write the pull request title as what changed for someone using gstack, in everyday words, for example
+"Stop gstack from hitting GitHub's rate limit while it waits on PRs". Skip `type(scope):` prefixes, and if
+you reference an issue, put it at the end in parentheses. The "Plain title" check on every pull request
+names any word it refuses; editing the title reruns it. The full rule is in
+[docs/ship-policy.md](docs/ship-policy.md#plain-titles).
+
 When you're happy with your skill edits:
 
 ```bash
@@ -1042,3 +1084,5 @@ When you're happy with your skill edits:
 ```
 
 This runs tests, reviews the diff, triages the comments of every review bot you configured (Greptile's with 2-tier escalation), manages TODOS.md, bumps the version, and opens a PR. See `ship/SKILL.md` for the full workflow.
+
+A maintainer then merges the PR with `gstack-ship-queue land`. To merge the same way in your own repository, even with one maintainer, see [Merge with land](docs/ship-policy.md#land-normal).

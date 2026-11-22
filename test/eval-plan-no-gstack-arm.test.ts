@@ -20,7 +20,9 @@ const dirs: string[] = [];
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-no-gstack-arm-')); dirs.push(d); return d; };
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
-const BASE = ['Bars', 'Decoys', 'Stop rules', 'Held-out exposure'].map(s => `## ${s}\n- filled in\n`).join('\n');
+const RESULT_SECTIONS = '## Decisions\nif the variant passes more items: adopt it\nif there is no difference: keep the default\n\n## Scoring\njudge: none\npaired: yes\ninterval: 95%\nmdd: 2 of 9 items\n';
+const LOOP = '\n## Pilot\nshare: 10%\ncounted: no\nran: the part under test shows in each arm\'s own transcripts\njudge: labels checked on each arm\'s pilot outputs\nsupply: three development rows per arm at the planned rate\nunits: every task type, one each\nseed: 7, independent of the number of workers\n\n## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger\n\n## Held-out exposure\n- filled in\nanswers: other git refs and build caches checked on each task machine\n';
+const BASE = ['Bars', 'Decoys', 'Stop rules'].map(s => `## ${s}\n- filled in\n`).join('\n') + '\n' + RESULT_SECTIONS + LOOP;
 const ARMS = (...ids: string[]) => `\n## Arms\n${ids.map(id => `- ${id} default settings, $0.01 per item`).join('\n')}\n`;
 const LOADED = '\n## Comparison\nstack: loaded\n';
 const NO_GSTACK = (o: Partial<Record<'arms' | 'inputs' | 'prompt' | 'panel' | 'report' | 'masking' | 'install' | 'audit', string>> = {}) => {
@@ -189,10 +191,10 @@ describe('gstack-eval-plan prereg --check', () => {
     return { code: r.status, out: r.stdout ?? '', err: r.stderr ?? '' };
   };
 
-  test('a loaded comparison without the arm: one PREREG line out of 6, PREREG_NO_GSTACK_ARM on stderr, exit 1', () => {
+  test('a loaded comparison without the arm: one PREREG line out of 10, PREREG_NO_GSTACK_ARM on stderr, exit 1', () => {
     const r = run(BASE + VARIANTS + LOADED);
     expect(r.code).toBe(1);
-    expect(r.out).toMatch(/^PREREG: incomplete present=6\/6 stack=loaded no_gstack_arm=missing file=/m);
+    expect(r.out).toMatch(/^PREREG: incomplete present=10\/10 stack=loaded no_gstack_arm=missing file=/m);
     expect(r.err).toContain('missing section');
     expect(r.err).toContain('(PREREG_NO_GSTACK_ARM)');
     expect(r.err).not.toContain('(PREREG_INCOMPLETE)');
@@ -216,9 +218,9 @@ describe('gstack-eval-plan prereg --check', () => {
   test('complete: PREREG: ok with stack=loaded no_gstack_arm=ok; an opt-out prints stack=none', () => {
     const ok = run(BASE + VARIANTS + LOADED + NO_GSTACK());
     expect(ok.code, ok.out + ok.err).toBe(0);
-    expect(ok.out).toMatch(/^PREREG: ok present=6\/6 stack=loaded no_gstack_arm=ok file=/m);
+    expect(ok.out).toMatch(/^PREREG: ok present=10\/10 stack=loaded no_gstack_arm=ok file=/m);
     const none = run(BASE + ARMS('claude-opus-5-5') + '\n## Comparison\nstack: none\nwhy: scorer calibration\n');
     expect(none.code, none.out + none.err).toBe(0);
-    expect(none.out).toMatch(/^PREREG: ok present=6\/6 stack=none file=/m);
+    expect(none.out).toMatch(/^PREREG: ok present=10\/10 stack=none file=/m);
   });
 });

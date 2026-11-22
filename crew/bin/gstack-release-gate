@@ -1,0 +1,62 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-release-gate — the full paid gate on main every cadence_hours, only
+ * when main moved since the last gate (docs/ship-policy.md#release-gate;
+ * logic: crew/lib/release-gate.ts). The gate never moves the stable branch:
+ * crew/scripts/release-cut.ts is its only writer and holds every cut while the
+ * newest gate is red.
+ *
+ *   gstack-release-gate run [--dry-run] [--sha <main sha>] [--ignore-cadence]
+ *   gstack-release-gate status
+ *   gstack-release-gate bisect [--sha <red sha>] [--spend-cap <usd>] [--dry-run]
+ *
+ * Every subcommand takes --repo <owner/name> (default $GITHUB_REPOSITORY, else
+ * gh repo view), --policy <file> (a whole ship policy, validated; default the
+ * reviewed .gstack/ship-policy.json on origin/main), --remote <name> (origin),
+ * --summary <file> (appends each line as a bullet) and --outputs <file>
+ * (appends action=<action> and sha=<sha> for the workflow). run and bisect
+ * take --poll-seconds (60) and --budget-minutes (330): past the budget nothing
+ * waits, and the record stays resumable by the next run or bisect.
+ * Exit 0: inert, skipped, dry run, gated green, or status with no hold;
+ * 1: red (held), incomplete or could not finish; 2: usage.
+ */
+import { randomBytes } from 'node:crypto';
+import * as fs from 'node:fs';
+import { bisectGate, gateStatus, loadReleaseGate, runGate, type GateEnv, type GateOut } from '../lib/release-gate';
+import { runGh } from '../scripts/recover-receipts';
+import { gitIn } from '../scripts/train-gate';
+
+const USAGE = 'usage: gstack-release-gate run [--dry-run] [--sha <sha>] [--ignore-cadence] | status | bisect [--sha <sha>] [--spend-cap <usd>] [--dry-run]\n'
+  + '  common: [--repo <owner/name>] [--policy <file>] [--remote <name>] [--summary <file>] [--outputs <file>] [--poll-seconds <n>] [--budget-minutes <n>]';
+const [command, ...rest] = process.argv.slice(2);
+const flag = (name: string) => { const i = rest.indexOf(`--${name}`); return i >= 0 ? rest[i + 1] : undefined; };
+const has = (name: string) => rest.includes(`--${name}`);
+const usage = (why?: string): never => { console.error(why ? `${why}\n${USAGE}` : USAGE); process.exit(2); };
+if (command === '--help' || command === '-h') { console.log(USAGE); process.exit(0); }
+if (!['run', 'status', 'bisect'].includes(command ?? '')) usage();
+const sha = flag('sha');
+if (sha !== undefined && !/^[0-9a-f]{40}$/.test(sha)) usage('--sha needs a full 40-hex commit');
+const spendCap = flag('spend-cap') === undefined ? undefined : Number(flag('spend-cap'));
+if (spendCap !== undefined && !(spendCap >= 0)) usage('--spend-cap needs dollars');
+const repoRoot = process.cwd();
+const repo = flag('repo') ?? process.env.GITHUB_REPOSITORY ?? runGh(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], 60_000).stdout.trim();
+if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) usage(`cannot name the repository (${JSON.stringify(repo)}); pass --repo <owner/name>`);
+const loaded = loadReleaseGate(repoRoot, { policyFile: flag('policy') });
+const env: GateEnv = {
+  repo, repoRoot, remote: flag('remote') ?? 'origin', gh: runGh, git: gitIn(repoRoot), now: Date.now, sleep: ms => Bun.sleepSync(ms),
+  random: () => randomBytes(3).toString('hex'), pollMs: Number(flag('poll-seconds') ?? 60) * 1000,
+  deadline: Date.now() + Number(flag('budget-minutes') ?? 330) * 60_000,
+};
+let out: GateOut;
+if ('error' in loaded) out = { action: 'failed', sha: null, lines: [`RELEASE: policy refused: ${loaded.error}`] };
+else if (command === 'run') out = runGate(env, { ...loaded, sha, dryRun: has('dry-run'), ignoreCadence: has('ignore-cadence') });
+else if (command === 'bisect') out = bisectGate(env, { ...loaded, sha, spendCap, dryRun: has('dry-run') });
+else out = gateStatus(env, loaded);
+const summary = flag('summary');
+for (const line of out.lines) {
+  console.log(line);
+  if (summary) fs.appendFileSync(summary, `- ${line}\n`);
+}
+const outputs = flag('outputs');
+if (outputs) fs.appendFileSync(outputs, `action=${out.action}\nsha=${out.sha ?? ''}\ncheck=${'gate' in loaded && loaded.gate ? loaded.gate.check_name : ''}\n`);
+process.exit(out.action === 'held' || out.action === 'failed' ? 1 : 0);

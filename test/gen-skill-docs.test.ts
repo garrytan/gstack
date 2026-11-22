@@ -917,13 +917,12 @@ describe('REVIEW_DASHBOARD resolver', () => {
     });
   }
 
-  test('plan-ceo-review chaining mentions eng (via /autoplan) and design reviews', () => {
+  test('plan-ceo-review chaining mentions eng and design reviews', () => {
     // Carved skill: the chaining prose lives in sections/*.md. (It used to
-    // pass against the skeleton only because the preamble's routing-injection
-    // rules incidentally named these skills — that prose moved into
-    // bin/gstack-skill-start in token-reduction Phase 2.)
+    // pass against the skeleton only because the preamble's CLAUDE.md routing
+    // offer incidentally named these skills; that offer is gone.)
     const content = readSkillUnion('plan-ceo-review');
-    expect(content).toContain('Run /autoplan next (eng review)');
+    expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-design-review');
   });
 
@@ -933,9 +932,9 @@ describe('REVIEW_DASHBOARD resolver', () => {
     expect(content).toContain('/plan-ceo-review');
   });
 
-  test('plan-design-review chaining mentions eng (via /autoplan), ceo, and design skills', () => {
+  test('plan-design-review chaining mentions eng, ceo, and design skills', () => {
     const content = readSkillUnion('plan-design-review');
-    expect(content).toContain('Run /autoplan next (eng review)');
+    expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-ceo-review');
     expect(content).toContain('/design-shotgun');
     expect(content).toContain('/design-html');
@@ -1226,6 +1225,26 @@ describe('TEST_FAILURE_TRIAGE resolver', () => {
     expect(shipSkill).toContain('gh issue create');
   });
 
+  // GSTA-643 list: on Capy gh signs in as the owner, so the triage issue block keeps its files and never calls gh.
+  test.skipIf(process.platform === 'win32')('on Capy the blame + assign block sends nothing through gh', () => {
+    const block = /```bash\n(TITLE_FILE=[^\n]*<title-file-name>[^`]*?case "<platform>"[\s\S]*?)```/.exec(shipSkill)![1]!
+      .replaceAll('<title-file-name>', 't.md').replaceAll('<body-file-name>', 'b.md').replaceAll('<platform>', 'github').replaceAll('<github-username>', 'someone');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triage-capy-'));
+    try {
+      fs.mkdirSync(path.join(dir, '.gstack', 'tmp'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'bin'));
+      for (const name of ['t.md', 'b.md']) fs.writeFileSync(path.join(dir, '.gstack', 'tmp', name), 'text\n');
+      fs.writeFileSync(path.join(dir, 'bin', 'gh'), `#!/bin/sh\necho called > "${dir}/gh-called"\n`, { mode: 0o755 });
+      const r = spawnSync('bash', ['-c', block], { cwd: dir, encoding: 'utf-8', timeout: 15_000, env: { PATH: `${path.join(dir, 'bin')}:/usr/bin:/bin`, HOME: dir, GSTACK_CAPY: '1' } });
+      expect(r.status).toBe(0);
+      expect(r.stderr).toContain("Not sent: on Capy, gh signs in as the owner's own GitHub account");
+      expect(fs.existsSync(path.join(dir, 'gh-called'))).toBe(false);
+      expect(fs.existsSync(path.join(dir, '.gstack', 'tmp', 't.md'))).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('defaults ambiguous failures to in-branch (safety)', () => {
     expect(shipSkill).toContain('When ambiguous, default to in-branch');
   });
@@ -1303,7 +1322,7 @@ describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
     expect(content).toContain('Findings');
     expect(content).toContain('VERDICT');
     expect(content).toContain('/plan-ceo-review');
-    expect(content).toContain('| Eng Review | `/autoplan` |');
+    expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-design-review');
     expect(content).toContain('/codex review');
   });
@@ -2061,7 +2080,7 @@ describe('office-hours closing reads the builder profile before logging the sess
       const home = path.join(dir, 'home'), state = path.join(dir, 'state');
       const bin = path.join(home, '.claude/skills/gstack/bin');
       fs.mkdirSync(bin, { recursive: true });
-      for (const file of ['gstack-builder-profile', 'gstack-developer-profile', 'gstack-state-root.sh', 'gstack-slug', 'gstack-remote-identity.sh']) {
+      for (const file of ['gstack-builder-profile', 'gstack-developer-profile', 'gstack-lock.sh', 'gstack-state-root.sh', 'gstack-slug', 'gstack-remote-identity.sh']) {
         fs.copyFileSync(path.join(ROOT, 'bin', file), path.join(bin, file));
         fs.chmodSync(path.join(bin, file), 0o755);
       }
@@ -2259,21 +2278,9 @@ describe('parameterized resolver support', () => {
   });
 });
 
-// --- Preamble routing injection tests ---
+// --- Preamble routing probe ---
 
-describe('preamble routing injection (bin/gstack-skill-start emission layer)', () => {
-  // Token-reduction Phase 2: the routing-injection prose left the rendered
-  // preamble entirely — bin/gstack-skill-start probes, gates, and emits the
-  // whole flow as a GSTACK_INSTRUCTION block (with the AUQ, the routing rules
-  // to append, and the decline ack all INSIDE the block). Absence from the
-  // renders is pinned by test/onboarding-moved-literals.test.ts (tombstone);
-  // this suite pins the gate structure and the emitted block's content.
-  const routingBlock = (() => {
-    const start = SKILL_START_SCRIPT.indexOf('_emit_block routing-injection');
-    expect(start).toBeGreaterThan(0);
-    return SKILL_START_SCRIPT.slice(start, SKILL_START_SCRIPT.indexOf('\nEOI', start));
-  })();
-
+describe('preamble routing probe (bin/gstack-skill-start)', () => {
   test('routing probe checks CLAUDE.md and AGENTS.md (now in gstack-skill-start)', () => {
     // #2500: the probe iterates CLAUDE.md AND AGENTS.md — non-Claude hosts
     // route skills via AGENTS.md, the cross-harness convention file.
@@ -2282,46 +2289,11 @@ describe('preamble routing injection (bin/gstack-skill-start emission layer)', (
     expect(SKILL_START_SCRIPT).toContain('echo "HAS_ROUTING: $_HAS_ROUTING"');
   });
 
-  test('script reads and echoes routing_declined config', () => {
-    expect(SKILL_START_SCRIPT).toMatch(/_ROUTING_DECLINED=\$\("\$_BIN\/gstack-config" get routing_declined/);
-    expect(SKILL_START_SCRIPT).toContain('echo "ROUTING_DECLINED: $_ROUTING_DECLINED"');
-  });
-
-  test('emitted block carries the routing injection AskUserQuestion', () => {
-    expect(routingBlock).toContain('Add routing rules to CLAUDE.md');
-    expect(routingBlock).toContain("I'll invoke skills manually");
-  });
-
-  test('routing injection respects prior decline (gate + in-block ack)', () => {
-    expect(SKILL_START_SCRIPT).toContain('[ "$_ROUTING_DECLINED" = "false" ]');
-    expect(routingBlock).toMatch(/routing_declined.*true/);
-    expect(routingBlock).toContain('re-enable with `__BIN__/gstack-config set routing_declined false`');
-  });
-
-  test('routing injection only fires when all conditions met', () => {
-    // Must be: HAS_ROUTING=no AND ROUTING_DECLINED=false AND PROACTIVE_PROMPTED=yes AND the offer is not switched off by proactive off
-    expect(SKILL_START_SCRIPT).toContain(
-      'if [ "$_HAS_ROUTING" = "no" ] && [ "$_ROUTING_DECLINED" = "false" ] && [ "$_PROACTIVE_PROMPTED" = "yes" ] && [ "$_PROACTIVE_OFF" = "no" ]; then',
-    );
-  });
-
-  test('routing section content includes key routing rules', () => {
-    expect(routingBlock).toContain('invoke /office-hours');
-    expect(routingBlock).toContain('invoke /investigate');
-    expect(routingBlock).toContain('invoke /ship');
-    expect(routingBlock).toContain('invoke /qa');
-  });
-
-  test('routing section uses renamed checkpoint skills (not stale /checkpoint)', () => {
-    expect(routingBlock).toContain('invoke /context-save');
-    expect(routingBlock).toContain('invoke /context-restore');
-    expect(routingBlock).not.toContain('invoke checkpoint');
-  });
-
-  test('routing section routes only to available skills, without "when in doubt" over-triggering (#3018)', () => {
-    expect(routingBlock).toContain("Route only to skills in the session's available-skills list");
-    expect(routingBlock).not.toContain('When in doubt');
-    expect(routingBlock).not.toContain('Do NOT answer directly');
+  test('skill-start no longer offers to write a routing section into CLAUDE.md: the prompt-routing hook routes instead (B1e)', () => {
+    expect(SKILL_START_SCRIPT).not.toContain('routing-injection');
+    expect(SKILL_START_SCRIPT).not.toContain('Add routing rules to CLAUDE.md');
+    expect(SKILL_START_SCRIPT).not.toContain('routing_declined');
+    expect(SKILL_START_SCRIPT).not.toContain('ROUTING_DECLINED');
   });
 
   test('root router skips routes to skills that are not loaded and says when not to invoke (#3018)', () => {
@@ -2964,11 +2936,45 @@ describe('Codex generation (--host codex)', () => {
       const tmpl = fs.readFileSync(path.join(ROOT, dir, 'SKILL.md.tmpl'), 'utf-8');
       const prompt = extractCodexDefaultPrompt(tmpl);
       expect(prompt, `${dir} declares codex_default_prompt`).toBeDefined();
-      expect(prompt!, dir).toContain(`$gstack-${dir}`);
+      expect(prompt!, dir).toContain(`$${dir} `);
       expect(prompt!, `${dir}: a prompt tells the picker what the skill is for`).not.toBe(`Use gstack-${dir} for this task.`);
       const yaml = Bun.YAML.parse(fs.readFileSync(path.join(AGENTS_DIR, `gstack-${dir}`, 'agents', 'openai.yaml'), 'utf-8')) as { interface: { default_prompt: string } };
       expect(yaml.interface.default_prompt, dir).toBe(prompt!);
     }
+  });
+
+  // Codex 0.170 lists and mentions a skill by its SKILL.md name: (`review`), not
+  // its gstack-review folder, so `$gstack-review` loads nothing (GST-3196).
+  // Value: protects=every $-mention a Codex user is shown loads a listed skill; fails_when=a template, the Codex render or a doc says $gstack-<skill> where Codex lists <skill>; why_new=the prompt test above checks only seven templates and no docs; seam=none; no_claim=Codex's own mention parser
+  test('every $gstack- mention in the Codex render and the docs names a skill Codex lists', () => {
+    const listed = new Set<string>();
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.isFile() && /\.(md|ya?ml)$/.test(e.name)) files.push(p);
+      }
+    };
+    for (const skill of fs.readdirSync(AGENTS_DIR)) {
+      const md = path.join(AGENTS_DIR, skill, 'SKILL.md');
+      if (!fs.existsSync(md)) continue;
+      const name = fs.readFileSync(md, 'utf-8').match(/^---\n[\s\S]*?^name:[ \t]*(\S+)/m)?.[1];
+      if (name) listed.add(name);
+      walk(path.join(AGENTS_DIR, skill));
+    }
+    expect(listed.has('review') && listed.has('gstack-upgrade')).toBe(true);
+    const docs = ['README.md', 'docs/hosts.md', 'docs/skills.md', 'docs/skill-routing-and-contracts.md', 'docs/troubleshooting.md'];
+    const bad: string[] = [];
+    for (const f of [...files, ...docs.map(d => path.join(ROOT, d))]) {
+      for (const m of fs.readFileSync(f, 'utf-8').matchAll(/\$(gstack-[a-z0-9-]*[a-z0-9])/g)) {
+        if (!listed.has(m[1])) bad.push(`${path.relative(f.startsWith(AGENTS_DIR) ? AGENTS_DIR : ROOT, f)}: $${m[1]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+    const codexRow = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf-8').split('\n').find(l => l.startsWith('| OpenAI Codex CLI |'));
+    const first = codexRow?.split('|')[4]?.match(/`\$([a-z0-9-]+)`/)?.[1];
+    expect(first && listed.has(first) ? first : codexRow).toBe('office-hours');
   });
 
   test('a template without codex_default_prompt: keeps the generic default_prompt', () => {
@@ -3390,7 +3396,7 @@ describe('Factory generation (--host factory)', () => {
   });
 
   test('non-sensitive skills lack disable-model-invocation', () => {
-    const NON_SENSITIVE = ['gstack-qa', 'gstack-review', 'gstack-investigate', 'gstack-browse'];
+    const NON_SENSITIVE = ['gstack-qa', 'gstack-review', 'gstack-office-hours', 'gstack-browse'];
     for (const name of NON_SENSITIVE) {
       const content = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
       const fmEnd = content.indexOf('\n---', 4);
@@ -3852,7 +3858,10 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('$codex_gstack/lib');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
-    expect(fnBody).toContain('gstack-upgrade/SKILL.md');
+    expect(fnBody).toContain('_link_codex_skill_refs "$agents_dir" "$codex_gstack"');
+    const refs = setupContent.slice(setupContent.indexOf('_link_codex_skill_refs() {'), setupContent.indexOf('\n}\n', setupContent.indexOf('_link_codex_skill_refs() {')));
+    expect(refs).toContain('for s in gstack-upgrade office-hours plan-design-review; do');
+    expect(refs).toContain('_link_or_copy');
     expect(fnBody).toContain('_link_runtime_dists "$gstack_dir" "$codex_gstack"');
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
     // Review runtime assets: individual files from the shared helper, never
@@ -4305,7 +4314,7 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
 // ─── Learnings + Confidence Resolver Tests ─────────────────────
 
 describe('LEARNINGS_SEARCH resolver', () => {
-  const SEARCH_SKILLS = ['review', 'ship', 'plan-eng-review', 'investigate', 'office-hours', 'plan-ceo-review'];
+  const SEARCH_SKILLS = ['review', 'ship', 'plan-eng-review', 'office-hours', 'plan-ceo-review'];
 
   for (const skill of SEARCH_SKILLS) {
     test(`${skill} generated SKILL.md contains learnings search`, () => {
@@ -4358,7 +4367,7 @@ describe('LEARNINGS_SEARCH resolver', () => {
 });
 
 describe('LEARNINGS_LOG resolver', () => {
-  const LOG_SKILLS = ['review', 'retro', 'investigate'];
+  const LOG_SKILLS = ['review', 'retro'];
 
   for (const skill of LOG_SKILLS) {
     test(`${skill} generated SKILL.md contains learnings log`, () => {
@@ -4598,10 +4607,8 @@ describe('voice-triggers processing', () => {
     expect(ship.slice(0, ship.indexOf('\n---', 4))).not.toContain('codex_default_prompt:');
 
     // The runtime-read and host-read keys survive the strip.
-    const investigate = fs.readFileSync(path.join(ROOT, 'investigate', 'SKILL.md'), 'utf-8');
-    const invFm = investigate.slice(0, investigate.indexOf('\n---', 4));
-    expect(invFm).toContain('hooks:');
-    expect(invFm).toContain('gbrain:');
+    expect(genFm).toContain('hooks:');
+    expect(genFm).toContain('gbrain:');
   });
 });
 

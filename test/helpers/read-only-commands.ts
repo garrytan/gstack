@@ -187,6 +187,9 @@ function tokenize(command: string): Token[] | string {
       let text = '';
       for (i++; i < command.length && command[i] !== '"'; i++) {
         if (command[i] === '$' || command[i] === '`') return 'substitution or variable';
+        // Both bash and zsh read \" inside double quotes as one literal quote character (gate 44321344888: the parent
+        // grepped for widget.md.tmpl" with "...widget.md.tmpl\""); every other escape there stays rejected.
+        if (command[i] === '\\' && command[i + 1] === '"') { text += '"'; i++; continue; }
         if (command[i] === '\\' && /[$`"\\]/.test(command[i + 1] ?? '"')) return 'escape inside double quotes';
         text += command[i];
       }

@@ -2,7 +2,7 @@
 name: plan-design-review
 preamble-tier: 3
 version: 2.0.0
-description: Designer's eye plan review — interactive, like CEO and Eng review. (gstack)
+description: "Designer's eye plan review — interactive, like CEO and Eng review. Use for: design plan review, review ux plan. (gstack)"
 allowed-tools:
   - Read
   - Edit
@@ -10,6 +10,7 @@ allowed-tools:
   - Glob
   - Bash
   - AskUserQuestion
+  - Bash(~/.claude/skills/gstack/bin/gstack-skill-load:*)
 triggers:
   - design plan review
   - review ux plan
@@ -51,7 +52,9 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `4e82fa4c839f` (AskUserQuestion format, voice, writing, completeness and completion rules). If your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-design-review/sections/preamble.md` in full before the command below. A section or subsection here with a shared heading replaces the shared one.
+This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). A section or subsection here with a shared heading replaces the shared one. Unless the next line loaded that file: if your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-design-review/sections/preamble.md` in full before the command below.
+
+!`~/.claude/skills/gstack/bin/gstack-skill-load preamble ~/.claude/skills/gstack/plan-design-review/sections/preamble.md`
 
 ## Preamble (after scope gate)
 
@@ -158,24 +161,24 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg skill "SKILL_NAME" --arg 
 
 ## Telemetry (run last)
 
-After workflow completion, log telemetry with ONE command. OUTCOME is
-success/error/abort/unknown; `SESSION_ID` and `TEL_START` are the values the
-preamble's skill-start output echoed. It also drains the artifacts-sync queue
-(the former skill-end sync step — do not run gstack-brain-sync separately).
+When done, make ONE call — it also drains the artifacts-sync
+queue (don't also run gstack-brain-sync).
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes telemetry to
-`$GSTACK_STATE_ROOT/analytics/`, matching preamble analytics writes.
+**PLAN MODE EXCEPTION — ALWAYS RUN:** writes telemetry to `$GSTACK_STATE_ROOT/analytics/`.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-skill-end --skill "plan-design-review" --outcome OUTCOME \
   --session-id "SESSION_ID" --tel-start "TEL_START" --used-browse USED_BROWSE \
-  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null || true
+  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" \
+  --exit-reason EXIT_REASON --invoked INVOKED --model-family MODEL_FAMILY --checks CHECKS 2>/dev/null || true
 ```
 
-Replace `OUTCOME` and `USED_BROWSE` (yes/no) before running; substitute
-`SESSION_ID`/`TEL_START` from the skill-start echoes. `ERROR_MESSAGE`/`FAILED_STEP`
-are "" unless outcome is error. If the command is missing (stale install), skip
-telemetry — it never blocks the workflow.
+OUTCOME: success/error/abort/unknown. USED_BROWSE: yes/no. SESSION_ID, TEL_START:
+skill-start echoes. ERROR_MESSAGE, FAILED_STEP: "" unless error. EXIT_REASON:
+completed/user_stopped/blocked/tool_error/test_failed/context_limit/gave_up.
+INVOKED: user/model/chained. MODEL_FAMILY (yours): claude_opus/claude_sonnet/
+claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No command
+(stale install) — skip.
 
 ## Step 0: Detect platform and base branch
 
@@ -363,7 +366,7 @@ SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || true
   ~/.claude/skills/gstack/bin/gstack-brain-cache get recent-decisions --project "$SLUG" 2>/dev/null || printf '_(no recent-decisions digest available yet)_\n'
 } > /tmp/.gstack-brain-context-$$.md 2>/dev/null
 [ -s /tmp/.gstack-brain-context-$$.md ] && cat /tmp/.gstack-brain-context-$$.md
-rm -f /tmp/.gstack-brain-context-$$.md 2>/dev/null || true
+rm /tmp/.gstack-brain-context-$$.md 2>/dev/null || true
 ```
 
 **How to use this context:**
@@ -488,7 +491,7 @@ $D compare --images-file "$_DESIGN_DIR/board-images.json" --output "$_DESIGN_DIR
 
 Creates HTML and opens the board. **Run it in the background** (host task, or `&` redirecting stdout/stderr to private files in `$_DESIGN_DIR`). Read captured stderr for the startup marker; a PID is not readiness. Missing marker: use the failure fallback below.
 
-Default stderr: `BOARD_URL: http://127.0.0.1:N/boards/<id>/`. Use that full per-board URL for AskUserQuestion and as the reload base. Only explicit legacy `--no-daemon` emits `SERVE_STARTED: port=XXXXX`, serving one board at `/` with reload at `/api/reload`.
+Default stderr: `BOARD_URL: http://127.0.0.1:N/<secret>/boards/<id>/`. Use that exact URL for AskUserQuestion and as the reload base. Only explicit legacy `--no-daemon` emits `SERVE_STARTED: port=XXXXX`, serving one board at `/` with reload at `/api/reload`.
 
 **PRIMARY WAIT: AskUserQuestion with board URL**
 
@@ -593,7 +596,7 @@ _IMG=$(jq -r --arg v "<VARIANT>" '.[($v | explode[0]) - 65] // empty' "$_DESIGN_
 if [ -n "$_IMG" ]; then
   FEEDBACK_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<feedback-file-name>"
   [ -s "$FEEDBACK_FILE" ] || { echo "Not saved: $FEEDBACK_FILE is missing or empty. Write the feedback, then rerun this block." >&2; exit 1; }
-  jq -n --arg approved_variant "<VARIANT>" --arg approved_path "$(basename "$_IMG")" --rawfile feedback "$FEEDBACK_FILE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg screen "<SCREEN>" --arg branch "$(git branch --show-current 2>/dev/null)" '$ARGS.named | .feedback |= rtrimstr("\n")' > "$_DESIGN_DIR/approved.json" && rm -f "$FEEDBACK_FILE"
+  jq -n --arg approved_variant "<VARIANT>" --arg approved_path "$(basename "$_IMG")" --rawfile feedback "$FEEDBACK_FILE" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg screen "<SCREEN>" --arg branch "$(git branch --show-current 2>/dev/null)" '$ARGS.named | .feedback |= rtrimstr("\n")' > "$_DESIGN_DIR/approved.json" && rm "$FEEDBACK_FILE"
   echo "APPROVED_IMAGE: $_IMG"
 else
   echo "NO_BOARD_IMAGE: <VARIANT> is not on this board; reselect from the board"
@@ -677,7 +680,7 @@ HARD RULES — first classify as MARKETING/LANDING PAGE vs APP UI vs HYBRID, the
 
 For each finding: what's wrong, what will happen if it ships unresolved, and the specific fix. Be opinionated. No hedging."
 
-Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a severity (Critical, High, Medium or Low) per finding and a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
+Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request severity (Critical, High, Medium or Low) per finding, a Recommendation: <action> because <reason> line, and `VERDICT: CLEAN` or `VERDICT: FINDINGS` as the last line.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -693,10 +696,9 @@ fi
 
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
 _OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
-trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+trap 'rm -r "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
-
 _CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
 export _CODEX_DEADLINE=$(($(date +%s)+300)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
@@ -823,7 +825,7 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -x "$D" ] || D=~/.claude/skills/gstack/design/dist/design
 _OUT=$("$D" generate --brief "$(cat "$BRIEF_FILE")" --output "$_DESIGN_DIR/ideal-<dimension>.png"); _RC=$?
-printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm -f "$BRIEF_FILE"
+printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm "$BRIEF_FILE"
 ```
 
 Exit 0: show the image at the printed `outputPath` via the Read tool. Exit 2 or 3: report `failures` and continue text-only. Without the designer, describe the 10/10 in text.

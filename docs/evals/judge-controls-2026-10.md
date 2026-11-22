@@ -13,7 +13,7 @@ builder, model, options and pass floors of its eval (clarity ≥ 3, completeness
 actionability ≥ 4 on the 3-sample mean), built by `scripts/judge-controls.ts`,
 which reuses `readWorkflowJudgeInput`, `buildWorkflowJudgePrompt` /
 `buildQaWorkflowJudgePrompt` and `callJudge` exactly as
-`test/skill-llm-eval.test.ts` and `scripts/judge-calibration-configs.ts` do.
+`test/skill-llm-eval.test.ts` and `crew/scripts/judge-calibration-configs.ts` do.
 
 ## Bundles and expected outcomes
 

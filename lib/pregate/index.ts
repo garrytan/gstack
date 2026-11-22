@@ -10,7 +10,7 @@
  * land: `guards` (field wave CD1); ratchets, lint, links, hermetic, patches
  * and integrator later.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -128,7 +128,7 @@ function carryGate(ctx: PregateContext, file: PregateFile): string | null {
   const check = ctx.fromRun.check as RunCheck;
   if (!check.gateRuns) return null;
   const view: PregateFile = { ...file, requires_remote: file.requires_remote!.map(r => (r === gate ? { ...r, tests: [...new Set([...carried, ...r.tests])] } : r)) };
-  const d = clearByRuns(view, REMOTE_GATE_LANE, [ctx.fromRun.ref], check, ctx.repoRoot);
+  const d = clearByRuns(view, REMOTE_GATE_LANE, [ctx.fromRun.ref], check, ctx.repoRoot, undefined, ctx.allowRepoCommands);
   if (!('receipt' in d)) return `CI_CARRY: ${REMOTE_GATE_LANE} stays uncleared (${d.message})`;
   clearObligation(file, REMOTE_GATE_LANE, d.receipt, 'ci-carry', d.substitution);
   return `CI_CARRY: cleared ${REMOTE_GATE_LANE} ${d.receipt}`;
@@ -163,7 +163,7 @@ export function renderTable(file: PregateFile, opts: { lines?: boolean } = { lin
   return [
     `stage      check     status            time  detail`,
     ...rows, ...body, ...clocks, ...remote,
-    `PREGATE: ${file.verdict} tree=${file.tree.slice(0, 12)} head=${(file.head ?? '').slice(0, 12)} checks=${file.checks.length}`,
+    `PREGATE: ${file.verdict} tree=${file.tree.slice(0, 12)} head=${(file.head ?? '').slice(0, 12)} checks=${file.checks.length} of ${CHECK_IDS.length}`,
   ].join('\n') + '\n';
 }
 
@@ -213,7 +213,9 @@ export interface Verification { ok: boolean; code?: 'PREGATE_STALE' | 'PREGATE_R
 /**
  * Publication check: the recorded tree must equal the tree now (results
  * current after final generation and stamping), no check may be fail or
- * incomplete, and every requires-remote obligation needs its receipt. The
+ * incomplete, every requires-remote obligation needs its receipt, and the
+ * record must hold every registered check (a `--only` or `--stage` run is
+ * not a full pass). The
  * user-owned policy behind the run (or its absence, under the defaults) must
  * still hold, since it lives outside the tree.
  */
@@ -245,6 +247,8 @@ export function verifyPregate(repoRoot: string, file: PregateFile, treeNow: Wtre
   // A flaky exception was granted for one head, tree, run attempt and case list; recorded for another, or edited, it clears nothing.
   const exception = exceptionProblem(file);
   if (exception) return { ok: false, code: 'PREGATE_REMOTE_UNCLEARED', message: exception, current, uncleared: [] };
+  const missing = CHECK_IDS.filter(id => !file.checks.some(c => c.id === id));
+  if (missing.length) return { ok: false, code: 'PREGATE_INCOMPLETE', message: `pregate.json holds checks=${CHECK_IDS.length - missing.length} of ${CHECK_IDS.length} (missing: ${missing.join(', ')}); a --only or --stage run is not a full pass: run gstack-pregate --allow-repo-commands with neither at tree ${file.tree.slice(0, 12)}`, current, uncleared };
   const substituted = (file.requires_remote ?? []).filter(r => r.substitution).map(r => `${r.lane}: ${describeSubstitution(r.substitution!)}`);
   const excepted = exceptionSummary(file);
   return { ok: true, message: `pregate ${file.verdict} is current for tree ${file.tree.slice(0, 12)}${substituted.length ? `; ${substituted.join('; ')}` : ''}${excepted ? `; ${excepted}` : ''}`, current, uncleared };
@@ -271,9 +275,9 @@ function userPolicyChange(file: PregateFile): string | null {
   return `${absent} now holds a user-owned policy, and pregate.json was recorded under the defaults; rerun gstack-pregate`;
 }
 
-export interface ClearInput { runUrl?: string; bundleLane?: string; receiptPath?: string; runs?: string[]; evidence?: RunCheck; flaky?: FlakyInput }
+export interface ClearInput { runUrl?: string; bundleLane?: string; receiptPath?: string; runs?: string[]; evidence?: RunCheck; flaky?: FlakyInput; allowRepoCommands?: boolean }
 /** What a run clear needs: the base branch's run profiles, the verifier's dependencies, the clock, and the remote gate's inventory. */
-export interface RunCheck { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; gateRuns: RemoteGateRuns | null; now: Date; unchanged?: (p: RunProfile) => string | null; inventory: (command: string, tree: string, selected?: string[]) => string[] | { error: string }; failures?: FailureDeps }
+export interface RunCheck { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; gateRuns: RemoteGateRuns | null; now: Date; unchanged?: (p: RunProfile) => string | null; docsOnly?: (head: string) => boolean; dispatchable?: (p: RunProfile) => boolean; inventory: (command: string, tree: string, selected?: string[]) => string[] | { error: string }; failures?: FailureDeps }
 export type ClearDecision = { receipt: string; attested: boolean; substitution?: PregateReceiptSubstitution; exception?: PregateException } | { refused: 'usage' | 'PREGATE_RECEIPT_INVALID'; message: string; fix?: string };
 
 /**
@@ -309,21 +313,23 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
     const refs = [...(input.runs ?? []), ...(input.runUrl ? [input.runUrl] : [])];
     if (!refs.length) return { refused: 'usage', message: '--flaky-exception needs --run <id|url>: an exception reads GitHub Actions runs' };
     if (!input.flaky.pr) return { refused: 'usage', message: '--flaky-exception needs --pr <n>, the pull request the grant binds' };
-    return clearByRuns(file, lane, refs, input.evidence, repoRoot, { ...input.flaky, cases });
+    return clearByRuns(file, lane, refs, input.evidence, repoRoot, { ...input.flaky, cases }, input.allowRepoCommands);
   }
   const profiled = input.evidence && (lane === REMOTE_GATE_LANE ? input.evidence.gateRuns : input.evidence.profiles[lane]);
-  if (input.runs?.length || (input.runUrl && profiled)) return clearByRuns(file, lane, [...(input.runs ?? []), ...(input.runUrl ? [input.runUrl] : [])], input.evidence, repoRoot);
+  if (input.runs?.length || (input.runUrl && profiled)) return clearByRuns(file, lane, [...(input.runs ?? []), ...(input.runUrl ? [input.runUrl] : [])], input.evidence, repoRoot, undefined, input.allowRepoCommands);
   if (input.bundleLane && profiled && lane !== REMOTE_GATE_LANE) return { refused: 'usage', message: `${lane} has a run profile on the base branch; clear it with --run <id|url>, which verifies the run` };
   if (target.lane === REMOTE_GATE_LANE) {
     if (!input.receiptPath) return { refused: 'usage', message: `${lane} clears only with --receipt <file> holding the remote gate's PREGATE_REMOTE: tree=… tests=… failed=… line (a run URL is not checkable); or rerun gstack-pregate --remote` };
     let text: string;
     try { text = fs.readFileSync(input.receiptPath, 'utf8'); }
     catch (e: any) { return { refused: 'PREGATE_RECEIPT_INVALID', message: `cannot read ${input.receiptPath}: ${e.message}` }; }
-    const report = parseRemoteReport(text);
+    const lanesRows = [...text.matchAll(/^(?:tests|preflight) +lanes +(\S+)/gm)].map(m => m[1]);
+    if (/^ +lanes: +PREGATE_REMOTE: /m.test(text) && (!lanesRows.length || lanesRows.some(s => s !== 'requires-remote'))) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${input.receiptPath} prints its PREGATE_REMOTE: line under a lanes check that is ${lanesRows.join(', ') || 'missing'}, not requires-remote, so the gate did not pass there; ${lane} stays uncleared` };
+    const report = parseRemoteReport(text.replace(/^ +lanes: +(?=PREGATE_REMOTE: )/gm, ''));
     if (!report) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${input.receiptPath} has no PREGATE_REMOTE: line; ${lane} stays uncleared` };
     const own = remoteReportProblem(report, report.tree);
     if (own) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${own}; ${lane} stays uncleared` };
-    const sub = treeSubstitution(file, report.tree, lane, repoRoot);
+    const sub = treeSubstitution(file, report.tree, lane, repoRoot, input.allowRepoCommands);
     if ('refused' in sub) return sub;
     const substitution = sub.substitution;
     const problem = remoteReportProblem(report, substitution ? report.tree : file.tree);
@@ -375,13 +381,13 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
 }
 
 /** The stamp-only substitution that lets a receipt for `gatedTree` clear pregate.json's tree, none when the trees are equal, or the refusal. */
-function treeSubstitution(file: PregateFile, gatedTree: string, lane: string, repoRoot: string): { substitution?: PregateReceiptSubstitution } | Extract<ClearDecision, { refused: string }> {
+function treeSubstitution(file: PregateFile, gatedTree: string, lane: string, repoRoot: string, allowRepoCommands = false): { substitution?: PregateReceiptSubstitution } | Extract<ClearDecision, { refused: string }> {
   if (gatedTree === file.tree) return {};
   // The stamp rule is the ship's own base branch's policy (origin/HEAD, as regate reads it), never a branch the artifact names.
   const base = resolveBaseBranch(repoRoot);
   const recorded = baseBranchOf(file.base);
   if (recorded && recorded !== base) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${treeMismatch(gatedTree, file.tree)}; pregate.json was recorded against origin/${recorded}, not this repository's base origin/${base}, so the stamp rule that would class the difference is not the base's; ${lane} stays uncleared`, fix: baseMismatchFix(repoRoot, base, recorded) };
-  const s = substituteStampOnlyTree(repoRoot, base, gatedTree, file.tree);
+  const s = substituteStampOnlyTree(repoRoot, base, gatedTree, file.tree, { allowRepoCommands, head: file.head });
   if ('problem' in s) return { refused: 'PREGATE_RECEIPT_INVALID', message: `${s.problem}; ${lane} stays uncleared`, fix: s.fix };
   return { substitution: s.substitution };
 }
@@ -393,7 +399,7 @@ function treeSubstitution(file: PregateFile, gatedTree: string, lane: string, re
  * does not run (never an inventory file); any other lane needs one verified run of the profile named after it. The run
  * tree must be pregate.json's tree or a stamp-only predecessor of it, exactly as a gate report's tree must.
  */
-function clearByRuns(file: PregateFile, lane: string, refs: string[], check: RunCheck | undefined, repoRoot: string, flaky?: FlakyInput & { cases: string[] }): ClearDecision {
+function clearByRuns(file: PregateFile, lane: string, refs: string[], check: RunCheck | undefined, repoRoot: string, flaky?: FlakyInput & { cases: string[] }, allowRepoCommands = false): ClearDecision {
   if (!check) return { refused: 'usage', message: `--run needs the base branch's run_profiles; none could be read` };
   const isGate = lane === REMOTE_GATE_LANE;
   const names = isGate ? check.gateRuns?.profiles ?? [] : check.profiles[lane] ? [lane] : [];
@@ -436,7 +442,7 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
   if (trees.length > 1) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=tree_mismatch — the runs tested different trees (${trees.map(t => t.slice(0, 12)).join(', ')}); ${lane} stays uncleared` };
   const off = red && evidence.find(e => e.head_sha !== file.head || e.tree !== file.tree);
   if (off) return { refused: 'PREGATE_RECEIPT_INVALID', message: `FLAKY_EXCEPTION: refused reason=head_mismatch — run ${off.run_id} attempt ${off.run_attempt} tested head ${off.head_sha.slice(0, 12)} tree ${off.tree.slice(0, 12)}, not pregate.json's head ${(file.head ?? '').slice(0, 12)} tree ${file.tree.slice(0, 12)}; an exception binds the exact head and tree, never a stamp-only predecessor; ${lane} stays uncleared` };
-  const sub = treeSubstitution(file, trees[0]!, lane, repoRoot);
+  const sub = treeSubstitution(file, trees[0]!, lane, repoRoot, allowRepoCommands);
   if ('refused' in sub) return { ...sub, message: `REUSE: refused reason=tree_not_stamp_only — ${sub.message}` };
   const idle = evidence.filter(e => (e.tests ?? e.files.length) === 0);
   if (idle.length) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=no_tests — ${idle.map(e => `run ${e.run_id} (${e.profile})`).join(', ')} records no tests; ${lane} stays uncleared` };
@@ -449,7 +455,8 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
     const skipCommand = check.gateRuns!.skipped;
     if (skipCommand && required.size) {
       const skipped = check.inventory(skipCommand, file.tree, [...required]);
-      if ('error' in skipped) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=skipped_failed — the remote gate's skipped command failed: ${skipped.error}; ${lane} stays uncleared` };
+      const noDeps = 'error' in skipped && /Cannot find (?:package|module) '/.test(skipped.error);
+      if ('error' in skipped) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=skipped_failed — the remote gate's skipped command failed${noDeps ? ' because this checkout has no installed dependencies (install them, for example with bun install, then clear again)' : ''}: ${skipped.error}; ${lane} stays uncleared` };
       const inventory = new Set(listed);
       for (const f of skipped) if (!inventory.has(f) && required.delete(f)) skippedCount++;
       if (!required.size) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=paid_only — the remote gate skips every selected test file (${skippedCount}), so no selected test ran; like the gate's own tests=0 report, that never clears; ${lane} stays uncleared` };
@@ -487,22 +494,48 @@ export function clearObligation(file: PregateFile, lane: string, receipt: string
 }
 
 /**
+ * A `--only` or `--stage preflight|tests` run keeps the checks it did not run from the record it replaces when that
+ * record has the same head, tree, base commit, policy and registry (GST-2194), so a staged rerun neither drops an earlier
+ * failure nor loses an earlier pass. Only `lanes` records requires-remote obligations, so the earlier obligations and
+ * exceptions come along exactly when its `lanes` result does. Any other record keeps nothing, and verify then refuses
+ * the partial record PREGATE_INCOMPLETE. Returns the PREGATE_MERGED line, or null when nothing was kept.
+ */
+export function mergeSameTreeChecks(prev: PregateFile | null, file: PregateFile): string | null {
+  if (!prev || prev.head !== file.head || prev.tree !== file.tree || prev.base !== file.base || prev.policy !== file.policy || prev.policy_digest !== file.policy_digest || prev.policy_user_path !== file.policy_user_path || prev.registry !== file.registry) return null;
+  const ran = new Set(file.checks.map(c => c.id));
+  const kept = prev.checks.filter(c => !ran.has(c.id) && CHECK_IDS.includes(c.id));
+  if (!kept.length) return null;
+  file.checks = [...file.checks, ...structuredClone(kept)].sort((a, b) => CHECK_IDS.indexOf(a.id) - CHECK_IDS.indexOf(b.id));
+  if (kept.some(c => c.id === 'lanes')) {
+    file.requires_remote = structuredClone(prev.requires_remote ?? []);
+    if (prev.exceptions?.length) file.exceptions = structuredClone(prev.exceptions); else delete file.exceptions;
+  }
+  if (kept.some(c => c.stage === 'preflight')) file.stage1_ms ??= prev.stage1_ms;
+  if (kept.some(c => c.stage === 'tests')) file.stage2_ms ??= prev.stage2_ms;
+  file.verdict = verdictOf(file);
+  return `PREGATE_MERGED: kept ${kept.map(c => `${c.id}=${c.status}`).join(',')} from the record at this tree ${file.tree.slice(0, 12)} and head ${(file.head ?? '').slice(0, 12)} (recorded ${prev.generated_at ?? 'earlier'}; docs/pregate.md#same-tree-checks)`;
+}
+
+/**
  * A rerun at the same tree keeps the clears its predecessor recorded (GST-1627): `gstack-ship-release accept` reruns the
  * pregate on the final tree after the lane cleared macos-named-regressions and windows-smoke from CI runs at that tree, and
  * a fresh record dropped them, so accept never passed. A receipt carries only into an uncleared obligation for the same
- * lane, platform, workflow and job whose tests the earlier one covered, at the same head, under the same policy and base
- * branch, with its flaky exception when it had one. A record for another head or tree (a same-tree amend gets new clears,
+ * lane, platform, workflow, job and gate command whose tests the earlier one covered, at the same head, under the same policy source and base
+ * branch (a base branch that moved between the runs keeps them: the policy label names the base commit, GST-1775), with its
+ * flaky exception when it had one. A receipt accepted through a stamp-only substitution carries only while the base commit is
+ * unchanged: the base's stamp rules decided it, and a moved base may have changed them. A record for another head or tree (a same-tree amend gets new clears,
  * since a receipt and its exception were vetted against the head they name), or a rerun with a failed or unfinished check (a remote gate
  * that timed out this time), keeps nothing. Returns one PREGATE_CLEAR_KEPT line per lane.
  */
 export function keepSameTreeClears(prev: PregateFile | null, file: PregateFile): string[] {
-  if (!prev || prev.head !== file.head || prev.tree !== file.tree || prev.policy !== file.policy || prev.policy_digest !== file.policy_digest || baseBranchOf(prev.base) !== baseBranchOf(file.base)) return [];
+  const source = (label: string | undefined) => (label ?? '').replace(/^(\S+?)@[0-9a-f]{7,40}(?=:|\s|$)/, '$1');
+  if (!prev || prev.head !== file.head || prev.tree !== file.tree || source(prev.policy) !== source(file.policy) || prev.policy_digest !== file.policy_digest || baseBranchOf(prev.base) !== baseBranchOf(file.base)) return [];
   if (file.checks.some(c => c.status === 'fail' || c.status === 'incomplete' || c.status === 'not_installed')) return [];
   const kept: string[] = [];
   for (const r of file.requires_remote ?? []) {
     if (r.receipt) continue;
-    const old = prev.requires_remote?.find(o => o.receipt && o.lane === r.lane && o.platform === r.platform && o.workflow === r.workflow && o.job === r.job && r.tests.every(t => o.tests.includes(t)));
-    if (!old?.receipt) continue;
+    const old = prev.requires_remote?.find(o => o.receipt && o.lane === r.lane && o.platform === r.platform && o.workflow === r.workflow && o.job === r.job && o.command === r.command && r.tests.every(t => o.tests.includes(t)));
+    if (!old?.receipt || (old.substitution && (prev.base !== file.base || prev.policy !== file.policy))) continue;
     clearObligation(file, r.lane, old.receipt, old.cleared_by ?? 'an earlier run at this tree', old.substitution, prev.exceptions?.find(e => e.lane === r.lane));
     kept.push(`PREGATE_CLEAR_KEPT: ${r.lane} receipt=${old.receipt} (recorded at this tree ${file.tree.slice(0, 12)}; docs/pregate.md#same-tree-clears)`);
   }

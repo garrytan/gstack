@@ -1,0 +1,116 @@
+<!-- AUTO-GENERATED from build-loop.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+## Build loop: /design-review --build
+
+Opt-in, for UI being built: lint and screenshot each state on a local
+preview, fix, and end with one receipt line. It replaces the audit phases,
+never commits, stashes, checks out or resets (the lane's edits stay), and
+never asks when unattended (record NEEDS INPUT instead).
+`gstack-design-build` decides the outcome; this section gathers the evidence.
+
+**The seven items** (walk each screenshot):
+
+| # | Item | Rule |
+|---|------|------|
+| 1 | Row padding holds with one line and with two | `row-crowding` (edge) |
+| 2 | Adjacent rows have breathing room | `row-crowding` (next row) |
+| 3 | Help copy has space above it and the muted treatment sibling sections use | `copy-flush-under-list` |
+| 4 | Status notes sit on their own line with a warning treatment | `note-in-row-weight` |
+| 5 | Heading over name over hint, as the sibling sections do it | eye only |
+| 6 | Comfortable hit areas | `small-hit-area` |
+| 7 | Nothing overflows at 375 | `section-overflow` |
+
+For items 3 and 5 the repo's house style wins: judge against a sibling
+section.
+
+### 1. Inventory
+
+```bash
+SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null)
+GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+RUN="$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-build-run-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$RUN" && chmod 700 "$RUN" && echo "RUN: $RUN"
+```
+
+Each block is a fresh shell: `<run-dir>` is the printed `RUN:` path. Write `<run-dir>/inventory.json` from the spec and the diff: every
+scenario × overlay × busy, success, error and empty that the change can show.
+
+```json
+{"version":1,"within":"<section selector>","fixtures":"<repo-relative fixture dir>","touched":["<untracked files you create>"],
+ "states":[{"name":"owner","url":"http://127.0.0.1:5300/settings?as=owner","expect":"<selector only this state renders>"},
+           {"name":"remove-confirm","mode":"screenshot","steps":"click Remove on the second row"}]}
+```
+
+A URL state gets `?as=<scenario>` and an `expect` selector proving it
+rendered with its data. A state that needs clicks is `"mode":"screenshot"`
+and is never counted as linted. Preview and fixtures:
+`docs/howto-preview-a-frontend.md`.
+
+### 2. Preflight (before any round)
+
+```bash
+~/.claude/skills/gstack/bin/gstack-design-build preflight --inventory "<run-dir>/inventory.json"
+```
+
+Browser first, then targets (loopback only; another host needs a
+`--grant-remote <host>` the person wrote; never add one yourself), then
+reachability. A `DESIGN_BUILD:` line here is the run's final line: stop. On
+`code=NO_PREVIEW`, start the preview and rerun preflight once. Under
+`mutations=unknown` (no preview answered), never drive changed actions:
+they may reach a live backend.
+
+### 3. Rounds (three at most)
+
+```bash
+~/.claude/skills/gstack/bin/gstack-design-build plan --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/round-N"
+```
+
+1. Run the printed `LINT_CMD:` line exactly. Read `<run-dir>/round-N/lint.json`:
+   `app.verdict`, `app.codes`, `app.states[]` and the findings. Never
+   read the lint's exit status as the result.
+2. Take a screenshot for every `SHOT:` line at its viewport (screenshot-only
+   states by their steps). Save it where the driver can write (Aside's
+   session directory; /tmp for $B), then cp it to the `SHOT:` path.
+3. Walk the seven items on every screenshot.
+4. Drive each changed action through busy, success, error and recovery,
+   and keyboard close back to its trigger.
+5. Fix in source and fixtures. Leave the edits uncommitted.
+
+An incomplete state (a code in `app.states[]`) is a harness problem, not a
+round: fix its named cause and rerun it. A preview 501 ends the run: add its
+route, restart the preview, rerun from preflight. Stop
+editing after round 3, or earlier once a round is clean.
+
+### 4. Final verification (read-only) and the receipt
+
+After the last permitted edit, one pass that changes nothing (to waive
+findings, add `--waivers <file>` to `plan` and `receipt`):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-design-build plan --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/final"
+~/.claude/skills/gstack/bin/gstack-design-build verify-start --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/final"
+```
+
+Run its `LINT_CMD:` line and every `SHOT:` line, then (`N`: rounds you edited
+in; add `--preview <state dir>` if the preview served it):
+
+```bash
+N=
+~/.claude/skills/gstack/bin/gstack-design-build receipt --inventory "<run-dir>/inventory.json" --run-dir "<run-dir>/final" --rounds "${N:?}"
+```
+
+Its `DESIGN_BUILD:` line, unchanged, is the run's last and only one. There is no
+fourth editing round without a written grant.
+
+### 5. Outcomes
+
+| Outcome | Means | Next |
+|---------|-------|------|
+| `clean` / `waived` | every URL state linted at every viewport, every state shot, nothing open | report it |
+| `open` | complete coverage, open findings | each one gets a waiver with its reason, or a PR body line |
+| `incomplete` | a state not linted everywhere, not shot, a preview 501, or stale evidence | its fix line; list the rest unverified in the PR body |
+| `unrendered` | install, browser or preview missing | its fix line |
+| `stale` | the tree changed after the receipt | rerun the final pass |
+
+Before READY quotes it, `~/.claude/skills/gstack/bin/gstack-design-build check --inventory "<run-dir>/inventory.json" --receipt <file>`
+must reprint it. `incomplete` never satisfies the lane card's recommendation.

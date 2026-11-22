@@ -1,7 +1,8 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
  * gstack-skill-contract — check a skill's contract against a Claude Code
- * transcript, list recorded misses, and acknowledge a waiver (GST-1088).
+ * transcript or a Codex rollout, list recorded misses, and acknowledge a
+ * waiver (GST-1088, GST-3173).
  *
  * Usage:
  *   gstack-skill-contract check --transcript <path> --skill <name> [--skill-file <SKILL.md>] [--json]
@@ -19,7 +20,7 @@
  */
 import {
   EXIT, StateError, UnknownShape, blockMessage, checkContract, isMiss, lookupContract, parseTranscript, readAllRecords,
-  readTranscriptFile, reportRows, type CheckResult,
+  readTranscriptFile, reportRows, skippedLine, transcriptContract, type CheckResult, type Transcript,
 } from '../lib/skill-contract';
 import { fileURLToPath } from 'node:url';
 import { installedSkillsDir } from '../lib/skill-route';
@@ -67,11 +68,18 @@ function check(args: string[]): never {
   const skill = flag(args, '--skill');
   const json = args.includes('--json');
   if (!transcriptPath || !skill) die(EXIT.USAGE, `SKILL_CONTRACT_USAGE: check needs --transcript and --skill\n${USAGE}`);
-  const found = lookupContract(skill, installedSkillsDir(), flag(args, '--skill-file'));
+  const skillFile = flag(args, '--skill-file');
+  let transcript: Transcript | null = null;
+  let readError: unknown = null;
+  try { transcript = parseTranscript(readTranscriptFile(transcriptPath)); } catch (e) { readError = e; }
+  const found = skillFile || !transcript ? lookupContract(skill, installedSkillsDir(), skillFile) : transcriptContract(transcript, skill);
   if (!('contract' in found)) die(EXIT.NO_CONTRACT, `SKILL_CONTRACT_NO_CONTRACT ${skill}: ${found.error}`);
+  for (const why of found.contract.skipped ?? []) process.stderr.write(`${skippedLine(found.file, why)}
+`);
   let result: CheckResult;
   try {
-    result = checkContract(parseTranscript(readTranscriptFile(transcriptPath)), skill, found.contract);
+    if (readError) throw readError;
+    result = checkContract(transcript as Transcript, skill, found.contract);
   } catch (e) {
     if (e instanceof StateError) die(EXIT.STATE_ERROR, `SKILL_CONTRACT_STATE_ERROR ${e.file}: ${e.why}`);
     if (e instanceof UnknownShape) die(EXIT.UNKNOWN_SHAPE, `SKILL_CONTRACT_UNKNOWN_SHAPE ${transcriptPath}: ${e.message}`);
@@ -88,10 +96,11 @@ function report(args: string[]): never {
   const session = flag(args, '--session');
   const { records, errors } = readAllRecords();
   const rows = reportRows(records.filter(r => !session || r.session_id === session), (rec, run) => {
-    const found = lookupContract(run.skill, installedSkillsDir());
-    if (!('contract' in found)) return null;
     try {
-      const again = checkContract(parseTranscript(readTranscriptFile(rec.transcript_path)), run.skill, found.contract, { loadLine: run.load_line });
+      const t = parseTranscript(readTranscriptFile(rec.transcript_path));
+      const found = transcriptContract(t, run.skill);
+      if (!('contract' in found)) return null;
+      const again = checkContract(t, run.skill, found.contract, { loadLine: run.load_line });
       return again.load ? again : null;
     } catch {
       return null;

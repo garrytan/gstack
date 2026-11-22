@@ -77,3 +77,56 @@ describe('auto-decide handoff needs a user-visible witness', () => {
     expect(native(entry)).toBeNull();
   });
 });
+
+describe('a start that ran while the skill loaded (GST-3157)', () => {
+  const START_LINE = '!`~/.claude/skills/gstack/bin/gstack-skill-load start --skill "plan-ceo-review" --model "claude"`';
+  const rendered = fs.readFileSync(path.join(import.meta.dir, '../plan-ceo-review/SKILL.md'), 'utf8');
+  const moved = () => {
+    const entry = load('37195203538-t1-pass.json');
+    const tools: any[] = entry.input.native.tools;
+    const use = tools.find(t => t.kind === 'use' && String(t.input?.command ?? '').includes('gstack-skill-start --skill'));
+    const result = tools.find(t => t.kind === 'result' && t.toolUseId === use.toolUseId);
+    entry.input.native.tools = tools.filter(t => t !== use && t !== result);
+    const text = (output: string, skill = 'plan-ceo-review') =>
+      `Base directory for this skill: /fixture/.claude/skills/${skill}\n\n${rendered.replace(START_LINE, () => output)}`;
+    const skillLoad = (output = result.content as string, extra: object = {}) =>
+      ({ sessionId: entry.input.native.options.sessionId, skill: 'plan-ceo-review', text: text(output), timestamp: use.timestamp, ...extra });
+    return { entry, use, result, text, skillLoad, loads: (...loads: object[]) => { entry.input.native.transcript.skillLoads = loads; } };
+  };
+
+  test('the rendered skill still carries the injected start line this replay replaces', () => {
+    expect(rendered.split(START_LINE)).toHaveLength(2);
+  });
+
+  test('37195203538 with its start moved to load is credited from the loaded skill text alone', () => {
+    const m = moved();
+    expect(native(m.entry)).toBeNull();
+    m.loads(m.skillLoad());
+    const decision = native(m.entry);
+    expect(decision).toMatchObject({ option: 'HOLD SCOPE', sessionId: m.entry.input.native.options.sessionId });
+    expect(decision!.preambleToolUseId).toBeUndefined();
+  });
+
+  for (const [name, mutate] of Object.entries({
+    'a second start through Bash': (m: ReturnType<typeof moved>) => { m.loads(m.skillLoad()); m.entry.input.native.tools.push(m.use, m.result); },
+    'two loads': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad(), m.skillLoad()),
+    'another skill': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad(undefined, { skill: 'plan-eng-review' })),
+    'another session': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad(undefined, { sessionId: 'foreign' })),
+    'a load before the command': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad(undefined, { timestamp: '2026-10-04T10:27:00.000Z' })),
+    'question tuning off': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad((m.result.content as string).replace('QUESTION_TUNING: true', 'QUESTION_TUNING: false'))),
+    'a start that failed at load': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad('SKILL_START: failed at load (exit 1); run the start command below yourself with Bash, then continue.')),
+    'shell execution disabled by policy': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad('[shell command execution disabled by policy]')),
+    'an un-run injection line': (m: ReturnType<typeof moved>) => m.loads(m.skillLoad(START_LINE)),
+  })) test(`a load-time start is refused with ${name}`, () => {
+    const m = moved();
+    mutate(m);
+    expect(native(m.entry)).toBeNull();
+  });
+
+  test('a start that failed at load and then ran through Bash is the one start', () => {
+    const m = moved();
+    m.loads(m.skillLoad('SKILL_START: failed at load (exit 1); run the start command below yourself with Bash, then continue.'));
+    m.entry.input.native.tools.push(m.use, m.result);
+    expect(native(m.entry)).toMatchObject({ option: 'HOLD SCOPE', preambleToolUseId: m.use.toolUseId });
+  });
+});

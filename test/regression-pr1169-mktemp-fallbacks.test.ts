@@ -98,7 +98,7 @@ describe("#2679: skill-content mktemp guards", () => {
     expect(body).toMatch(/mv "\$INSTALL_DIR\.bak" "\$INSTALL_DIR"/);
     // The backup rm must live inside the success branch, not after the block.
     const block = body.slice(body.indexOf('if mv "$TMP_DIR/gstack"'));
-    const successRm = block.indexOf('rm -rf "$INSTALL_DIR.bak"');
+    const successRm = block.indexOf('rm -r "$INSTALL_DIR.bak"');
     const elseBranch = block.indexOf("else");
     expect(successRm).toBeGreaterThan(-1);
     expect(successRm).toBeLessThan(elseBranch);

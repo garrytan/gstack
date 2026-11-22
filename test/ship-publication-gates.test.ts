@@ -2,13 +2,14 @@ import { expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { foldSections } from '../lib/pr-body-shape';
 import { killGroup } from '../lib/pregate/supervise';
 import { expectMentions } from './helpers/prompt-structure';
 
 const template = readFileSync(new URL('../ship/sections/pr-body.md.tmpl', import.meta.url), 'utf8');
 
 /** The agent writes the body drafts with its file-write tool; the block reads them by printed name. */
-function writeDrafts(root: string, top = '## Summary\n\n## Documentation', rest = '## Test plan\n- [x] bun test: pass'): (block: string) => string {
+function writeDrafts(root: string, top = '## What changed\n\n## Documentation', rest = '## Tests\n- [x] bun test: pass'): (block: string) => string {
   mkdirSync(join(root, '.gstack/tmp'), { recursive: true });
   writeFileSync(join(root, '.gstack/tmp/pr-body-top.abc123'), top);
   writeFileSync(join(root, '.gstack/tmp/pr-body-rest.abc123'), rest);
@@ -16,12 +17,13 @@ function writeDrafts(root: string, top = '## Summary\n\n## Documentation', rest 
 }
 const POST = resolve(import.meta.dir, '../bin/gstack-post');
 const PROSE_LINT = resolve(import.meta.dir, '../bin/gstack-prose-lint');
+const PLAIN_TITLE = resolve(import.meta.dir, '../bin/gstack-plain-title');
 
 /** The two real bins the blocks call, at the installed path under a HOME of `root`. */
 function installBins(root: string): void {
   const bin = join(root, '.claude/skills/gstack/bin');
   mkdirSync(bin, { recursive: true });
-  for (const [name, target] of [['gstack-post', POST], ['gstack-prose-lint', PROSE_LINT]] as const) {
+  for (const [name, target] of [['gstack-post', POST], ['gstack-prose-lint', PROSE_LINT], ['gstack-plain-title', PLAIN_TITLE]] as const) {
     writeFileSync(join(bin, name), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(target)} "$@"\n`, { mode: 0o755 });
   }
 }
@@ -123,17 +125,17 @@ for (const failure of ['none', 'body', 'title'] as const) {
     try {
       const secret = 'AKIA' + '1234567890ABCDEF';
       const c = await composed(root, {
-        top: failure === 'body' ? `## Summary\nkey ${secret}\n\n## Documentation` : undefined,
+        top: failure === 'body' ? `## What changed\nkey ${secret}\n\n## Documentation` : undefined,
         title: failure === 'title' ? `v1.2.3.4 fix: ${secret}` : undefined,
       });
       const result = await c.publish(createBlock);
       if (failure === 'none') {
         expect(result.exitCode, result.stderr.toString()).toBe(0);
         expect(result.stdout.toString()).toContain('https://github.com/o/r/pull/9');
-        expect(c.calls()).toEqual([{ args: ['pr', 'create', '--base=main', '--title=v1.2.3.4 fix: publication checks', '--body-file=-'], stdin: readFileSync(c.bodyFile, 'utf8') }]);
+        expect(c.calls()).toEqual([{ args: ['pr', 'create', '--base=main', '--title=v1.2.3.4 fix: publication checks', '--body-file=-'], stdin: foldSections(readFileSync(c.bodyFile, 'utf8')) }]);
       } else {
         expect(result.exitCode).toBe(1);
-        expect(result.stdout.toString()).toContain(`HIGH RULE: aws.access_key LINE: ${failure === 'body' ? 2 : 1} PART: ${failure}`);
+        expect(result.stdout.toString()).toContain(`HIGH RULE: aws.access_key LINE: ${failure === 'body' ? 3 : 1} PART: ${failure}`);
         expect(c.calls()).toEqual([]);
       }
     } finally {
@@ -183,10 +185,10 @@ test.skipIf(process.platform === 'win32')('a block whose background child holds 
 test.skipIf(process.platform === 'win32')('MEDIUM findings publish nothing until the block reruns with the printed token', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ship-post-medium-'));
   try {
-    const c = await composed(root, { top: '## Summary\nThanks jane.roe@acme-corp.io\n\n## Documentation' });
+    const c = await composed(root, { top: '## What changed\nThanks jane.roe@acme-corp.io\n\n## Documentation' });
     const first = await c.publish(editBlock);
     expect(first.exitCode).toBe(2);
-    expect(first.stdout.toString()).toContain('RULE: pii.email LINE: 2 PART: body');
+    expect(first.stdout.toString()).toContain('RULE: pii.email LINE: 3 PART: body');
     expect(c.calls()).toEqual([]);
     const token = /^TOKEN: (\S+)$/m.exec(first.stdout.toString())![1]!;
     const flagged = 'pr-body <pr-number> --body-file "${PR_BODY_FILE:?restore the composed body path}"';
@@ -198,7 +200,7 @@ test.skipIf(process.platform === 'win32')('MEDIUM findings publish nothing until
       ['pr', 'edit', '9', '--body-file=-'],
       ['pr', 'edit', '9', '--title=v1.2.3.4 fix: publication checks'],
     ]);
-    expect(calls[0]!.stdin).toBe(readFileSync(c.bodyFile, 'utf8'));
+    expect(calls[0]!.stdin).toBe(foldSections(readFileSync(c.bodyFile, 'utf8')));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -217,7 +219,7 @@ test('publication composes the saved documentation section unchanged and refuses
     });
     const composed = run(join(root, 'section.md'));
     expect(composed.exitCode).toBe(0);
-    expect(composed.stdout.toString()).toBe(`## Summary\n\n## Documentation\n${section}\n## Test plan\n- [x] bun test: pass\n`);
+    expect(composed.stdout.toString()).toBe(`## What changed\n\n## Documentation\n${section}\n## Tests\n- [x] bun test: pass\n`);
     expect(existsSync(join(root, '.gstack/tmp/pr-body-top.abc123'))).toBe(false);
     expect(existsSync(join(root, '.gstack/tmp/pr-body-rest.abc123'))).toBe(false);
     const missing = run(join(root, 'absent.md'));

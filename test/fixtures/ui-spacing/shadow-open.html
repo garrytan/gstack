@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project settings: an open shadow root</title>
+<script src="sharing.js"></script>
+</head>
+<body>
+<main>
+<qm-sharing></qm-sharing>
+<script>
+customElements.define('qm-sharing', class extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: 'open' }).innerHTML = '<link rel="stylesheet" href="replica.css">' + window.SHARING_HTML; }
+});
+</script>
+</main>
+</body>
+</html>

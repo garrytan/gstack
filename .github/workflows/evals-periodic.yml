@@ -15,7 +15,7 @@ name: Periodic Evals
 # diff-billed, so without it the full gate census might never execute
 # anywhere); the hollow-shard guard (exit 0 + zero executed tests under
 # EVALS_ALL fails) makes both lanes census-health checks, not just test runs.
-# The gate census is a matrix of arms (scripts/census-arms.ts): each arm is a
+# The gate census is a matrix of arms (crew/scripts/census-arms.ts): each arm is a
 # host and model with its own plan. Monday runs claude-opus (the capture
 # model) and codex-sol (gpt-6.1-sol on the Codex host, adapter cases only);
 # the monthly cron runs only the census, with claude-fable and codex-astra.
@@ -41,7 +41,7 @@ on:
         type: boolean
         default: false
       census_arms:
-        description: 'Run only the gate census, with these arms (comma-separated: claude-opus, codex-sol, claude-fable, codex-astra; scripts/census-arms.ts). Empty keeps the periodic lane.'
+        description: 'Run only the gate census, with these arms (comma-separated: claude-opus, codex-sol, claude-fable, codex-astra; crew/scripts/census-arms.ts). Empty keeps the periodic lane.'
         type: string
         default: ''
       expected_sha:
@@ -89,7 +89,7 @@ jobs:
         # Byte-identity pinned by test/ci-image-tag-binding.test.ts.
         run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -159,7 +159,7 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      # Census arms (scripts/census-arms.ts): which host/model arms run the
+      # Census arms (crew/scripts/census-arms.ts): which host/model arms run the
       # gate census, and whether the periodic lane runs beside them.
       - name: Select the census arms
         id: census
@@ -167,7 +167,7 @@ jobs:
           SCHEDULE: ${{ github.event.schedule }}
           CENSUS_ARMS: ${{ inputs.census_arms }}
           INCLUDE_GATE_CENSUS: ${{ github.ref == 'refs/heads/main' || inputs.include_gate_census }}
-        run: bun --no-install run scripts/census-arms.ts --select >> "$GITHUB_OUTPUT"
+        run: bun --no-install run crew/scripts/census-arms.ts --select >> "$GITHUB_OUTPUT"
 
       - name: Emit run manifest (ALL periodic tests minus reasoned excludes)
         if: steps.census.outputs.periodic_lane == 'true'
@@ -204,7 +204,7 @@ jobs:
         run: |
           set -euo pipefail
           for arm in $(jq -r '.[]' <<<"$ARMS"); do
-            mapfile -t arm_env < <(bun --no-install run scripts/census-arms.ts --env "$arm")
+            mapfile -t arm_env < <(bun --no-install run crew/scripts/census-arms.ts --env "$arm")
             env "${arm_env[@]}" EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan "/tmp/gate-census-plan/$arm/manifest.json" --slice-budget 420 --jobs 2 --skip-judges --max-parallel 20
           done
 
@@ -213,7 +213,7 @@ jobs:
         id: gate-matrix
         env:
           ARMS: ${{ steps.census.outputs.arms }}
-        run: bun --no-install run scripts/census-arms.ts --matrix /tmp/gate-census-plan "$ARMS" >> "$GITHUB_OUTPUT"
+        run: bun --no-install run crew/scripts/census-arms.ts --matrix /tmp/gate-census-plan "$ARMS" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: steps.census.outputs.arms != '[]'
@@ -458,7 +458,7 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -553,7 +553,7 @@ jobs:
     name: gate-census-${{ matrix.arm }} (${{ matrix.slice }})
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    # The planner picks the arms (scripts/census-arms.ts). A branch dispatch
+    # The planner picks the arms (crew/scripts/census-arms.ts). A branch dispatch
     # validates the periodic lane only unless it sets include_gate_census or
     # census_arms; gate cases on a branch also go through an evals.yml
     # dispatch with evals_all. Main (schedule or dispatch) always runs it.
@@ -634,7 +634,7 @@ jobs:
       - name: Select the census arm's host and model
         env:
           ARM: ${{ matrix.arm }}
-        run: bun --no-install run scripts/census-arms.ts --env "$ARM" >> "$GITHUB_ENV"
+        run: bun --no-install run crew/scripts/census-arms.ts --env "$ARM" >> "$GITHUB_ENV"
 
       - name: Run gate census slice ${{ matrix.slice }} (${{ matrix.arm }})
         env:

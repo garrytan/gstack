@@ -1,7 +1,7 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../lib/spawn-sync';
 import { gbrainInvocation, buildGbrainEnv } from '../lib/gbrain-exec';
 import { parseSourcesList } from '../lib/gbrain-sources';
 import { resolveStateRoot } from '../lib/state-root';
@@ -30,10 +30,16 @@ function readCapability(): Verdict {
     || state?.schema_version !== 1 || state.last_writer !== 'gstack-gbrain-sync'
     || !Array.isArray(state.last_stages)) return unknown('unverified sync state or source pin; run /sync-gbrain');
   const code = state.last_stages.find((stage: any) => stage?.name === 'code');
-  if (!code?.ran || !code.ok || code.detail?.status !== 'ok' || code.detail.source_id !== pin
-    || typeof code.detail.source_path !== 'string') return unknown('code sync did not verify this pinned source; run /sync-gbrain');
+  if (code?.ran && !code.ok && typeof code.detail?.source_id !== 'string')
+    return unknown('latest code sync failed without naming its source; run /sync-gbrain');
+  const records = state.code_sources;
+  const syncedPath = code?.detail?.source_id === pin
+    ? code.ran && code.ok && code.detail.status === 'ok' ? code.detail.source_path : undefined
+    : records && typeof records === 'object' && !Array.isArray(records) && Object.hasOwn(records, pin)
+      ? records[pin]?.path : undefined;
+  if (typeof syncedPath !== 'string') return unknown('code sync did not verify this pinned source; run /sync-gbrain');
   try {
-    if (realpathSync(code.detail.source_path) !== root) return unknown('code sync belongs to another worktree');
+    if (realpathSync(syncedPath) !== root) return unknown('code sync belongs to another worktree');
   } catch { return unknown('code sync worktree is unavailable'); }
   const run = (args: string[]) => {
     const invocation = gbrainInvocation(args);
@@ -76,7 +82,8 @@ function readCapability(): Verdict {
     || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(slug)
     || slug.split('/').some(segment => !segment || segment === '.' || segment === '..'))
     return unknown('listed page has an invalid slug');
-  const fetched = run(['get', slug, '--source', pin, '--json']);
+  const fetched = run(['get', slug, '--source', pin, '--json', '--body', 'window', '--max-bytes', '4096'])
+    ?? run(['get', slug, '--source', pin, '--json']);
   if (!fetched) return unknown('source-scoped get unavailable; retry later');
   try {
     const page = JSON.parse(fetched);

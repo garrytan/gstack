@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from scripts/resolvers/preamble-hoist.ts — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-# gstack shared preamble 4e82fa4c839f
+# gstack shared preamble d8804c5ab6bf
 
 ## Plan Mode Safe Operations
 
@@ -171,10 +171,9 @@ GStack voice: Garry-shaped product and engineering judgment.
 Good: "auth.ts:47 returns undefined when the session cookie expires. Users hit a white screen. Fix: add a null check and redirect to /login. Two lines."
 Bad: "I've identified a potential issue in the authentication flow that may cause problems under certain conditions."
 
-**Bounded closer.** After completing work, report in at most a few short lines: what changed, what was skipped, what to watch. No feature tours or unrequested design notes. Exempt: decision briefs, completion-status blocks, requested explanations, and a skill's mandated report (/qa-only, /plan-*-review, /retro, /document-generate). The rule limits prose around the deliverable, never the deliverable.
+**Bounded closer.** A status report (after work or when asked) stays under 250 words and opens with three lines, each item named, or none: `Failed or skipped:` (anything that failed, even if fixed, was skipped or never ran), `Unverified:` (claims no output confirmed), `Also changed:` (config, CI, files outside the ask). Then what changed and ran; claim nothing more. Over 10 items: top 10, the rest counted, an offer to list. Exempt: decision briefs, requested explanations, mandated reports (/qa-only, /plan-*-review, /retro, /document-generate).
 
-Good closer: "Renamed the flag in 3 files, regenerated docs, tests green. Skipped the CLI alias (unused since v1.2); watch the Windows job."
-Bad closer: a tour of every edit, a restatement of the plan, and three paragraphs justifying choices nobody questioned.
+Good: "Failed or skipped: lint (fixed), 2 e2e tests (no key). Unverified: Windows alias. Also changed: none."
 
 ## Context Recovery
 
@@ -224,6 +223,13 @@ For high-stakes ambiguity (architecture, data model, destructive scope, missing 
 During long-running skill sessions, when you finish a phase or change direction, tell the user in a sentence or two what is done, what is next, and anything surprising.
 
 If you are looping on the same diagnostic, same file, or failed fix variants, STOP and reassess. Consider escalation or /context-save. Progress summaries must NEVER mutate git state.
+
+## Ground Rules
+
+- Never print a whole environment, git config or process table; tokens ride in them. Banned: `env`, bare `printenv`, `set` or `export` (or an empty `export $(...)`), `export -p`/`-n`, `declare -p`/`-x`, `typeset -p`, `set -x`, `git config --list`/`-l`, any `ps` with full args (`aux`, `-ef`, `-o args`), `docker top ... args`, `docker inspect` Env. Read one value by name (`git config --get <name>`), check a variable with `[ -n "${NAME:-}" ] && echo set`, list processes by name or pid.
+- Wait on CI with one `gstack-pr-wait <n> --until green` call, never a poll loop or `gh pr checks --watch`.
+- Ask each question once, after checking what you can yourself; until it is answered, list it as one waiting line in later updates instead of asking again.
+- Open every file you hand over and remove placeholders first: TODO, `<fill in>`, lorem ipsum, broken links and images.
 
 ## Completion Status Protocol
 

@@ -90,7 +90,7 @@ Write the text into each printed file with your file-write tool (Claude Code's W
 _EG="$HOME/.claude/skills/gstack/bin/gstack-egress-lib.sh"; [ -r "$_EG" ] && . "$_EG"; _aside_exec() { if command -v _gstack_egress_run >/dev/null 2>&1; then _gstack_egress_run open aside-agent aside.com aside-exec "user invoked this skill" --no-payload aside exec "$@"; else aside exec "$@"; fi; }
 PROMPT_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<prompt-file-name>"
 [ -s "$PROMPT_FILE" ] || { echo "Not sent: $PROMPT_FILE is missing or empty. Write the prompt, then rerun this block." >&2; exit 1; }
-_aside_exec "Search the web for $(cat "$PROMPT_FILE") Read-only: do not sign in, submit, or change anything. Then stop." && rm -f "$PROMPT_FILE"
+_aside_exec "Search the web for $(cat "$PROMPT_FILE") Read-only: do not sign in, submit, or change anything. Then stop." && rm "$PROMPT_FILE"
 ```
 
 If Aside is not installed or not running (`command -v aside` prints nothing, or the request fails), run the same lookup with the WebSearch tool when the host provides it: `"[runtime] best test framework {current year}"` and `"[framework A] vs [framework B] comparison"`. If neither is available, use this built-in knowledge table:
@@ -216,7 +216,7 @@ remote gate (`gstack-pregate --allow-repo-commands`: stage 1 regen, secrets, str
 stage 2 the selected lanes under pipefail), then the lanes inside the evidence ledger, and prints `PREGATE:`, `LANES:` and
 one `LANE: <label> <state> exit= tests_ran= log=` line each.
 `fail` or `incomplete` blocks: fix, rerun. **No-stop** (docs/review-policy.md#no-stop): a pregate flake rerun (one per branch), a
-timeout-only fix and three other routine stops go through `gstack-no-stop record` (`--help`); `recorded` goes on,
+timeout-only fix and two other routine stops go through `gstack-no-stop record` (`--help`); `recorded` goes on,
 `refused` stops. `requires-remote` (other platforms; the remote gate under 8 cores) needs
 `gstack-pregate clear` or, under a user cap, `--remote --spend-cap <usd>`. Rerun
 after the final stamp (`gstack-ship-release finish` does); Step 18 refuses a stale one.
@@ -234,7 +234,9 @@ merge-check code: `lib/ship-*`, `lib/pregate/*`, the ship and pregate bins,
 (`gstack-post pr-create --base <base> --draft --title-file <f> --body-file <f>`), then `gstack-ci-carry wait` in
 the background; once it prints `CI_WAIT: green`, rerun `--tests-only` and the mapped lane is carried. A red
 run is a failed lane: triage it below. Batch review fixes into one commit and one push. `CI_CARRY: none
-label=<l> (<reason>)` names why a mapped lane ran here. Any other lane that already passed at this
+label=<l> (<reason>)` names why a mapped lane did not carry; any preflight then stops with `STOP: SHIP_LANE_NOT_CARRIED` before
+any lane runs: dispatch CI and wait as its `NEXT:` lines say, or rerun with `--run-uncarried-here` to run the lane here. A docs-only change ([docs/pregate.md#docs-only](../../docs/pregate.md#docs-only)) owes no test lane: pregate runs
+the docs lane, and a mapped lane prints `LANE: <label> not owed: docs-only change …` from CI's skipped run. Any other lane that already passed at this
 tree, command and runtime is reused (`reused=<time>`). In Step 16, `finish` defers a mapped
 lane it cannot carry (`EVIDENCE: DEFERRED`); after Step 17's push, `gstack-ship-release accept --base <base>
 --lane …` carries it from the green run at the final head and reruns the pregate there.
@@ -322,7 +324,7 @@ Ask with AskUserQuestion in the AskUserQuestion Format. List each failure the sa
 ### Step T4: Execute the chosen action
 
 **If "Investigate and fix now":**
-- One read-only root-cause pass, then `/investigate` if unclear.
+- One read-only root-cause pass. If the cause is still unclear, reproduce it with a focused failing test and trace it to the root cause before the fix.
 - Fix the pre-existing failure.
 - Commit the fix separately from the branch's changes: `git commit -m "fix: pre-existing test failure in <test-file>"`
 - Continue with the workflow.
@@ -372,11 +374,12 @@ Then post with your platform from Step 0 (`github` or `gitlab`). Substitute the 
 TITLE_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<title-file-name>"
 BODY_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<body-file-name>"
 [ -s "$TITLE_FILE" ] && [ -s "$BODY_FILE" ] || { echo "Not sent: $TITLE_FILE or $BODY_FILE is missing or empty, so the text was never written. Write it, then send by hand: gh issue create --title \"\$(cat $TITLE_FILE)\" --body-file $BODY_FILE" >&2; exit 1; }
+[ "${GSTACK_CAPY:-}" = 1 ] && { echo "Not sent: on Capy, gh signs in as the owner's own GitHub account. Hand $TITLE_FILE and $BODY_FILE to whoever owns the work instead (docs/troubleshooting.md#host-publish)." >&2; exit 0; }
 case "<platform>" in
   github) gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$BODY_FILE" --assignee "<github-username>" ;;
   gitlab) glab issue create -t "$(cat "$TITLE_FILE")" -d "$(cat "$BODY_FILE")" -a "<gitlab-username>" ;;
   *) echo "Not sent: no GitHub or GitLab remote. Files: $TITLE_FILE $BODY_FILE" >&2; false ;;
-esac && rm -f "$TITLE_FILE" "$BODY_FILE"
+esac && rm "$TITLE_FILE" "$BODY_FILE"
 ```
 
 - If neither CLI is available or `--assignee`/`-a` fails (user not in org, etc.), create the issue without assignee and note who should look at it in the body.

@@ -216,8 +216,9 @@ describe('design-lint: the output contract', () => {
       expect(r.out).toMatch(/^LINT: blocks render http:\/\/127\.0\.0\.1:9\/:1 could not reach http:\/\/127\.0\.0\.1:9\/: .+ \| fix: .+$/m);
       expect(r.out).toMatch(/^LINT_SUMMARY: blocks=1 ask=0 waived=0 polish=0 render=ran$/m);
     } else {
-      expect(r.code).toBe(0);
+      expect(r.code).toBe(4);
       expect(r.out).toMatch(/^LINT_SUMMARY: blocks=0 ask=0 waived=0 polish=0 render=skipped: /m);
+      expect(r.err).toMatch(/^gstack-design-lint: RENDER_UNAVAILABLE: nothing was measured at http:\/\/127\.0\.0\.1:9\/ \(no browser available.+\) \| fix: gstack-browser-ensure, then rerun$/m);
     }
   });
 });

@@ -4,7 +4,7 @@
  * read from GitHub through gh: merged PRs (crew vs outside), lead time (created
  * to merged, READY to merged), gate runs with known cost, red-train rate, flaky
  * events, issues opened vs closed, releases cut. Markdown table on stdout plus
- * a CSV; /retro Step 7.5 runs it; docs/recommended-harness.md explains each
+ * a CSV; /retro Step 7.5 runs it; crew/docs/recommended-harness.md explains each
  * line and where gstack's own numbers stand. Read-only: no write, no paid work.
  *
  * Usage:

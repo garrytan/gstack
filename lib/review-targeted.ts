@@ -9,14 +9,15 @@
  *
  * Matching reads added and deleted lines, so removing a cap, a check or a redaction
  * counts. Path and identifier signals are token-bounded: `costume` never names cost.
- * Docs and tests paths never trigger. Any input the classifier cannot read fails
+ * Docs and tests paths never trigger, nor do paths an active review_exclude_paths
+ * selection excludes (`excluded`), which no reader reads. Any input the classifier cannot read fails
  * closed to all four classes, as a depth error fails the depth closed to full.
  *
  * The gate class is the gate scan's tagged hunks (a relaxed threshold, a skipped test, a
  * loosened check), not GATE_PATH: over the last 100 non-release commits on main, GATE_PATH
  * alone hit 43 (the precision gate allows 25), and those paths already get full depth.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -25,9 +26,6 @@ import { AUTH_PATH_PREFIXES, AUTH_PATH_TOKENS, KEY_NAME, MONEY_LINE, MONEY_LINE_
 
 export const TARGETED_CLASSES = ['money', 'gate', 'auth', 'secret'] as const;
 export type TargetedClass = (typeof TARGETED_CLASSES)[number];
-
-/** Whether one added or deleted line reads a credential (SECRET_LINE): lib/review-exclude.ts keeps a matched file that has one. */
-export const secretLine = (line: string) => SECRET_LINE.some(r => r.test(line));
 
 /** A hash of the patterns that decide the classes, not of this file's bytes: a comment edit keeps it, a pattern edit changes it. */
 export const TARGETED_RULES = createHash('sha256').update(JSON.stringify({
@@ -50,11 +48,16 @@ export interface TargetedInput {
   /** The collector's consumer scan and drawings (ClassInput): a data file no code reads names no money. */
   consumed?: ClassInput['consumed'];
   drawings?: ClassInput['drawings'];
+  /** Paths an active review_exclude_paths selection leaves out (lib/review-exclude.ts): no reader reads them, so they name no class (GST-1900). */
+  excluded?: ReadonlySet<string>;
 }
 export interface TargetedResult { classes: TargetedClass[]; reasons: string[]; errors: string[]; rules: string }
 
 /** The classes a diff touches, in TARGETED_CLASSES order, with one reason per class; any input error returns all four. */
-export function targetedClasses(i: TargetedInput): TargetedResult {
+export function targetedClasses(input: TargetedInput): TargetedResult {
+  const x = input.excluded;
+  const kept = <T,>(rec?: Record<string, T>) => (x && rec ? Object.fromEntries(Object.entries(rec).filter(([p]) => !x.has(p))) : rec);
+  const i = x ? { ...input, paths: input.paths.filter(p => !x.has(p)), added: kept(input.added), removed: kept(input.removed) } : input;
   const errors = (i.errors ?? []).map(e => `${e.code} (${e.input})`);
   const s = i.scope;
   if (!s) errors.push('scope unavailable (gstack-diff-scope did not run)');
@@ -81,7 +84,7 @@ export function targetedBriefSha(file = TARGETED_BRIEF_FILE): string {
  * or unreadable diff; neither proves what a reader read. Not the receipt's product_patch_id (that leaves tests out).
  */
 export function targetedPatchId(root: string, mergeBase: string): string {
-  const git = (args: string[], input?: string) => spawnSync('git', args, { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+  const git = (args: string[], input?: string) => spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
   if (git(['diff', '--quiet', 'HEAD', '--']).status !== 0 || git(['ls-files', '--others', '--exclude-standard']).stdout?.trim()) return 'uncommitted';
   const diff = git(['diff', '--no-color', '--no-ext-diff', mergeBase, 'HEAD']);
   if (diff.status !== 0 || !diff.stdout.trim()) return 'none';

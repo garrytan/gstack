@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# gstack-telemetry-tier — the tier this session's telemetry goes out at, and
+# the label a Capy session's rows carry.
+#
+#   gstack-telemetry-tier           → off | anonymous | community
+#   gstack-telemetry-tier --capy    → the Capy opt-in alone: anonymous | off
+#   gstack-telemetry-tier --source  → the Capy label: capy | gt
+#
+# A Capy session (GSTACK_CAPY=1) is opted in only by the owner's preferences
+# file (GSTACK_PREFERENCES_FILE, beside the Capy skill's SKILL.md) holding
+# exactly one `telemetry_capy: anonymous` line. It then sends at the anonymous
+# tier whatever this machine's `telemetry` setting says. Only anonymous:
+# community's installation_id is a stable device id, and Capy's consent rules
+# one out (docs/privacy.md). No file, no line, two lines, another value or a
+# file over 4 KB is off. Without the opt-in this prints the machine's setting.
+# Unattended sessions stay silent unless opted in: gstack-skill-end asks --capy.
+#
+# gstack-telemetry-log labels a Capy session's rows from a fixed list:
+# `telemetry_capy_source: gt` (gstack's maintainer's own machines) gives gt,
+# and anything else, a missing line included, gives capy.
+
+# pref KEY → the value of the file's one `KEY:` line, empty when there is not exactly one.
+pref() {
+  local f="${GSTACK_PREFERENCES_FILE:-}" bom lines
+  [ "${GSTACK_CAPY:-}" = "1" ] && [ -n "$f" ] && [ -f "$f" ] || return 0
+  [ "$(wc -c < "$f" 2>/dev/null || echo 4097)" -le 4096 ] || return 0
+  bom=$(printf '\357\273\277')
+  lines=$(LC_ALL=C sed -e "1s/^$bom//" "$f" 2>/dev/null | tr -d '\r' | grep -E "^$1:" || true)
+  [ -n "$lines" ] && [ "$(printf '%s\n' "$lines" | wc -l | tr -d ' ')" = 1 ] || return 0
+  printf '%s' "${lines#"$1":}" | sed -e 's/[[:space:]]#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^\([\"']\)\(.*\)\1\$/\2/"
+}
+
+if [ "${1:-}" = "--source" ]; then
+  case "$(pref telemetry_capy_source)" in gt) echo gt ;; *) echo capy ;; esac
+  exit 0
+fi
+capy=off
+[ "$(pref telemetry_capy)" = anonymous ] && capy=anonymous
+if [ "${1:-}" = "--capy" ] || [ "$capy" != off ]; then
+  echo "$capy"
+  exit 0
+fi
+# On a Capy install (gstack-capy-install's state file in this checkout's git
+# dir) only the opt-in above sends: a shell that never sourced the launch file,
+# such as a /ship reader subagent's, is off, never the machine setting. Both
+# the logical and the physical root count: a host directory that links only
+# bin/ (Codex, Factory, OpenCode, Cursor, Kiro) resolves to the checkout -P.
+for _root in "$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)" "$(cd -P "$(dirname "$0")/.." 2>/dev/null && pwd)"; do
+  if [ -n "$_root" ] && [ -f "$(git -C "$_root" rev-parse --absolute-git-dir 2>/dev/null)/gstack-capy-install.state" ]; then
+    echo off
+    exit 0
+  fi
+done
+tier=$("$(dirname "$0")/gstack-config" get telemetry 2>/dev/null || true)
+case "$tier" in
+  anonymous|community) echo "$tier" ;;
+  *) echo off ;;
+esac

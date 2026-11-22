@@ -13,6 +13,12 @@ What this thread owns and what "done" looks like for the role (one paragraph).
 No PR here may be mid-/ship or mid-merge; if one is, the rotation waits. The successor subscribes to every open
 PR listed here.
 
+## Clocks
+| Wait, watch, webhook or automation | What it wakes for | When it fires | Id |
+|---|---|---|---|
+
+The successor registers and confirms each row before this thread cancels its own; archiving can pause a thread's automations.
+
 ## Subagents still running
 None, or one row each that you chose not to stop: path, title, run directory, what it is waiting on.
 

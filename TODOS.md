@@ -2,23 +2,19 @@
 
 ## NEXT PRIORITY
 
-### P2: `/plan-eng-review` retirement follow-ups (filed 2026-11-06, GST-1698 /ship review of #4108)
+### P3: `/plan-eng-review` return follow-up (filed 2026-11-15, GST-2726)
 
-- **Delete the retired `plan-eng-multi-finding-batching` case and its counter subsystem.** The case checks one interactive question per eng finding; /autoplan Phase 3 auto-decides findings, so no shipped entry reaches it. The follow-up to #4108 took it out of the weekly lane through `PERIODIC_CI_EXCLUDE` instead of deleting it, because about 20 free tests and fixtures depend on its counter (`createEngBatchingIssueCounter` in `test/helpers/eng-seeded-coverage.ts`, `test/eng-batching-saved-ledger.test.ts`, `test/detector-corpus-plan-eng-multi-finding-batching.test.ts`, the `eng-batching-*` fixtures). Retirement card: detects=an eng review that batches findings into one plan write; non_test_callers=0; stronger_proof=the ceo/design/devex finding floors keep the shared one-question-per-finding contract; unlocks=the counter helpers, their free tests and fixtures. Delete each helper only after checking it has no other caller (plan-eng-review-artifact shares `engFirstReviewAUQ`). **Effort:** M. **Priority:** P3.
-- **Point the external-host methodology file's preamble Read at `gstack-autoplan`.** Every external host's `gstack-autoplan/plan-eng-review.md` says to Read `sections/preamble.md` relative to the installed `gstack-plan-eng-review` directory, which no longer exists. Normally the matching preamble id skips the reread, but after compaction late in a run the agent follows a missing path. Fixing it changes Phase 3 bytes, so it needs its own byte-pin update. **Effort:** S. **Priority:** P3.
-- **Redirect `gstack-doctor --for plan-eng-review`.** It now exits 2 with "unknown skill"; map the retired name to `/autoplan`'s requirements and print a one-line redirect, so saved lane scripts keep working. **Effort:** S. **Priority:** P3.
-- **Decide whether the QM edition keeps `gstack-plan`.** `hosts/qm.ts` and `qm/edition.json` still build `gstack-plan` from the `plan-eng-review` sources under another name, so the retired-name guards don't see it. Product call for Garry. **Effort:** S. **Priority:** P3.
-- **Pin the retirement in two more tests.** Assert that `generateLlmsTxt` output lists no `plan-eng-review` entry (`test/llms-txt-shape.test.ts`), and that `HYBRID_SKILLS` holds none of `RETIRED_SKILLS` (`test/harness-register.test.ts`). **Effort:** S. **Priority:** P3.
+- **Decide whether `plan-eng-multi-finding-batching` rejoins the weekly lane.** The cut of the standalone skill (GST-1698) took it out through `PERIODIC_CI_EXCLUDE`, because /autoplan Phase 3 auto-decides findings. The standalone `/plan-eng-review` is back (GST-2726) and asks one question per eng finding again, so the case reaches a shipped entry. Running it weekly is paid spend, so the call belongs to the measurement plan in GST-1966. The standalone paid cases deleted with the cut (`plan-eng-plan-mode`, `plan-eng-finding-floor`, `plan-eng-review-artifact-full`) are not restored either. **Effort:** S. **Priority:** P3.
 
 ### P3: clarity-judge removal follow-ups (filed 2026-11-04, GST-1371)
 
 - **Delete the four orphaned judge-calibration corpora.** `test/fixtures/judge-calibration/{qa-workflow,qa-health-rubric,workflow-default,cookie-workflow}/` serve no configuration since the skill-prose clarity judges were removed; deleting them in the removal PR put its diff over the /ship review ceiling. Delete them alone once main is unfrozen (or after `review_exclude_paths` lands), and drop their rows from the README's results tables if the record is no longer wanted. **Effort:** S. **Priority:** P3.
-- **Refresh the judge counts the removal left stale.** `docs/TESTING_INTERNALS.md`'s all-green probability table counts 24 PR-gate judges and `scripts/gate-cost-replay.ts`'s header says complete full-gate runs hold 24; there are none now (GST-1403 removed the last three). Recompute the table from current rates rather than editing the count alone. **Effort:** S. **Priority:** P3.
+- **Refresh the judge counts the removal left stale.** `docs/TESTING_INTERNALS.md`'s all-green probability table counts 24 PR-gate judges and `crew/scripts/gate-cost-replay.ts`'s header says complete full-gate runs hold 24; there are none now (GST-1403 removed the last three). Recompute the table from current rates rather than editing the count alone. **Effort:** S. **Priority:** P3.
 - **Retire the empty standalone-judge lane (GST-1403).** `LLM_JUDGE_TOUCHFILES` is empty and `test/skill-llm-eval.test.ts` is gone, but the paid planner, report, rerun, train gate, ship-measure and gate-cost code still carry a judge branch keyed on that file (`JUDGE_FILE`, `selection.judges`, `--skip-judges` in `evals-periodic.yml`, `afterRepairCommand`'s judge form). Remove the branch and the `selection.judges` manifest field together, keeping old manifests parseable, or keep the lane documented as the home for a future standalone judge. **Effort:** M. **Priority:** P3.
 
 ### P3: screen verdict reuse lookback (filed 2026-11-02, GST-1027)
 
-- **Screen reuse sees only the newest 50 evals.yml dispatches.** `listGateRuns` (`scripts/recover-receipts.ts`) lists dispatched screens as one unfiltered page (`event=workflow_dispatch`, `per_page=50`), shared with every PR's screens and every train. At week-B traffic (220 dispatches from 2026-10-25 to 11-02, about 27 a day) that is under two days, and nothing says when a PR's earlier screen fell off the page: `gate-reuse find` prints "no earlier executed gate on this PR bound a verdict" and the full screen runs. No miss yet: the longest gap among the week-B re-screens was 44 dispatches (#3607). Page the listing until runs are older than the PR's oldest candidate head (or filter by `created>=`), and print a truncation line when the last page is full. A missed run only costs a screen, never a wrong verdict. **Effort:** S. **Priority:** P3.
+- **Screen reuse sees only the newest 50 evals.yml dispatches.** `listGateRuns` (`crew/scripts/recover-receipts.ts`) lists dispatched screens as one unfiltered page (`event=workflow_dispatch`, `per_page=50`), shared with every PR's screens and every train. At week-B traffic (220 dispatches from 2026-10-25 to 11-02, about 27 a day) that is under two days, and nothing says when a PR's earlier screen fell off the page: `gate-reuse find` prints "no earlier executed gate on this PR bound a verdict" and the full screen runs. No miss yet: the longest gap among the week-B re-screens was 44 dispatches (#3607). Page the listing until runs are older than the PR's oldest candidate head (or filter by `created>=`), and print a truncation line when the last page is full. A missed run only costs a screen, never a wrong verdict. **Effort:** S. **Priority:** P3.
 
 ### P3: gstack-clean follow-ups (filed 2026-10-31, GSTA-226 E2, #2627)
 
@@ -50,7 +46,7 @@
 
 ### P2/P3: pregate head-policy follow-ups (filed 2026-10-31, from the GST-419/GST-420 /ship review)
 - **`finish` fallback drops head-policy lanes (P2)** — `lib/ship-release.ts` reruns pregate on the stamped tree under the base policy, so after a version bump a lane the branch added under `--policy-from head` is gone and `finish` reports `PREGATE: fail (rerun on the stamped tree)`. GSTA-194 owns that file and has the note. **Effort:** S. **Priority:** P2.
-- **The 3600 s preflight and `finish` wrapper deadline (P3)** — it caps the whole pregate run, so several runners that each fit `timeout_s` can still be cut off together. Derive the wrapper deadline from `timeout_s` and the lane count, or document the cap. **Effort:** S. **Priority:** P3.
+- **The 3600 s `finish` wrapper deadline (P3)** — it caps the whole pregate rerun, so several runners that each fit `timeout_s` can still be cut off together. Derive the wrapper deadline from `timeout_s` and the lane count, or document the cap. Preflight's half is done: `gstack-ship-preflight --step-timeout <s>` sets that budget and a stop prints `PREGATE: time limit hit` (#4429). **Effort:** S. **Priority:** P3.
 - **A bootstrap head policy can still certify itself without `--remote` (P3)** — with no trusted policy, the head file may set `remote_gate: null`, or produce an obligation that `gstack-pregate clear --receipt` accepts from the branch's own gate. Decide what a bootstrap `pregate.json` may certify, then enforce it in `verify` from the recorded policy label instead of per entry point. The `--remote` refusal also prints the generic `PREGATE_HEAD_POLICY_LOOSENS` fix line, which does not apply when there is no trusted policy. **Effort:** S. **Priority:** P3.
 
 ### P3: `/codex --effort` follow-ups (filed 2026-10-11, from the #3146 autoplan review)
@@ -101,7 +97,6 @@ The 158 older open issues were re-checked against main 5cb5e1c (v1.91.83.0). Of 
 Each item was decided in the Wave 9 plan and parked with its reason. Credit the reporter or contributor when it is picked up.
 
 - **Fold `triggers:` into skill descriptions (#2118)** — `scripts/gen-skill-docs.ts` folds only `voice-triggers:`, and the trimmed description keeps one sentence, so natural-language triggers never reach the listing. Parked because it conflicts with the catalog-trim design and would regenerate every skill. Mechanism when picked up: a `when_to_use:` frontmatter key for the Claude host, built from `triggers:`, deduped, and kept inside the catalog byte budget (Claude Code's 1,536-character combined listing limit); hosts that allowlist name and description get a bounded "Use when…" sentence or nothing. **Effort:** M. **Priority:** P2.
-- **Plan-tune qid marker follow-ups (#3442 review notes, filed 2026-11-02)**: `QID_MARKER_RE` in `scripts/qid-marker.ts` drops the whole marker when the `;signal=` tail is malformed (an underscore, a space, an empty key). Match the id first and drop only a bad hint. `question-preference-hook.ts` still looks up the raw marker id, while the log hook lowercases it. Use `parseQidMarker(...).id` in both hooks. Add hinted-marker cases to `test/question-preference-hook.test.ts`. **Effort:** S. **Priority:** P3.
 - **Stateless, instruction-only host mode (#3061, @m-check1B)** — hosted multi-tenant runtimes have no install, state root or helper binaries, but skill bodies still read and write `$GSTACK_STATE_ROOT`, call `bin/gstack-*` and log telemetry. Deferred to the new-hosts theme below. Requirements kept on record: tenant-owned state (a `capabilities.state: 'none'` host renders host-provided hooks instead of shell steps), named artifact hooks (`ARTIFACT_SAVE`/`ARTIFACT_FIND` per kind, `WEB_RESEARCH`, `SECRET_SCAN`, `USER_PREF`) mapped the way the gbrain resolvers already are, a generator check that fails a stateless render containing `~/.gstack`, `$GSTACK_`, `bin/gstack-*` or `--event-type`, and the `claude` host's output byte-identical. The contributor offered an office-hours overlay plus the generator check as a first PR. **Effort:** L. **Priority:** P3.
 - **Legacy unprefixed Cursor skill folders (#3084)** — 1.31 Cursor installs created `~/.cursor/skills/<skill>/SKILL.md` links; 1.91 links `gstack-*` folders and `_prune_stale_generated` in `setup` only looks at `gstack-*` names, so Cursor can load two skills with the same name. `setup` already removes old unprefixed Claude entries; Cursor needs the same owned-link cleanup (remove only links that point into a gstack checkout). Split from #3084's data-loss fix, which Wave 9 Lane A0 ships. **Effort:** S. **Priority:** P3.
 - **`/retro global` says what a "session" is (#1315, third problem)** — `bin/gstack-global-discover.ts` counts transcript files and rollouts, so cron- or agent-driven repos show hundreds of "sessions" with no interactive work. Annotate the retro output that sessions are tool invocations or files, not distinct human working sessions. Problems 1 and 2 are fixed (v1.91.66.0 and Wave 9 Lane F). **Effort:** S. **Priority:** P3.
@@ -190,12 +185,12 @@ Left open by the iPad and route-drop release, each with its reason.
 
 Left open by v1.91.42.0, which lifted the snapshot file-count ceiling.
 
-- **Tracked symlinks refuse the whole /cso run** — `capture()` fails closed on
+- **Tracked symlinks refuse the whole /cso run** — `capture()` failed closed on
   any tracked symlink ("Symlink or special source file"). 5 of 8 mid-size OSS
-  repos measured for v1.91.42.0 stop there (django, rails, terraform, grafana,
-  vscode; 1-10 symlinks each, mostly test fixtures). Recording them as unread
-  exclusions in the manifest, like dependency trees, is a security design call
-  for Garry. **Effort:** M. **Priority:** P1.
+  repos measured for v1.91.42.0 stopped there (django, rails, terraform, grafana,
+  vscode; 1-10 symlinks each, mostly test fixtures). Decided on 2026-11-20 by
+  GStack Minder in #4567: /cso records each link by its target string, or notes that the target was withheld when it matches a secret pattern and never
+  dereferences it. **Effort:** M. **Priority:** P1.
 - **64 MiB aggregate source cap (#2993)** — files over 1 MiB are withheld from
   the audit but still read and counted. Stream-hash them without counting
   toward the cap, report them as unread coverage, and add an admission estimate
@@ -426,10 +421,17 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
 - **`scripts/ship-measure.ts` on env-var hosts** — /ship's measure loop runs
   `$GSTACK_ROOT/scripts/ship-measure.ts`, which imports gstack's test helpers
   and eval harness, so a Codex/Factory/... runtime root would need most of the
-  development tree. It is the one `$GSTACK_ROOT` path
-  `test/runtime-root-assets.test.ts` defers. Either make ship-measure
-  self-contained or have the skill call it from the source checkout
-  (`.source-path`). **Effort:** M. **Priority:** P3.
+  development tree. `bin/gstack-model-benchmark` (/benchmark-models imports
+  the test tree's providers) and `bin/gstack-ship-queue` (the merge queue
+  imports the eval gate) have the same problem and fail to start from a
+  copied Windows root. `test/runtime-root-assets.test.ts` defers all three.
+  For each, either make it self-contained or have the skill call it from the
+  source checkout (`.source-path`). That test also follows static imports
+  only: lazy `import()` and `require()` calls (`bin/gstack-evidence` loads
+  `scripts/lib/shard-engine` with a fallback, and
+  `lib/pregate/flaky-exception.ts` requires it and a test helper), modules a
+  shell script launches, and bare package imports go unchecked.
+  **Effort:** M. **Priority:** P3.
 - **Rendered `SKILL.md` copies inside runtime roots are discoverable** —
   `office-hours/SKILL.md` (#2449) and now `plan-design-review/SKILL.md` sit in
   `~/.codex/skills/gstack/<skill>/` because skills read them as
@@ -3602,7 +3604,7 @@ Linux cookie import shipped in v0.11.11.0 (Wave 3). Supports Chrome, Chromium, B
 
 ### Crew template rule 22: say when a lane picks `--screen` (GSTA-165 1a follow-up)
 
-**What:** Update the rule 22 text in `captain/templates/CREW.md` (and its `docs/captain.md` home if it repeats the rule) so a lane picks `--screen` only when `gstack-ship-queue ready` recommends it: the paid selector's mode is `full-fallback` or it cannot select.
+**What:** Update the rule 22 text in `captain/templates/CREW.md` (and its `crew/docs/captain.md` home if it repeats the rule) so a lane picks `--screen` only when `gstack-ship-queue ready` recommends it: the paid selector's mode is `full-fallback` or it cannot select.
 
 **Why:** `gstack-ship-queue ready` now recommends `--no-screen` for every diff the selector can narrow, and unscreened PRs fill train seats. A crew instantiated from the template still reads the older screen guidance, so lanes can keep paying for screens the recommendation no longer asks for.
 
@@ -3620,7 +3622,7 @@ Deferred from plan: /home/user/.capy/drive/captain-gstack-minder/plans/GSTA-165.
 
 **Why:** The trigger for reverting GSTA-165 D1 (screen only full-fallback diffs) is "PR-attributed red trains exceed the forecast (about 10% at size 3, 16% at size 5) by 2x over 20 trains". Without an attribution field nobody can measure it, so the default cannot be revisited on evidence.
 
-**Context:** Restated in handoffs/GSTA-165/v2-additions.md item 6 and unassigned to a PR. Start from the train record in `lib/ship-queue-train-record.ts` and what `train bisect` writes back to it.
+**Context:** Restated in handoffs/GSTA-165/v2-additions.md item 6 and unassigned to a PR. Start from the train record in `crew/lib/ship-queue-train-record.ts` and what `train bisect` writes back to it.
 
 Deferred from plan: /home/user/.capy/drive/captain-gstack-minder/plans/GSTA-165.md
 
@@ -4181,26 +4183,6 @@ Shipped as `/careful`, `/freeze`, `/guard`, and `/unfreeze` in v0.6.5. Includes 
 ~~**What:** Track which skills get invoked, how often, from which repo.~~
 
 Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into preamble telemetry line. Analytics CLI (`bun run analytics`) for querying. /retro integration shows skills-used-this-week.
-
-### /investigate scoped debugging enhancements (gated on telemetry)
-
-**What:** Six enhancements to /investigate auto-freeze, contingent on telemetry showing the freeze hook actually fires in real debugging sessions.
-
-**Why:** /investigate v0.7.1 auto-freezes edits to the module being debugged. If telemetry shows the hook fires often, these enhancements make the experience smarter. If it never fires, the problem wasn't real and these aren't worth building.
-
-**Context:** All items are prose additions to `investigate/SKILL.md.tmpl`. No new scripts.
-
-**Items:**
-1. Stack trace auto-detection for freeze directory (parse deepest app frame)
-2. Freeze boundary widening (ask to widen instead of hard-block when hitting boundary)
-3. Post-fix auto-unfreeze + full test suite run
-4. Debug instrumentation cleanup (tag with DEBUG-TEMP, remove before commit)
-5. Debug session persistence (~/.gstack/investigate-sessions/ — save investigation for reuse)
-6. Investigation timeline in debug report (hypothesis log with timing)
-
-**Effort:** M (all 6 combined)
-**Priority:** P3
-**Depends on:** Telemetry data showing freeze hook fires in real /investigate sessions
 
 ## Context Intelligence
 

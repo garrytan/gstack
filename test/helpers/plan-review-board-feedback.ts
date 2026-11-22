@@ -148,7 +148,7 @@ export function createDesignReviewPicker({ cwd, deadlineAt }: { cwd: string; dea
       throw new Error('Design board submission has no unambiguous offered action');
     }
     const urls = [...new Set(question.question.match(/https?:\/\/[^\s<>\[\]()]+/g) ?? [])];
-    if (urls.length !== 1 || !/^http:\/\/127\.0\.0\.1:[1-9][0-9]*\/boards\/[A-Za-z0-9_-]+\/$/.test(urls[0]!)) {
+    if (urls.length !== 1 || !/^http:\/\/127\.0\.0\.1:[1-9][0-9]*\/[0-9a-f]{64}\/boards\/[A-Za-z0-9_-]+\/$/.test(urls[0]!)) {
       throw new Error('Design board submission requires one exact owned board URL');
     }
     const url = urls[0]!;

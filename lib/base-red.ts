@@ -16,9 +16,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ShipReceipt } from './headless-artifacts';
 import { type BaseRedPolicy } from './ship-policy';
-import { git, sha256, writeJsonAtomic } from './ship-queue-gate';
+import { git, sha256, writeJsonAtomic } from '../crew/lib/ship-queue-gate';
 import { runBashSync } from './script-invocation';
 import { resolveStateRoot } from './state-root';
+import { testFileArgs } from './test-paths';
 
 export const PAUSE_HOURS = 24;
 
@@ -83,7 +84,7 @@ export function runAt(repoRoot: string, sha: string, policy: BaseRedPolicy, file
       const s = runner(dir, policy.setup, policy.timeout_sec);
       if (s.status !== 0) return { status: s.status, out: s.out, error: `setup exited ${s.status ?? s.error ?? 'unknown'}`, setupFailed: true };
     }
-    return runner(dir, policy.select.split('{files}').join(files.map(quote).join(' ')), policy.timeout_sec);
+    return runner(dir, policy.select.split('{files}').join(testFileArgs(policy.select, files).map(quote).join(' ')), policy.timeout_sec);
   } finally {
     git(repoRoot, ['worktree', 'remove', '--force', dir]);
     fs.rmSync(dir, { recursive: true, force: true });

@@ -1,1 +1,1 @@
-{"blob":"8ee2872d038520d3d3d958d25fd18cf6609ffa69","since":6,"nonBehavioral":"createShardSandbox writes the .gstack-test-fixture marker into the shard state dir beside tmp/ (GST-1695); with it test-setup.ts keeps the shard TMPDIR exactly as main hands it, so no case sees a different temp layout, input or verdict, and tmp/ stays empty for the bootstrap retention scope"}
+{"blob":"77f0039e555cf695bdda02e123b4d6af6d378682","since":7}

@@ -129,7 +129,6 @@ if (!workerCase) {
         stateRoot = ctx.launch.env!.GSTACK_STATE_ROOT!;
         expect(ctx.launch.env!.GSTACK_HOME).toBe(stateRoot);
         const state = fs.readFileSync(path.join(stateRoot, 'config.yaml'), 'utf8');
-        expect(state).toContain('routing_declined: true');
         expect(state).toContain('cross_project_learnings: false');
         expect(state).toContain('codex_reviews: disabled');
       } },

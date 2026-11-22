@@ -21,7 +21,11 @@ every finalized page and /design-review on each audited page.
 
 ```
 gstack-design-lint <file-or-dir ...> [--render] [--url <http://…>] [--scope page|component] [--job <job>] [--json] [--rules]
+gstack-design-lint --scope app (--url <http://…> ... | --state-file <states.json>) --within <selector> [--viewport WxH ...] [--wait-for <selector>] [--waivers <file>] [--json] [--verbose]
 ```
+
+The second form is the render-only app profile; see
+[App profile](#app-profile---scope-app).
 
 - Reads `.html`, `.css`, `.jsx`, `.tsx`, `.vue`, `.svelte` and `.astro`.
   Tailwind class strings in components are read too, including `cn()`,
@@ -63,7 +67,11 @@ gstack-design-lint <file-or-dir ...> [--render] [--url <http://…>] [--scope pa
   `globals.css` is not reported missing on every component.
 - `--render` measures every HTML page found; `--url` measures a running dev
   server (and implies `--render`). When no browser is available the render
-  tier is skipped and the summary says why.
+  tier is skipped and the summary says why. With `--url`, under any scope,
+  a skipped render also prints `gstack-design-lint: RENDER_UNAVAILABLE:
+  nothing was measured at <url> (<reason>) | fix: gstack-browser-ensure, then
+  rerun` on stderr and exits **4**: a URL nobody measured is never a pass.
+  `--render` over files without a browser keeps the skip and its exit code.
 - `--scope component` skips the page-only rules (the nav, the footer, the
   eyebrow, section gaps, the wireframe count) when linting a component alone.
 - `--job <job>` names what the visitor came to do (`book`, `buy`,
@@ -87,8 +95,10 @@ separator (it is printed as ` / fix: `), so splitting a line on its first
 `--json`.
 
 Exit **2** when anything blocks, **1** when an ask is unanswered, **0**
-otherwise (**3** on a usage error). Findings sort blocks, ask, waived, polish,
-then by rule, file and line.
+otherwise (**3** on a usage error, **4** when `--url` was given and no browser
+measured it). Findings sort blocks, ask, waived, polish, then by rule, file
+and line. `--scope app` has its own verdict and exit codes: see
+[App profile](#app-profile---scope-app).
 
 ## Tiers
 
@@ -299,6 +309,153 @@ ids are the lint's own: `waiver` (a refused waiver, ask), `house-style` (more
 than three waivers, polish), `render` (a page that did not render, blocks:
 an unrendered page is never a pass) and `internal-error` (a page or stylesheet the lint could not read, or a rule family that
 threw on a page, ask: the page is not a pass until the lint has read it).
+
+## App profile (--scope app)
+
+```
+gstack-design-lint --scope app (--url <url> ... | --state-file <states.json>) --within <selector>
+                   [--viewport WxH ...] [--wait-for <selector>] [--waivers <file>] [--json] [--verbose]
+```
+
+The page and component profiles grade a whole page against hallmark's gates.
+The app profile measures one section of an app screen while it is being
+built, for the spacing defects qm#3186 shipped (two-line rows crowding the next
+row, help copy flush under a list, a status note at full weight inside a row)
+and small hit areas. It is render-only (no static tier, and paths are a usage
+error), reports only its five rules, and the page and component profiles never
+report them. Its scheduler (`lib/design-lint/render-app.ts`) and probes
+(`lib/design-lint/render-probe-app.ts`, installed on
+`window.__gstackLintApp`) are separate from the page tier's, which is
+unchanged.
+
+- **States.** Each `--url` is one state, named by its path and query
+  (redacted); a later URL whose name is taken gets `~2`, `~3` after it, and
+  the same URL given twice exits 3 (`DUPLICATE_STATE`).
+  `--state-file` names them instead:
+  `{"version":1,"states":[{"name":"owner","url":"http://127.0.0.1:5300/p?as=owner","expect":"<selector>","within":"<selector>"}]}`.
+  `name`, `expect` and `within` are optional; an unknown key, a missing or
+  non-http `url`, a bad selector or a repeated name exits 3. A URL off
+  loopback is allowed and noted (`LINT_APP_NOTE:`). `expect` proves the state
+  rendered: it must match in the composed tree after readiness, or the state
+  is incomplete with `STATE_MISMATCH`.
+- **`--within`** (required) is matched through the light DOM and every open
+  shadow root, slotted content included; a state's own `within` overrides it.
+  A malformed selector exits 3 before any page opens. A selector that matches
+  nothing is `WITHIN_NO_MATCH`, naming the trees searched.
+- **Readiness.** The page is opened and the engine waits up to 15 s for the
+  `--wait-for` selector, else the `--within` selector, through open shadow
+  roots. Then the probe polls up to 5 s until the section holds a list of two
+  or more rows; an explicit `--wait-for` skips that list wait (use it for a
+  section with no list). A section that never gets its list is `NOT_READY`; an
+  explicit `--wait-for` that never matches is `NOT_READY` too.
+- **Viewports.** 1440x900 and 375x812 by default; `--viewport WxH` (repeatable)
+  replaces them. Width 320 to 3840, height 480 to 2400, `^\d{3,4}x\d{3,4}$`;
+  anything else exits 3. One page load per state, one measurement per
+  viewport.
+- `--within`, `--viewport`, `--wait-for`, `--waivers` and `--state-file`
+  without `--scope app` exit 3 (`APP_ONLY: <flag> only with --scope app`).
+  `--verbose` is accepted under every scope; under `--scope app` it prints a
+  failed probe's stack.
+
+### What it measures
+
+The thresholds are fixed in this release; DESIGN.md does not override them.
+Every rule is at `ask`, but the tier does not decide the verdict: any app
+finding a waiver did not answer makes the section open.
+
+| Rule | Tier | The tell (measured px, threshold) | The fix |
+|---|---|---|---|
+| `row-crowding` | ask | in a list of rows, a row whose text spans two or more lines sits under 8px from a drawn row edge (its own border or surface, the neighbouring row's separator, or the list's edge), or under 16px from the next row's text | 8px or more inside the row, 16px or more between rows' text |
+| `copy-flush-under-list` | ask | the first text block after a list (later siblings of the list container inside the section, before the next heading) starts under 12px below it | 12px or more under the list |
+| `note-in-row-weight` | ask | in a list of rows, a note with no icon and no surface of its own, OKLCH lightness within 0.15 of the name's and size 0.9 or more of it; or, at 1200px and wider, a note of three lines or more | mute the note, or give it an icon or a callout |
+| `small-hit-area` | ask | at 480px and narrower, a control inside a list row under 32px in either dimension (an input's label counts toward its box; a link inside a run of text is exempt) | a 32px target that keeps the glyph its size |
+| `section-overflow` | ask | an element inside the section whose right edge passes the viewport (outside any scroller), or a non-scrolling element whose content is wider than its box | wrap or shrink it, or give it a scroller |
+
+How it reads the page, with no test hooks (no `data-testid`, no attribute at
+all): a **list** is two or more adjacent siblings of one tag and class list,
+widths within 10%, stacked (each top at or below the previous bottom less
+1px), each holding visible text; tables, anything inside `nav` or a
+navigation, grid, table, menu, listbox, tablist or tree role, headings,
+paragraphs, sections and forms are never rows, and siblings side by side are a
+grid, not a list. A list is a **list of rows** when it or a row draws a
+border, background or shadow, or when every row is a flex or grid box that sets
+two or more boxes side by side (an avatar, the text, a control);
+`row-crowding` and `note-in-row-weight` read lists of rows only (an unboxed
+bullet list is prose). With no drawn edge, `row-crowding` measures only the
+gap to the next row's text. Measurements within 0.05px of a threshold count as
+meeting it, so layout's subpixel rounding never fires a rule. A row's **text runs** are its
+visible text nodes in rendered order through the composed tree, leaving out
+text inside controls; positions are line boxes, so a gap is the padding and
+margins the CSS set. The **name** is the run on the row's first line (the
+leftmost when two share it). A **note** is a text block whose first line starts
+below the name's line; a role label beside the name is never a note.
+**Controls** are `button`, `a[href]`, `input`, `select` and the button,
+menuitem, switch and tab roles.
+
+### Verdict, output and exit
+
+Each finding is a `LINT:` line whose evidence reads
+`[<state> <W>px] <measured sentence> at <locator>`; the locator pierces
+shadow roots (`qm-sharing >>> section.panel > div.rows:nth-of-type(1) > div.row:nth-of-type(2) "Registry token Pushes…"`).
+Then one `LINT_APP_STATE:` line per state and viewport, `LINT_SUMMARY`, and
+the verdict:
+
+```
+LINT_APP: verdict=<clean|open|incomplete> code=<OK|OPEN|CODE> states=<measured>/<planned> viewports=<list> within=<sel> matched=<n> open=<n> waived=<n>
+```
+
+`states` counts states measured at every viewport; `matched` is the fewest
+elements `--within` matched at any state and viewport. Exit **0** clean (every
+planned state and viewport measured, nothing open), **1** open (complete
+coverage, open findings), **4** incomplete (any state or viewport not
+measured: incomplete wins over open, and partial coverage never prints clean),
+**3** usage only. `--json` prints `{ summary, files, findings, app }`, where
+`app` is `{ verdict, code, codes, within, matched, viewports, states: [{ name,
+url, viewport, status, code, matched, detail?, trace? }], open, waived, notes }`
+and each app finding carries `app: { state, viewport, locator, measured,
+threshold }`, never truncated. Findings that differ only in their row or
+viewport stay separate.
+
+When several codes apply, `code` is the first in this order and `codes` lists
+them all:
+
+| Code | Means | Fix |
+|---|---|---|
+| <a id="app-code-no_browser"></a>`NO_BROWSER` | no browser could open the page (also `RENDER_UNAVAILABLE` on stderr) | gstack-browser-ensure, then rerun |
+| <a id="app-code-unreachable"></a>`UNREACHABLE` | the URL did not answer 2xx, or the page did not render | start the server or fix the URL, then rerun |
+| <a id="app-code-timeout"></a>`TIMEOUT` | the render ran past its 120 s budget | make the page load faster or measure fewer viewports, then rerun |
+| <a id="app-code-not_ready"></a>`NOT_READY` | the section never held a list, or `--wait-for` never matched | pass `--wait-for` with a selector that appears once the data is in, or make the data load |
+| <a id="app-code-state_mismatch"></a>`STATE_MISMATCH` | the state's `expect` selector matched nothing | make the URL load the state it names, or fix `expect` |
+| <a id="app-code-within_no_match"></a>`WITHIN_NO_MATCH` | `--within` matched nothing in the document or any open shadow root | pass the custom element's tag or a selector inside the light DOM |
+| <a id="app-code-closed_shadow"></a>`CLOSED_SHADOW` | a custom element in the section (or, when nothing matched, on the page) renders a closed shadow root: no shadow root, no light DOM, 40px or taller | attach the shadow root with mode "open" in development, or pass a `--within` outside it |
+| <a id="app-code-probe_error"></a>`PROBE_ERROR` | a probe threw or answered in a shape the lint does not know | read the trace file; a page script that redefines DOM APIs breaks the probes |
+| <a id="app-code-asset_missing"></a>`ASSET_MISSING` | a linked stylesheet did not load (a font that did not load is only a `LINT_APP_NOTE`) | fix the stylesheet path or wait for the server, then rerun |
+
+Each `LINT_APP_STATE` line for an incomplete state names its code, the
+detail, the fix and its anchor here. Nothing is retried: fix the named cause
+and rerun. A probe that throws writes `{probe, state, viewport, stack, url}`
+to a private file (mode 0600, in a 0700 `gstack-design-lint-traces`
+directory under the system temp directory) and names it on stdout and
+stderr; `--verbose` also prints the stack. When the trace cannot be
+written, the state is still `PROBE_ERROR` and stderr says why.
+
+### Waivers and redaction
+
+URL targets have no source comment to carry a waiver, so `--waivers <file>`
+does: `{"version":1,"waivers":[{"rule":"small-hit-area","locator":"<part of
+the finding's locator>","reason":"<why, about this page>"}]}`. The rule must
+be an app rule and the reason 8 characters or more; an unknown rule or key
+exits 3. A finding whose rule matches and whose locator contains the waiver's
+`locator` prints at `waived` with its reason; a waiver that matched nothing
+prints as a `waiver` finding (unused), which does not change the verdict.
+
+Every URL a person sees (text, JSON, stderr, traces, state names) has its
+userinfo dropped and the value of any query or `#fragment` parameter whose
+name contains token, key, secret, auth, session, sig, signature, password,
+pass, code, jwt or bearer replaced with `REDACTED`; the page is opened at the
+real URL. A URL that does not parse (a port out of range, say) and URLs
+inside error text are redacted by pattern, and a value runs to the next `&`,
+`#` or whitespace, so punctuation inside a token never lets its tail through.
 
 ## Token names the rules read
 

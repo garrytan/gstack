@@ -34,11 +34,11 @@ const settings = () => (fs.existsSync(settingsFile()) ? JSON.parse(fs.readFileSy
 const GATES = {
   skill_routing: 'GSTACK_SKILL_ROUTING UserPromptSubmit "$2/hosts/claude/hooks/skill-route-hook" gstack-skill-route 5 "routing hint"',
   skill_contracts: 'GSTACK_SKILL_CONTRACTS Stop "$2/hosts/claude/hooks/skill-contract-stop-hook" gstack-skill-contract 10 "contract check"',
-  investigate_gate: 'GSTACK_INVESTIGATE_GATE PreToolUse "$2/hosts/claude/hooks/investigate-gate-pre" gstack-investigate-gate "$SKILL_GATE_HOOK_TIMEOUT" "investigate gate" "Edit|Write|MultiEdit|NotebookEdit|Bash"'
-    + ' PostToolUse "$2/hosts/claude/hooks/investigate-gate-post" Bash PostToolUseFailure "$2/hosts/claude/hooks/investigate-gate-post-failure" Bash Stop "$2/hosts/claude/hooks/investigate-gate-stop" ""',
+  destructive_guard: 'GSTACK_DESTRUCTIVE_GUARD PreToolUse "$2/hosts/claude/hooks/destructive-guard-hook" gstack-destructive-guard 10 "destructive check" \'Bash|PowerShell\'',
   ceo_review_gate: 'GSTACK_CEO_REVIEW_GATE Stop "$2/hosts/claude/hooks/ceo-review-gate-stop" gstack-ceo-review-gate "$SKILL_GATE_HOOK_TIMEOUT" "ceo review gate" ""'
     + ' SubagentStop "$2/hosts/claude/hooks/ceo-review-gate-subagent-stop" ""',
-  autoplan_gate: 'GSTACK_AUTOPLAN_GATE Stop "$2/hosts/claude/hooks/autoplan-stop-gate-stop" gstack-autoplan-gate "$SKILL_GATE_HOOK_TIMEOUT" "autoplan gate" ""',
+  autoplan_gate: 'GSTACK_AUTOPLAN_GATE Stop "$2/hosts/claude/hooks/autoplan-stop-gate-stop" gstack-autoplan-gate "$SKILL_GATE_HOOK_TIMEOUT" "autoplan gate" ""'
+    + ' PreToolUse "$2/hosts/claude/hooks/autoplan-stop-gate-publish" Bash',
 };
 
 /** Run one gate once from the checkout at root: mode is the flag value ("" = none). */
@@ -66,17 +66,22 @@ const registered = (event = 'UserPromptSubmit') => (settings().hooks?.[event] ??
 
 describe('setup: skill hook gates', () => {
   test('flags parse for both switches, and both appear in --help', () => {
-    for (const f of ['--skill-routing)', '--no-skill-routing)', '--skill-routing=*)', '--skill-contracts)', '--no-skill-contracts)', '--skill-contracts=*)']) {
+    for (const f of ['--skill-routing)', '--no-skill-routing)', '--skill-routing=*)', '--skill-contracts)', '--no-skill-contracts)', '--skill-contracts=*)',
+      '--destructive-guard)', '--no-destructive-guard)', '--destructive-guard=*)']) {
       expect(setupSrc).toContain(`    ${f}`);
     }
     expect(setupSrc).toContain('--skill-routing --no-skill-routing --skill-contracts --no-skill-contracts');
     expect(setupSrc).toContain('--skill-routing / --no-skill-routing');
     expect(setupSrc).toContain('--skill-contracts / --no-skill-contracts');
+    expect(setupSrc).toContain('--destructive-guard / --no-destructive-guard');
+    expect(setupSrc).toContain('--destructive-guard --no-destructive-guard');
   });
 
   test('both hooks resolve through _hook_command_path literals (the parse gate and hook-check see them), with KNOWN_HOOKS rows', () => {
     expect(setupSrc).toContain('_hook_command_path hosts/claude/hooks/skill-route-hook ||');
     expect(setupSrc).toContain('_hook_command_path hosts/claude/hooks/skill-contract-stop-hook ||');
+    expect(setupSrc).toContain('_hook_command_path hosts/claude/hooks/destructive-guard-hook ||');
+    expect(settingsHookSrc).toContain('"destructive-guard-hook":   { source: "gstack-destructive-guard", event: "PreToolUse", matcher: "Bash|PowerShell", relpath: "hosts/claude/hooks/destructive-guard-hook" }');
     expect(settingsHookSrc).toContain('"skill-route-hook":         { source: "gstack-skill-route", event: "UserPromptSubmit", matcher: "", relpath: "hosts/claude/hooks/skill-route-hook" }');
     expect(settingsHookSrc).toContain('"skill-contract-stop-hook": { source: "gstack-skill-contract", event: "Stop", matcher: "", relpath: "hosts/claude/hooks/skill-contract-stop-hook" }');
     expect(setupSrc).toMatch(/_skill_hook_gate skill_contracts "\$SKILL_CONTRACTS_MODE" GSTACK_SKILL_CONTRACTS Stop \\\n  "\$SKILL_CONTRACT_HOOK" gstack-skill-contract 10/);
@@ -137,6 +142,37 @@ describe('setup: skill hook gates', () => {
     gate('', {}, 1);
     expect(registered()).toEqual([]);
   });
+
+  test('destructive_guard: on by default as one PreToolUse entry for Bash and PowerShell; an off set earlier is kept', () => {
+    const g = gate('', {}, 0, ROOT, 'destructive_guard');
+    expect(g.out).toContain(`registered PreToolUse hook: destructive check (on via default; turn off: gstack-config set destructive_guard off, or ./setup --no-destructive-guard`);
+    const entries = settings().hooks?.PreToolUse ?? [];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ matcher: 'Bash|PowerShell', _gstack_source: 'gstack-destructive-guard' });
+    expect(entries[0].hooks[0].command).toEndWith('hosts/claude/hooks/destructive-guard-hook');
+    expect(config()).not.toContain('destructive_guard');
+    fs.rmSync(settingsFile());
+    fs.writeFileSync(path.join(state, 'config.yaml'), 'destructive_guard: off\nskill_routing: off\n');
+    expect(gate('', {}, 0, ROOT, 'destructive_guard')).toEqual({ code: 0, out: '' });
+    expect(gate('')).toEqual({ code: 0, out: '' });
+    expect(settings().hooks?.PreToolUse ?? []).toEqual([]);
+    expect(registered()).toEqual([]);
+  });
+
+  test('the on-by-default notice prints once, names every switch it turned on and how to turn each off', () => {
+    const start = setupSrc.indexOf('_HOOKS_NOTICE_MARKER=');
+    const block = setupSrc.slice(start, setupSrc.indexOf('\nfi\n', start) + 4);
+    const run = (on: string) => spawnSync('bash', ['-c', ['log() { printf "%s\\n" "$*"; }', 'QUIET=0', `_HOOKS_ON_BY_DEFAULT="${on}"`, block].join('\n')], {
+      env: { PATH: process.env.PATH ?? '', HOME: home, GSTACK_STATE_ROOT: state }, encoding: 'utf8', timeout: 10_000,
+    });
+    expect(run('').stdout).toBe('');
+    const first = run(' skill_routing destructive_guard');
+    expect(first.status).toBe(0);
+    expect(first.stdout).toContain("gstack's helper hooks are now on by default. This run turned on: skill_routing destructive_guard");
+    expect(first.stdout).toContain('Turn one off: gstack-config set <name> off');
+    expect(first.stdout).toContain('--no-skill-contracts, --no-destructive-guard');
+    expect(run(' skill_contracts').stdout).toBe('');
+  });
 });
 
 describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () => {
@@ -148,9 +184,9 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     copy = tmpDir('gstack-switch-default-');
     fs.cpSync(path.join(ROOT, 'lib'), path.join(copy, 'lib'), { recursive: true });
     fs.cpSync(path.join(ROOT, 'hosts', 'claude', 'hooks'), path.join(copy, 'hosts', 'claude', 'hooks'), { recursive: true });
-    for (const f of ['gstack-config', 'gstack-state-root.sh', 'gstack-skill-route']) fs.cpSync(path.join(ROOT, 'bin', f), path.join(copy, 'bin', f));
+    for (const f of ['gstack-config', 'gstack-lock.sh', 'gstack-state-root.sh', 'gstack-skill-route']) fs.cpSync(path.join(ROOT, 'bin', f), path.join(copy, 'bin', f));
     fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(copy, 'node_modules'));
-    skills = skillsDir(['investigate']);
+    skills = skillsDir(['verify']);
     work = tmpDir('gstack-switch-default-work-');
   });
   afterAll(() => { for (const d of [copy, skills, work]) fs.rmSync(d, { recursive: true, force: true }); });
@@ -179,7 +215,7 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
       JSON.stringify({ session_id: 'sess-d', transcript_path: file, cwd: work, hook_event_name: 'Stop', stop_hook_active: false }),
       hookEnv(state, skills));
   };
-  const routes = (r: { stdout: string }) => r.stdout !== '' && JSON.parse(r.stdout).hookSpecificOutput.additionalContext.includes('/investigate');
+  const routes = (r: { stdout: string }) => r.stdout !== '' && JSON.parse(r.stdout).hookSpecificOutput.additionalContext.includes('/verify');
   const blocks = (r: { stdout: string }) => r.stdout !== '' && JSON.parse(r.stdout).decision === 'block';
   /** Every reader at root agrees that the switches default to want. */
   function expectReaders(root: string, want: Record<keyof typeof GATES, 'on' | 'off'>): void {
@@ -198,14 +234,19 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     expect(config()).toBe('');
   }
 
-  test('pin: skill_routing defaults to off today (a flip PR changes lib/skill-route.ts line 42 and this pin)', () => {
-    expect(original.split('\n')[41]).toBe("  skill_routing: 'off',");
-    expect(SWITCH_DEFAULT.skill_routing).toBe('off');
+  test('pin: skill_routing defaults to on today (a flip PR changes lib/skill-route.ts line 47 and this pin)', () => {
+    expect(original.split('\n')[46]).toBe("  skill_routing: 'on',");
+    expect(SWITCH_DEFAULT.skill_routing).toBe('on');
   });
 
-  test('pin: skill_contracts defaults to off today (a flip PR changes lib/skill-route.ts line 43 and this pin)', () => {
-    expect(original.split('\n')[42]).toBe("  skill_contracts: 'off',");
-    expect(SWITCH_DEFAULT.skill_contracts).toBe('off');
+  test('pin: skill_contracts defaults to on today (a flip PR changes lib/skill-route.ts line 48 and this pin)', () => {
+    expect(original.split('\n')[47]).toBe("  skill_contracts: 'on',");
+    expect(SWITCH_DEFAULT.skill_contracts).toBe('on');
+  });
+
+  test('pin: destructive_guard defaults to on today (a flip PR changes lib/skill-route.ts line 49 and this pin)', () => {
+    expect(original.split('\n')[48]).toBe("  destructive_guard: 'on',");
+    expect(SWITCH_DEFAULT.destructive_guard).toBe('on');
   });
 
   test('every reader agrees with SWITCH_DEFAULT: gstack-config, setup, the routing hook and the Stop hook', () => {
@@ -241,48 +282,43 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
   });
 });
 
-describe('setup: the investigate_gate switch (GST-1461) registers one shim per event', () => {
+describe('setup: the retired /investigate gate loses its old registration (GST-1717)', () => {
   const EVENTS: Array<[string, string, string | undefined]> = [
     ['PreToolUse', 'investigate-gate-pre', 'Edit|Write|MultiEdit|NotebookEdit|Bash'],
     ['PostToolUse', 'investigate-gate-post', 'Bash'],
     ['PostToolUseFailure', 'investigate-gate-post-failure', 'Bash'],
     ['Stop', 'investigate-gate-stop', undefined],
   ];
-  const ours = (event: string) => registered(event).filter(e => e.hooks.some(h => h.command.includes('investigate-gate')));
+  const removal = setupSrc.match(/^.*remove-source --source gstack-investigate-gate.*$/m)?.[0] ?? 'echo "setup has no gstack-investigate-gate removal" >&2; exit 9';
+  const hook = (...args: string[]) => spawnSync(path.join(ROOT, 'bin', 'gstack-settings-hook'), args, {
+    env: { PATH: process.env.PATH ?? '', HOME: home, GSTACK_SETTINGS_FILE: settingsFile() }, encoding: 'utf8', timeout: 30_000,
+  });
 
-  test('flags parse, appear in --help, and each shim has a KNOWN_HOOKS row with its event and matcher', () => {
-    for (const flag of ['--investigate-gate)', '--no-investigate-gate)', '--investigate-gate=*)']) expect(setupSrc).toContain(`    ${flag}`);
-    expect(setupSrc).toContain('--investigate-gate / --no-investigate-gate');
-    for (const [event, shim, matcher] of EVENTS) {
-      expect(setupSrc).toContain(`_hook_command_path hosts/claude/hooks/${shim} ||`);
-      const row = settingsHookSrc.slice(settingsHookSrc.indexOf(`"${shim}":`), settingsHookSrc.indexOf('}', settingsHookSrc.indexOf(`"${shim}":`)));
+  test('no flag or switch is left, and the KNOWN_HOOKS rows stay so the old entries are recognized', () => {
+    expect(setupSrc).not.toContain('--investigate-gate');
+    expect(setupSrc).not.toContain('INVESTIGATE_GATE');
+    for (const [event, shim] of EVENTS) {
+      const row = settingsHookSrc.slice(settingsHookSrc.indexOf('"' + shim + '":'), settingsHookSrc.indexOf('}', settingsHookSrc.indexOf('"' + shim + '":')));
       expect(row).toContain('source: "gstack-investigate-gate"');
-      expect(row).toContain(`event: "${event}"`);
-      expect(row).toContain(`matcher: "${matcher ?? ''}"`);
+      expect(row).toContain('event: "' + event + '"');
     }
   });
 
-  test('pin: investigate_gate defaults to off, so with no flag, env or config nothing registers', () => {
-    expect(SWITCH_DEFAULT.investigate_gate).toBe('off');
-    expect(gate('', {}, 0, ROOT, 'investigate_gate')).toEqual({ code: 0, out: '' });
-    for (const [event] of EVENTS) expect(ours(event)).toEqual([]);
-  });
-
-  test('flag on: persists and registers all four events with their matchers; a re-run is quiet; off removes all four', () => {
-    const first = gate('on', {}, 0, ROOT, 'investigate_gate');
-    expect(first.code).toBe(0);
-    expect(first.out).toContain('registered PreToolUse hook: investigate gate (on via flag; turn off: gstack-config set investigate_gate off, or ./setup --no-investigate-gate');
-    expect(config()).toMatch(/^investigate_gate: on$/m);
+  test('setup removes all four events an earlier setup registered, and leaves the other gates', () => {
     for (const [event, shim, matcher] of EVENTS) {
-      const entries = ours(event) as Array<{ matcher?: string; hooks: Array<{ command: string; timeout?: number }> }>;
-      expect(entries).toHaveLength(1);
-      expect(entries[0].matcher ?? undefined).toBe(matcher);
-      expect(entries[0].hooks[0].command).toEndWith(`hosts/claude/hooks/${shim}`);
-      expect(entries[0].hooks[0].timeout).toBe(HOOK_TIMEOUT_S);
+      const r = hook('ensure-event', '--event', event, '--command', path.join(ROOT, 'hosts', 'claude', 'hooks', shim), '--source', 'gstack-investigate-gate', ...(matcher ? ['--matcher', matcher] : []));
+      expect(r.status, r.stderr).toBe(0);
     }
-    expect(gate('', {}, 0, ROOT, 'investigate_gate')).toEqual({ code: 0, out: '' });
-    gate('off', {}, 0, ROOT, 'investigate_gate');
+    const ceo = hook('ensure-event', '--event', 'Stop', '--command', path.join(ROOT, 'hosts', 'claude', 'hooks', 'ceo-review-gate-stop'), '--source', 'gstack-ceo-review-gate');
+    expect(ceo.status, ceo.stderr).toBe(0);
+    const ours = (event: string) => registered(event).filter(e => e.hooks.some(h => h.command.includes('investigate-gate')));
+    for (const [event] of EVENTS) expect(ours(event)).toHaveLength(1);
+    const r = spawnSync('bash', ['-c', 'SETTINGS_HOOK="$1"\n' + removal, 'setup', path.join(ROOT, 'bin', 'gstack-settings-hook')], {
+      env: { PATH: process.env.PATH ?? '', HOME: home, GSTACK_SETTINGS_FILE: settingsFile() }, encoding: 'utf8', timeout: 30_000,
+    });
+    expect(r.status, r.stderr).toBe(0);
     for (const [event] of EVENTS) expect(ours(event)).toEqual([]);
+    expect(registered('Stop').some(e => e.hooks.some(h => h.command.endsWith('ceo-review-gate-stop')))).toBe(true);
   });
 });
 
@@ -336,8 +372,9 @@ describe('setup: the ceo_review_gate switch (GST-1461) registers Stop and Subage
   });
 });
 
-describe('setup: the autoplan_gate switch (GST-1666) registers Stop', () => {
+describe('setup: the autoplan_gate switch (GST-1666) registers Stop, and PreToolUse on Bash for the publish check (GST-1814)', () => {
   const ours = () => registered('Stop').filter(e => e.hooks.some(h => h.command.includes('autoplan-stop-gate')));
+  const publish = () => registered('PreToolUse').filter(e => e.hooks.some(h => h.command.includes('autoplan-stop-gate'))) as Array<{ matcher?: string; hooks: Array<{ command: string; timeout?: number }> }>;
 
   test('flags parse, appear in --help and the typo list, and the shim has a KNOWN_HOOKS row with its event', () => {
     for (const flag of ['--autoplan-gate)', '--no-autoplan-gate)', '--autoplan-gate=*)']) expect(setupSrc).toContain(`    ${flag}`);
@@ -349,15 +386,22 @@ describe('setup: the autoplan_gate switch (GST-1666) registers Stop', () => {
     expect(row).toContain('source: "gstack-autoplan-gate"');
     expect(row).toContain('event: "Stop"');
     expect(row).toContain('matcher: ""');
+    expect(setupSrc).toContain('_hook_command_path hosts/claude/hooks/autoplan-stop-gate-publish ||');
+    expect(setupSrc).toContain('  PreToolUse "$AUTOPLAN_GATE_PUBLISH" Bash');
+    const pub = settingsHookSrc.slice(settingsHookSrc.indexOf('"autoplan-stop-gate-publish":'), settingsHookSrc.indexOf('}', settingsHookSrc.indexOf('"autoplan-stop-gate-publish":')));
+    expect(pub).toContain('source: "gstack-autoplan-gate"');
+    expect(pub).toContain('event: "PreToolUse"');
+    expect(pub).toContain('matcher: "Bash"');
   });
 
   test('pin: autoplan_gate defaults to off, so with no flag, env or config nothing registers', () => {
     expect(SWITCH_DEFAULT.autoplan_gate).toBe('off');
     expect(gate('', {}, 0, ROOT, 'autoplan_gate')).toEqual({ code: 0, out: '' });
     expect(ours()).toEqual([]);
+    expect(publish()).toEqual([]);
   });
 
-  test('flag on: persists and registers Stop; a re-run is quiet; off removes it', () => {
+  test('flag on: persists and registers Stop and PreToolUse; a re-run is quiet; off removes both', () => {
     const first = gate('on', {}, 0, ROOT, 'autoplan_gate');
     expect(first.code).toBe(0);
     expect(first.out).toContain('registered Stop hook: autoplan gate (on via flag; turn off: gstack-config set autoplan_gate off, or ./setup --no-autoplan-gate');
@@ -367,9 +411,14 @@ describe('setup: the autoplan_gate switch (GST-1666) registers Stop', () => {
     expect(entries[0].matcher ?? undefined).toBeUndefined();
     expect(entries[0].hooks[0].command).toEndWith('hosts/claude/hooks/autoplan-stop-gate-stop');
     expect(entries[0].hooks[0].timeout).toBe(HOOK_TIMEOUT_S);
+    expect(publish()).toHaveLength(1);
+    expect(publish()[0].matcher).toBe('Bash');
+    expect(publish()[0].hooks[0].command).toEndWith('hosts/claude/hooks/autoplan-stop-gate-publish');
+    expect(publish()[0].hooks[0].timeout).toBe(HOOK_TIMEOUT_S);
     expect(gate('', {}, 0, ROOT, 'autoplan_gate')).toEqual({ code: 0, out: '' });
     gate('off', {}, 0, ROOT, 'autoplan_gate');
     expect(ours()).toEqual([]);
+    expect(publish()).toEqual([]);
   });
 
   test('gstack-config knows the key and its default', () => {
@@ -381,9 +430,8 @@ describe('setup: the autoplan_gate switch (GST-1666) registers Stop', () => {
 describe('setup: both skill gates register the hook timeout lib/skill-gates.ts derives (GST-1615)', () => {
   test('source: one SKILL_GATE_HOOK_TIMEOUT from gstack-skill-gates hook-timeout, passed to both gates', () => {
     expect(gateTimeoutLine).toBe('SKILL_GATE_HOOK_TIMEOUT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-skill-gates" hook-timeout 2>/dev/null || true)"');
-    expect(setupSrc).toContain('"$INVESTIGATE_GATE_PRE" gstack-investigate-gate "$SKILL_GATE_HOOK_TIMEOUT" \\');
     expect(setupSrc).toContain('"$CEO_REVIEW_GATE_STOP" gstack-ceo-review-gate "$SKILL_GATE_HOOK_TIMEOUT" \\');
-    expect(setupSrc).not.toMatch(/gstack-(investigate|ceo-review)-gate \d/);
+    expect(setupSrc).not.toMatch(/gstack-(ceo-review|autoplan)-gate \d/);
   });
 
   test('the setup line evaluates to HOOK_TIMEOUT_S', () => {

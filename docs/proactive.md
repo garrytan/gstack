@@ -34,15 +34,12 @@ needed, because every skill reads `PROACTIVE` from `gstack-skill-start` at the
 start of each run and the router (`/gstack`) applies it to its routing rules. A
 value gstack does not know (a hand-edited `proactive: maybe`) reads as `core`.
 
-The `## Skill routing` section gstack offers to append to your project's
-CLAUDE.md follows the setting too. Under `core` it lists only the four core
-rules and says the other skills run when you type them or a running skill
-hands off to them; under `all` it lists
-every routing rule; under `off` it is not offered, because those rules are the
-auto-invocation you turned off. gstack offers the section once per project and
-never edits it afterwards. So a section you accepted earlier, or under another
-setting, stays as it is: trim it to match (the core four are /office-hours,
-/review, /qa and /ship), or delete it and let gstack offer it again.
+gstack no longer offers to add a `## Skill routing` section to your project's
+CLAUDE.md: its prompt-routing hook names the matching skill instead
+([skill-routing-and-contracts.md](skill-routing-and-contracts.md)). If an older
+gstack added that section, gstack never edits it, so it stays as you left it
+whatever this setting says. Trim it to match (the core four are /office-hours,
+/review, /qa and /ship), or delete it.
 
 Skill descriptions cannot change with the setting, so they are written for the
 `core` default. Only the four core skills say "Proactively suggest ..." in the

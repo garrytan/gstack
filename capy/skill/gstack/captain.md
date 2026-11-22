@@ -6,7 +6,7 @@ the thread reports to a Captain (a crew thread) or straight to a person. `gstack
 short form as the `capy-asks` block whenever `GSTACK_CAPY=1` (the Capy launch line sets it).
 `GSTACK_CAPY_ASKS=0` drops that block for one session. This is the lane's side. The controller's side (the
 READY contract, merge trains, the digest, the daily flaky pass, and the templates for the crew rules file
-and the Captain's drive) is the `/captain` skill and `docs/captain.md` in the gstack checkout.
+and the Captain's drive) is the `/captain` skill and `crew/docs/captain.md` in the gstack checkout.
 
 ## 1. How approvals work, per thread
 
@@ -14,6 +14,11 @@ and the Captain's drive) is the `/captain` skill and `docs/captain.md` in the gs
   question to the person. The Captain relays it in plain language and sends back the person's exact words.
   A thread with no Captain asks the person directly with a Capy question. Either way, never use a bare
   question, gate codes or slot numbers.
+- **Every relay quotes its source.** The person's answer is one case of a wider rule: whatever an agent
+  passes on (an answer, another crew's finding, a report from another agent system, a summary it was given)
+  goes out in the source's own words, unchanged and marked as a quote, with who wrote them, when, and what the
+  relayer checked ("checked: nothing" when it checked nothing). A summary may sit beside the quote, never in
+  place of it, because a summary repeated unchecked is how a wrong claim reaches the owner.
 - **Scope.** An answer covers the thread and scope it was asked for. It is not a blanket approval for
   later work.
 - **Standing approvals** are the ones the Captain lists in its own rules, for example "merge when green,
@@ -77,7 +82,7 @@ Under a Captain, a thread that builds something plans before any product code. A
 brief, sized to the work, is its first act, the gate goes up in the shape below, and the build starts only
 when the answer is in the run and it reports `APPROVED`. The short form every Capy thread follows, with the
 exempt work (read-only threads, flaky-pass repairs, slot stamps, CHANGELOG resolves, cap re-pins under a
-grant), is the "Plan, approve, ship" section of SKILL.md in this folder; the rule in full is `docs/captain.md`,
+grant), is the "Plan, approve, ship" section of SKILL.md in this folder; the rule in full is `crew/docs/captain.md`,
 Plan before build.
 
 Every plan or gate you bring for approval has these parts, in this order, written so someone outside the
@@ -89,7 +94,7 @@ project can follow it:
 3. **What caused this work.** The trigger: an issue or PR link, a failed run, a user report, or the
    person's request, quoted.
 4. **Big decisions.** For each: the options considered, the pick and why, and what would flip it.
-5. **What we need from you.** The ask format (`docs/captain.md`, The ask format): the Captain's name, then one
+5. **What we need from you.** The ask format (`crew/docs/captain.md`, The ask format): the Captain's name, then one
    lettered line per decision, letters unique across the list: "A: <code> hit problem p, which happens when h.
    We could fix it in these ways: 1) x; 2) y; 3) z. Recommendation: x because why. A1 to take recommendation."
    The recommendation is option 1. Never offer "the plan as first written" as the default.
@@ -104,7 +109,8 @@ For an autoplan run, open the plan with `## ELI5` (5-10 plain sentences), then w
 gstack-owner-brief render --captain --out <run dir> --captain-name "<Captain name>"
 ```
 
-It prints a header line ("Decision needed … Reply **do it** …"), the `### ELI5` summary (on a run whose gate
+It prints a header line ("Decision needed … Reply **do it** …"), the plan's `### Day one` table, `### What it won't do yet`
+and the owner's words it follows (each when the plan has it), the `### ELI5` summary (on a run whose gate
 carries `eli5`), the four plan sections (each capped, with a pointer to the plan for the rest), and "What we need from you", one lettered
 line per choice in the ask format, closed by "do it", then a `### Cost` section (spent so far, worst case, and the estimate for
 the phases `rec` can reopen). The last line, "For the relaying agent", carries the run, `gate_rev`, `rec_hash` and the exact
@@ -149,15 +155,31 @@ Every PR you send READY on, and the READY report itself, has:
    evidence-ladder rung that fact reached.
 4. **Approvals.** `gstack-approvals render`.
 5. **Evidence.** Checks green at the head, gate or train results, flaky cases, and an `Unverified:` line:
-   each claim you did not check yourself and why, or `none`. You write this item; /ship does not.
+   each claim you did not check yourself and why, or `none`; `Failed or skipped:` and `Also changed:` lines too.
+   A controller asks for a missing one of the three, never refuses it. You write this item; /ship does not.
 
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
 /ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
 
+**Who watches CI.** You own your PR's checks and review until READY: hold its watch yourself and fix what
+turns red (one rerun for a flake), so a check never wakes your Captain. A Captain whose PRs bring many check,
+review and merge wakes hands PR and CI watching to one merge-lane thread instead of subscribing itself, because
+every wake more than about five minutes after its last call rewrites its whole context cache at many times the
+warm price. The merge lane reports to the Captain only a landing, a decision or a blocker
+(`crew/docs/captain.md` in the gstack checkout, Roles).
+
 A token cap in a brief goes to /ship as `--token-cap <n>`. Run each /ship in a fresh subagent titled
 `ship #<n> at <head7> <4-char nonce>` (unique), with `GSTACK_SHIP_TASK_TITLE=<that title>` in its brief and the instruction to
 take every reading (start, notes, close) from its own row of the root thread's `tasks` and start the budget with
-`--reading-from task`, so it caps at 100M by default; never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
+`--reading-from task`, so it caps at 50M by default; never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
 reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
 owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
 `--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.
+
+## 5. Asks to try a build
+
+An ask for the owner to try an app build, and any "v1 is ready" report, goes out only after the build clears
+`gstack-first-use` (`docs/first-use-check.md` in the checkout): an agent from another model family plays that exact
+build cold on the same kind of device and does the plan's first five day-one actions, with a screenshot or video of
+each. Send the text `gstack-first-use message` prints, unchanged; when it refuses, fix the build and replay instead of
+asking. Record the owner's score and words with `gstack-first-use score`, never in a PR or the repository.

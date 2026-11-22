@@ -48,9 +48,9 @@ async function act(f: Fixture, options: { fix?: boolean; passes?: 1 | 2 } = {}) 
     fs.writeFileSync(f.invoice, SAFE);
   }
   expect(await hook(f, 'Bash', { command: f.commands.defer })).toBeUndefined();
-  expect(sh(f, f.commands.defer!)).toContain('DEFERRED: unfiled (dry run) CRITICAL payments.ts:2');
+  expect(sh(f, f.commands.defer!)).toContain('DEFERRED: CRITICAL payments.ts:2');
   const findings = classified.findings.map((x: any) => ({ fingerprint: x.fingerprint, severity: x.severity, action: x.scope === 'fix' ? (fix ? 'auto-fixed' : 'skipped') : 'deferred',
-    ...(x.scope === 'defer' ? { issue: null } : {}), locus: x.locus, kind: x.kind, blocking: x.blocking }));
+    locus: x.locus, kind: x.kind, blocking: x.blocking }));
   const row = (extra: Record<string, unknown>) => ({ skill: 'review', timestamp: new Date().toISOString(), status: 'issues_found', issues_found: 0, critical: 0, informational: 0,
     quality_score: 10.0, specialists: {}, findings, commit: sh(f, 'git rev-parse --short HEAD').trim(), via: 'ship', completed: true, converged: false, cycles: 1, pass: 1,
     review_scope: 'frozen', range_base: null, ...extra });

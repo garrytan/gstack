@@ -15,7 +15,7 @@
 # `_hook_command_path <path>` argument in <root>/setup (or the setup named by
 # --setup, when another tree's setup registers <root>'s hooks), plus every
 # gstack path on a `command:` line in a skill's frontmatter (<root>/*/SKILL.md:
-# /autoplan, /careful, /freeze, /guard, /investigate, /plan-ceo-review). Claude
+# /autoplan, /careful, /freeze, /guard, /plan-ceo-review). Claude
 # Code runs those while the skill is active, and a broken PreToolUse one blocks
 # the tool call. test/setup-hook-syntax-gate.test.ts keeps the lists equal.
 #
@@ -34,8 +34,12 @@
 #   missing <hook>                      (no shim: setup skips registering it)
 #   fail <hook> <file>:<line>: <message>
 # Exit: 0 when nothing failed, 1 when a hook failed, 2 on usage, 3 when bun
-# (needed when a hook runs TypeScript) is not found. Set GSTACK_HOOK_CHECK_BUN to
-# the bun to run (setup passes its own).
+# (needed when a hook runs TypeScript) is not found or is killed by a signal
+# while bundling (a runtime crash says nothing about whether a hook parses).
+# After a crash the rows bun already printed still count, and so do the shims,
+# their sourced helpers and the merge-marker scan: any failure exits 1. Only an
+# entry bun never reported is unchecked; its hook prints no ok.
+# Set GSTACK_HOOK_CHECK_BUN to the bun to run (setup passes its own).
 set -u
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
@@ -175,6 +179,7 @@ if [ -n "$ENTRIES" ] && ! command -v "$BUN" >/dev/null 2>&1; then
   echo "gstack-hook-check: bun not found, so TypeScript hook entries cannot be checked" >&2
   exit 3
 fi
+BUILD_RC=0
 if [ -n "$ENTRIES" ]; then
   # Bun reports native spellings; shellPath maps them back to the keys looked
   # up below (lib/path-spelling.ts shellPath; test/path-spelling.test.ts keeps
@@ -193,7 +198,11 @@ if [ -n "$ENTRIES" ]; then
         const at = log.position ? `${shellPath(log.position.file)}:${log.position.line}` : key;
         console.log(`${key}\tfail\t${at}\t${String(log.message ?? log).split("\n")[0]}`);
       }
-    }' $ENTRIES) > "$BUILT" 2>/dev/null || true
+    }' $ENTRIES) > "$BUILT" 2>/dev/null || BUILD_RC=$?
+fi
+TS_UNCHECKED=0
+if [ "$BUILD_RC" -gt 128 ]; then
+  echo "gstack-hook-check: bun was killed by signal $((BUILD_RC - 128)) while bundling the TypeScript hook entries, so they cannot be checked" >&2
 fi
 
 i=0
@@ -234,6 +243,11 @@ for hook in $HOOKS; do
     fi
     scan="$scan$NL$dir/$entry"
     result=$(awk -F '\t' -v e="$dir/$entry" '$1 == e' "$BUILT")
+    if [ -z "$result" ] && [ "$BUILD_RC" -gt 128 ]; then
+      TS_UNCHECKED=1
+      hook_ok=0
+      continue
+    fi
     if [ -z "$result" ]; then
       fail "$hook" "$dir/$entry:1" "bun could not bundle the TypeScript entry"
       hook_ok=0
@@ -266,4 +280,5 @@ for hook in $HOOKS; do
   done
   [ "$hook_ok" -eq 1 ] && echo "ok $hook"
 done
+[ "$FAILED" -eq 0 ] && [ "$TS_UNCHECKED" -eq 1 ] && exit 3
 exit "$FAILED"

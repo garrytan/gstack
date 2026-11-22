@@ -17,6 +17,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
+import { fallbackLine } from '../lib/review-exclude';
 import {
   BUMP_NEVER_KEY_VERSION, POLICY_KEYS, POLICY_KEY_INTRODUCED, SHIP_POLICY_PATH, examplePolicyJson, explainPolicy, isUnavailable, loadPolicyFromBase, loadPolicyFromHead,
   minimumReader, policyUnavailableLine, renderEffective, resolveBaseBranch, type LoadedPolicy,
@@ -66,6 +67,7 @@ function load(root: string, args: string[], defaultFrom: 'base' | 'head'): Loade
 
 function printErrors(loaded: LoadedPolicy): void {
   for (const e of loaded.errors) process.stderr.write(resultLine('gstack-ship-policy', e.code, `${e.message} at ${e.path || SHIP_POLICY_PATH}`) + '\n');
+  for (const w of loaded.warnings) process.stderr.write(`gstack-ship-policy: WARN ${w.path}: ${w.message}\n`);
 }
 
 function main(argv: string[]): number {
@@ -90,13 +92,15 @@ function main(argv: string[]): number {
   if (cmd === 'validate' || cmd === 'show-effective') {
     const loaded = load(root, rest, cmd === 'validate' ? 'head' : 'base');
     if (typeof loaded === 'number') return loaded;
+    if (loaded.setAside && cmd === 'validate') loaded.errors = loaded.setAside;
+    else if (loaded.setAside) process.stderr.write(`gstack-ship-policy: ${fallbackLine({ state: 'fallback', source: loaded.source.label, errors: loaded.setAside.map(e => `${e.path}: ${e.message}`) }, flag(rest, '--base') ?? resolveBaseBranch(root))}\n`);
     const floor: ReturnType<typeof floorAgainstStable> = cmd === 'validate' && loaded.present ? floorAgainstStable(loaded.policy.min_gstack_version, newestStableRelease()) : {};
     if (floor.error) loaded.errors.push(floor.error);
     const set = POLICY_KEYS.filter(k => loaded.values[k] && loaded.values[k] !== 'default');
-    const introduced = Object.fromEntries(set.map(k => [k, k === 'bump' && loaded.policy.bump === 'never' ? BUMP_NEVER_KEY_VERSION : POLICY_KEY_INTRODUCED[k]]));
+    const introduced = Object.fromEntries(set.map(k => [k, k === 'bump' && loaded.policy.bump === 'never' ? BUMP_NEVER_KEY_VERSION : k === 'land' ? minimumReader({ land: loaded.policy.land }) : POLICY_KEY_INTRODUCED[k]]));
     const minReader = set.length ? minimumReader(Object.fromEntries(set.map(k => [k, loaded.policy[k]]))) : null;
     if (json) {
-      process.stdout.write(JSON.stringify({ valid: loaded.errors.length === 0, present: loaded.present, source: loaded.source, policy: loaded.policy, values: loaded.values, introduced, min_reader: minReader, ...(cmd === 'validate' ? { stable: floor.stable ?? null, warnings: floor.warning ? [floor.warning] : [] } : {}), errors: loaded.errors }) + '\n');
+      process.stdout.write(JSON.stringify({ valid: loaded.errors.length === 0, present: loaded.present, source: loaded.source, policy: loaded.policy, values: loaded.values, introduced, min_reader: minReader, ...(cmd === 'validate' ? { stable: floor.stable ?? null, warnings: [...(floor.warning ? [floor.warning] : []), ...loaded.warnings.map(w => `${w.path}: ${w.message}`)] } : {}), errors: loaded.errors }) + '\n');
       return loaded.errors.length ? EXIT.fail : EXIT.ok;
     }
     printErrors(loaded);
@@ -121,21 +125,25 @@ function main(argv: string[]): number {
     const result: Record<string, unknown> = { history: policy, branch: branch || null, plan };
     let verdict: string;
     let code = EXIT.ok;
-    if (policy !== 'merge-only') verdict = `HISTORY: squash-ok (no check; policy history=${policy}; plan=${plan})`;
-    else if (plan !== 'merge') {
+    if (policy === 'squash-ok') verdict = `HISTORY: squash-ok (no check; policy history=${policy}; plan=${plan})`;
+    else if (policy === 'no-rewrite' && plan === 'rebase') {
+      verdict = 'HISTORY: refused (plan=rebase rewrites the branch; policy history=no-rewrite keeps every pushed commit reachable until land squashes the PR into one commit) — fix: merge origin/<base> into the branch instead (HISTORY_POLICY_VIOLATION)';
+      code = EXIT.refused;
+    }
+    else if (policy === 'merge-only' && plan !== 'merge') {
       verdict = `HISTORY: refused (plan=${plan} rewrites history; policy history=merge-only keeps every reviewed commit reachable so gate evidence and preregistration ancestry stay bound to the shas that were gated) — fix: integrate with a merge commit, or set history: squash-ok in .gstack/ship-policy.json on the base branch (HISTORY_POLICY_VIOLATION)`;
       code = EXIT.refused;
     }
-    else if (!branch) { verdict = 'HISTORY: merge-only (detached HEAD; no pushed branch to compare)'; }
+    else if (!branch) { verdict = `HISTORY: ${policy} (detached HEAD; no pushed branch to compare)`; }
     else {
       const remote = spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd: root, encoding: 'utf8', timeout: 15_000 });
-      if (remote.status !== 0) verdict = `HISTORY: merge-only (origin/${branch} not pushed yet; nothing to rewrite)`;
+      if (remote.status !== 0) verdict = `HISTORY: ${policy} (origin/${branch} not pushed yet; nothing to rewrite)`;
       else {
         const anc = spawnSync('git', ['merge-base', '--is-ancestor', remote.stdout.trim(), 'HEAD'], { cwd: root, timeout: 15_000 });
         result.remote = remote.stdout.trim();
-        if (anc.status === 0) verdict = `HISTORY: ok (merge-only; origin/${branch} is an ancestor of HEAD)`;
+        if (anc.status === 0) verdict = `HISTORY: ok (${policy}; origin/${branch} is an ancestor of HEAD)`;
         else {
-          verdict = `HISTORY: rewritten (origin/${branch} ${remote.stdout.trim().slice(0, 12)} is not an ancestor of HEAD) — fix: ${'merge origin/<base> instead of rebasing or squashing; never force-push under history: merge-only'} (HISTORY_POLICY_VIOLATION)`;
+          verdict = `HISTORY: rewritten (origin/${branch} ${remote.stdout.trim().slice(0, 12)} is not an ancestor of HEAD) — fix: ${`merge origin/<base> instead of rebasing or squashing; never force-push under history: ${policy}`} (HISTORY_POLICY_VIOLATION)`;
           code = EXIT.fail;
         }
       }

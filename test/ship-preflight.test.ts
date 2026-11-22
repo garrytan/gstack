@@ -253,6 +253,21 @@ describe('gstack-ship-preflight', () => {
     expect(r.stdout).toContain('NEXT: Step 4');
   });
 
+  // Value: protects=preflight prints the PR's review rounds from its body and the flags Step 9 passes to every plan (GST-2673); fails_when=a second /ship run on a PR starts its round count at zero;
+  //   why_new=R51 counted per run, so a PR pushed N times got 2N rounds; seam=gh, gstack-ship-receipt history; no_claim=carry's own refusal of --recheck (pr-round-cli, ship-recheck)
+  test('an open PR prints PR_REVIEW_HISTORY and the --prior-rounds flags from its body', () => {
+    const f = fx();
+    const run = (head: string, id: string) => ({ head, run: id, review_loop: { passes: 1, blocking_found: 0, deferred: 0, fix_checks: 1, rounds: 2 } });
+    const body = '## Summary\n\n```gstack-ship-receipt\n' + JSON.stringify({ schema_version: 1, ...run('b'.repeat(40), 'r2') }) + '\n```\n\n```gstack-receipt-runs\n' + JSON.stringify(run('a'.repeat(40), 'r1')) + '\n```\n';
+    fs.writeFileSync(path.join(f.root, 'body.json'), JSON.stringify({ body }));
+    f.gh(`case "$*" in *"pr view"*) cat '${path.join(f.root, 'body.json')}';; *) echo 7;; esac`);
+    const r = f.run(PREFLIGHT, ['--base', 'main']);
+    expect(lineOf(r.stdout, 'PR_REVIEW_HISTORY')).toMatch(/^PR_REVIEW_HISTORY: pr=#7 rounds=2 cap=2 full=2 /);
+    expect(lineOf(r.stdout, 'PR_REVIEW_FLAGS')).toBe('PR_REVIEW_FLAGS: --prior-rounds 2 --prior-full 2');
+    expect(lineOf(r.stdout, 'PR_REVIEW_ROUTE')).toMatch(/^PR_REVIEW_ROUTE: read-only \(the PR had 2 full review rounds; this head gets one read-only full review/);
+    expect(r.stdout).not.toMatch(/--recheck|drift_lines|recheck_blocked/);
+  });
+
   // Value: protects=the branch name reaches gh as one argv item, never through a shell; fails_when=a branch named with $(...) runs a command on the shipper's machine;
   //   why_new=GSTA-167 /ship review of #3633 (security, CRITICAL); seam=gh; no_claim=gh's own handling of the name
   test('a branch name with shell syntax is never executed', () => {
@@ -323,6 +338,23 @@ describe('gstack-ship-preflight --audit (GSTA-167 variant G)', () => {
     expect(r.stdout).toContain('PLAN_CANDIDATE: docs/designs/budget.md');
     expect(lineOf(r.stdout, 'READER')).toBe('READER: coverage=none plan=needed');
     expect(f.run(PREFLIGHT, ['--audit', '--base', 'main']).status).toBe(2);
+  });
+
+  // Value: protects=--audit --base <sha> diffs against that commit, and a base that resolves to nothing stops with SHIP_BASE_UNKNOWN instead of an empty diff (gbrain #9662);
+  //   fails_when=a commit sha is read as origin/<sha>, or an unknown base prints CONTEXT files=0; why_new=GST-3019; seam=git
+  test('a commit sha is a base; a base that resolves to nothing stops with SHIP_BASE_UNKNOWN, never files=0', () => {
+    const f = fx({}, { 'src/budget.ts': 'export const budget = 1;\n', 'src/other.ts': 'export const o = 1;\n' });
+    const base = f.git('rev-parse', 'origin/main').stdout.trim();
+    for (const sha of [base, base.slice(0, 12)]) {
+      const r = f.run(PREFLIGHT, ['--audit', '--base', sha, '--out', path.join(f.root, `a-${sha.length}`)], { HOME: f.root });
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(lineOf(r.stdout, 'CONTEXT')).toMatch(/ files=2 commits=1 /);
+    }
+    for (const bad of ['0'.repeat(40), 'no-such-branch']) {
+      const u = f.run(PREFLIGHT, ['--audit', '--base', bad, '--out', path.join(f.root, 'bad')], { HOME: f.root });
+      expect([u.status, lineOf(u.stdout, 'STOP')]).toEqual([3, `STOP: SHIP_BASE_UNKNOWN: --base ${bad} names no commit here (not a commit this checkout holds, and no origin/${bad}); pass the base branch fetched into origin/<name>, or a commit sha after git fetch origin <sha>, then rerun (docs/troubleshooting.md#ship-base-unknown)`]);
+      expect(u.stdout).not.toContain('CONTEXT');
+    }
   });
 });
 
@@ -395,6 +427,26 @@ describe('gstack-ship-preflight Step 5 pregate: head policy and timeout_s (GST-4
       const u = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--timeout', bad, '--lane', LANE]);
       expect(u.status).toBe(2);
       expect(u.stdout + u.stderr).toContain('--timeout needs whole seconds from 1 to 3600');
+    }
+  });
+
+  // Value: protects=a caller sets the whole Step 5 pregate's budget, and a kill at that limit says the limit was hit and names the
+  //   way out instead of "unreadable (exit 143)"; fails_when=the budget is a fixed hour, or a timed-out pregate reads as unreadable;
+  //   why_new=Vorflux via FOUN-32: gbrain's unit and serial suite ran past the fixed hour on 8-core Linux; seam=gstack-pregate under
+  //   preflight's spawn limit; no_claim=the finish fallback's own pregate limit
+  test('--step-timeout bounds the whole Step 5 pregate, and a kill at the limit says so with the way out', () => {
+    const slow = "const test = require('node:test');\ntest('slow', async () => { await new Promise(r => setTimeout(r, 30000)); });\n";
+    const f = fx(base({ timeout_s: 600 }), { 'test/slow.serial.test.js': slow });
+    const r = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--step-timeout', '3', '--lane', LANE]);
+    expect(r.status).toBe(3);
+    expect(lineOf(r.stdout, 'PREGATE')).toMatch(/^PREGATE: time limit hit \(Step 5's whole pregate ran past its 3 s budget, --step-timeout, and was stopped with exit \S+; no verdict\)$/);
+    expect(lineOf(r.stdout, 'STOP')).toBe("STOP: the tests are longer than this step's 3 s budget on this machine: push, let CI's full run at this tree carry them (gstack-ci-carry wait --base main, then rerun --tests-only; gbrain docs/ci-event-parity.md#ship-lanes), or rerun --tests-only with --step-timeout <s> above 3");
+    expect(r.stdout).not.toContain('unreadable');
+    expect(r.stdout).not.toContain('LANE: tests');
+    for (const bad of ['0', '86401', '1.5', 'x']) {
+      const u = f.run(PREFLIGHT, ['--tests-only', '--base', 'main', '--step-timeout', bad, '--lane', LANE]);
+      expect(u.status).toBe(2);
+      expect(u.stdout + u.stderr).toContain('--step-timeout needs whole seconds from 1 to 86400');
     }
   });
 });

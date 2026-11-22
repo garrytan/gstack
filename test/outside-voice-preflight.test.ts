@@ -4,12 +4,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { outsideVoiceCommand, outsideVoiceFor, outsideVoicePreflight, outsideVoiceInvocation } from '../scripts/resolvers/outside-voice';
+import { OUTSIDE_VERDICT_REQUEST, outsideVoiceCommand, outsideVoiceFor, outsideVoicePreflight, outsideVoiceInvocation } from '../scripts/resolvers/outside-voice';
 import { generateAdversarialStep, generateCodexDocReview, generateCodexPlanReview } from '../scripts/resolvers/outside-voice-steps';
 import { validateOutsideReview } from '../lib/outside-review-result';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { ALL_HOST_CONFIGS } from '../hosts';
 import { expectMentions, expectTokens } from './helpers/prompt-structure';
+import { isolatedEnv } from './helpers/state-root-isolation';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-outside-preflight-'));
@@ -70,7 +71,8 @@ test('CEO and Eng describe the actual disabled route and completion validator', 
       const prompt = output.slice(output.lastIndexOf('\n"', promptEnd) + 1, promptEnd);
       expect(prompt.startsWith('"')).toBe(true);
       expect(prompt.split('\n')[0]).toContain('.claude/skills/');
-      expect(prompt).toContain('End with Recommendation: <action> because <specific reason>');
+      expect(prompt).toContain('Write Recommendation: <action> because <specific reason>');
+      expect(prompt).toContain(OUTSIDE_VERDICT_REQUEST);
       expectMentions(prompt, [['no', 'findings', 'explain']], 'prompt');
       const invocation = outsideVoiceInvocation(ctx);
       expect(invocation).toContain('missing Recommendation: <action> because <reason> markers');
@@ -103,7 +105,8 @@ test('CEO and Eng describe the actual disabled route and completion validator', 
       }
     }
   }
-  expect(validateOutsideReview('Recommendation: proceed because no findings remain.', 'review').completed).toBe(true);
+  expect(validateOutsideReview('Recommendation: proceed because no findings remain.\nVERDICT: CLEAN', 'review').completed).toBe(true);
+  expect(validateOutsideReview('Recommendation: proceed because no findings remain.', 'review').completed).toBe(false);
   expect(validateOutsideReview('SCORE: 10\nAMBIGUITIES: NONE', 'review').completed).toBe(false);
   expect(validateOutsideReview('Recommendation: proceed', 'review').completed).toBe(false);
 });
@@ -181,8 +184,8 @@ function fixture() {
   if (git.status !== 0) throw new Error(git.stderr);
   const capture = path.join(dir, 'capture.json');
   const fake = path.join(dir, 'fake-claude.ts');
-  fs.writeFileSync(fake, `const prompt=await Bun.stdin.text(); await Bun.write(process.env.FIXTURE_CAPTURE!,JSON.stringify({prompt,args:process.argv.slice(2)})); console.log(JSON.stringify({result:'No issues found.\\nRecommendation: ship because the isolated fixture completed its review.'}));`);
-  const env = { ...process.env, HOME: home, CODEX_HOME: '', GSTACK_HOME: path.join(home, '.gstack'),
+  fs.writeFileSync(fake, `const prompt=await Bun.stdin.text(); await Bun.write(process.env.FIXTURE_CAPTURE!,JSON.stringify({prompt,args:process.argv.slice(2)})); console.log(JSON.stringify({result:'No issues found.\\nRecommendation: ship because the isolated fixture completed its review.\\nVERDICT: CLEAN'}));`);
+  const env = { ...isolatedEnv(home), CODEX_HOME: '', GSTACK_HOME: path.join(home, '.gstack'),
     GSTACK_ROOT: '', GSTACK_BIN: '', GSTACK_ACTIVE_HOST: 'codex', CODEX_THREAD_ID: 'fixture', CODEX_SANDBOX: '', CLAUDECODE: '',
     GSTACK_CLAUDE_BIN: process.execPath, GSTACK_CLAUDE_BIN_ARGS: JSON.stringify([fake]), FIXTURE_CAPTURE: capture };
   const install = (destination: string) => {

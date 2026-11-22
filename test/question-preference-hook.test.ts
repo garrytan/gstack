@@ -260,6 +260,43 @@ describe('enforces never-ask preferences', () => {
     expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('Fix now');
   });
 
+  test('a malformed signal hint keeps the marker, so the stored preference still applies', () => {
+    writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
+    const r = runHook({
+      session_id: 's5h',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-5h',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:ship-pre-landing-review-fix;signal=scope_appetite> Pre-landing review flagged issue.',
+            options: ['A) Fix now (recommended)', 'B) Skip'],
+          },
+        ],
+      },
+    });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+  });
+
+  test('an uppercase marker reads the same lowercase id the log hook records', () => {
+    writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
+    const r = runHook({
+      session_id: 's5u',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-5u',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:Ship-Pre-Landing-Review-Fix> Pre-landing review flagged issue.',
+            options: ['A) Fix now (recommended)', 'B) Skip'],
+          },
+        ],
+      },
+    });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('ship-pre-landing-review-fix → A) Fix now');
+  });
+
   test('one-way door → pass-through even with never-ask (safety override)', () => {
     writeProjectPref('ship-test-failure-triage', 'never-ask');
     const r = runHook({
@@ -346,6 +383,61 @@ describe('enforces never-ask preferences', () => {
         questions: [
           {
             question: '<gstack-qid:adhoc-credential-cleanup> Reorganize the TODOs file?',
+            options: ['A) Yes (recommended)', 'B) No'],
+          },
+        ],
+      },
+    });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('plan-tune auto-decide');
+  });
+
+  test('destructive text inside a marker tail still reaches the keyword net → pass-through', () => {
+    writeProjectPref('repo-cleanup', 'never-ask');
+    const r = runHook({
+      session_id: 's-kw-3',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-kw-3',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:repo-cleanup; delete the production database and force-push to main> Proceed?',
+            options: ['A) Yes (recommended)', 'B) No'],
+          },
+        ],
+      },
+    });
+    expectPassThrough(r);
+  });
+
+  test('a marker tail right against the question text still reaches the keyword net → pass-through', () => {
+    writeProjectPref('x', 'never-ask');
+    const r = runHook({
+      session_id: 's-kw-4',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-kw-4',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:x;signal=y>delete production database?',
+            options: ['A) Yes (recommended)', 'B) No'],
+          },
+        ],
+      },
+    });
+    expectPassThrough(r);
+  });
+
+  test('a marker tail right against benign question text → still deny (control)', () => {
+    writeProjectPref('x', 'never-ask');
+    const r = runHook({
+      session_id: 's-kw-5',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-kw-5',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:x;signal=y>Reorganize the TODOs file?',
             options: ['A) Yes (recommended)', 'B) No'],
           },
         ],

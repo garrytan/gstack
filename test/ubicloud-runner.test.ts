@@ -249,14 +249,38 @@ esac
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
-  test('list --mine shows this owner’s VMs only; owner tags are lowercase letters and digits, 12 max, starting with a letter', () => {
+  test('list --mine shows this owner’s VMs only; owner tags are lowercase letters and digits, kept in full up to 31, starting with a letter', () => {
     const f = fakeApi({ destroy: 200, listed: 'eu-central-h1 ubirun-thrd1-1000000000-aaaa\neu-north-h1 ubirun-other-1000000000-bbbb\neu-central-h1 ubirun-1000000000-cccc\n' });
     try {
       const mine = f.run('list', '--mine');
       expect(mine.exitCode).toBe(0);
       expect(mine.stdout.toString()).toBe('eu-central-h1  ubirun-thrd1-1000000000-aaaa\n');
       const owner = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'owner'], { env: { ...process.env, UBI_OWNER: '12-Capy_Thread-ABCDEFGH', UBI_RUNNER_STATE: f.root }, timeout: 10_000 });
-      expect(owner.stdout.toString().trim()).toBe('u12capythrea');
+      expect(owner.stdout.toString().trim()).toBe('u12capythreadabcdefgh');
+      const long = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'owner'], { env: { ...process.env, UBI_OWNER: 'a'.repeat(32), UBI_RUNNER_STATE: f.root }, timeout: 10_000 });
+      expect(long.exitCode).toBe(1);
+      expect(long.stderr.toString()).toContain('UBI_OWNER is 32 characters once lowercased to letters and digits');
+      expect(long.stderr.toString()).toContain('(UBI_OWNER_TOO_LONG)');
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  // Value: protects=owners that share their first 12 characters never reap each other's VMs, and a longer owner's VMs from runner copies that cut the owner to 12 still get reaped by the machine that recorded them; fails_when=owner_id cuts the owner again (#3748), the name parser stops at 12 characters, or the cut form is read as this owner without this machine's record; why_new=the old owner case pinned the cut itself and no case had two owners sharing a prefix; seam=none; no_claim=VMs a machine created under the cut form and whose record it lost (they stay to their owner's TTL, counted as another owner's)
+  test('owners sharing a 12-character prefix reap only their own expired VMs; a VM named under the old cut form is reaped only when this machine recorded it (#3748)', () => {
+    const listed = ['ubirun-gstackminder1-1000000000-aaaa-t1', 'ubirun-gstackminder2-1000000000-bbbb-t1', 'ubirun-gstackminder-1000000000-cccc-t1', 'ubirun-gstackminder-1000000000-dddd-t1'].map(n => `eu-central-h1 ${n}\n`).join('');
+    const f = fakeApi({ destroy: 200, listed, owner: 'gstackminder1' });
+    try {
+      // cccc: an older copy (five columns) recorded it under the cut owner; dddd: this copy recorded it for the 12-character owner gstackminder (sixth column full).
+      writeFileSync(f.record, 'ubirun-gstackminder-1000000000-cccc-t1\teu-central-h1\tgstackminder\t2001-09-09T01:46:40Z\t1\nubirun-gstackminder-1000000000-dddd-t1\teu-central-h1\tgstackminder\t2001-09-09T01:46:40Z\t2\tfull\n');
+      expect(f.run('list', '--mine').stdout.toString()).toBe('eu-central-h1  ubirun-gstackminder1-1000000000-aaaa-t1\neu-central-h1  ubirun-gstackminder-1000000000-cccc-t1\n');
+      const reap = f.run('reap');
+      expect(reap.exitCode).toBe(0);
+      const destroyed = f.calls().split('\n').filter(l => l.includes('destroy')).map(l => l.match(/ubirun-[a-z0-9-]+/)?.[0]).sort();
+      expect(destroyed).toEqual(['ubirun-gstackminder-1000000000-cccc-t1', 'ubirun-gstackminder1-1000000000-aaaa-t1']);
+      expect(reap.stderr.toString()).toContain('reap: left 2 expired VMs of other owners; only their owners reap them');
+      const recover = Bun.spawnSync(['bash', join(DIR, 'ubi-runner.sh'), 'recover', '--dir', join(f.root, 'bundles')], { env: { ...process.env, UBICLOUD_API_KEY: 'offline', UBI_RUNNER_STATE: join(f.root, 'state'), UBI_OWNER: 'gstackminder1' }, timeout: 10_000 });
+      expect(recover.stderr.toString()).not.toContain('--owner must be an owner tag');
+      expect(recover.stderr.toString()).toContain('recover: no bundles under');
+      expect(recover.exitCode).toBe(0);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
@@ -495,6 +519,19 @@ test('pack ships a linked worktree with a self-contained .git on the checked-out
       expect(sh('git rev-parse --abbrev-ref @{u} && git config --bool --get remote.origin.mirror && git ls-files -s sub | cut -c1-6', join(d, 'vm2')).split('\n').filter(Boolean)).toEqual(['origin/main', 'true', '160000']);
     } finally { rmSync(d, { recursive: true, force: true }); }
   }, 90_000);
+
+  // Value: protects=pack snapshots a checkout while git beside it is mid-way through writing or deleting a ref (two Free Tests reds on 2026-11-17, runs 44063454800 and 44050883970, from the churn test above); fails_when=pack asks upload-pack for every ref, which advertises a ref it cannot read with a null id, and the fetch then fails "not our ref 0000…"; why_new=the churn test hits that window about once in 600 fetches, an empty loose ref file is the same state held still; seam=none
+  test('pack skips a ref git cannot read (an empty loose ref file) and still ships every readable ref', () => {
+    const d = mkdtempSync(join(tmpdir(), 'ubi-pack-broken-ref-'));
+    try {
+      const sh = (cmd: string, cwd: string) => { const r = Bun.spawnSync(['bash', '-c', cmd], { cwd, timeout: 30_000, env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }); expect(r.exitCode, `${cmd}\n${r.stderr.toString()}`).toBe(0); return r.stdout.toString(); };
+      sh('git init -q -b main src && cd src && echo a > a && git add a && git commit -qm one && git tag -a v1 -m v1 && git branch side && : > .git/refs/heads/broken', d);
+      sh(`mkdir vm && bash ${JSON.stringify(join(DIR, 'ubi-runner.sh'))} pack src | tar -xzf - -C vm`, d);
+      const head = sh('git rev-parse HEAD', join(d, 'src')).trim();
+      expect(sh('git for-each-ref --format="%(refname) %(objectname)" refs/heads && git rev-parse v1^{commit}', join(d, 'vm')).split('\n').filter(Boolean))
+        .toEqual([`refs/heads/main ${head}`, `refs/heads/side ${head}`, head]);
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  }, 60_000);
 
   // Value: protects=pack never lets macOS tar add AppleDouble ._* entries (files with extended attributes), which the VM's tree check would count as untracked files and fail the run with UBI_VM_TREE_MISMATCH; fails_when=a tar call in pack runs without COPYFILE_DISABLE=1; why_new=only Apple's tar reads the variable, so no Linux run can see the ._* entries themselves; seam=PATH (a tar shim records its environment, then runs the real tar); no_claim=Apple tar's metadata behavior itself (checked by hand on a Mac)
   test('pack runs every tar with COPYFILE_DISABLE=1, for a checkout and for a plain directory', () => {

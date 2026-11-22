@@ -1,5 +1,5 @@
 /**
- * Fixtures for merge trains (lib/ship-queue-train*.ts): a hermetic repo from
+ * Fixtures for merge trains (crew/lib/ship-queue-train*.ts): a hermetic repo from
  * restamp-fixture (bare origin plus working clone under os.tmpdir(), its own
  * git identity) whose base policy declares a `train` block, and a stateful
  * `gh` on PATH that answers every GitHub call the train surface makes from a
@@ -31,7 +31,7 @@ export interface Rule {
   plan?: { planned: number } | { manifest: unknown } | null;
   /** Marks every artifact of runs dispatched under this rule expired in the artifacts listing. */
   expired?: boolean;
-  /** A screen run's gate binding (gate-binding-a1/gate-binding.json, scripts/gate-reuse.ts) and its report's collector-outcomes.json (report-verdict-a1). */
+  /** A screen run's gate binding (gate-binding-a1/gate-binding.json, crew/scripts/gate-reuse.ts) and its report's collector-outcomes.json (report-verdict-a1). */
   binding?: { verdict: 'GREEN' | 'RED'; reconcile_exit?: number; flaky?: string[] };
   outcomes?: { red?: string[]; flakyLines?: string[] };
   /** The run confirmed a verdict reuse (R2a/R2): paid-plan carries a valid gate-reuse.json naming this run and no binding is uploaded. */
@@ -69,7 +69,7 @@ export function trainFixture(policy: Record<string, unknown> = TRAIN_POLICY, pre
   return { repo, state, dataFile, env, read, write };
 }
 
-/** The repo key lib/ship-queue-train-record.ts derives from origin's URL. */
+/** The repo key crew/lib/ship-queue-train-record.ts derives from origin's URL. */
 export function repoKey(fx: TrainFixture): string {
   const norm = fx.repo.origin.replace(/\.git$/, '').replace(/\/+$/, '');
   return createHash('sha256').update(norm).digest('hex').slice(0, 16);
@@ -106,7 +106,7 @@ export function openPr(fx: TrainFixture, pr: string, opts: { file?: string; text
   repo.git('commit', '-q', '-m', `feat #${pr}`);
   const head = repo.git('rev-parse', 'HEAD');
   repo.git('push', '-q', '-f', 'origin', `HEAD:refs/pull/${pr}/head`, `${mergeRefCommit(fx, head)}:refs/pull/${pr}/merge`);
-  fx.write(d => { d.prs[pr] = { headRefOid: head, isCrossRepository: !!opts.cross, state: 'OPEN', headRefName: `pr-${pr}`, url: `https://github.com/fixture/repo/pull/${pr}`, body: opts.shipped === false ? '' : shippedBody(pr, head) }; });
+  fx.write(d => { d.prs[pr] = { headRefOid: head, isCrossRepository: !!opts.cross, state: 'OPEN', headRefName: `pr-${pr}`, title: `Change from #${pr}`, url: `https://github.com/fixture/repo/pull/${pr}`, body: opts.shipped === false ? '' : shippedBody(pr, head) }; });
   return head;
 }
 
@@ -160,12 +160,13 @@ export function wrapLand(fx: TrainFixture): void {
     "const rev=r=>{try{return g('rev-parse','--verify','--quiet',r)}catch{return ''}};",
     "if(a[0]==='pr'&&a[1]==='view'&&d.prs[a[2]]){const p=d.prs[a[2]];const h=rev('refs/heads/'+p.headRefName);if(h)p.headRefOid=h;save();console.log(JSON.stringify(p));process.exit(0)}",
     "if(a[0]==='pr'&&a[1]==='edit'){(d.labels=d.labels||{})[a[2]]=a[a.indexOf('--add-label')+1];save();process.exit(0)}",
-    "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];if(rev('refs/heads/'+p.headRefName)!==want){console.error('Head branch was modified');process.exit(1)}",
+    "if(a[0]==='pr'&&a[1]==='merge'){const p=d.prs[a[2]];const want=a[a.indexOf('--match-head-commit')+1];if(rev('refs/heads/'+p.headRefName)!==want){console.error('Head branch was modified');process.exit(1)}(d.mergeArgs=d.mergeArgs||{})[a[2]]=a.slice(3);",
     "  const before=rev('main');let tree=rev(want+'^{tree}');",
     "  if(d.outsideOnMerge){const blob=cp.execFileSync('git',['--git-dir',d.origin,'hash-object','-w','--stdin'],{input:'outside\\n',encoding:'utf8',timeout:30000}).trim();",
     "    const ls=g('ls-tree',before+'^{tree}')+'\\n100644 blob '+blob+'\\toutside.txt';const ot=cp.execFileSync('git',['--git-dir',d.origin,'mktree'],{input:ls+'\\n',encoding:'utf8',timeout:30000}).trim();",
     "    g('update-ref','refs/heads/main',g('commit-tree',ot,'-p',before,'-m','outside'));tree=g('merge-tree','--write-tree','--merge-base='+before,rev('main'),want).split('\\n')[0];d.outsideOnMerge=false}",
     "  g('update-ref','refs/heads/main',g('commit-tree',tree,'-p',rev('main'),'-m','squash #'+a[2]));p.state='MERGED';save();process.exit(0)}",
+    "if(a[0]==='api'&&/actions\\/runs\\?head_sha=/.test(a[1])){console.log(JSON.stringify({total_count:0,workflow_runs:[]}));process.exit(0)}",
     "const paged=/commits\\/([0-9a-f]+)\\/(check-runs|status)\\?.*page=(\\d+)/.exec(a[1]||'');",
     "if(a[0]==='api'&&paged&&!(d.ci||{})[paged[1]]&&!((d.statuses||{})[paged[1]])){const list=paged[2]==='check-runs'?[{name:'free-tests',status:'completed',conclusion:'success',id:1,completed_at:'2026-10-26T00:00:00Z'}]:[];const key=paged[2]==='check-runs'?'check_runs':'statuses';console.log(JSON.stringify(paged[3]==='1'?{total_count:list.length,state:'success',[key]:list}:{total_count:list.length,[key]:[]}));process.exit(0)}",
     `const r=cp.spawnSync('node',[${JSON.stringify(shim)},D,...a],{stdio:'inherit',timeout:120000});process.exit(r.status??1);`,
@@ -240,6 +241,7 @@ function shimSource(): string {
     "  if (arts) { const names = Object.keys(d.artifacts[arts[1]] || {}).filter(n => !arts[2] || n === decodeURIComponent(arts[2])); out({ total_count: names.length, artifacts: names.map(name => ({ name, expired: !!(d.expired || {})[arts[1]] })) }); }",
     "  const named = /commits\\/([0-9a-f]+)\\/check-runs\\?check_name=([^&]+)/.exec(a[1] || '');",
     "  if (named) { const list = (d.checks[named[1]] || []).filter(c => c.name === decodeURIComponent(named[2])); out({ total_count: list.length, check_runs: list }); }",
+    "  if (/actions\\/runs\\?head_sha=/.test(a[1] || '')) out({ total_count: 0, workflow_runs: [] });",
     "  const paged = /commits\\/([0-9a-f]+)\\/(check-runs|status)\\?.*page=(\\d+)/.exec(a[1] || '');",
     "  if (paged && (d.ciFail || []).includes(paged[1])) fail('HTTP 502: gateway timeout');",
     "  if (paged) { const list = paged[2] === 'check-runs' ? (d.ci[paged[1]] || []) : ((d.statuses || {})[paged[1]] || []); const key = paged[2] === 'check-runs' ? 'check_runs' : 'statuses';",
@@ -247,7 +249,7 @@ function shimSource(): string {
     "}",
     "if (a[0] === 'pr' && a[1] === 'comment') { const p = d.prs[a[2]]; if (!p) fail('no pull request found'); p.comments = [...(p.comments || []), { body: opt('--body') }]; out({}); }",
     "if (a[0] === 'pr' && a[1] === 'close') { const p = d.prs[a[2]]; if (!p) fail('no pull request found'); p.state = 'CLOSED'; out({}); }",
-    "if (a[0] === 'pr' && a[1] === 'list') { const head = opt('--head'); const st = opt('--state'); out(Object.entries(d.prs).filter(([, p]) => (!head || p.headRefName === head) && (st !== 'open' || p.state === 'OPEN')).map(([n, p]) => ({ number: Number(n), state: p.state, headRefOid: p.headRefOid, baseRefName: p.baseRefName || 'main', mergeCommit: p.mergeCommit || null }))); }",
+    "if (a[0] === 'pr' && a[1] === 'list') { const head = opt('--head'); const st = opt('--state'); out(Object.entries(d.prs).filter(([, p]) => (!head || p.headRefName === head) && (st !== 'open' || p.state === 'OPEN')).map(([n, p]) => ({ number: Number(n), state: p.state, headRefOid: p.headRefOid, baseRefName: p.baseRefName || 'main', mergeCommit: p.mergeCommit || null, files: p.files || [] }))); }",
     "fail('gh shim: unsupported ' + a.join(' '));",
   ].join('\n') + '\n';
 }

@@ -404,7 +404,7 @@ Run the selected backend in the one foreground Bash invocation described below.
 Finish a failed attempt's termination before fallback; consume only its completed
 output. No background jobs or shared temporary paths.
 
-Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a severity (Critical, High, Medium or Low) per finding and a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
+Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request severity (Critical, High, Medium or Low) per finding, a Recommendation: <action> because <reason> line, and `VERDICT: CLEAN` or `VERDICT: FINDINGS` as the last line.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -420,10 +420,9 @@ fi
 
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
 _OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
-trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+trap 'rm -r "$_OUTSIDE_TMP"' EXIT
 _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
-
 _CODEX_PROBE="$HOME/.claude/skills/gstack/bin/gstack-codex-probe"
 export _CODEX_DEADLINE=$(($(date +%s)+300)); _CODEX_OUT=$("$_CODEX_PROBE" role-ready exec) || exit $?
 _CODEX_SEL=$(echo "$_CODEX_OUT" | sed -n 's/^CODEX_SEL: //p')
@@ -764,7 +763,7 @@ Produce this markdown table:
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
 | Outside Review | {recorded provider and trigger} | Independent 2nd opinion | {runs} | {outside_status} | {findings} |
-| Eng Review | \`/autoplan\` | Architecture & tests (required) | {runs} | {status} | {findings} |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
@@ -984,9 +983,9 @@ SLUG=$(~/.claude/skills/gstack/bin/gstack-slug --get SLUG 2>/dev/null) || true
 
 After displaying the Review Readiness Dashboard, recommend next reviews:
 
-**Recommend /autoplan if eng review is not skipped globally** — DX issues often
+**Recommend /plan-eng-review if eng review is not skipped globally** — DX issues often
 have architectural implications. If this DX review found API design problems, error
-handling gaps, or CLI ergonomics issues, /autoplan's eng phase should validate the fixes.
+handling gaps, or CLI ergonomics issues, eng review should validate the fixes.
 
 **Suggest /plan-design-review if user-facing UI exists** — DX review focuses on
 developer-facing surfaces; design review covers end-user-facing UI.
@@ -997,7 +996,7 @@ out. This is where the competitive benchmark pays off: you have a concrete targe
 measure against.
 
 Use AskUserQuestion with applicable options:
-- **A)** Run /autoplan next (eng review)
+- **A)** Run /plan-eng-review next (required gate)
 - **B)** Run /plan-design-review (only if UI scope detected)
 - **C)** Ready to implement, run /devex-review after shipping
 - **D)** Skip, I'll handle next steps manually

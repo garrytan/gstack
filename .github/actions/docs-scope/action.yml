@@ -1,0 +1,33 @@
+name: docs-scope
+description: >-
+  R81 (docs/pregate.md#docs-only). Classify a pull request's merge commit against its first parent with the base
+  branch's bin/gstack-docs-only. The caller checks out the merge ref with fetch-depth 2 and sets up Bun. A base without
+  the classifier, a classifier error or a crash all read as not docs-only, so the full suites run.
+outputs:
+  docs_only:
+    description: true only when every changed path is human docs
+    value: ${{ steps.scope.outputs.docs_only }}
+  tests:
+    description: space-separated docs lane tests (tests that read docs by directory)
+    value: ${{ steps.scope.outputs.tests }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        path: .docs-scope-base
+        persist-credentials: false
+    - id: scope
+      shell: bash
+      run: |
+        set -u
+        if [ "$GITHUB_EVENT_NAME" != pull_request ] || [ ! -f .docs-scope-base/bin/gstack-docs-only ]; then
+          echo "DOCS_ONLY: no (event $GITHUB_EVENT_NAME, or the base branch has no gstack-docs-only yet)"
+          echo 'docs_only=false' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        code=0
+        bun --no-env-file --config=/dev/null .docs-scope-base/bin/gstack-docs-only --repo "$GITHUB_WORKSPACE" --base HEAD^1 --head HEAD --github-output "$GITHUB_OUTPUT" || code=$?
+        if [ "$code" -gt 1 ]; then echo "::warning::gstack-docs-only exited $code; the full suites run (docs/troubleshooting.md#docs-only-error)"; fi
+        exit 0

@@ -112,6 +112,8 @@ export function setupPlanCeoDir(opts: {
   run('git', ['init', '-b', 'main']);
   run('git', ['config', 'user.email', 'test@test.com']);
   run('git', ['config', 'user.name', 'Test']);
+  run('git', ['config', 'maintenance.auto', 'false']);
+  run('git', ['config', 'gc.auto', '0']);
   fs.writeFileSync(
     path.join(dir, 'plan.md'),
     [

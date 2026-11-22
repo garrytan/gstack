@@ -136,7 +136,7 @@ describe("ensureDaemon", () => {
     // Track for cleanup
     activeDaemons.push({
       proc: { pid: state!.pid } as any,
-      port: state!.port,
+      port: state!.port, token: state!.token,
       stateFile,
       stop: async () => {
         try { process.kill(state!.pid, "SIGTERM"); } catch {}
@@ -181,7 +181,7 @@ describe("ensureDaemon", () => {
 
     activeDaemons.push({
       proc: { pid: fresh!.pid } as any,
-      port: fresh!.port,
+      port: fresh!.port, token: fresh!.token,
       stateFile,
       stop: async () => { try { process.kill(fresh!.pid, "SIGTERM"); } catch {} },
     });
@@ -216,7 +216,7 @@ describe("ensureDaemon", () => {
     expect(fresh!.pid).not.toBe(process.pid);
     activeDaemons.push({
       proc: { pid: fresh!.pid } as any,
-      port: fresh!.port,
+      port: fresh!.port, token: fresh!.token,
       stateFile,
       stop: async () => { try { process.kill(fresh!.pid, "SIGTERM"); } catch {} },
     });
@@ -245,7 +245,7 @@ describe("ensureDaemon", () => {
     expect(fresh!.pid).not.toBe(existing.proc.pid);
     activeDaemons.push({
       proc: { pid: fresh!.pid } as any,
-      port: fresh!.port,
+      port: fresh!.port, token: fresh!.token,
       stateFile,
       stop: async () => { try { process.kill(fresh!.pid, "SIGTERM"); } catch {} },
     });
@@ -258,7 +258,7 @@ describe("ensureDaemon", () => {
 
     // Publish a board so activeBoards > 0
     const html = makeBoardHtml(workDir);
-    await publishBoard({ port: existing.port, html });
+    await publishBoard({ port: existing.port, token: existing.token, html });
 
     // Sanity: status should reflect the active board
     const statusResp = await fetch(`http://127.0.0.1:${existing.port}/health`);
@@ -309,9 +309,9 @@ describe("publishBoard", () => {
   test("publishes a board through the real HTTP path and returns id+url+sourceDir", async () => {
     const d = await spawn1();
     const htmlPath = makeBoardHtml(workDir, "<p>via-client</p>");
-    const result = await publishBoard({ port: d.port, html: htmlPath });
+    const result = await publishBoard({ port: d.port, token: d.token, html: htmlPath });
     expect(result.id).toMatch(/^b-/);
-    expect(result.url).toBe(`http://127.0.0.1:${d.port}/boards/${result.id}/`);
+    expect(result.url).toBe(`http://127.0.0.1:${d.port}/${d.token}/boards/${result.id}/`);
     expect(result.sourceDir).toBe(fs.realpathSync(workDir));
 
     // Confirm the board is actually fetchable at the returned URL
@@ -324,9 +324,9 @@ describe("publishBoard", () => {
   test("409 surfaces existing board's id+url (returned object, no throw)", async () => {
     const d = await spawn1();
     const htmlPath = makeBoardHtml(workDir);
-    const first = await publishBoard({ port: d.port, html: htmlPath });
+    const first = await publishBoard({ port: d.port, token: d.token, html: htmlPath });
     const htmlPath2 = makeBoardHtml(workDir, "<p>second</p>");
-    const second = await publishBoard({ port: d.port, html: htmlPath2 });
+    const second = await publishBoard({ port: d.port, token: d.token, html: htmlPath2 });
     // Same sourceDir → 409 with `existing` field; publishBoard returns it
     // so the caller can attach to the existing board.
     expect(second.id).toBe(first.id);
@@ -366,7 +366,7 @@ describe("shutdownDaemon + daemonStatus", () => {
 
   test("shutdownDaemon refuses (without force) when active boards present", async () => {
     const d = await spawn1();
-    await publishBoard({ port: d.port, html: makeBoardHtml(workDir) });
+    await publishBoard({ port: d.port, token: d.token, html: makeBoardHtml(workDir) });
     const r = await shutdownDaemon();
     expect(r.stopped).toBe(false);
     expect(r.reason).toContain("active");
@@ -377,7 +377,7 @@ describe("shutdownDaemon + daemonStatus", () => {
 
   test("shutdownDaemon with force=true ignores active boards", async () => {
     const d = await spawn1();
-    await publishBoard({ port: d.port, html: makeBoardHtml(workDir) });
+    await publishBoard({ port: d.port, token: d.token, html: makeBoardHtml(workDir) });
     const r = await shutdownDaemon({ force: true });
     expect(r.stopped).toBe(true);
   });
@@ -438,10 +438,7 @@ describe("daemon idle-shutdown behavior (real process)", () => {
     let pollCount = 0;
     const boardDir = makeTmpDir("idle-poll");
     try {
-      const board = await publishBoard({
-        port: d.port,
-        html: makeBoardHtml(boardDir),
-      });
+      const board = await publishBoard({ port: d.port, token: d.token, html: makeBoardHtml(boardDir) });
       // Submit so the board becomes `done` — non-done would trigger the
       // 1h extension path and keep the daemon alive past IDLE_MS.
       await fetch(`${board.url}api/feedback`, {
@@ -498,7 +495,7 @@ describe("daemon idle-shutdown behavior (real process)", () => {
     });
     const boardDir = makeTmpDir("idle-active");
     try {
-      await publishBoard({ port: d.port, html: makeBoardHtml(boardDir) });
+      await publishBoard({ port: d.port, token: d.token, html: makeBoardHtml(boardDir) });
       // Daemon has 1 non-done board. After IDLE_MS, idleCheckTick should
       // extend rather than shut down. So at IDLE_MS + small margin, it's
       // still alive.
@@ -553,7 +550,7 @@ describe("concurrent ensureDaemon race", () => {
     // Track for cleanup
     activeDaemons.push({
       proc: { pid: state!.pid } as any,
-      port: state!.port,
+      port: state!.port, token: state!.token,
       stateFile,
       stop: async () => {
         try { process.kill(state!.pid, "SIGTERM"); } catch {}

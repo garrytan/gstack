@@ -47,10 +47,11 @@ export const SEGMENTS: Record<string, string> = { '1': '22', '9': '11.5', '12': 
 export const DEFAULT_TAIL = 2_000_000;
 /**
  * The cap an observe-mode /ship subagent metering its own task row (--reading-from task) gets when it names none:
- * R70's 100M stop-and-look line. Single-run /ship subagent rows on 2026-11-03 (GSTA crew and FOUN-4/14/71, n=9):
- * p50 64M, p90 92M; the one past 100M (485M) was a subagent reused for five runs.
+ * R70's stop-and-look line, 50M since Capy's token counts read about half from 2026-11-15 (it was 100M). Single-run /ship
+ * subagent rows on 2026-11-03, on the old count (GSTA crew and FOUN-4/14/71, n=9): p50 64M, p90 92M; the one past 100M
+ * (485M) was a subagent reused for five runs.
  */
-export const SUBAGENT_DEFAULT_CAP = 100_000_000;
+export const SUBAGENT_DEFAULT_CAP = 50_000_000;
 const DIFF_REVIEW_STEP: Record<string, string> = { review: '9', 'review-fix-check': '9', 'design-review-lite': '9', 'adversarial-review': '11', 'codex-review': '11' };
 
 export type MeterKind = 'capy' | 'claude' | 'estimate';
@@ -70,7 +71,7 @@ export interface Reservation {
   starts?: Array<{ token: string; at: string }>;
 }
 /** One observation: the run's totals at a program's end, and the readers it dispatched when it measured them. */
-export interface Note { step: string; label?: string; at: string; used: number; credits?: number; readers?: { n: number; tokens: number; credits?: number } }
+export interface Note { step: string; label?: string; at: string; used: number; credits?: number; readers?: { n: number; tokens: number; credits?: number }; calls?: number }
 export interface Sample { id: string; kind: 'step' | 'dispatch'; epoch: number; prior: number; projected: number; actual: number }
 export interface Handoff {
   n: number; sha: string; file: string; from: string; to: string; sub_cap: number; reservation: string; reading_at: number | null;
@@ -102,6 +103,8 @@ export interface Ledger {
   /** tree: the reading is the root thread's counter (a subagent cannot read its own jam id), so every cost line carries TREE_METER. */
   meter_scope?: 'tree';
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
+  /** Where the 100-minute clock starts (lib/ship-clock.ts): created_at, or the resume after a time stop. */
+  clock_from?: string;
 }
 
 /** A refusal: exit 2 for usage and validation (stderr), exit 3 for a stop. */

@@ -4,20 +4,45 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type { HostConfig } from './host-config';
 
 const SKIP = new Set(['node_modules', '.git', 'dist']);
 
 /**
- * Retired skills: the source stays because another skill reads it, but no host
- * registers it. plan-eng-review is /autoplan's eng-phase methodology (GST-1698).
- * External hosts get that methodology beside gstack-autoplan/SKILL.md as
- * <name>.md, since Codex and Copilot register every nested SKILL.md. setup and
- * gstack-relink read the same list from GSTACK_RETIRED_SKILLS in
- * bin/gstack-install-registry.sh.
+ * Retired skills: no host registers them, and setup removes an earlier
+ * install's gstack-owned entry. investigate was cut after a no-gain eval and
+ * its source is gone (GST-1717). setup and gstack-relink read the same list
+ * from GSTACK_RETIRED_SKILLS in bin/gstack-install-registry.sh.
  */
-export const RETIRED_SKILLS = ['plan-eng-review'];
+export const RETIRED_SKILLS = ['investigate'];
+
+/**
+ * Review skills /autoplan reads as a phase methodology from its own directory
+ * on external hosts: each renders a second time beside gstack-autoplan/SKILL.md
+ * as <name>.md, so /autoplan's phase does not depend on the standalone skill
+ * staying installed (GST-1698; the standalone /plan-eng-review returned in
+ * GST-2726).
+ */
+export const AUTOPLAN_SIBLING_METHODOLOGIES = ['plan-eng-review'];
+
+/**
+ * The gstack-on-Capy skills (crew/README.md): registered only on a Capy
+ * machine, and kept off every host elsewhere like a retired skill. Same list
+ * as GSTACK_CREW_SKILLS in bin/gstack-install-registry.sh, and the same Capy
+ * test as its gstack_on_capy.
+ */
+export const CREW_SKILLS = ['captain'];
+
+export function onCapyMachine(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): boolean {
+  return Boolean(env.CAPY_MACHINE_CONFIG) || fs.existsSync(path.join(home, '.capy'));
+}
+
+/** What no host registers on this machine: the retired skills, plus the crew skills off Capy. */
+export function unregisteredSkills(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): string[] {
+  return onCapyMachine(env, home) ? RETIRED_SKILLS : [...RETIRED_SKILLS, ...CREW_SKILLS];
+}
 
 /** The generator and its coverage checks use the same include-minus-skip rule. */
 export function includesSkill(host: HostConfig, skillDir: string): boolean {

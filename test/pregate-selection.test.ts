@@ -20,6 +20,7 @@ import { DEFAULT_CONFIG, validateConfig } from '../lib/pregate/config';
 import { isDocsEmptyLane } from '../lib/pregate/docs-lane';
 import { buildGraph, testsFor } from '../lib/pregate/import-graph';
 import { CHECK_IDS } from '../lib/pregate/index';
+import { STRAY_NAME } from '../lib/pregate/checks/strays';
 import type { PregateContext } from '../lib/pregate/types';
 import { parseWorkflow } from '../lib/pregate/workflows';
 import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
@@ -309,6 +310,26 @@ describe('literals (pure)', () => {
     expect(consumersOf(root, Object.keys(files), { name: 'attempts', old: '1', new: '3', file: 'lanes/review-noloss/judge-run.ts' })).toEqual(['tests/judge-run.test.ts:3']);
     fs.rmSync(root, { recursive: true, force: true });
   });
+  // Value: protects=a call-site literal of any length (`limit: 120`) counts only in a file that also names the changed module, while a
+  //   test that imports the module still fails on the old value; fails_when=a file that only uses the word and holds the old number is
+  //   reported again (#4478: a rate limit lowered from 120 to 30 flagged 30 unrelated test files), or the importer stops being reported;
+  //   why_new=the module gate covered one-character values only; seam=none; no_claim=a wrapper or barrel that never names the module
+  test('consumersOf: a longer call-site literal also needs the changed module in the file; an importer of it still counts (#4478)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-call-long-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'tests/pagination.test.ts': ['const page = await list({ limit: 50 });', 'expect(page.rows.length).toBeLessThanOrEqual(120);', ''].join(nl),
+      'tests/upload.test.ts': ['// the size limit is checked before the upload starts', 'expect(chunk(120)).toHaveLength(3);', ''].join(nl),
+      'tests/sibling.test.ts': ["import { quota } from '../src/rate-limits-v2';", 'expect(quota().limit).toBe(120);', ''].join(nl),
+      'tests/rate-limits.test.ts': ["import { SEND_RATE } from '../src/rate-limits';", 'expect(SEND_RATE.limit).toBe(120);', ''].join(nl),
+      'tests/send.test.ts': ["import { send } from '../src/rate-limits.ts';", 'const burst = 120;', 'expect(send(burst).ok).toBe(true);', ''].join(nl),
+      'tests/send-limit.test.ts': ['expect(SEND_LIMIT).toBe(120);', ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    expect(consumersOf(root, Object.keys(files), { name: 'limit', old: '120', new: '30', file: 'src/rate-limits.ts' })).toEqual(['tests/rate-limits.test.ts:2', 'tests/send.test.ts:2']);
+    expect(consumersOf(root, Object.keys(files), { name: 'SEND_LIMIT', old: '120', new: '30', file: 'src/other.ts' })).toEqual(['tests/send-limit.test.ts:1']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   // Value: protects=a test that keeps an old value on purpose (the refused input after a minimum-version bump) can waive that one line
   //   with a `pregate-literal: NAME=value reason` comment, while every other old-value line, a marker for another constant or value,
   //   a marker with no reason (a bare `*/`, `**/` or `* */` closer is not a reason) and marker text inside a string still count, and a line marked
@@ -536,13 +557,33 @@ describe('gstack-pregate (bin)', () => {
     const ok = pregate(repo, ['--stage', 'preflight', '--only', 'strays']);
     expect(ok.status).toBe(EXIT.ok);
     expect(ok.out).toMatch(/^preflight {2}strays {4}pass /m);
-    commit(repo, { 'docs/zz-notes.md': '# n\n', 'lib/tmp-x.ts': 'export {};\n', 'test/scratch.py': 'pass\n', 'lib/util.js.orig': 'x\n' });
+    commit(repo, { 'docs/zz-notes.md': '# n\n', 'lib/tmp.ts': 'export {};\n', 'test/scratch.py': 'pass\n', 'lib/util.js.orig': 'x\n' });
     const r = pregate(repo, ['--stage', 'preflight', '--only', 'strays']);
     expect(r.status).toBe(EXIT.fail);
     expect(r.out).toMatch(/^preflight {2}strays {4}fail .*4 stray file\(s\)/m);
-    for (const f of ['docs/zz-notes.md', 'lib/tmp-x.ts', 'test/scratch.py', 'lib/util.js.orig']) expect(r.out).toContain(`strays: ${f}: scratch name (${f.split('/').pop()})`);
+    for (const f of ['docs/zz-notes.md', 'lib/tmp.ts', 'test/scratch.py', 'lib/util.js.orig']) expect(r.out).toContain(`strays: ${f}: scratch name (${f.split('/').pop()})`);
     expect(r.out).not.toContain('probe.py: scratch name');
     expect(r.out).not.toContain('temporal-graph-shipped.test.ts: scratch name');
+  });
+
+  // Value: protects=real modules whose names only start with tmp/scratch (tmp-watch.js, tmpfs-mount.js, scratchpad.ts) pass strays; fails_when=STRAY_NAME treats tmp or scratch as a bare prefix again
+  //   why_new=GST-1211 covers zz-*, probe.py and temporal-*, never a tmp- or scratch-prefixed real module (GST-1944, ALPH-74); seam=none
+  test('GST-1944: tmp and scratch match as a whole stem only; tmp-watch.js, tmpfs-mount.js and scratchpad.ts are not scratch names', () => {
+    for (const name of ['tmp-watch.js', 'tmpfs-mount.js', 'tmpl.ts', 'scratchpad.ts', 'scratch-card.tsx', 'tmp_cleanup.py', 'tmp-repro.ts', 'scratch-probe.sh']) expect([name, STRAY_NAME.test(name)]).toEqual([name, false]);
+    for (const name of ['tmp', 'tmp.js', 'tmp2.js', 'tmp_1.txt', 'tmp-1.js', 'TMP.js', 'Tmp.md', 'scratch', 'scratch.md', 'scratch2.ts', 'scratch_3.py', 'SCRATCH.txt', 'zz-anything', 'zz-watch.js', 'notes.tmp', 'util.js.orig']) expect([name, STRAY_NAME.test(name)]).toEqual([name, true]);
+    const repo = fixture({ pregate: { ...BASE_PREGATE, warn: [] } });
+    commit(repo, { 'lib/server/disk-space/tmp-watch.js': 'module.exports = 1;\n', 'lib/server/disk-space/tmpfs-mount.js': 'module.exports = 2;\n', 'lib/scratchpad.js': 'module.exports = 3;\n' });
+    const ok = pregate(repo, ['--stage', 'preflight', '--only', 'strays']);
+    expect(ok.status).toBe(EXIT.ok);
+    expect(ok.out).toMatch(/^preflight {2}strays {4}pass /m);
+    commit(repo, { 'lib/tmp.js': 'x\n', 'lib/tmp2.js': 'x\n', 'lib/tmp_1.txt': 'x\n', 'docs/TMP.js': 'x\n', 'docs/scratch.md': 'x\n', 'lib/scratch2.ts': 'x\n', 'lib/zz-anything': 'x\n', 'lib/tmp': 'x\n' });
+    const r = pregate(repo, ['--stage', 'preflight', '--only', 'strays']);
+    expect(r.status).toBe(EXIT.fail);
+    expect(r.out).toMatch(/^preflight {2}strays {4}fail .*8 stray file\(s\)/m);
+    for (const f of ['lib/tmp.js', 'lib/tmp2.js', 'lib/tmp_1.txt', 'docs/TMP.js', 'docs/scratch.md', 'lib/scratch2.ts', 'lib/zz-anything', 'lib/tmp']) expect(r.out).toContain(`strays: ${f}: scratch name (${f.split('/').pop()})`);
+    expect(r.out).not.toContain('tmp-watch.js: scratch name');
+    expect(r.out).not.toContain('tmpfs-mount.js: scratch name');
+    expect(r.out).not.toContain('scratchpad.js: scratch name');
   });
 
   test('p0-4-heavy-old-constant: a nightly-only test still asserting the old literal fails literals with file:line', () => {
@@ -995,6 +1036,35 @@ describe('nested JS packages run their own runner from their own directory', () 
     expect(planRuns(ctxFor(repo, { PATH: path.join(repo.root, 'empty-path') }), ['app/e2e/app.spec.ts'])).toEqual({ groups: [], unclaimed: ['app/e2e/app.spec.ts'], missing: ['pnpm'], noPubspec: [] });
   });
 
+  // Value: protects=a JS test that loads node:test runs through `node --test`, never the repo's vitest (which finds no suite in it and fails
+  //   the lane, stopping /ship's finish on every PR that selects one); fails_when=the repo-wide runner takes node:test files again (#4586);
+  //   why_new=no detection looked at node:test imports; seam=none; no_claim=a real node or vitest run (plan only)
+  test('a JS test importing node:test runs through node --test even when the repo declares vitest; vitest tests keep vitest', () => {
+    const repo = fixture({ pregate: null, baseFiles: APP });
+    const ctx = ctxFor(repo, pmShim(repo));
+    write(repo.work, 'package.json', JSON.stringify({ name: 'monorepo', private: true, devDependencies: { vitest: '^4.1.0' } }) + '\n');
+    write(repo.work, 'scripts/release-notes.test.mjs', "import { describe, it } from \"node:test\";\nimport assert from 'node:assert/strict';\nit('formats', () => assert.ok(true));\n");
+    write(repo.work, 'scripts/bare.test.js', "import 'node:test';\n");
+    write(repo.work, 'scripts/legacy.test.cjs', "const assert = require('node:assert');\nconst { test } = require( 'node:test' );\ntest('legacy', () => assert.ok(true));\n");
+    write(repo.work, 'app/scripts/check.test.mjs', "import test from 'node:test';\ntest('nested', () => {});\n");
+    write(repo.work, 'test/a.test.ts', "import { expect, test } from 'vitest';\nimport { test as nodeTest } from 'node:test';\ntest('ts stays', () => expect(1).toBe(1));\n");
+    write(repo.work, 'test/fixture-text.test.js', "import { test } from 'vitest';\n// import { test } from 'node:test';\nconst sample = \"const { test } = require('node:test');\";\ntest('mentions node:test only in text', () => {});\n");
+    const files = ['test/a.test.ts', 'scripts/release-notes.test.mjs', 'test/fixture-text.test.js', 'scripts/bare.test.js', 'scripts/legacy.test.cjs', 'app/src/sum.test.ts', 'app/scripts/check.test.mjs'];
+    expect(planRuns(ctx, files)).toEqual({ groups: [
+      { runner: 'npx vitest run {files}', cwd: '', files: ['test/a.test.ts', 'test/fixture-text.test.js'] },
+      { runner: 'node --test {files}', cwd: '', files: ['scripts/release-notes.test.mjs', 'scripts/bare.test.js', 'scripts/legacy.test.cjs', 'app/scripts/check.test.mjs'] },
+      { runner: 'pnpm exec vitest run {files}', cwd: 'app', files: ['src/sum.test.ts'] },
+    ], unclaimed: [], missing: [], noPubspec: [] });
+    expect(planRuns(ctx, ['test/fixture-text.test.js']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['test/fixture-text.test.js'] }]);
+    write(repo.work, 'test/mixed.test.js', "import { test } from 'vitest';\nimport { mock } from 'node:test';\ntest('vitest owns it', () => {});\n");
+    write(repo.work, 'test/jest-mixed.test.cjs', "const { test } = require('@jest/globals');\nconst { mock } = require('node:test');\ntest('jest owns it', () => {});\n");
+    expect(planRuns(ctx, ['test/mixed.test.js', 'test/jest-mixed.test.cjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['test/mixed.test.js', 'test/jest-mixed.test.cjs'] }]);
+    write(repo.work, 'scripts/gen.test.mjs', "import { test } from 'node:test';\nconst generated = `\nimport { test } from 'vitest';\ntest('generated', () => {});\n`;\ntest('writes a vitest file', () => generated.includes('vitest'));\n");
+    expect(planRuns(ctx, ['scripts/gen.test.mjs']).groups).toEqual([{ runner: 'node --test {files}', cwd: '', files: ['scripts/gen.test.mjs'] }]);
+    const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'npx vitest run {files}' } } as PregateContext;
+    expect(planRuns(declared, ['scripts/release-notes.test.mjs']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['scripts/release-notes.test.mjs'] }]);
+  });
+
   // Value: protects=repos where root detection works today are unchanged: a nested package that declares no test runner stays with the
   //   root runner from the root, a root vitest stays `npx vitest run` from the root, and a declared runner takes every file;
   //   fails_when=every nested package.json splits a group or the root command changes; why_new=negative controls for the new
@@ -1007,7 +1077,10 @@ describe('nested JS packages run their own runner from their own directory', () 
     fs.rmSync(path.join(repo.work, 'bun.lock'));
     write(repo.work, 'package.json', JSON.stringify({ name: 'fixture', devDependencies: { vitest: '^3.2.0' } }) + '\n');
     write(repo.work, 'pnpm-lock.yaml', "lockfileVersion: '9.0'\n");
-    expect(planRuns(ctx, ['app/src/sum.test.ts', 'test/util.test.js']).groups).toEqual([{ runner: 'npx vitest run {files}', cwd: '', files: ['app/src/sum.test.ts', 'test/util.test.js'] }]);
+    expect(planRuns(ctx, ['app/src/sum.test.ts', 'test/util.test.js']).groups).toEqual([
+      { runner: 'npx vitest run {files}', cwd: '', files: ['app/src/sum.test.ts'] },
+      { runner: 'node --test {files}', cwd: '', files: ['test/util.test.js'] },
+    ]);
     const declared = { ...ctx, config: { ...DEFAULT_CONFIG, runner: 'bun test {files}' } } as PregateContext;
     write(repo.work, 'app/package.json', APP['app/package.json']);
     expect(planRuns(declared, ['app/src/sum.test.ts']).groups).toEqual([{ runner: 'bun test {files}', cwd: '', files: ['app/src/sum.test.ts'] }]);

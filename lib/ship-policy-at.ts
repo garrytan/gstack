@@ -5,7 +5,7 @@
  * default. Callers: lib/review-exclude.ts, lib/ship-receipt-depth.ts,
  * bin/gstack-review-plan.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from './spawn-sync';
 import { SHIP_POLICY_PATH, finish, type PolicyLoad, type PolicySource } from './ship-policy';
 
 function git(repoRoot: string, args: string[]): { ok: boolean; out: string; err: string } {

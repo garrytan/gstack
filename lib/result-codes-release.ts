@@ -36,6 +36,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the lane is not ready to report: the working tree, HEAD or CI state does not match the pushed PR head',
     fix: 'commit and push the work (or wait for CI on that exact head), then rerun gstack-ship-queue ready',
   },
+  QUEUE_BASE_UNFETCHED: {
+    anchor: 'queue-base-unfetched',
+    summary: 'ready, or the stamp path of land, could not fetch origin/<base>, so it did not compare the receipt with a base ref it could not refresh',
+    fix: 'fix the fetch (git fetch origin <base>), then rerun the same command',
+  },
   QUEUE_PROOF_MISSING: {
     anchor: 'queue-proof-missing',
     summary: 'a proof input the queue step needs is missing or does not match (gated head, base, stamp journal, version or tree)',
@@ -244,6 +249,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the PR body’s /ship receipt is conditional: Step 5 failed on cases gstack-base-red proved are the base branch’s own, so /ship paused before READY',
     fix: 'wait for the base to pass those cases (gstack-base-red wait --pause <file>), then /ship --resume <record>, which re-runs Step 5 and rewrites the receipt without base_red; only ready --base-red --fixer <pr> READYs a conditional receipt, and it rides only a train with gates whose slot 1 is its fixer',
   },
+  QUEUE_RECEIPT_BASE_MISMATCH: {
+    anchor: 'queue-receipt-base-mismatch',
+    summary: 'the PR body’s /ship receipt was reviewed against another branch than the queue’s base (a #3570 stacked child retargeted before its parent landed), so it covers only the change since that branch',
+    fix: 'land the parent first, merge the base into this branch and push, then gstack-ship-receipt carry --pr <n> --base <base> moves the receipt to the base (it carries only when the parent fully landed and the child is unchanged), else rerun /ship against the base; then gstack-ship-queue ready again',
+  },
   BASE_RED_UNCONFIGURED: {
     anchor: 'base-red-unconfigured',
     summary: 'the base branch’s ship policy declares no base_red block, so gstack-base-red cannot reproduce a Step 5 failure there and every failure stays in-branch',
@@ -308,6 +318,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'queue-post-merge-red',
     summary: 'a push workflow on the merged commit (free tests, the Windows subset, the main backstop) concluded failure, timed out or was cancelled after the train merged it; a neutral or skipped check is not red',
     fix: 'read the red run (gstack-ship-queue verify --post-merge <sha> prints one CHECK: line per workflow), repair on a new PR or roll back the merge; gstack-ship-queue train status names the freeze if the backstop filed one',
+  },
+  QUEUE_READY_NOTE_UNPUSHED: {
+    anchor: 'queue-ready-note-unpushed',
+    summary: 'ready wrote its READY receipt locally, but after three tries origin does not hold the note on refs/notes/gstack-trains (the push failed, or it exited 0 and origin read back without the note), so land would refuse the pin; the head is not READY',
+    fix: 'read the push error on the READY_RECEIPT line, fix what refused it (credentials, a hook or rule on refs/notes/*, the network), then rerun the printed gstack-ship-queue ready command, adding back any --pregate, --gate-exit or --gate-log you passed; it keeps ready_at and pushes the kept receipt',
   },
   QUEUE_SCREEN_RED: {
     anchor: 'queue-screen-red',
@@ -400,10 +415,25 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the prose /ship is about to publish (a CHANGELOG entry or a PR body) carries an AI tell a regular expression can decide',
     fix: 'rewrite each PROSE: line in the draft the way its hint says, then rerun gstack-prose-lint on the same file',
   },
+  RECEIPT_BLOCKER_OPEN: {
+    anchor: 'receipt-blocker-open',
+    summary: 'the review loop stopped at this head with a blocking finding still open (a Step 9 or Step 11 finding, the second-model review included, whose newest review-log action is still open and no owner ruling closed), so no receipt is written',
+    fix: 'fix the finding and run /ship again on the new head, or take the stop to the owner, whose ruled note or grant closes it; never write the receipt by hand or drop the finding from the review-log row',
+  },
   REVIEW_LOOP_EXCEPTION_INVALID: {
     anchor: 'review-loop-exception-invalid',
     summary: 'write --review-loop-exception got an exception that is malformed, accepts a stop the review loop does not show (a fix_check with review_loop.fix_checks 0 or missing, or a second_pass with fewer than two passes or no deferred finding), names a head that is not the receipt head or its ancestor, or is missing from the PR body',
     fix: 'pass { accepted_by, date, via, reason } plus fix_check: { head, findings } or second_pass: { head, deferred: [<finding id>] } with the owner’s words, the --review-loop summary that shows that stop, and the printed "Review-loop exception: …" line in the body',
+  },
+  CI_CARRY_TREE_LOG_UNBOUND: {
+    anchor: 'ci-carry-tree-log-unbound',
+    summary: 'a CI run with no tree.json artifact (artifact storage full) has one GSTACK_TREE_JSON line in its job log, but the runner did not stamp it inside the step the run profile names in tree_log_step, at least a second after every earlier step ended and a second before every later one started, or that step is missing, repeated or did not succeed; a line printed anywhere else (a test, for one) is never evidence',
+    fix: 'print the line only from the step tree_log_step names, after the test step, with sleep 1 before it and sleep 5 after it (docs/pregate.md#tree-log-step); then dispatch a fresh run at the same head and rerun gstack-ci-carry wait',
+  },
+  CI_CARRY_RERUN_MALFORMED: {
+    anchor: 'ci-carry-rerun-malformed',
+    summary: 'a CI run\'s tree.json carries rerun_files or attempts in a shape gstack cannot read (rerun_files not a list of paths, attempts not a list of attempt numbers), so the run is not evidence and no lane carries from it',
+    fix: 'fix the workflow step that writes tree.json (rerun_files: ["test/a.test.ts", …], attempts: [1, 2]), dispatch a fresh run at the same head, then rerun gstack-ci-carry wait',
   },
   RECEIPT_CARRY_TREE_MISMATCH: {
     anchor: 'receipt-carry-tree-mismatch',
@@ -415,6 +445,21 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
     fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped fix-check, no /ship)',
   },
+  STOP_UNBOUND: {
+    anchor: 'stop-unbound',
+    summary: 'gstack-ship-receipt stop found no review of this run bound to one committed tree, so it recorded no stop record',
+    fix: 'nothing for a grant to answer: the lane or its Captain ships with the open notes listed or parks; a fresh /ship run gives the head its review',
+  },
+  GRANT_SPENT: {
+    anchor: 'grant-spent',
+    summary: 'another /ship run already claimed this round grant, and a grant buys one round',
+    fix: 'the lane or its Captain records a new grant for the stop the PR is at now (gstack-ship-receipt stop prints the command)',
+  },
+  GRANT_UNKNOWN: {
+    anchor: 'grant-unknown',
+    summary: 'the branch approval record holds no approved review_round_grant row with this id',
+    fix: 'pass the id gstack-approvals round-grant printed, from a checkout that sees the record or its mirror',
+  },
   RECEIPT_CARRY_SCOPED_REVIEW: {
     anchor: 'receipt-carry-scoped-review',
     summary: 'the branch\'s own +/- lines are the reviewed ones, but the base edited context next to them, so the merge may have spliced the two (GST-384); the receipt carries only after a scoped review of those hunks',
@@ -424,6 +469,11 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'docs-audit-blocked',
     summary: 'the documentation audit (/ship Step 14.5) is blocked: gstack-ship-receipt docs-caps found a declared doc cap over, or gstack-ship-receipt write was given a blocked audit with no owner exception and refused to record the ship as audited',
     fix: 'repair the audit (or trim the doc named by the DOCS_CAP: over line) and rerun Step 14.5; when the owner accepts the named risk, record it as docs.exception { accepted_by, date, via, reason } and carry the same line in the PR body\'s Documentation section',
+  },
+  DOCS_RESULT_INVALID: {
+    anchor: 'docs-result-invalid',
+    summary: 'the documentation audit child\'s last line (/ship Step 14.5) does not meet the result contract: a key is missing, unknown or repeated once whitespace around keys is trimmed, a field has the wrong type or value, or documentation_section is empty or a placeholder; the audit result cannot be used, and this is a malformed reply, not a blocked audit',
+    fix: 'on FORMAT_REPAIR:, re-ask once for the last line with gstack-docs-candidate repair-prompt and check the reply with result --repair-of, which uses no attempt; otherwise run the one remaining re-audit with the RETRY_NOTE: line appended to its prompt verbatim; with no attempt left, Step 14.5 stops with this code and the keys it names',
   },
   RECEIPT_PROSE_MISMATCH: {
     anchor: 'receipt-prose-mismatch',
@@ -493,6 +543,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the PR head is not the pin land was given, so the READY it was given does not describe what would merge',
     fix: 'the lane runs /ship and gstack-ship-queue ready --pr <n> --no-screen at the new head and reports READY with it; land that pin',
   },
+  QUEUE_GATE_DISPOSITION: {
+    anchor: 'queue-gate-disposition',
+    summary: 'the owner gate dispositions the approval store applies at the pin are not all accepted by the lander, an accepted id is not applied, or the receipt or PR body differs from the store',
+    fix: 'read each GATE_DISPOSITION line, then rerun land (or verify) with --accept-gate-disposition <approval id> for each one you accept; when the receipt or body differs from the store, the lane reruns /ship and ready at the pin',
+  },
   QUEUE_LAND_CHECKS: {
     anchor: 'queue-land-checks',
     summary: 'a check at the pin is red or pending, or a required check never ran there',
@@ -544,7 +599,12 @@ export const RELEASE_RESULT_CODES = {
   REVIEW_DIFF_TOO_LARGE: {
     anchor: 'review-diff-too-large',
     summary: 'one reviewer\'s diff is over the 2,000,000-byte review ceiling, so /ship stopped before writing a manifest or a brief instead of handing a reader more than it can read',
-    fix: 'follow the fix the line prints for where the base policy stands: land the printed review_exclude_paths JSON on the base as its own PR, then bring the base into the branch and rerun once; or narrow a pattern the kept-file bound skipped; or split the PR',
+    fix: 'follow the fix the line prints for where the base policy stands: land the printed review_exclude_paths JSON on the base as its own PR, then bring the base into the branch and rerun once; or split the PR',
+  },
+  REVIEW_EXCLUDE_KEEP_TOO_LARGE: {
+    anchor: 'review-exclude-keep-too-large',
+    summary: 'a review_exclude_paths pattern keeps so many matched files in review that the command readers run to read them would pass 24,000 argument bytes, so gstack-review-plan stopped instead of silently dropping the pattern; the line names the pattern, the kept count, the reasons they are kept and the bytes',
+    fix: 'when the kept files are published data (reason code on .patch, MANIFEST.sha256 or extension-less files), land a review_content_patterns entry over them beside the pattern on the base as its own PR, then bring the base into the branch and rerun once; otherwise narrow the pattern or split the PR',
   },
   REVIEW_DIFF_UNREADABLE: {
     anchor: 'review-diff-unreadable',
@@ -553,8 +613,8 @@ export const RELEASE_RESULT_CODES = {
   },
   REVIEW_PLAN_STOPPED: {
     anchor: 'review-plan-stopped',
-    summary: 'gstack-review-plan did not finish inside the pass (reason=timeout after timeout_ms, reason=signal when something killed it, reason=spawn when it could not start), so gstack-review-dispatch pass stopped before writing a manifest or dispatching a reader',
-    fix: 'rerun the pass once unchanged; if it stops again, report this line and the repository\'s file count (git ls-files | wc -l) to your Captain; reason=signal: check the machine\'s free memory first',
+    summary: 'gstack-review-plan did not finish inside its limit (reason=timeout after timeout_ms, reason=signal when something killed it, reason=spawn when it could not start), so the review stopped before any reader ran: gstack-review-dispatch pass writes no manifest, render writes no brief, and a plan run by itself prints no plan',
+    fix: 'rerun once unchanged; if reason=timeout again on a large repository (git ls-files | wc -l in the hundreds of thousands), set GSTACK_REVIEW_PLAN_TIMEOUT_MS (milliseconds, default 180000) to about twice the plan\'s time and rerun; otherwise report this line and the file count to your Captain; reason=signal: check the machine\'s free memory first',
   },
   REVIEW_EXCLUDE_REFERENCE: {
     anchor: 'review-exclude-reference',
@@ -576,5 +636,26 @@ export const RELEASE_RESULT_CODES = {
     anchor: 'fetch-rerun-spent',
     summary: 'the stage\'s one rerun fetched too, so the pass stopped with its readers quarantined, resuming it starts no later stage and returns no reader output, and verify refuses',
     fix: 'deal with the printed paths, find out why readers keep fetching, then start a fresh pass under a new --pass and --out; a third attempt is never automatic',
+  },
+  // GST-3053: gstack-ship-release push's last line, `PUSH: failed reason=<code>` (docs/unattended.md#push-line).
+  PUSH_REFUSED: {
+    anchor: 'push-refused',
+    summary: 'gstack-ship-release push stopped before git push ran (a usage error, the wrong branch, the unanswered pre-push offer, open gate findings on a ready PR, sealed output, the secrets scan, the pre-push guards or a branch name that is not plain words), so nothing was pushed',
+    fix: 'follow the STOP: line above it, then rerun gstack-ship-release push',
+  },
+  PUSH_REJECTED: {
+    anchor: 'push-rejected',
+    summary: 'git push was rejected: the remote branch has commits this branch lacks (non-fast-forward) or the remote refused the update, so nothing was pushed',
+    fix: 'fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16 again, then rerun push; never force-push',
+  },
+  PUSH_GIT_FAILED: {
+    anchor: 'push-git-failed',
+    summary: 'git could not read the remote branch or git push failed for another reason (authentication, a pre-push hook or the network), so nothing was pushed',
+    fix: 'repair the cause git printed in the STOP: line, repeat Step 16, then rerun push; never bypass a guard',
+  },
+  SPAWN_OUTPUT_INCOMPLETE: {
+    anchor: 'spawn-output-incomplete',
+    summary: 'a child process reported an error (ENOBUFS when its output passed maxBuffer) even though its exit status may be 0, so its output may be cut off and was not used',
+    fix: 'rerun once; if the output really is that large (a huge diff or file list), narrow the range or paths, and report a repeat to the gstack maintainers with the command named here',
   },
 } as const satisfies Record<string, ResultCode>;

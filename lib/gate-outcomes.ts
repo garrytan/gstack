@@ -48,6 +48,11 @@ export const GATE_OUTCOMES = {
     summary: 'the reviewer declined to review',
     fix: 're-run the review; if it declines again, review the change natively',
   },
+  cyber_policy_refused: {
+    state: 'unavailable', anchor: 'outside-review-cyber-policy',
+    summary: 'OpenAI declined the review under its cyber-security policy (cyber_policy)',
+    fix: "do not send the same brief to another OpenAI model: rerun it on GPT-6 Astra with the read-only correctness brief, or on Gemini 4 Carbon unchanged. Capy's /ship does this once by itself; when every attempt is refused, the second-family read is missing and the PR body says so (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-cyber-policy)",
+  },
   truncated: {
     state: 'unavailable', anchor: 'outside-review-truncated',
     summary: 'the reviewer hit its output token limit and the response is cut off',
@@ -58,9 +63,14 @@ export const GATE_OUTCOMES = {
     summary: 'the response lacks the markers this gate requires',
     fix: 're-run the review; a response without its required markers never counts as a pass',
   },
+  missing_verdict: {
+    state: 'ran', anchor: 'outside-review-missing-verdict',
+    summary: 'the review does not end with the required VERDICT: CLEAN or VERDICT: FINDINGS line',
+    fix: 'read the full reply above and decide; it is not a pass. Re-run the review from current skills, whose prompts ask for that line (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-missing-verdict)',
+  },
   untagged_review: {
     state: 'ran', anchor: 'outside-review-unverified',
-    summary: 'the review completed without severity tags or an explicit no-findings line',
+    summary: 'the review reports findings without a readable severity tag',
     fix: 'read the output above and decide; it is not a pass',
   },
   unparsed_severity: {
@@ -82,6 +92,11 @@ export const GATE_OUTCOMES = {
     state: 'unavailable', anchor: 'codex-quota-exhausted',
     summary: "Codex refused the call for this account's usage limit",
     fix: "wait for the reset time in Codex's message above, or add credits or a higher plan for that account; the model choice is fine. To re-check before gstack's 15-minute cache expires, set GSTACK_CODEX_PROBE_RETRY=1 (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#codex-quota-exhausted)",
+  },
+  budget_exhausted: {
+    state: 'unavailable', anchor: 'outside-review-budget-exhausted',
+    summary: 'the provider refused the review with HTTP 402 (payment required) or a Claude Code usage limit: the budget, allowance or quota behind this key is used up',
+    fix: "check the allowance on the proxy or gateway in front of the provider, or the account's quota and credits, then re-run the review; signing in again will not help (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#outside-review-budget-exhausted)",
   },
   rate_limited: {
     state: 'unavailable', anchor: 'codex-rate-limited',
@@ -122,6 +137,11 @@ export const GATE_OUTCOMES = {
     state: 'unavailable', anchor: 'ship-version-source-broken',
     summary: 'the configured version file is missing, empty, unreadable or malformed',
     fix: 'fix that file, or correct --version-path / .gstack/version-path',
+  },
+  review_required_no_readers: {
+    state: 'not_run', anchor: 'review-required-no-readers',
+    summary: 'commits after the reviewed head would ship with no reviewer, because the plan was told the step applied no fix',
+    fix: 'pass the flags the step left (--fixed-blocking, --fixed-below, --touched-gate or --blocking-open) and plan again; the plan refuses rather than printing done (https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#review-required-no-readers)',
   },
   no_plan_bound: {
     state: 'not_run', anchor: 'plan-audit-not-run',

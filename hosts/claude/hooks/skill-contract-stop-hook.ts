@@ -7,7 +7,12 @@
  *
  *   stdin -> switch on? -> transcript_path -> parse (+ last_assistant_message),
  *     re-read until it holds that final message (lib/skill-gates.ts
- *     readSettledTranscript; Stop can beat the CLI's flush)
+ *     readSettledTranscript; Stop can beat the CLI's flush). A Codex rollout
+ *     is read by lib/codex-rollout.ts, picked by content; Codex sends the
+ *     same payload keys and takes the same block output. A Codex subagent's
+ *     own rollout is never checked (allow). Codex starts hooks without
+ *     CODEX_THREAD_ID, so on Codex the payload's session_id stands in for it
+ *     when gstack-session-kind runs, as in the Codex destructive-command hook
  *     -> the most recently loaded skill that declares a contract (none: allow)
  *     -> final turn? (a STATUS line, a headless or unattended session, or no
  *        pending user question; otherwise allow)
@@ -31,10 +36,10 @@
  * Docs: docs/skill-routing-and-contracts.md.
  */
 import { binPath, sessionKind } from './spawn-bin';
-import { appendHookTrace, installedSkillsDir, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
+import { appendHookTrace, hookHost, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
 import {
-  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, isFinalTurn, lookupContract, nextOutcome,
-  readRecord, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, writeRecord,
+  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, isFinalTurn, nextOutcome, skippedLine,
+  readRecord, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, transcriptContract, writeRecord,
   type Contract, type Transcript,
 } from '../../../lib/skill-contract';
 import { readSettledTranscript } from '../../../lib/skill-gates';
@@ -61,13 +66,16 @@ function unknownShape(file: string, why: string): void {
 
 /** The most recently loaded skill that declares a contract. An invalid contract is a state error. */
 function target(t: Transcript): { skill: string; contract: Contract } | null {
-  const dir = installedSkillsDir();
   const tried: string[] = [];
   for (const load of skillLoads(t).reverse()) {
     if (tried.some(s => sameSkill(s, load.skill))) continue;
     tried.push(load.skill);
-    const found = lookupContract(load.skill, dir);
-    if ('contract' in found) return { skill: load.skill, contract: found.contract };
+    const found = transcriptContract(t, load.skill);
+    if ('contract' in found) {
+      for (const why of found.contract.skipped ?? []) process.stderr.write(`${skippedLine(found.file, why)}
+`);
+      return { skill: load.skill, contract: found.contract };
+    }
     if (found.reason === 'invalid' && found.file) throw new StateError(found.file, found.error);
   }
   return null;
@@ -90,6 +98,7 @@ async function main(): Promise<void> {
   sessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
   const transcriptPath = typeof payload.transcript_path === 'string' ? payload.transcript_path : '';
   if (!transcriptPath || !sessionId) return unknownShape('<stdin>', 'payload has no transcript_path or session_id');
+  if (hookHost() === 'codex' && !process.env.CODEX_THREAD_ID) process.env.CODEX_THREAD_ID = sessionId;
   let transcript: Transcript;
   try {
     transcript = readSettledTranscript(transcriptPath, payload.last_assistant_message).t;
@@ -97,6 +106,7 @@ async function main(): Promise<void> {
     if (e instanceof UnknownShape) return unknownShape(transcriptPath, e.message);
     throw e;
   }
+  if (transcript.subagent) return trace({ event: 'codex-subagent' });
   const t = target(transcript);
   if (!t) return trace({ event: 'no-contract-skill' });
   const result = checkContract(transcript, t.skill, t.contract);

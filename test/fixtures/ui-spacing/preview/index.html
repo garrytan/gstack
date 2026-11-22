@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project settings: access list from the fixture API</title>
+<style>
+:root { --ink: #1d2433; --muted: #6b7385; --line: #dfe3ea; --paper: #ffffff; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #f5f6f8; }
+main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+.panel h2 { font-size: 18px; line-height: 24px; margin: 0 0 12px; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .text { flex: 1; min-width: 0; }
+.row .name { font-weight: 600; }
+.row .role { color: var(--muted); font-size: 13px; margin-left: 8px; }
+.x { flex: none; width: 32px; height: 32px; margin: -7px -7px -7px 0; border: 0; padding: 0; background: transparent; color: var(--muted); font-size: 14px; line-height: 18px; cursor: pointer; }
+.help { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+</style>
+</head>
+<body>
+<main>
+<section class="panel access">
+  <h2>Who has access</h2>
+  <div class="rows"></div>
+  <p class="help">Readers see deploys and logs; editors can change settings.</p>
+</section>
+</main>
+<script>
+(async () => {
+  const rows = document.querySelector('.rows');
+  const members = await fetch('/api/members').then((r) => r.json());
+  for (const m of members) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<div class="text"><span class="name"></span><span class="role"></span></div><button class="x">×</button>';
+    row.querySelector('.name').textContent = m.name;
+    row.querySelector('.role').textContent = m.role;
+    row.querySelector('.x').setAttribute('aria-label', 'Remove ' + m.name);
+    rows.appendChild(row);
+  }
+  try { await fetch('/api/audit').then((r) => { if (!r.ok) throw new Error(String(r.status)); }); } catch (e) { /* the page hides a failed audit call, as real pages do */ }
+})();
+</script>
+</body>
+</html>

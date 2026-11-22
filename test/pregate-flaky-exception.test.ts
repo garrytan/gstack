@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, type PregateFile } from '../lib/headless-artifacts';
 import { buildContext } from '../lib/pregate/context';
-import { clearDecision, clearObligation, runPregate, verifyPregate, type ClearDecision, type RunCheck } from '../lib/pregate/index';
+import { CHECK_IDS, clearDecision, clearObligation, runPregate, verifyPregate, type ClearDecision, type RunCheck } from '../lib/pregate/index';
 import { exceptionBinding, type FailureDeps, type GrantRow } from '../lib/pregate/flaky-exception';
 import type { ApiJob, ApiRun, RunDeps, RunProfile } from '../lib/run-evidence';
 import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
@@ -44,7 +44,7 @@ function fixture(): FixtureRepo {
 async function pregateAt(repo: FixtureRepo): Promise<PregateFile> {
   const loaded = buildContext({ repoRoot: repo.work, base: 'main', policyFrom: 'base', allowRepoCommands: true, env: { ...process.env, ...repo.env }, progress: () => {}, cores: 4, testBackend: 'local' });
   if (!('ctx' in loaded)) throw new Error('fixture context refused');
-  const file = await runPregate(loaded.ctx, { stage: 'tests' });
+  const file = await runPregate(loaded.ctx, { stage: 'all' });
   expect(file.requires_remote).toEqual([expect.objectContaining({ lane: LANE, receipt: null })]);
   return file;
 }
@@ -296,7 +296,7 @@ describe.skipIf(process.platform === 'win32')('ready with a flaky exception', ()
     const exception = { lane: LANE, repo: 'o/r', pr: 1, head, tree, runs: ['400/1'], cases: [FLAKE] };
     const pregate = path.join(repo.root, 'pregate.json');
     fs.writeFileSync(pregate, JSON.stringify({
-      schema_version: 1, tree, head, verdict: 'pass-with-exception', checks: [{ id: 'lanes', status: 'requires-remote' }],
+      schema_version: 1, tree, head, verdict: 'pass-with-exception', checks: CHECK_IDS.map(id => ({ id, status: id === 'lanes' ? 'requires-remote' : 'pass' })),
       requires_remote: [{ lane: LANE, platform: 'remote', workflow: 'pregate.json', job: 'remote_gate', tests: ['test/a.test.ts'], receipt: `remote-gate tree=${tree.slice(0, 12)} tests=18 exception=a-1 cases=1 runs=400/1 profiles=${PROFILE_NAME} heads=${head.slice(0, 12)} verified=2026-10-29T12:00:00.000Z` }],
       exceptions: [{ ...exception, grant: 'a-1', by: 'Garry', words: WORDS, binding: exceptionBinding(exception) }],
     }));

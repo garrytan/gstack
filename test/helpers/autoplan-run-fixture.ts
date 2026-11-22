@@ -29,6 +29,8 @@ export function env(extra: Record<string, string> = {}): Record<string, string> 
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) out[k] = v;
   out.GSTACK_EPHEMERAL = '1';
+  // The run record's guard line follows the host (lib/autoplan-guard-status.ts); keep it the CI host's.
+  delete out.CLAUDECODE; delete out.GSTACK_ACTIVE_HOST;
   // The runner's default kind; spelled through the bin's own flag table so the
   // free-suite environment scan (test/gstack-session-kind.test.ts) stays clean.
   out[SESSION_KIND_VAR] = RUNNER_KIND;

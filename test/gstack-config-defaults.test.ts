@@ -121,7 +121,7 @@ function keysReadInTree(root = ROOT): string[] {
  */
 const PROSE_ONLY_KEYS: Record<string, string> = {};
 
-const READER_DIRS = ['bin', 'lib', 'scripts', 'browse/src', 'hosts'];
+const READER_DIRS = ['bin', 'lib', 'scripts', 'crew/bin', 'crew/lib', 'crew/scripts', 'browse/src', 'hosts'];
 const READER_FILES = ['setup'];
 
 /**
@@ -319,6 +319,24 @@ describe('design_detector (auto|off, rejecting validator)', () => {
     expect(get('design_detector').out).toBe('off');
     spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector', 'auto'], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
     expect(get('design_detector').out).toBe('auto');
+  });
+});
+
+describe('verify_before_commit (on|off, rejecting validator)', () => {
+  // Value: protects=a typo cannot silently leave /verify's pre-commit pass on, and list/defaults show the switch; fails_when=the
+  //   validator or a KEY loop entry is dropped; why_new=the key is new (GST-3150); seam=none; no_claim=gstack-checks' reading of it
+  test('rejects a typo, round-trips on/off and is listed', () => {
+    const run = (...args: string[]) => spawnSync('bash', [CONFIG_BIN, ...args], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
+    expect(get('verify_before_commit')).toEqual({ out: 'on', code: 0 });
+    const bad = run('set', 'verify_before_commit', 'of');
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain("verify_before_commit 'of' not recognized");
+    expect(get('verify_before_commit').out).toBe('on');
+    for (const verb of ['list', 'defaults']) expect(run(verb).stdout).toMatch(/verify_before_commit:\s+on/);
+    expect(run('set', 'verify_before_commit', 'off').status).toBe(0);
+    expect(get('verify_before_commit').out).toBe('off');
+    expect(run('set', 'verify_before_commit', 'on').status).toBe(0);
+    expect(get('verify_before_commit').out).toBe('on');
   });
 });
 

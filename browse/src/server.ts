@@ -156,6 +156,7 @@ let tunnelActive = false;
 let tunnelUrl: string | null = null;
 let tunnelListener: any = null;           // ngrok listener handle
 let tunnelServer: ReturnType<typeof Bun.serve> | null = null; // tunnel HTTP listener
+let tunnelStarting: Promise<StartTunnelResult> | null = null;
 
 export type { Surface };
 
@@ -400,8 +401,14 @@ type StartTunnelResult =
  *
  * On success, sets the module tunnel state (tunnelListener / tunnelUrl /
  * tunnelServer / tunnelActive) and records the tunnel in the state file.
+ * Concurrent calls from either caller share the one in-flight start.
  */
-async function startTunnel(opts: {
+async function startTunnel(opts: Parameters<typeof openTunnel>[0]): Promise<StartTunnelResult> {
+  tunnelStarting ??= openTunnel(opts).finally(() => { tunnelStarting = null; });
+  return tunnelStarting;
+}
+
+async function openTunnel(opts: {
   fetchHandler: (req: Request, server: any) => Promise<Response>;
   authtoken: string;
   consent: string;
@@ -467,6 +474,9 @@ async function startTunnel(opts: {
     try { if (tunnelListener) await tunnelListener.close(); } catch {}
     try { boundTunnel.stop(true); } catch {}
     tunnelListener = null;
+    tunnelServer = null;
+    tunnelUrl = null;
+    tunnelActive = false;
     return { ok: false, stage: 'ngrok', error: err };
   }
 }

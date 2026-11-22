@@ -6,7 +6,8 @@
 # The generated prose calls this once at workflow completion:
 #   gstack-skill-end --skill NAME --outcome success|error|abort|unknown \
 #     --session-id ID --tel-start EPOCH [--used-browse yes|no] \
-#     [--error-message MSG] [--failed-step STEP]
+#     [--error-message MSG] [--failed-step STEP] [--exit-reason R] \
+#     [--invoked user|model|chained] [--model-family F] [--checks C]
 #
 # SESSION_ID and TEL_START come from gstack-skill-start's echoed STATUS lines
 # (inline shell vars never survived across Bash tool calls, so durations were
@@ -15,6 +16,7 @@
 
 SKILL_NAME="unknown"; OUTCOME="unknown"; SESSION_ID=""; TEL_START=""
 USED_BROWSE="no"; ERROR_MESSAGE=""; FAILED_STEP=""
+EXIT_REASON=""; INVOKED=""; MODEL_FAMILY=""; CHECKS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --skill)         SKILL_NAME="$2"; shift 2 ;;
@@ -24,8 +26,12 @@ while [ $# -gt 0 ]; do
     --used-browse)   USED_BROWSE="$2"; shift 2 ;;
     --error-message) ERROR_MESSAGE="$2"; shift 2 ;;
     --failed-step)   FAILED_STEP="$2"; shift 2 ;;
+    --exit-reason)   EXIT_REASON="$2"; shift 2 ;;
+    --invoked)       INVOKED="$2"; shift 2 ;;
+    --model-family)  MODEL_FAMILY="$2"; shift 2 ;;
+    --checks)        CHECKS="$2"; shift 2 ;;
     -h|--help)
-      echo 'Usage: gstack-skill-end --skill NAME --outcome success|error|abort|unknown --session-id ID --tel-start EPOCH [--used-browse yes|no] [--error-message MSG] [--failed-step STEP]'
+      echo 'Usage: gstack-skill-end --skill NAME --outcome success|error|abort|unknown --session-id ID --tel-start EPOCH [--used-browse yes|no] [--error-message MSG] [--failed-step STEP] [--exit-reason R] [--invoked user|model|chained] [--model-family F] [--checks passed|failed|not_run|none]'
       echo 'Records skill completion. --help records nothing.'
       exit 0 ;;
     *) shift ;;
@@ -40,11 +46,13 @@ _GH="$_gstack_sr_root"
 _TEL=$("$_BIN/gstack-config" get telemetry 2>/dev/null || echo off)
 # Plan B1: an unattended session writes no usage, sends no telemetry and never
 # drains or pushes the artifacts queue, whatever the inherited settings say. The
-# upgrade offer it skipped at start becomes one line here, read from the
+# one exception is gstack's own use on Capy: the owner's preferences file can
+# opt Capy sessions in at the anonymous tier (gstack-telemetry-tier --capy).
+# The upgrade offer it skipped at start becomes one line here, read from the
 # update-check cache (no network) so the parent can act on it.
 _SESSION_KIND=$("$_BIN/gstack-session-kind" 2>/dev/null || echo "interactive")
 if [ "$_SESSION_KIND" = "unattended" ]; then
-  _TEL="off"
+  _TEL=$("$_BIN/gstack-telemetry-tier" --capy 2>/dev/null || echo off)
   _CACHED_UPD=$(head -1 "$_GH/last-update-check" 2>/dev/null | tr -cd 'A-Za-z0-9._+ ' || true)
   case "$_CACHED_UPD" in
     UPGRADE_AVAILABLE*) echo "UPGRADE_AVAILABLE: $(printf '%s\n' "$_CACHED_UPD" | awk '{ print $3 (NF >= 4 ? " (main at " $4 ")" : "") }'); run /gstack-upgrade"
@@ -54,8 +62,9 @@ if [ "$_SESSION_KIND" = "unattended" ]; then
 fi
 
 _TEL_END=$(date +%s)
-case "$TEL_START" in ''|*[!0-9]*) TEL_START="$_TEL_END" ;; esac
-_TEL_DUR=$(( _TEL_END - TEL_START ))
+# An unknown start time is an unknown duration (empty, sent as null), not 0.
+_TEL_DUR=""
+case "$TEL_START" in ''|*[!0-9]*) ;; *) _TEL_DUR=$(( _TEL_END - TEL_START )) ;; esac
 [ -n "$SESSION_ID" ] && rm -f "$_GH/analytics/.pending-$SESSION_ID" 2>/dev/null || true
 # Release the workflow lease run gstack-skill-start opened (SESSION_ID starts
 # with its harness pid), so a finished run stops blocking gstack-upgrade (GST-1205).
@@ -72,16 +81,51 @@ if [ "$_SESSION_KIND" != "unattended" ]; then
   "$_BIN/gstack-brain-sync" --once 2>/dev/null || true
 fi
 
-# Local analytics (gated on telemetry setting).
-if [ "$_TEL" != "off" ]; then
+# Local analytics (gated on telemetry setting; an opted-in Capy session sends
+# its one telemetry row below and still records no usage of its own).
+if [ "$_TEL" != "off" ] && [ "$_SESSION_KIND" != "unattended" ]; then
   echo '{"skill":"'"$SKILL_NAME"'","duration_s":"'"$_TEL_DUR"'","outcome":"'"$OUTCOME"'","browse":"'"$USED_BROWSE"'","session":"'"$SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> "$_GH/analytics/skill-usage.jsonl" 2>/dev/null || true
 fi
 
 # Remote telemetry (opt-in, requires binary).
 if [ "$_TEL" != "off" ] && [ -x "$_BIN/gstack-telemetry-log" ]; then
+  # Which agent ran this: GSTACK_ACTIVE_HOST names an env-var host; otherwise
+  # Claude Code sets CLAUDECODE and Codex sets CODEX_THREAD_ID.
+  case "${GSTACK_ACTIVE_HOST:-}" in
+    claude) _HOST=claude_code ;;
+    codex|cursor|openclaw|hermes) _HOST="$GSTACK_ACTIVE_HOST" ;;
+    ?*) _HOST=other ;;
+    *) if [ -n "${CLAUDECODE:-}" ]; then _HOST=claude_code
+       elif [ -n "${CODEX_THREAD_ID:-}" ]; then _HOST=codex
+       else _HOST=unknown; fi ;;
+  esac
+  # Routing setup, read locally; only the enum leaves the machine.
+  _RB=no; for _RF in CLAUDE.md AGENTS.md; do grep -q "## Skill routing" "$_RF" 2>/dev/null && _RB=yes; done
+  _HK=no; grep -q "gstack-" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" 2>/dev/null && _HK=yes
+  case "$_RB$_HK" in yesyes) _ROUTING=both ;; yesno) _ROUTING=block ;; noyes) _ROUTING=hooks ;; *) _ROUTING=none ;; esac
+  # harness_session_id: 16 random hex kept as the contents of this harness
+  # process's sessions/<pid> marker (skill-start's touch keeps the contents,
+  # its 120-minute idle reaper ends the id). Never the device id.
+  _HSESS=""; _HPID="${SESSION_ID%%-*}"
+  # A shared harness (capy-server) runs every session under one pid: no id there.
+  . "$_BIN/gstack-harness-pid.sh" 2>/dev/null && gstack_shared_harness "$_HPID" && _HPID=""
+  case "$_HPID" in ''|*[!0-9]*) ;; *)
+    if [ -f "$_GH/sessions/$_HPID" ]; then
+      _HSESS=$(head -c 16 "$_GH/sessions/$_HPID" 2>/dev/null | tr -cd '0-9a-f')
+      if [ ${#_HSESS} -ne 16 ]; then
+        _HSESS=$(od -An -tx1 -N8 /dev/urandom 2>/dev/null | tr -d ' \n')
+        if [ ${#_HSESS} -eq 16 ]; then printf '%s' "$_HSESS" > "$_GH/sessions/$_HPID" 2>/dev/null || _HSESS=""; else _HSESS=""; fi
+      fi
+    fi ;;
+  esac
+  # error_class: an error run's exit reason, from exit_reason's own fixed list.
+  _ERR_CLASS=""
+  [ "$OUTCOME" = error ] && case "$EXIT_REASON" in blocked|tool_error|test_failed|context_limit|gave_up) _ERR_CLASS="$EXIT_REASON" ;; esac
   "$_BIN/gstack-telemetry-log" \
     --skill "$SKILL_NAME" --duration "$_TEL_DUR" --outcome "$OUTCOME" \
     --used-browse "$USED_BROWSE" --session-id "$SESSION_ID" \
-    --error-message "$ERROR_MESSAGE" --failed-step "$FAILED_STEP" 2>/dev/null &
+    --error-class "$_ERR_CLASS" --error-message "$ERROR_MESSAGE" --failed-step "$FAILED_STEP" \
+    --host "$_HOST" --routing "$_ROUTING" --harness-session "$_HSESS" \
+    --exit-reason "$EXIT_REASON" --invoked "$INVOKED" --model-family "$MODEL_FAMILY" --checks "$CHECKS" 2>/dev/null &
 fi
-echo "SKILL_END: recorded outcome=$OUTCOME duration_s=$_TEL_DUR"
+echo "SKILL_END: recorded outcome=$OUTCOME duration_s=${_TEL_DUR:-unknown}"

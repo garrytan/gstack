@@ -325,7 +325,7 @@ function flag(args: string[], name: string): string | undefined {
 /** The W2 per-judge table plus the arm benchmark's paired judge (run by --config only; the manifest prices the W2 table). */
 export async function loadCalibrationConfigs(): Promise<{ w2: CalibrationConfig[]; all: CalibrationConfig[] }> {
   // The per-judge table (builders, schemas, verdict rules) is committed separately from this harness.
-  const { CALIBRATION_CONFIGS } = await import(path.join(import.meta.dir, 'judge-calibration-configs.ts')) as { CALIBRATION_CONFIGS: CalibrationConfig[] };
+  const { CALIBRATION_CONFIGS } = await import(path.join(import.meta.dir, '..', 'crew', 'scripts', 'judge-calibration-configs.ts')) as { CALIBRATION_CONFIGS: CalibrationConfig[] };
   const { ARM_PAIR_CALIBRATION } = await import(path.join(import.meta.dir, '..', 'test', 'helpers', 'arm-pair-judge.ts')) as { ARM_PAIR_CALIBRATION: CalibrationConfig };
   return { w2: CALIBRATION_CONFIGS, all: [...CALIBRATION_CONFIGS, ARM_PAIR_CALIBRATION] };
 }

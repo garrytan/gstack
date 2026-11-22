@@ -229,7 +229,7 @@ test('both gate executors plan the complete census and supervise every planned s
     expect(execute[0].env.EVALS_CONCURRENCY).toBe('2');
     expect(executor.strategy['fail-fast']).toBe(false);
     if (jobName === 'gate-census') {
-      // One row per census arm and planned slice, each with its arm's planned slice ceiling (scripts/census-arms.ts).
+      // One row per census arm and planned slice, each with its arm's planned slice ceiling (crew/scripts/census-arms.ts).
       expect(executor.strategy.matrix.include).toBe('${{ fromJSON(needs.plan-slices.outputs.gate_matrix) }}');
       expect(executor['timeout-minutes']).toBe('${{ matrix.timeout }}');
     } else {

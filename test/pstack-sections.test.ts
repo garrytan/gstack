@@ -91,7 +91,6 @@ describe('plan-eng-review: two shapes before one inside Section 1 of the lazy re
 
 describe('every pstack-derived section carries its credit line', () => {
   const credited = {
-    'investigate/sections/blast-radius.md.tmpl': 0,
     'context-restore/sections/transcripts.md.tmpl': 0,
     'benchmark/sections/vet-the-number.md.tmpl': 0,
     // The design-twice pass lives inside an existing section; its credit sits on the line above its heading.

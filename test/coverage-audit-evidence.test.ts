@@ -21,6 +21,7 @@ import captured_wc_anchor from './fixtures/coverage-audit-wc-anchor.json';
 import captured_separator from './fixtures/coverage-audit-separator-collision.json';
 import captured_two_file_grep from './fixtures/coverage-audit-two-file-grep.json';
 import captured_plan_eng_wc_bytes from './fixtures/coverage-audit-plan-eng-wc-bytes.json';
+import captured_relative_cd from './fixtures/coverage-audit-relative-cd.json';
 
 const clone = <T>(v:T):T => structuredClone(v);
 const diagram = '```text\nsrc/billing.ts\n├── processPayment: happy path [TESTED]\n└── refundPayment [UNTESTED]\n```';
@@ -1325,5 +1326,137 @@ describe('coverage audit native evidence: a wc -c byte count after both reads (C
     expect(reads(capture.call.command.replace(count, 'wc -w plan-eng-review/sections/review-sections.md'))).toEqual(neither);
     expect(reads(capture.call.command, capture.call.output.replace(nonce, nonce.slice(1) + '0'))).toMatchObject({ sourceRead: false });
     expect(reads(capture.call.command.replace('cat -n test/billing.test.ts', 'cat -n test/other.test.ts'))).toMatchObject({ testsRead: false });
+  });
+});
+
+// Census 43575953190 slice 15 (main 3b650356), review-coverage-audit (claude-opus-5-5): the fifth parent Bash call
+// and the Read call after it, byte-exact. zsh printed src/billing.ts, then read `echo ====` as an = command lookup
+// and abandoned the line; git status is outside the closed grammar, so the recorded run got no source credit.
+const zshAbortCapture = {
+  cwd: "/home/runner/.cache/gstack-paid-shard-KQjof8/tmp/skill-e2e-review-coverage-jdBN2G",
+  sessionId: "9b1ad1cd-1385-46f0-833d-651b5f04163c",
+  bash: { toolUseId: "toolu_0122wJEnMW6jPDckLJfkXr8m", command: "cd /home/runner/.cache/gstack-paid-shard-KQjof8/tmp/skill-e2e-review-coverage-jdBN2G; cat -n src/billing.ts; echo ====; cat -n test/billing.test.ts; git status --short; git diff HEAD --stat",
+    output: "     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n    13\t\n    14\t// coverage-read-evidence: 1767bb48-6a07-4691-a75b-42665f7db096\n(eval):1: === not found" },
+  read: { toolUseId: "toolu_01DhBQc8Z19EdpFppCbGLapD", filePath: "/home/runner/.cache/gstack-paid-shard-KQjof8/tmp/skill-e2e-review-coverage-jdBN2G/test/billing.test.ts",
+    output: "1\t\n2\timport { describe, test, expect } from 'vitest';\n3\timport { processPayment } from '../src/billing';\n4\t\n5\tdescribe('processPayment', () => {\n6\t  test('processes valid payment', () => {\n7\t    const result = processPayment(100, 'USD');\n8\t    expect(result.status).toBe('success');\n9\t  });\n10\t  // GAP: no test for invalid amount\n11\t  // GAP: no test for unsupported currency\n12\t  // GAP: refundPayment not tested at all\n13\t});\n14\t\n15\t// coverage-read-evidence: 3447f095-74ff-428e-9e33-5bfd0d6d44c9\n16\t" },
+};
+
+describe('coverage audit native evidence: zsh abandons the line at an echo ==== separator (census 43575953190 slice 15)', () => {
+  const capture = zshAbortCapture, { bash } = capture;
+  const marked = (body: string, output: string) => body + '\n// coverage-read-evidence: ' + output.match(/coverage-read-evidence: (\S+)/)![1] + '\n';
+  const files = { cwd: capture.cwd, source: { path: capture.cwd + '/src/billing.ts', content: marked(fixture.files.source, bash.output) },
+    tests: { path: capture.cwd + '/test/billing.test.ts', content: marked(fixture.files.tests, capture.read.output) } };
+  const both = { sourceRead: true, testsRead: true }, neither = { sourceRead: false, testsRead: false };
+  type Call = { toolUseId: string; tool: string; input: Record<string, unknown>; isError: boolean; output: string };
+  const bashCall = (command = bash.command, output = bash.output, isError = false): Call =>
+    ({ toolUseId: bash.toolUseId, tool: 'Bash', input: { command }, isError, output });
+  const readCall: Call = { toolUseId: capture.read.toolUseId, tool: 'Read', input: { file_path: capture.read.filePath }, isError: false, output: capture.read.output };
+  const transcript = (calls: Call[]) => [
+    { type: 'system', subtype: 'init', session_id: capture.sessionId, cwd: capture.cwd },
+    ...calls.flatMap(call => [
+      { type: 'assistant', session_id: capture.sessionId, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: call.toolUseId, name: call.tool, input: call.input }] } },
+      { type: 'user', session_id: capture.sessionId, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: call.toolUseId, is_error: call.isError, content: call.output }] } },
+    ]),
+  ];
+  const reads = (command?: string, output?: string, isError?: boolean) => coverageAuditReadEvidence(transcript([bashCall(command, output, isError)]), files);
+  const verdictOf = (calls: Call[]) => coverageAuditVerdict({ exitReason: 'success', browseErrors: [], output: diagram, transcript: transcript(calls) } as any, files);
+  const command = bash.command, error = '\n(eval):1: === not found';
+  const nonce = files.source.content.match(/coverage-read-evidence: (\S+)/)![1]!;
+
+  test('the source printed before the abort is credited, the unrun test display is not, and both recorded calls pass', () => {
+    expect(command).toBe(`cd ${capture.cwd}; cat -n src/billing.ts; echo ====; cat -n test/billing.test.ts; git status --short; git diff HEAD --stat`);
+    expect(bash.output.endsWith(error)).toBe(true);
+    expect(reads()).toEqual({ sourceRead: true, testsRead: false });
+    expect(verdictOf([bashCall(), readCall])).toEqual({ ...both, diagram: true, passed: true, failures: [] });
+    expect(verdictOf([bashCall()])).toMatchObject({ sourceRead: true, testsRead: false, passed: false, failures: ['missing successful test-file read'] });
+    expect(reads(command.replace('cat -n src/billing.ts; ', 'cat -n src/billing.ts && '))).toEqual({ sourceRead: true, testsRead: false });
+  });
+
+  test('output after the error, a different error, or a line that ran on still gets no credit', () => {
+    const shown = bash.output.slice(0, -error.length);
+    for (const output of [bash.output + '\n?? notes.md', bash.output.replace('=== not found', '==== not found'),
+      bash.output.replace('(eval):1:', 'zsh:1:'), shown, shown + '\n====\n' + files.tests.content]) {
+      expect(reads(command, output), output.slice(-40)).toEqual(neither);
+    }
+    expect(reads(command, bash.output, true)).toEqual(neither);
+  });
+
+  test('only an unquoted echo =word standalone after ; or && counts as the abort', () => {
+    for (const separator of ["echo '===='", 'echo "===="', 'echo SRC ====', 'echo ==== | cat', 'echo ==== || true', 'printf ====',
+      'echo =$HOME', 'echo ==== > out.txt', 'cat -n test/billing.test.ts =x', 'echo ==== &']) {
+      expect(reads(command.replace('echo ====', separator)), separator).toEqual(neither);
+    }
+    expect(reads(command.replace('cat -n src/billing.ts; echo ====', 'cat -n src/billing.ts || echo ===='))).toEqual(neither);
+  });
+
+  test('the reads before the abort keep the closed grammar and exact complete bytes', () => {
+    for (const prefix of ['python3 -c pass; cat -n src/billing.ts', 'cat -n src/billing.ts | head -20', 'cat -n src/other.ts',
+      'cat -n ../src/billing.ts', 'cat -n $(echo src/billing.ts)', 'cat -n src/billing.ts 2>/dev/null']) {
+      expect(reads(command.replace('cat -n src/billing.ts', prefix)), prefix).toEqual(neither);
+    }
+    expect(reads(command.replace(capture.cwd, capture.cwd + '/src'))).toEqual(neither);
+    expect(reads(command, bash.output.replace(nonce, nonce.slice(1) + '0'))).toEqual(neither);
+    expect(reads(command, bash.output.replace(/.*Unsupported currency.*\n/, ''))).toEqual(neither);
+    expect(reads(command, 'src/billing.ts was read' + error)).toEqual(neither);
+  });
+});
+
+describe('coverage audit native evidence: cd .. back to the cwd after an earlier cd into review/ (census 44351657692 slice 15)', () => {
+  const capture = captured_relative_cd, [failed, listed, readBoth] = capture.calls;
+  const files = { cwd: capture.cwd, source: { path: capture.cwd + '/src/billing.ts', content: capture.files.source },
+    tests: { path: capture.cwd + '/test/billing.test.ts', content: capture.files.tests } };
+  const both = { sourceRead: true, testsRead: true }, neither = { sourceRead: false, testsRead: false };
+  type Call = { toolUseId: string; command: string; isError: boolean; output: string };
+  const event = (type: 'assistant' | 'user', content: unknown[], parent: string | null = null) =>
+    ({ type, session_id: capture.sessionId, parent_tool_use_id: parent, message: { role: type, content } });
+  const use = (call: Call) => ({ type: 'tool_use', id: call.toolUseId, name: 'Bash', input: { command: call.command } });
+  const result = (call: Call) => ({ type: 'tool_result', tool_use_id: call.toolUseId, is_error: call.isError, content: call.output });
+  const transcript = (calls: Call[]) => [{ type: 'system', subtype: 'init', session_id: capture.sessionId, cwd: capture.cwd },
+    ...calls.flatMap(call => [event('assistant', [use(call)]), event('user', [result(call)])])];
+  const reads = (calls: Call[]) => coverageAuditReadEvidence(transcript(calls), files);
+  const call = (id: string, command: string, output = '', isError = false): Call => ({ toolUseId: id, command, isError, output });
+  const nonce = capture.files.source.match(/coverage-read-evidence: (\S+)/)![1]!;
+
+  test('the recorded calls credit both reads and the recorded run passes', () => {
+    expect(capture.provenance.recordedPassed).toBe(false);
+    expect(capture.files.source).toBe(fixture.files.source + '\n// coverage-read-evidence: ' + nonce + '\n');
+    expect([failed!.isError, listed!.isError, readBoth!.isError]).toEqual([true, false, false]);
+    expect(listed!.command).toBe(`cd ${capture.cwd}/review; ls -R; wc -c SKILL.md sections/* specialists/* 2>&1`);
+    expect(readBoth!.command).toBe('cd .. && cat -n src/billing.ts && echo ---- && cat -n test/billing.test.ts');
+    expect(reads(capture.calls)).toEqual(both);
+    expect(coverageAuditVerdict({ exitReason: 'success', browseErrors: [], output: capture.finalOutput, transcript: transcript(capture.calls) } as any, files))
+      .toEqual({ ...both, diagram: true, passed: true, failures: [] });
+    const deeper = call('toolu_deeper', `cd ${capture.cwd}/review/sections; ls`, 'adversarial.md\n');
+    expect(reads([failed!, listed!, deeper, { ...readBoth!, command: readBoth!.command.replace('cd ..', 'cd ../..') }])).toEqual(both);
+  });
+
+  test('cd .. gets no credit unless the earlier calls prove the shell sat one level below the cwd', () => {
+    expect(reads([readBoth!])).toEqual(neither);
+    expect(reads([failed!, readBoth!])).toEqual(neither);
+    expect(reads([{ ...listed!, isError: true }, readBoth!])).toEqual(neither);
+    expect(reads([{ ...listed!, output: `(eval):cd:1: no such file or directory: ${capture.cwd}/review\n` + listed!.output }, readBoth!])).toEqual(neither);
+    for (const command of [`cd /foreign/review; ls -R`, `cd ${capture.cwd}/../review; ls -R`, `cd review; ls -R`, `cd ${capture.cwd}; ls -R`,
+      `cd ${capture.cwd}/review; ls -R; cd sections`, `cd ${capture.cwd}/review; pushd sections`, `cd ${capture.cwd}/review; source x.sh`,
+      `cd ${capture.cwd}/review; ls & cd sections`, `cd ${capture.cwd}/review; ls $(cd sections)`, `cd ${capture.cwd}/review; ls; python3 x.py`,
+      `cd ${capture.cwd}/review || ls`, `cd "${capture.cwd}/review"/sections/..; ls`]) {
+      expect(reads([{ ...listed!, command }, readBoth!]), command).toEqual(neither);
+    }
+    const moved = call('toolu_moved', `cd ${capture.cwd}/review/sections; ls`, 'adversarial.md\n');
+    expect(reads([failed!, listed!, moved, readBoth!])).toEqual(neither);
+    expect(reads([failed!, listed!, call('toolu_unknown', 'cd sections && ls', 'adversarial.md\n'), readBoth!])).toEqual(neither);
+  });
+
+  test('a concurrent or subagent Bash call voids the proved shell; the reads keep their own grammar', () => {
+    const parallel = [{ type: 'system', subtype: 'init', session_id: capture.sessionId, cwd: capture.cwd },
+      event('assistant', [use(listed!)]), event('assistant', [use(readBoth!)]), event('user', [result(listed!)]), event('user', [result(readBoth!)])];
+    expect(coverageAuditReadEvidence(parallel, files)).toEqual(neither);
+    const child = [...transcript([listed!]).slice(0, 3), event('assistant', [{ type: 'tool_use', id: 'toolu_child', name: 'Bash', input: { command: 'cd /tmp' } }], 'toolu_agent'),
+      ...transcript([readBoth!]).slice(1)];
+    expect(coverageAuditReadEvidence(child, files)).toEqual(neither);
+    for (const command of ['cd .. ; cat -n src/billing.ts; echo ----; cat -n test/billing.test.ts', 'cd ../src && cat -n billing.ts && echo ---- && cat -n ../test/billing.test.ts',
+      'cd ~/.. && cat -n src/billing.ts && echo ---- && cat -n test/billing.test.ts', 'cd .. && cat -n src/billing.ts && echo ---- && cat -n test/billing.test.ts; rm -f x']) {
+      expect(reads([listed!, { ...readBoth!, command }]), command).toEqual(neither);
+    }
+    expect(reads([listed!, { ...readBoth!, output: readBoth!.output.replace(nonce, nonce.slice(1) + '0') }])).toMatchObject({ sourceRead: false });
   });
 });

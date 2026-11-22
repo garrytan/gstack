@@ -10,7 +10,7 @@ gstack has two support tiers. Full support gets the whole test suite, paid evals
 
 ## Minimal support
 
-- **Windows** (Git Bash or MSYS): with a default Git for Windows install, `./setup` installs, and the core skills start without errors. The core skills are `/ship`, `/review`, `/qa-only`, `/investigate` and `/browse` on gstack's own browser. One required CI job, `windows-smoke`, checks this on every pull request (see Windows CI below).
+- **Windows** (Git Bash or MSYS): with a default Git for Windows install, `./setup` installs, and the core skills start without errors. The core skills are `/ship`, `/review`, `/qa-only` and `/browse` on gstack's own browser. One required CI job, `windows-smoke`, checks this on every pull request (see Windows CI below).
 - **Gemini models:** the core workflows run to the end without errors when Gemini is the host agent or a reviewer. We check this by hand or with one cheap smoke run, not with an eval cell.
 
 That is the whole promise. Other skills, optional parts such as `/cso`'s native helper, non-default shell settings and speed are not covered.
@@ -24,7 +24,7 @@ That is the whole promise. Other skills, optional parts such as `/cso`'s native 
 ## Windows CI
 
 - `windows-smoke` is the required Windows check on pull requests.
-- The six-shard Windows free suite (the `Windows Free Tests` workflow, `windows-free-tests`) runs nightly on main, or when someone starts it by hand, and never blocks a pull request.
+- The eight-shard Windows free suite (the `Windows Free Tests` workflow, `windows-free-tests`) runs nightly on main, or when someone starts it by hand, and never blocks a pull request. The stable release cut ignores its results too, so a red or unfinished nightly never holds a release.
 - A red nightly run gets a fix only when it shows an install, startup or core-workflow break.
 - Windows checks run by path (ship-90-90 plan D, approved 2026-11-03): `Windows Scoped Tests` runs a pull request's changed Windows-safe test files on one Windows job only when it touches path, file-name or process code (a red run blocks that pull request, like any failed check), and `Windows Setup E2E` runs only when install files change (a version-only `package.json` change doesn't count).
 
