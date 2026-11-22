@@ -7,17 +7,21 @@
  * preview + state file lifecycle + flag composition.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { delimiter, dirname, join } from "path";
 import { spawnSync } from "child_process";
 
 import {
   brainSyncStageVerdict,
   derivePathOnlyHashLegacyId,
+  FEDERATED_CURATED_TYPES,
+  federatedCuratedSourceId,
+  MEMORY_INGEST_TYPES,
   memoryStageVerdict,
   planHostnameFoldMigration,
+  selectMemorySources,
   sourceLocalPath,
   _resetGbrainSupportsRenameCache,
 } from "../bin/gstack-gbrain-sync";
@@ -1293,4 +1297,125 @@ describe("stage verdicts (#4417, #4418)", () => {
       expect(v.summary.startsWith(lead)).toBe(true);
     });
   }
+});
+
+/**
+ * #4443: the memory stage skips the curated types when a federated source
+ * already indexes them. GSTACK_BRAIN_SOURCE_ID names that source by id, and
+ * only when it is unset or blank is the source found by its path. The fake
+ * gbrain is a bun script with a gbrain.cmd wrapper on Windows, as in
+ * test/helpers/sync-gbrain-readiness-fixture.ts, so this block runs on every
+ * platform. The env passed in holds only the temp HOME, GSTACK_HOME and PATH,
+ * so no inherited variable reaches the code or the fake. That GSTACK_HOME
+ * isolates the fake gbrain child only: isArtifactsSourceRow compares against
+ * the state root the module resolved at import, which no row here points at.
+ */
+describe("federated curated source detection (#4443)", () => {
+  const ID = "acme-gstack-artifacts";
+  const KEPT = MEMORY_INGEST_TYPES.filter((t) => !(FEDERATED_CURATED_TYPES as readonly string[]).includes(t));
+  let base: string;
+  let home: string;
+  let worktree: string;
+  let clone: string;
+  let bindir: string;
+  let log: string;
+
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), "gstack-federated-"));
+    home = join(base, "home");
+    worktree = join(home, ".gstack-brain-worktree");
+    clone = join(base, "srv", "brain", "sources", ID);
+    bindir = join(base, "bin");
+    log = join(base, "gbrain-calls");
+    for (const d of [worktree, clone, bindir]) mkdirSync(d, { recursive: true });
+  });
+  afterEach(() => rmSync(base, { recursive: true, force: true }));
+
+  const row = (local_path: string, opts: { id?: string; federated?: boolean } = {}) =>
+    ({ id: opts.id ?? ID, local_path, federated: opts.federated ?? true, page_count: 750 });
+
+  /** Writes a fake gbrain whose `sources list --json` returns `rows`, and returns the isolated env. */
+  function fakeGbrain(rows: object[], extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+    const shim = join(bindir, "gbrain");
+    writeFileSync(shim, `#!/usr/bin/env bun
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2).join(" ");
+appendFileSync(${JSON.stringify(log)}, args + "\\n");
+if (args === "sources list --json") console.log(${JSON.stringify(JSON.stringify({ sources: rows }))});
+else { console.error("fake gbrain: unsupported " + args); process.exit(3); }
+`);
+    chmodSync(shim, 0o755);
+    if (process.platform === "win32") {
+      writeFileSync(join(bindir, "gbrain.cmd"), `@echo off\r\n"${process.execPath}" "%~dp0gbrain" %*\r\n`);
+    }
+    const pathKey = Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+    return { HOME: home, GSTACK_HOME: join(home, ".gstack"), [pathKey]: `${bindir}${delimiter}${process.env[pathKey] ?? ""}`, ...extra };
+  }
+
+  /** A null result proves nothing unless the fake answered: every case checks it was asked. */
+  function expectFakeAsked(): void {
+    expect(existsSync(log) ? readFileSync(log, "utf-8") : "").toContain("sources list --json");
+  }
+  function expectCuratedSkipped(env: NodeJS.ProcessEnv): void {
+    const sources = selectMemorySources(undefined, env, true).sources;
+    expect(sources).toEqual(KEPT);
+    expect(sources).not.toContain("ceo-plan");
+    expect(sources).not.toContain("design-doc");
+  }
+
+  it("A: a federated source at an external clone, without GSTACK_BRAIN_SOURCE_ID, is not found and adds no --sources filter", () => {
+    const env = fakeGbrain([row(clone)]);
+    expect(federatedCuratedSourceId(env)).toBeNull();
+    expect(selectMemorySources(undefined, env, true).sources).toBeNull();
+    expectFakeAsked();
+  });
+
+  it("B: a federated source at the default worktree is found by path and the curated types are skipped", () => {
+    const env = fakeGbrain([row(worktree)]);
+    expect(federatedCuratedSourceId(env)).toBe(ID);
+    expectCuratedSkipped(env);
+    expectFakeAsked();
+  });
+
+  it("C: GSTACK_BRAIN_SOURCE_ID names a federated source at an external clone and the curated types are skipped", () => {
+    const env = fakeGbrain([row(clone)], { GSTACK_BRAIN_SOURCE_ID: ID });
+    expect(federatedCuratedSourceId(env)).toBe(ID);
+    expectCuratedSkipped(env);
+    expectFakeAsked();
+  });
+
+  it("D: GSTACK_BRAIN_SOURCE_ID naming a source that is not federated gives null, even at the worktree path", () => {
+    const env = fakeGbrain([row(worktree, { federated: false })], { GSTACK_BRAIN_SOURCE_ID: ID });
+    expect(federatedCuratedSourceId(env)).toBeNull();
+    expect(selectMemorySources(undefined, env, true).sources).toBeNull();
+    expectFakeAsked();
+  });
+
+  it("E: an unknown GSTACK_BRAIN_SOURCE_ID gives null and never falls back to the federated source at the worktree", () => {
+    const env = fakeGbrain([row(worktree, { id: "gstack-artifacts-other" })], { GSTACK_BRAIN_SOURCE_ID: "does-not-exist" });
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdout = spyOn(process.stdout, "write").mockImplementation(() => true);
+    let errText = "";
+    let outText = "";
+    try {
+      expect(federatedCuratedSourceId(env)).toBeNull();
+      expect(selectMemorySources(undefined, env, true).sources).toBeNull();
+    } finally {
+      errText = stderr.mock.calls.map((c) => String(c[0])).join("");
+      outText = stdout.mock.calls.map((c) => String(c[0])).join("");
+      stderr.mockRestore();
+      stdout.mockRestore();
+    }
+    expect(errText).toContain('GSTACK_BRAIN_SOURCE_ID="does-not-exist"');
+    expect(errText).toContain("matches no federated gbrain source");
+    expect(outText).not.toContain("GSTACK_BRAIN_SOURCE_ID");
+    expectFakeAsked();
+  });
+
+  it("F: a GSTACK_BRAIN_SOURCE_ID of spaces only is treated as unset and the path match decides", () => {
+    const env = fakeGbrain([row(worktree)], { GSTACK_BRAIN_SOURCE_ID: "   " });
+    expect(federatedCuratedSourceId(env)).toBe(ID);
+    expectCuratedSkipped(env);
+    expectFakeAsked();
+  });
 });

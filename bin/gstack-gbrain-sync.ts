@@ -235,12 +235,22 @@ export function resolveMemoryIngestSources(
 }
 
 /**
- * The federated source registered for the gstack artifacts worktree (or the
- * state root itself), if any. Its pages already cover FEDERATED_CURATED_TYPES.
+ * The federated source whose pages already cover FEDERATED_CURATED_TYPES, if
+ * any. GSTACK_BRAIN_SOURCE_ID, when set, names it by id and no path is tried
+ * (#4443); otherwise it is the source registered for the gstack artifacts
+ * worktree or the state root itself.
  */
 export function federatedCuratedSourceId(env?: NodeJS.ProcessEnv): string | null {
-  const rows = parseSourcesList(execGbrainJson(["sources", "list", "--json"], { baseEnv: env, timeout: 10_000 }));
-  const row = rows.find((r) => (r as { federated?: boolean }).federated === true && isArtifactsSourceRow(r, env));
+  const raw = execGbrainJson(["sources", "list", "--json"], { baseEnv: env, timeout: 10_000 });
+  const federated = parseSourcesList(raw).filter((r) => (r as { federated?: boolean }).federated === true);
+  const explicitId = (env ?? process.env).GSTACK_BRAIN_SOURCE_ID?.trim();
+  if (!explicitId) return federated.find((r) => isArtifactsSourceRow(r, env))?.id ?? null;
+  const row = federated.find((r) => r.id === explicitId);
+  if (!row && raw !== null) {
+    process.stderr.write(
+      `[sync] GSTACK_BRAIN_SOURCE_ID="${explicitId}" matches no federated gbrain source, so ${FEDERATED_CURATED_TYPES.join(",")} are not skipped; unset it to find the source by path\n`,
+    );
+  }
   return row?.id ?? null;
 }
 
@@ -275,7 +285,7 @@ export function brainSyncIndexVerdict(
   if (raw === null) {
     return { ok: true, summary: `${lead}; gbrain page count unavailable (gbrain sources list failed)` };
   }
-  const explicit = env.GSTACK_BRAIN_SOURCE_ID;
+  const explicit = env.GSTACK_BRAIN_SOURCE_ID?.trim();
   const row = parseSourcesList(raw).find((r) => (explicit ? r.id === explicit : isArtifactsSourceRow(r, env)));
   if (!row?.id) {
     return { ok: true, summary: `${lead} (no gbrain artifacts source on this machine, so indexing is not checked here)` };

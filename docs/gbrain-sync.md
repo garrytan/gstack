@@ -51,6 +51,13 @@ The command:
    removed in v1.15.1.0 — it depended on a `/ingest-repo` endpoint gbrain
    never shipped.
 
+On a machine that is also the brain host, gbrain may register the artifacts
+source at a clone path of its own, which `/sync-gbrain` cannot recognise by
+path. Set `GSTACK_BRAIN_SOURCE_ID` to that source's id (`gbrain sources list`
+shows it): the memory stage then skips the plans and design docs the source
+already indexes instead of importing them a second time, and warns when no
+federated source has that id.
+
 After init, the **next skill you run** will ask you ONE question about
 privacy mode:
 
