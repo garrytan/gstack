@@ -345,6 +345,28 @@ function holdsPhrase(text: string, phrase: string): boolean {
   });
 }
 
+/**
+ * True when the phrase's content words appear in text in order with only stopwords between them, and a gap the phrase
+ * fills with stopwords is filled with stopwords: "review my PR" holds "review this pr", but "the test site" does not hold
+ * "test the site".
+ */
+function holdsWords(text: string, phrase: string): boolean {
+  const pw = words(phrase);
+  const want = pw.flatMap((w, i) => STOPWORDS.has(w) ? [] : [{ token: concept(stem(w)), gap: i > 0 && STOPWORDS.has(pw[i - 1]) && pw.slice(0, i).some(p => !STOPWORDS.has(p)) }]);
+  const seq = words(text);
+  return want.length > 0 && seq.some((w, start) => {
+    if (STOPWORDS.has(w) || concept(stem(w)) !== want[0].token) return false;
+    let j = start + 1;
+    for (const { token, gap } of want.slice(1)) {
+      const from = j;
+      while (j < seq.length && STOPWORDS.has(seq[j])) j++;
+      if (j >= seq.length || concept(stem(seq[j])) !== token || (gap && j === from)) return false;
+      j++;
+    }
+    return true;
+  });
+}
+
 /** True when every word in want appears within some run of span consecutive words of seq. */
 function within(seq: string[], want: string[], span: number): boolean {
   const need = new Set(want);
@@ -498,7 +520,8 @@ const AGENT_MESSAGE = /^<(?:cross-session-message|task-notification)[\s>]/;
  * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
  * it holds one of /review's or /qa's own triggers as a phrase (holdsPhrase: "review this pr for bugs", "find bugs on my site")
  * and never asks for a fix: finding bugs is not fixing one. With no such skill installed, a report
- * of a defect is still not a request to find bugs, so /review and /qa are not named for it (GSTA-759: three long reports that
+ * of a defect is still not a request to find bugs, so /review and /qa are not named for it unless it holds one of their triggers'
+ * words in order (holdsWords: "review my PR, the login page is broken") (GSTA-759: three long reports that
  * said "test the site" or "find" and "broken" went to /qa); "test the site and fix what you find" reports no defect. Any other prompt goes to the skills whose triggers reach the threshold, and the installed skill that
  * claims bug reports leads when it is one of them: an agent runs the first skill named (GEVA-562: /verify named before
  * prove-it on 7 bug tasks, and Sol loaded /verify on all 7). All of this reads the prompt's prose, never its Markdown code
@@ -513,12 +536,13 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   const routed = skills.filter(isRouted);
   const candidates = scorePrompt(prompt, routed);
   const window = promptWindow(splitCode(prompt).prose);
-  const findsBugs = !words(window).some(w => FIX_WORD.test(w)) && routed.some(s => isGstackSkill(s)
-    && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => holdsPhrase(window, t)));
+  const asks = (holds: (text: string, phrase: string) => boolean) => !words(window).some(w => FIX_WORD.test(w))
+    && routed.some(s => isGstackSkill(s) && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => holds(window, t)));
+  const findsBugs = asks(holdsPhrase);
   const signs = reportSigns(prompt);
   const fixer = !findsBugs && (signs.defect || signs.fix) ? bugFixRoute(routed, candidates) : null;
   if (fixer) return { route: fixer, routes: [fixer], candidates, bugReport: true };
-  const findsOnly = (c: RouteCandidate) => !findsBugs && signs.defect && c.gstack && ['review', 'qa'].includes(baseName(c.skill));
+  const findsOnly = (c: RouteCandidate) => !asks(holdsWords) && signs.defect && c.gstack && ['review', 'qa'].includes(baseName(c.skill));
   const claimsBugs = (c: RouteCandidate) => skills.some(s => s.name === c.skill && !isGstackSkill(s) && s.triggers.some(claimsBugReports));
   const routes = candidates.filter((c, i) => c.score >= threshold && !findsOnly(c) && candidates.findIndex(o => o.skill === c.skill) === i)
     .sort((x, y) => Number(claimsBugs(y)) - Number(claimsBugs(x))).slice(0, MAX_ROUTES);

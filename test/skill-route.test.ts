@@ -379,6 +379,10 @@ describe('installed skills beside gstack (GST-3123)', () => {
     ]) expect([text, named(text)]).toEqual([text, ['prove-it']]);
     expect(named('find bugs on my site')).toEqual(['qa']);
     expect(named('Please review this PR for bugs.')).toEqual(['review']);
+    for (const text of ['Review my PR, the login page is broken', 'Please review my PR for bugs, the checkout is broken']) {
+      expect([text, routePrompt(text, routed).route?.skill ?? null]).toEqual([text, 'review']);
+      expect([text, named(text)]).toEqual([text, ['prove-it']]);
+    }
   });
 
   test('the installed bug-fix skill leads when it reaches the threshold beside a gstack skill: an agent runs the first one named (GEVA-562)', () => {
