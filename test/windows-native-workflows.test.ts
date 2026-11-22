@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { collectFreeTestFiles, createFreeCiPlan, curateWindowsSafe, parseCliOptions, validateFreeCiPlan } from '../scripts/test-free-shards';
+import { collectFreeTestFiles, createFreeCiPlan, createWindowsCiPlan, curateWindowsSafe, parseCliOptions, validateFreeCiPlan } from '../scripts/test-free-shards';
 import { windowsCurationLine } from '../scripts/lib/free-ci-health';
 import { KNOWN_WINDOWS_SAFE, WINDOWS_PROBE_SAFE } from '../scripts/lib/windows-curation';
 
@@ -34,7 +34,7 @@ test('the Windows lane runs nightly and by hand, plans, runs one strict shard pe
   const plan = windows.jobs['windows-plan'];
   expect(plan['runs-on']).toBe('ubuntu-24.04');
   const planStep = plan.steps.find((step: any) => step.id === 'plan');
-  expect(planStep.run).toContain('--windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 8');
+  expect(planStep.run).toContain('--windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 8 --shard-jobs "$jobs" --shard-budget-seconds 720)');
   expect(planStep.env.GSTACK_FREE_TEST_DURATIONS).toBeUndefined();
   const shard = windows.jobs['windows-free-shard'];
   expect(shard['runs-on']).toBe('windows-latest');
@@ -103,8 +103,20 @@ test.skipIf(!Bun.which('bash'))('the windows-plan step packs real Windows seed t
     const recorded = plan.shards.map(({ shard, files }) => ({ shard, seconds: Math.round(files.reduce((ms, file) => ms + (windowsMs[file] ?? linuxMs[file] ?? 0), 0) / 1000) }));
     expect(recorded.filter(({ seconds }) => seconds * 1000 > budgetMs)).toEqual([]);
     expect(plan.shards.filter(({ predictedMs }) => predictedMs > budgetMs).map(({ shard }) => shard)).toEqual([]);
+    expect(planStep.run).toContain(`--shard-budget-seconds ${budgetMs / 1000})`);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }, 90_000);
+
+test('only a Windows plan takes a shard budget, and a single-shard Windows listing plan never grows (GST-3440)', () => {
+  expect(parseCliOptions(['--windows-only', '--ci-plan', 'p.json', '--shard-budget-seconds', '720']).shardBudgetSeconds).toBe(720);
+  expect(parseCliOptions(['--windows-only', '--ci-plan', 'p.json']).shardBudgetSeconds).toBeUndefined();
+  expect(() => parseCliOptions(['--ci-plan', 'p.json', '--shard-budget-seconds', '720'])).toThrow('--shard-budget-seconds applies only to --windows-only --ci-plan');
+  for (const bad of ['0', 'x', '1.5']) expect(() => parseCliOptions(['--windows-only', '--ci-plan', 'p.json', '--shard-budget-seconds', bad])).toThrow('--shard-budget-seconds needs');
+  const files = ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'];
+  const durations = { 'a.test.ts': 400, 'b.test.ts': 400, 'c.test.ts': 400, 'd.test.ts': 400 };
+  expect(createWindowsCiPlan(files, 1, 800, durations, 'rev').shards.map(shard => shard.predictedMs)).toEqual([800, 800]);
+  expect(() => createWindowsCiPlan(files, 1, 300, durations, 'rev')).toThrow('No Windows plan of 1 to 2 shards keeps every shard within 0.3 s');
+});
 
 test('a Windows CI plan binds the curated file set, so it never verifies as the full Linux suite', () => {
   for (const argv of [['--windows-only', '--ci-plan', 'p.json'], ['--windows-only', '--ci-run', 'p.json', '--shard', '1', '--result', 'r.json'], ['--windows-only', '--ci-verify', 'p.json', '--results', 'd']]) {
