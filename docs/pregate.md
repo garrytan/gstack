@@ -963,8 +963,11 @@ once:
 
 Then, for the lane:
 
-- pregate.json was recorded against this repository's base, whose profiles
-  apply (`base_mismatch` otherwise).
+- The run profiles come from the base pregate.json was recorded against (its
+  `base` field), so a branch stacked on another branch clears from that
+  branch's profiles, and so does the CI carry inside a `--base <branch>` run.
+  `clear --base <branch>` naming any other branch refuses (`base_mismatch`).
+  A stamp-only substitution still reads `origin/HEAD`'s stamp rule, as above.
 - Each profile gets its own run (a run id given twice is a usage error), and
   every run verifies under its profile. The assignment is searched, so a run
   valid for two profiles cannot starve the other. A lane with a profile needs
