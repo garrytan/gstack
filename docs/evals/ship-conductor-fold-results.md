@@ -24,7 +24,8 @@ value t = 2.291 (10 cases).
 - **No clear difference in cost.** F minus C was +$0.07 a run (-$1.42 to +$1.57), against a planned detectable difference of
   about $7. Mean cost was $11.47 for C and $11.54 for F.
 - **No clear difference in what it caught.** Planted bugs: F minus C +0.03 (-0.18 to +0.24), 22 of 30 for F against 21 of 30 for C.
-  Real problems found by the judge: F minus C -0.003 (-0.21 to +0.20). No case was a structural loss (C catching in
+  Real problems found by the judge: F minus C -0.03 (-0.33 to +0.27), over the 6 cases with one (corrected; see
+  below). No case was a structural loss (C catching in
   all three runs and F in none) on either measure.
 - **No clear difference in time.** Wall time F minus C was -1.9 minutes (-8.1 to +4.4), and `calls=` +0.35 (-2.8 to +3.5),
   both diagnostics with no bar.
@@ -43,9 +44,10 @@ value t = 2.291 (10 cases).
   and real problems still pass, but case 9 becomes C 3 of 3 against F's one remaining run, which missed. The
   script's per-case mean counts that as a structural loss, but the frozen rule needs F to miss in all 3 runs, so
   with one F run left the case is not assessable and there is no preregistered failure; it is reported, not decided on.
-- **The no-gstack arm came close on planted bugs at a fraction of the cost, and led on real problems.** N minus F
-  (the better /ship arm) was -0.20 on planted bugs (-0.40 to +0.004) and +0.17 on real problems (-0.19 to +0.53),
-  at $0.83 a run. Its harness differs (below), so cost compares in size only.
+- **The no-gstack arm came close on planted bugs at a fraction of the cost.** N minus F (the better /ship arm) was
+  -0.20 on planted bugs (-0.40 to +0.004) and -0.04 on real problems (-0.27 to +0.20), at $0.83 a run. An earlier
+  version of this page said N led on real problems; that came from counting its restatements of the planted bug as
+  other problems, and it does not hold (below). Its harness differs (below), so cost compares in size only.
 - **Almost no run reached the end of /ship.** Only 9 of 60 C and F runs printed a receipt (4 C, 5 F). Of the other
   51, 35 stopped during review (Steps 9 to 11), 33 of them at /ship's own two-round cap; 8 at finish's remote-gate
   refusal on a non-main base (Step 16), where the brief ends the run; 6 at the same refusal one step later, at accept
@@ -54,17 +56,17 @@ value t = 2.291 (10 cases).
 
 ## Results
 
-| Arm | Label | Runs | Planted bugs caught | Real-problem catch rate (mean of cases) | Mean cost a run | Mean wall time | Reader fidelity |
+| Arm | Label | Runs | Planted bugs caught | Real-problem catch rate (mean over the 6 cases with one) | Mean cost a run | Mean wall time | Reader fidelity |
 |---|---|---|---|---|---|---|---|
-| `claude-opus-5-5#ship-conductor` | C | 30 | 21 of 30 | 0.24 | $11.47 | 38.5 min | not scored (C is the reference) |
+| `claude-opus-5-5#ship-conductor` | C | 30 | 21 of 30 | 0.26 | $11.47 | 38.5 min | not scored (C is the reference) |
 | `claude-opus-5-5#ship-folded` | F | 30 | 22 of 30 | 0.23 | $11.54 | 36.6 min | 30 of 30 under the ruling, 29 of 30 literal |
-| `claude-opus-5-5#no-gstack` | N | 30 | 16 of 30 | 0.40 | $0.83 | 6.6 min (SDK runs) | not applicable |
+| `claude-opus-5-5#no-gstack` | N | 30 | 16 of 30 | 0.19 | $0.83 | 6.6 min (SDK runs) | not applicable |
 
 | Bar (F minus C) | Owner's ruling (made after seeing data) | Literal line 193 (as frozen) | Without the 9 exposure-flagged F runs (9 cases, t = 2.336) |
 |---|---|---|---|
 | Cost a run | +$0.07 (-$1.42 to +$1.57), pass | same, pass | +$0.01 (-$1.62 to +$1.64), pass |
 | Planted-bug catch rate | +0.03 (-0.18 to +0.24), pass | same, pass | -0.04 (-0.39 to +0.32), not assessable: one F run left (a miss); no preregistered failure |
-| Real-problem catch rate | -0.003 (-0.21 to +0.20), pass | same, pass | -0.04 (-0.25 to +0.17), pass |
+| Real-problem catch rate (6 cases) | -0.03 (-0.33 to +0.27), pass | same, pass | -0.03 (-0.34 to +0.28), pass |
 | Reader fidelity | 30 of 30, pass | 29 of 30, fails | pass under the ruling |
 | Decision | conductor goes | conductor stays, one FIX-METHOD cycle | not a decision row |
 
@@ -74,17 +76,18 @@ Per case, each cell is that arm's three runs:
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | 1 of 3 | 2 of 3 | 1 of 3 | 0.33 | 0.33 | 0.33 | $14.45 | $15.02 | $1.78 |
 | 2 | 1 of 3 | 3 of 3 | 1 of 3 | 0.17 | none found | 0.17 | $15.37 | $12.54 | $1.75 |
-| 3 | 3 of 3 | 3 of 3 | 3 of 3 | 0.11 | 0.33 | 0.11 | $13.15 | $12.28 | $0.74 |
+| 3 | 3 of 3 | 3 of 3 | 3 of 3 | 0.17 | 0.33 | none found | $13.15 | $12.28 | $0.74 |
 | 4 | 1 of 3 | none of 3 | none of 3 | 0.33 | none found | 0.33 | $8.37 | $11.04 | $0.89 |
-| 5 | 3 of 3 | 3 of 3 | 3 of 3 | none found | none found | 0.67 | $11.82 | $12.90 | $0.55 |
-| 6 | 3 of 3 | 3 of 3 | 2 of 3 | 0.42 | 0.17 | 0.08 | $9.31 | $11.05 | $0.71 |
-| 7 | 3 of 3 | 3 of 3 | 1 of 3 | 0.67 | 1.00 | 0.33 | $12.90 | $12.57 | $0.67 |
+| 5 | 3 of 3 | 3 of 3 | 3 of 3 | no real problem | no real problem | no real problem | $11.82 | $12.90 | $0.55 |
+| 6 | 3 of 3 | 3 of 3 | 2 of 3 | 0.56 | 0.22 | none found | $9.31 | $11.05 | $0.71 |
+| 7 | 3 of 3 | 3 of 3 | 1 of 3 | no real problem | no real problem | no real problem | $12.90 | $12.57 | $0.67 |
 | 8 | none of 3 | none of 3 | none of 3 | none found | 0.50 | 0.33 | $11.35 | $7.61 | $0.43 |
-| 9 | 3 of 3 | 2 of 3 | 2 of 3 | 0.33 | none found | 1.00 | $8.80 | $10.69 | $0.46 |
-| 10 | 3 of 3 | 3 of 3 | 3 of 3 | none found | none found | 0.67 | $9.17 | $9.71 | $0.33 |
+| 9 | 3 of 3 | 2 of 3 | 2 of 3 | no real problem | no real problem | no real problem | $8.80 | $10.69 | $0.46 |
+| 10 | 3 of 3 | 3 of 3 | 3 of 3 | no real problem | no real problem | no real problem | $9.17 | $9.71 | $0.33 |
 
-Real-problem rates are the share of the case's judged-real problems (the union over every arm and run) that a run
-found, averaged over the three runs. Every arm missed case 8's planted bug in every run; a hand read found no near
+Real-problem rates are the share of the case's judged-real problems (the union over every arm and run, with
+restatements of the planted bug removed) that a run found, averaged over the three runs. Cases 5, 7, 9 and 10 have
+no real problem left after that correction. Every arm missed case 8's planted bug in every run; a hand read found no near
 misses. N's case 4 runs hit a full disk on the runner during `bun install` and were not rerun, as the stop rules
 require; their reviews ran and are counted.
 
@@ -228,8 +231,22 @@ decision does not depend on it.
 - **Real problems first left the no-gstack arm out.** The plan makes a case's real problems the union over all arms
   and gives N the same judge. The first judge runs sent only C and F findings. Before the write-up, N's findings were
   added (split with the rule the judge-stage labels used) and the frozen judge was run once more over all 10 cases;
-  that run is the one above. The C/F-only run gave F minus C -0.035 (-0.32 to +0.25), also a pass with no
-  structural loss.
+  that run is the basis of the figures above. The C/F-only run gave F minus C -0.035 (-0.32 to +0.25), also a pass
+  with no structural loss.
+- **Restatements of the planted bug were first counted as real problems (corrected 2026-11-22).** The item builder
+  dropped findings that matched the plant by the catch rule (the labelled path, a line within 3 and a cause word), so
+  findings that
+  described the planted bug but cited another line reached the judge, which labelled them real problems. A second
+  look found this after the first version of this page. The fix was a rule written down before any recount (a
+  finding that describes the planted defect counts as the plant, whatever line it cites, in every arm alike) and a
+  blind classification of all 59 judged-real findings by a second-model checker that saw no arm, trial or cost: 26
+  are plant restatements, filling six whole groups (case 3 g4, 5 g1, 6 g1, 7 g1, 9 g1, 10 g1), and no group was
+  mixed. That matches the earlier post-hoc read group for group. Planted-bug catches are unchanged. As published,
+  then corrected: real-problem F minus C -0.003 (-0.21 to +0.20), now -0.03 (-0.33 to +0.27) over 6 cases instead
+  of 10; arm means C 0.24, F 0.23, N 0.40, now 0.26, 0.23 and 0.19; N minus F +0.17 (-0.19 to +0.53), now -0.04
+  (-0.27 to +0.20); sensitivity row -0.04 (-0.25 to +0.17), now -0.03 (-0.34 to +0.28). The bar still passes with no
+  structural loss, and the conductor decision does not change. The intervals use the plan's 10-case critical value
+  (t = 2.291), as its frozen script does.
 - **Exposure.** Every C and F run was audited for reads of crew notes, this plan, the label file, and history or
   diffs against `origin/main` on the planted path. Nine F runs are flagged: F2t1 and F5t1 saw only file names, line
   counts or a one-line changelog summary that mention this plan; F7t1-3, F9t1, F9t3, F10t1 and F10t2 looked at main's version of the planted
