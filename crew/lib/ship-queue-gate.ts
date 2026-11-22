@@ -21,6 +21,7 @@ import { spawnSync } from '../../lib/spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { mergeChangelogs } from '../../lib/changelog-check';
+import { removeWorktree } from '../../lib/git-worktree-lock';
 import { ensureTmpExcluded, restamp, versionFiles } from '../../lib/restamp';
 import type { ResultCodeName } from '../../lib/result-codes';
 import type { ShipPolicy } from '../../lib/ship-policy';
@@ -180,9 +181,8 @@ export function prepareGateAhead(o: PrepareOptions): { record: AttemptRecord; fi
   }
   const ga = r.gateAhead;
   const drop = (code: ResultCodeName, message: string): QueueFailure => {
-    git(o.repoRoot, ['worktree', 'remove', '--force', worktree]);
+    removeWorktree(o.repoRoot, worktree);
     fs.rmSync(dir, { recursive: true, force: true });
-    git(o.repoRoot, ['worktree', 'prune']);
     return { code, message };
   };
   const mergeTree = git(o.repoRoot, ['rev-parse', `${ga.gated_head}^^{tree}`]).out;
@@ -234,8 +234,7 @@ export function recordGateAhead(o: RecordOptions): { record: AttemptRecord; file
   rec.result = { exit: o.exit, log: path.relative(o.repoRoot, kept), log_sha256: logSha, recorded_at: (o.now ?? new Date()).toISOString() };
   rec.state = 'recorded';
   writeJsonAtomic(file, rec);
-  git(o.repoRoot, ['worktree', 'remove', '--force', rec.worktree]);
+  removeWorktree(o.repoRoot, rec.worktree);
   fs.rmSync(path.dirname(rec.worktree), { recursive: true, force: true });
-  git(o.repoRoot, ['worktree', 'prune']);
   return { record: rec, file, current, repeated: false };
 }

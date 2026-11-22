@@ -110,7 +110,7 @@ case "$HTTP_CODE" in
     exit 1
     ;;
   500)
-    if echo "$BODY" | grep -qiE '"(error_description|message)":[[:space:]]*"[^"]*(auth|token|unauthorized)' 2>/dev/null; then
+    if grep -qiE '"(error_description|message)":[[:space:]]*"[^"]*(auth|token|unauthorized)' <<<"$BODY" 2>/dev/null; then
       emit "auth" "" "" "AUTH" "rotate token on the brain host, re-run /setup-gbrain (HTTP 500 stale-token shape)" false "$BODY"
       exit 1
     fi
@@ -129,8 +129,11 @@ esac
 # --- 2xx path: body may be JSON or SSE-wrapped JSON. Strip SSE if present. ---
 # MCP servers return SSE format: `event: message\ndata: {...}\n\n`. Extract
 # just the JSON payload from the data: line, falling back to the body as-is.
-if echo "$BODY" | head -1 | grep -q '^event:'; then
-  JSON_BODY=$(echo "$BODY" | sed -n 's/^data: //p' | head -1)
+# No early-exit pipes here: under pipefail, `echo | head -1 | grep -q` fails with
+# SIGPIPE when grep or head exits before echo finishes writing, so a valid SSE
+# body was read as plain JSON and jq's parse error (exit 5) ended the script.
+if [ "${BODY#event:}" != "$BODY" ]; then
+  JSON_BODY=$(sed -n '/^data: /{s/^data: //p;q;}' <<<"$BODY")
 else
   JSON_BODY="$BODY"
 fi
@@ -177,8 +180,8 @@ set -e
 
 if [ "$TOOLS_EXIT" -eq 0 ]; then
   TOOLS_BODY=$(cat "$TOOLS_BODY_FILE" 2>/dev/null || echo "")
-  if echo "$TOOLS_BODY" | head -1 | grep -q '^event:'; then
-    TOOLS_JSON=$(echo "$TOOLS_BODY" | sed -n 's/^data: //p' | head -1)
+  if [ "${TOOLS_BODY#event:}" != "$TOOLS_BODY" ]; then
+    TOOLS_JSON=$(sed -n '/^data: /{s/^data: //p;q;}' <<<"$TOOLS_BODY")
   else
     TOOLS_JSON="$TOOLS_BODY"
   fi

@@ -146,10 +146,13 @@ test('late SDK completion cannot run metric/assertion/snapshot validation', asyn
   const completions: Array<(result: AgentSdkResult) => void> = [];
   let metrics = 0; let validations = 0; let records = 0;
   try {
-    await runOverlayCaseLifecycle({ fixture, workMs: 15, graceMs: 5,
+    // Both arms must reach invoke() before the work deadline; 15 ms was missed when a loaded runner stalled the first
+    // trial's setup (Trunk 5a3199f2: Expected 3, Received 2 records).
+    await runOverlayCaseLifecycle({ fixture, workMs: 250, graceMs: 5,
       execute: (_arm, _index, _signal, active, deadlineAt) => runOverlayTrial({ fixture: { ...fixture, metric: () => { metrics++; return 3; }, verify: () => { validations++; } }, directory: dir, isActive: active, deadlineAt, invoke: () => new Promise(resolve => completions.push(resolve)), record: () => {} }),
       recordTrial: () => { records++; }, recordAggregate: () => { records++; }, cleanup: async () => {},
     });
+    expect(completions).toHaveLength(2);
     completions.forEach(resolve => resolve(sdkResult())); await Bun.sleep(10);
     expect(metrics).toBe(0); expect(validations).toBe(0); expect(records).toBe(3);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

@@ -144,6 +144,20 @@ describe('gstack-gbrain-mcp-verify', () => {
     expect(j.sources_add_url_supported).toBe(true);
   });
 
+  test('SUCCESS: an SSE body larger than a pipe buffer is still read as SSE (pipefail SIGPIPE, Trunk 1afdd260)', () => {
+    const pad = 'x'.repeat(70_000);
+    const initBody =
+      'event: message\ndata: {"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"gbrain","version":"0.99.0"}},"jsonrpc":"2.0","id":1}\n\nevent: message\ndata: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"' + pad + '"}}';
+    const toolsBody = 'event: message\ndata: {"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"search"},{"name":"sources_add"}],"padding":"' + pad + '"}}\n\nevent: message\ndata: {"padding":"' + pad + '"}';
+    makeFakeCurl({ httpCode: '200', bodyOnInit: initBody, bodyOnTools: toolsBody });
+
+    const r = runVerify('faketoken', 'https://example.com/mcp');
+    expect(r.code, r.stderr).toBe(0);
+    const j = JSON.parse(r.stdout);
+    expect(j.server_version).toBe('0.99.0');
+    expect(j.sources_add_url_supported).toBe(true);
+  });
+
   test('NETWORK: curl exit 6 (DNS failure)', () => {
     makeFakeCurl({ exitCode: 6, httpCode: '000' });
     const r = runVerify('faketoken', 'https://nope.invalid/mcp');

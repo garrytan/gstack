@@ -24,6 +24,7 @@ function build(root: string): { head: string } {
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: 30_000 });
   fs.mkdirSync(work);
   git(work, 'init', '-q', '-b', 'main');
+  for (const dir of [origin, work]) for (const [key, value] of [['maintenance.auto', 'false'], ['gc.auto', '0']]) git(dir, 'config', key, value!);
   git(work, 'remote', 'add', 'origin', origin);
   fs.writeFileSync(path.join(work, 'a.txt'), 'base\n');
   git(work, 'add', '-A');
@@ -88,6 +89,23 @@ describe('git fixture template', () => {
       }
       for (const { rel, t } of leaks) expect(() => t.copy()).toThrow(new RegExp('still references its template [^\\n]*\\n.*' + rel.replace(/[.\\/]/g, m => '\\' + m) + '$'));
     } finally { for (const s of skipped) s.dispose(); for (const { t } of leaks) t.dispose(); }
+  });
+
+  test('the template build starts no detached git maintenance, which would change the template while a copy walks it (Trunk 3a4e1509)', () => {
+    const traceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-fixture-trace-'));
+    roots.push(traceDir);
+    const trace = path.join(traceDir, 'trace2.json');
+    const traced = gitFixtureTemplate({ prefix: 'gstack-fixture-template-maint-', build: (root) => {
+      process.env.GIT_TRACE2_EVENT = trace;
+      try { return build(root); } finally { delete process.env.GIT_TRACE2_EVENT; }
+    }, rebind: (copy, tpl) => rebindGitDir(path.join(copy, 'work', '.git'), tpl, copy) });
+    try {
+      roots.push(traced.copy().root);
+      const spawned = fs.readFileSync(trace, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as { event: string; argv?: string[] })
+        .filter(e => e.event === 'start').map(e => e.argv!);
+      expect(spawned.some(argv => argv.includes('push'))).toBe(true);
+      expect(spawned.filter(argv => argv.includes('maintenance') || argv.includes('gc'))).toEqual([]);
+    } finally { traced.dispose(); }
   });
 
   test('native, forward-slash, backslash-escaped and Git Bash spellings are each rewritten, and each one left behind is found', () => {
