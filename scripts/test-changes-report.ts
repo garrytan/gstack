@@ -79,7 +79,7 @@ const tagText = COUNTED.filter((t) => tagged[t]).map((t) => `${t}:${tagged[t]}`)
 process.stdout.write(`TEST_CHANGES: tagged={${tagText}} tests_added=${added} tests_removed=${removed} gate_files=${gateFiles.length} unread=${summary[1]} candidate=${summary[2]}\n`);
 
 if (summaryFile) {
-  const md = ['## Test changes (flag only, never blocks)', '',
+  const md = ['## Test changes (flags never fail this check)', '',
     `Tests added: ${added}. Tests removed: ${removed}. Hunks that remove or skip a test (RH-1), add a suppression (RH-13), bypass a gate (RH-14) or relax a gate value (RH-15): ${flagged.length}.`];
   if (+summary[1] > 0) md.push('', `Partial read: ${summary[1]} eligible hunks past the reading cap were not tagged.`);
   if (gateFiles.length) md.push('', '**This pull request edits files that run or define its own checks:**', '', ...gateFiles.map((p) => `- ${cell(p)}`));
