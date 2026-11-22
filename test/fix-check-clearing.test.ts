@@ -157,6 +157,9 @@ describe('a granted, clean fix-check closes exactly its grant\'s findings at wri
     //   the fix commit, closes the trailer's finding; seam=clearByTrailer
     expect(byTrailer({ ...pass2, converged: false, review_binding: { ...pass2.review_binding, state: 'incomplete' } })).toEqual([]);
     expect(byTrailer({ ...pass2, range_base: headOf(f) })).toEqual([]);
+    // Value: protects=a pass 1, which logs range_base null, reads the whole PR and still closes a committed fix by trailer (#4696
+    //   ship-4696c, p1/outside-voice#4); fails_when=null reads as a range that leaves the fix out; seam=clearByTrailer
+    expect(byTrailer({ ...pass2, range_base: null })).toHaveLength(1);
   });
   // Value: protects=a security-class fingerprint never closes by trailer, so no closure line puts its location in the public body
   //   (#4664 trail read, flag 3); fails_when=a blocker with no ledger id closes by its raw path:line:security fingerprint;
@@ -176,6 +179,7 @@ describe('a granted, clean fix-check closes exactly its grant\'s findings at wri
     };
     expect(byFingerprint('src/x.ts:1:style').map(t => t.id)).toEqual(['src/x.ts:1:style']);
     expect(byFingerprint('src/x.ts:1:security')).toEqual([]);
+    expect(byFingerprint('src/x.ts::security')).toEqual([]);
   });
 });
 
@@ -299,6 +303,14 @@ describe('clearing refuses every gap GSTA-665\'s trail reads found in #4546 (lib
   //   asked about closes; seam=gstack-review-plan --fix-check-prompt, clearByGrant
   // Value: protects=a fix-check row whose dispatch ledger can't be read closes nothing (#4664 trail read, flag 1); fails_when=a
   //   missing ledger reads as empty, so the check that the row disposes every id the reader raised passes; seam=bindFixCheckRow
+  // Value: protects=a grant naming a security-class fingerprint closes nothing by grant either, line or no line (#4664 trail read,
+  //   flag 3; #4696 ship-4696c p1/specialist-batched#1); fails_when=a raw security fingerprint the fix list names closes; seam=clearByGrant
+  test('a grant naming a security fingerprint closes nothing, while the same grant on a plain fingerprint closes', () => {
+    const named = (fp: string) => clear({ grants: base.grants.map(x => ({ ...x, findings: [fp] })), open: [fp], rows: withRow({ ...fixRow(), hunks: { ...fixRow().hunks, fix_list: [fp] } }) }).ids;
+    expect(named('src/x.ts:1:style')).toEqual(['src/x.ts:1:style']);
+    expect(named('src/x.ts:1:security')).toEqual([]);
+    expect(named('src/x.ts::security')).toEqual([]);
+  });
   test('a fix-check row naming a dispatch ledger that is missing closes nothing', () => {
     expect(clear({ rows: withRow({ ...fixRow(), hunks: { ...fixRow().hunks, ledger: path.join(g.f.root, 'gone', 'fc', 'ledger.jsonl') } }) })).toMatchObject({ ids: [], why: expect.stringContaining('unreadable') });
   });
