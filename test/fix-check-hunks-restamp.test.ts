@@ -59,6 +59,17 @@ test('hunks edited after the render, a repeated start or another skill restamp n
   expect(readFixCheckHunks(other.root, s3)).toBeUndefined();
 });
 
+// Value: protects=recording the start never fails over the hunks file; fails_when=a missing hunks file makes mark exit non-zero after
+//   it saved the token, so a retry skips the restamp; seam=gstack-review-dispatch mark --log-start
+test('a missing hunks file still records the start and says why nothing was restamped', () => {
+  const p = pass();
+  fs.rmSync(p.hunks);
+  const r = p.mark('pass:review-fix-check', 't-1');
+  expect(r.status, r.stderr).toBe(0);
+  expect(r.stdout).toContain('LOG_START: pass:review-fix-check token=t-1');
+  expect(r.stdout).toContain('FIX_CHECK_HUNKS: not restamped (hunks file unreadable)');
+});
+
 // Value: protects=a grant whose findings are approval ids (ruled notes) keeps them in the recorded fix list (GST-3523, gbrain#10063,
 //   grant a-b306fda9cc20); fails_when=fixListNames drops a-… ids, so the fix list is empty and clearByGrant closes nothing; seam=recordFixCheckHunks
 test('the fix list keeps approval ids beside ledger ids and fingerprints, and nothing else', () => {

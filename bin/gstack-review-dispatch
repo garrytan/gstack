@@ -506,7 +506,11 @@ function passStep(cmd: string): number {
       m.log_starts[logStart] ??= token;
       writeManifest(file, m);
       process.stdout.write(`LOG_START: ${logStart} token=${m.log_starts[logStart]}\n`);
-      if (fresh && m.fix_check?.hunks && logStart.includes('review-fix-check')) process.stdout.write(`FIX_CHECK_HUNKS: ${restampFixCheckHunks(process.cwd(), readFile(m.fix_check.hunks, 'fix-check hunks')!) ? 'restamped' : 'not restamped (no render record with these hunks)'}\n`);
+      if (fresh && m.fix_check?.hunks && logStart.includes('review-fix-check')) {
+        let text: string | undefined;
+        try { text = fs.readFileSync(m.fix_check.hunks, 'utf8'); } catch { /* reported below; the start token is already recorded */ }
+        process.stdout.write(`FIX_CHECK_HUNKS: ${text === undefined ? 'not restamped (hunks file unreadable)' : restampFixCheckHunks(process.cwd(), text) ? 'restamped' : 'not restamped (no render record with these hunks)'}\n`);
+      }
       return EXIT.ok;
     }
     const before = flag('--before');
