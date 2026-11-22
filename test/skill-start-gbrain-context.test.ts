@@ -91,4 +91,19 @@ describe.skipIf(process.platform === 'win32')('gstack-skill-start gbrain block',
       fs.rmSync(g, { recursive: true, force: true });
     }
   });
+
+  test('a corrupt policy store is neither quarantined nor read as unset at skill start', () => {
+    const g = gh();
+    try {
+      run('gstack-gbrain-repo-policy', ['set', ORIGIN, 'deny'], g);
+      fs.writeFileSync(path.join(g, 'gbrain-repo-policy.json'), '{bad');
+      const out = start('office-hours', g);
+      expect(out).not.toContain('## Your builder profile snapshot');
+      expect(out).not.toContain("isn't pinned yet");
+      expect(fs.readFileSync(path.join(g, 'gbrain-repo-policy.json'), 'utf-8')).toBe('{bad');
+      expect(fs.readdirSync(g).some(f => f.includes('.corrupt-'))).toBe(false);
+    } finally {
+      fs.rmSync(g, { recursive: true, force: true });
+    }
+  });
 });
