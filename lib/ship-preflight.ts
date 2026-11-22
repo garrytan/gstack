@@ -17,7 +17,7 @@ import { reviewPlanTimeoutMs } from './review-collect';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
-import { changeRunRecord, openRun, readRunRecord } from './ship-run-record';
+import { changeRunRecord, openRun, readRunRecord, thisRunOwner } from './ship-run-record';
 import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, mappedLanes, recordCiTimeout, Report, runLanes, shipPolicy, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
@@ -134,7 +134,8 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
   else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the static design lite check only, no preview declared; mention /design-review when no design review exists)' : ''}`);
   if (!merge(cwd, base, r)) return false;
   if (!run) return true;
-  const opened = changeRunRecord(cwd, 'preflight', run, /^[1-9]\d*$/.test(n) ? { pr: Number(n) } : {});
+  const owner = thisRunOwner();
+  const opened = changeRunRecord(cwd, 'preflight', run, { ...(/^[1-9]\d*$/.test(n) ? { pr: Number(n) } : {}), ...(owner ? { owner } : {}) });
   if (opened.ok) return true;
   r.stop(`cannot record /ship run ${run} on this checkout (${opened.why}): the base is merged, but a later full preflight could merge again under this run's reviews; check gstack-ship-run status, then rerun`);
   return false;

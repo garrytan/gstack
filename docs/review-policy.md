@@ -280,6 +280,39 @@ dispatch ledger can't be read closes nothing. finish counts the same
 stamped row, anchored on the grant's stop rather than the newest reviewed tree
 (#4612).
 
+<a id="one-grant-path"></a>
+**One grant path after a ruling at the cap (GST-3546).** Every fix-check grant is
+the same grant, whichever row records it:
+
+- **Either row works.** A `gstack-approvals round-grant --kind fix-check` row and
+  an owner's `review_loop_grant <head>` approval row are both fix-check grants
+  for `gstack-review-plan --grant`, `gstack-ship-receipt claim` and write. The
+  older row names no PR, so it binds to the PR whose run claims it.
+- **A grant needs no stop record.** `round-grant --kind fix-check` with no
+  `--stop-run` and no `--findings` buys one scoped fix-check of the change since
+  `--head`, the reviewed head. Use it for a post-review edit (a Step 14.5 docs
+  audit edit that #4708's one-reader packet doesn't take) or a ruling at the cap
+  whose run recorded no stop (`STOP_UNBOUND`). The run's own claim stands in for
+  the stop record: the grant, the claim and the fix-check's start must be
+  recorded in that order.
+- **What it closes.** A grant that names findings closes those, as above. A
+  grant with no findings list closes each open blocker the fix list given to
+  its clean fix-check names. A blocker that no ruling, grant or fix list covers
+  still refuses `RECEIPT_BLOCKER_OPEN`, so the Captain's ruling at the cap needs
+  no hand-written per-finding rows, and nothing is closed that no reader read.
+- **gstack builds the packet.** Once a run has claimed a grant, `gstack-review-plan
+  --fix-check-prompt` and the pass program build the reader's hunks from `git diff
+  <the grant's head> HEAD` themselves (`FIX_CHECK_HUNKS:` says when a `--hunks`
+  file differed and was not used), so the hunks record always covers the whole
+  fix range.
+- **A grant spends only on a counted fix-check.** A row that doesn't count
+  (`converged:false`, open findings, or a claimed row `bindFixCheckRow` refuses)
+  leaves the grant unspent: the same run logs a correct row and write uses the
+  newest one that binds. The grant still buys one counted fix-check.
+- **Long reasons fit.** A `--reason` longer than the approval record's
+  300-character ask is cut there with an ellipsis; `--words` (the reason by
+  default) keeps every word.
+
 <a id="transitions"></a>
 ### Transitions
 

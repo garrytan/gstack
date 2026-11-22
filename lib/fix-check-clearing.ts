@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { grantedStop } from './pr-review-history';
-import { ownLinesSame, type ReviewRoundGrant } from './review-round-grant';
+import { grantForPr, ownLinesSame, type ReviewRoundGrant } from './review-round-grant';
 import { ledgerPass, parseFixTrailers, reviewRowKey, rowTime } from './review-scope';
 import { isSecurityFinding } from './security-findings';
 import { receiptRuns } from './ship-receipt';
@@ -37,9 +37,18 @@ const treeOf = (cwd: string, c: string) => git(cwd, ['rev-parse', '--verify', '-
 const findingsOf = (r: Row): Row[] => (Array.isArray(r?.findings) ? r.findings.filter((f: unknown) => !!f && typeof f === 'object') : []);
 const nameOf = (b: OpenBlocker) => (typeof b === 'string' ? b : b.id);
 
-/** A fix-check grant buys one fix-check: it is spent once a row carries it, or once any fix-check started after it was recorded. */
-export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'approval' | 'at'>) =>
-  rows.some(r => r?.skill === 'review-fix-check' && (r.grant === g.approval || rowTime(r) > Date.parse(g.at)));
+/**
+ * A fix-check row that counts (GST-3546): a row stamped from a claim counts only when `bind` (bindFixCheckRow) accepts it, and any
+ * other only as a completed, converged read that left nothing open. A malformed or uncounted row (converged:false, hunks that leave
+ * out part of the fix range) counts for nothing, so the run logs a correct row on the same grant.
+ */
+export const countedFixCheck = (r: Row, bind?: (row: Row) => boolean) => r?.skill === 'review-fix-check'
+  && (r.fix_check_base !== undefined && bind ? bind(r)
+    : r.completed === true && r.converged === true && r.status !== 'issues_found' && r.status !== 'issues_open' && !findingsOf(r).some(f => f.action === 'open'));
+
+/** A fix-check grant buys one counted fix-check: it is spent once a counted row carries it, or once a counted fix-check started after it was recorded. */
+export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'approval' | 'at'>, bind?: (row: Row) => boolean) =>
+  rows.some(r => countedFixCheck(r, bind) && (r.grant === g.approval || rowTime(r) > Date.parse(g.at)));
 
 /**
  * The grant-and-row binding finish and write share (amendments A, B and H): a review-fix-check row gstack-review-log stamped from a
@@ -57,7 +66,7 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
   const b = row.review_binding, h = row.hunks, findings = findingsOf(row);
   if (!SHA.test(base)) return no('the row carries no fix_check_base that gstack-review-log stamped from a claim');
   if (!g) return no(`its grant ${row.grant ?? 'none'} is no approved fix-check grant in this branch's approval record`);
-  if (g.head !== base || g.pr !== row.pr) return no(`its fix_check_base ${s12(base)} on PR #${row.pr ?? '?'} is not the stop ${s12(g.head)} that grant ${g.approval} names on PR #${g.pr}`);
+  if (g.head !== base || !grantForPr(g, row.pr)) return no(`its fix_check_base ${s12(base)} on PR #${row.pr ?? '?'} is not the stop ${s12(g.head)} that grant ${g.approval} names on PR #${g.pr}`);
   if (row.range_base !== undefined && git(cwd, ['rev-parse', '--verify', '--quiet', `${row.range_base}^{commit}`])?.trim() !== base) return no(`its range_base ${String(row.range_base).slice(0, 12)} disagrees with the logger's fix_check_base ${s12(base)}`);
   if (row.completed !== true || row.converged !== true || b?.state !== 'verified' || typeof row.tree !== 'string' || b.start_wtree !== row.tree || b.end_wtree !== row.tree) return no('it is not a completed, converged read bound to one committed tree');
   if (!SHA.test(commit) || treeOf(cwd, commit) !== row.tree || !ancestor(cwd, base, commit)) return no(`its commit ${s12(commit) || 'missing'} does not hold the tree it read or does not contain the stop ${s12(base)}`);
@@ -89,24 +98,29 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
  */
 export function clearByGrant(cwd: string, o: { pr: number; run: string; head: string; baseRef: string; body: string; grants: readonly ReviewRoundGrant[]; rows: readonly Row[]; open: readonly OpenBlocker[] }): GrantClearing {
   const none = (why: string): GrantClearing => ({ ids: [], why });
+  const claimOf = (id: string) => receiptRuns(o.body).find(r => r.mark === 'grant' && r.grant === id);
   const answer = grantedStop(o.body, o.grants, { pr: o.pr, head: o.head, run: o.run, isAncestor: (a, d) => ancestor(cwd, a, d) });
-  if (!answer) return none(`no fix-check grant for PR #${o.pr}`);
-  if (!answer.ok) return none(answer.why);
-  const { grant: g, stop } = answer;
-  const claim = receiptRuns(o.body).find(r => r.mark === 'grant' && r.grant === g.approval);
+  const unstopped = answer?.ok ? undefined : [...o.grants].reverse().find(x => x.kind === 'fix-check' && !x.stop_run && grantForPr(x, o.pr) && claimOf(x.approval)?.run === o.run && ancestor(cwd, x.head, o.head));
+  if (!answer?.ok && !unstopped) return none(answer ? answer.why : `no fix-check grant for PR #${o.pr}`);
+  const g = unstopped ?? (answer as Extract<typeof answer, { ok: true }>).grant;
+  const stop = unstopped ? { head: unstopped.head, tree: treeOf(cwd, unstopped.head), at: unstopped.at } : (answer as Extract<typeof answer, { ok: true }>).stop;
+  const claim = claimOf(g.approval);
   if (claim?.run !== o.run) return none(`the PR body's first claim of grant ${g.approval} is ${claim ? `run ${claim.run}'s` : 'missing'}, not run ${o.run}'s`);
   const stamped = [...new Map(o.rows.filter(r => r?.skill === 'review-fix-check' && r.grant === g.approval).map(r => [reviewRowKey(r), r] as const)).values()];
-  const row = stamped[0];
-  if (stamped.length !== 1 || row!.run !== o.run) return none(`grant ${g.approval} buys one fix-check row stamped with run ${o.run}, and the review log holds ${stamped.length}${row ? ` (run ${row.run}'s)` : ''}`);
-  const bound = bindFixCheckRow(cwd, row!, o.grants);
-  if (!bound.ok) return none(`the granted fix-check: ${bound.why}`);
-  if (bound.base !== stop.head || treeOf(cwd, stop.head) !== stop.tree) return none(`the granted fix-check read from ${s12(bound.base)}, not the stop record's head ${s12(stop.head)} and its tree`);
+  const foreign = stamped.find(r => r.run !== o.run);
+  if (!stamped.length || foreign) return none(`grant ${g.approval} buys fix-check rows stamped with run ${o.run}, and the review log holds ${foreign ? `run ${foreign.run}'s` : 'none'}`);
+  const tries = stamped.map(r => ({ r, b: bindFixCheckRow(cwd, r, o.grants) }));
+  const counted = tries.filter(t => t.b.ok).at(-1);
+  if (!counted) return none(`the granted fix-check: ${(tries.at(-1)!.b as { why: string }).why}`);
+  const row = counted.r, bound = counted.b as Extract<RowBinding, { ok: true }>;
+  if (bound.base !== stop.head || treeOf(cwd, stop.head) !== stop.tree) return none(`the granted fix-check read from ${s12(bound.base)}, not the ${unstopped ? 'head its grant names' : "stop record's head"} ${s12(stop.head)} and its tree`);
   if (bound.commit !== o.head && !(ancestor(cwd, bound.commit, o.head) && ownLinesSame(cwd, o.baseRef, bound.commit, o.head))) return none(`the granted fix-check read ${s12(bound.commit)}, and ${s12(o.head)} is neither it nor a head that only merges the base into it`);
-  const started = row!.review_binding?.started_at;
-  if (!(Date.parse(String(stop.at)) < Date.parse(String(claim.at)) && Date.parse(String(claim.at)) < Date.parse(String(started)))) return none(`the stop (${stop.at ?? 'no time'}), the claim (${claim.at ?? 'no time'}) and the fix-check's start (${started ?? 'no time'}) are not recorded in that order`);
+  const started = row.review_binding?.started_at;
+  if (!(Date.parse(String(stop.at)) < Date.parse(String(claim.at)) && Date.parse(String(claim.at)) < Date.parse(String(started)))) return none(`the ${unstopped ? 'grant' : 'stop'} (${stop.at ?? 'no time'}), the claim (${claim.at ?? 'no time'}) and the fix-check's start (${started ?? 'no time'}) are not recorded in that order`);
   const gated = new Set(o.rows.flatMap(r => findingsOf(r).filter(f => f.gate !== undefined).flatMap(f => [f.ledger_id, f.fingerprint])));
-  const asked = new Set<string>(Array.isArray(row!.hunks?.fix_list) ? row!.hunks.fix_list : []);
-  const ids = g.findings!.filter(name => asked.has(name) && !isSecurityFinding(name) && o.open.filter(b => nameOf(b) === name).length === 1 && !o.open.some(b => typeof b !== 'string' && b.fingerprint === name) && !gated.has(name));
+  const asked = new Set<string>(Array.isArray(row.hunks?.fix_list) ? row.hunks.fix_list : []);
+  const listed = g.findings!.length ? g.findings! : [...asked];
+  const ids = listed.filter(name => asked.has(name) && !isSecurityFinding(name) && o.open.filter(b => nameOf(b) === name).length === 1 && !o.open.some(b => typeof b !== 'string' && b.fingerprint === name) && !gated.has(name));
   const unasked = g.findings!.filter(name => !asked.has(name));
   const unnamed = g.findings!.filter(name => asked.has(name) && !ids.includes(name));
   const why = [...(unasked.length ? [`the fix list its reader was given does not name ${unasked.join(', ')}`] : []), ...(unnamed.length ? [`grant ${g.approval} names ${unnamed.join(', ')}, which no open blocker carries alone`] : [])].join('; ');

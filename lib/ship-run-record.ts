@@ -9,6 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type { RecordError } from './approval-record';
 import { spawnSync } from './spawn-sync';
@@ -19,6 +20,8 @@ export interface RunRecord {
   stop?: { head: string; tree: string };
   claim?: { grant: string; stop_run?: string; stop_head: string; findings: string[]; pr?: number };
   ended_by?: string; reason?: string;
+  /** The harness process preflight ran under (GST-3546): once it is provably gone, abandon takes the run at any age and it stops holding gstack upgrades. */
+  owner?: RunOwner;
 }
 export type RunRead =
   | { kind: 'none'; file: string }
@@ -29,8 +32,53 @@ export type RunCommand = 'preflight' | 'beat' | 'stop' | 'claim' | 'skill-end' |
 type From = RunState | 'none' | 'legacy' | 'unreadable';
 
 export const RUN_ID = /^[A-Za-z0-9][\w.:-]{0,127}$/;
-/** A run that beat this recently is working: abandon refuses it. */
+/** A run that beat this recently is working: abandon refuses it, unless its owner process is provably gone. */
 export const ABANDON_AFTER_MS = 60 * 60_000;
+
+/**
+ * The harness a /ship run belongs to: the first ancestor that is not a shell or one of gstack's own bun wrappers (bin/gstack-harness-pid.sh walks shells the same way), with
+ * this machine, its boot and the process's start time. shared marks a harness every session on the machine runs under
+ * (capy-server, GSTACK_SHARED_HARNESSES), whose liveness says nothing about one run.
+ */
+export interface RunOwner { machine: string; boot: string; pid: number; start: number; comm: string; shared?: true }
+const WRAPPERS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'mksh', 'ash', 'fish', 'busybox', 'bun', 'timeout', 'env', 'flock', 'xargs']);
+const SHARED_HARNESSES = new Set(['capy-server']);
+function procOf(pid: number): { ppid: number; start: number; comm: string } | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const f = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return { ppid: Number(f[1]), start: Number(f[19]), comm: stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')')).replace(/^-/, '') };
+  } catch { return null; }
+}
+const readTrim = (f: string) => { try { return fs.readFileSync(f, 'utf8').trim(); } catch { return ''; } };
+const thisMachine = () => `${os.hostname()}/${readTrim('/etc/machine-id')}`;
+
+/** This process's run owner, or null where /proc cannot say (off Linux): then only the run record's state and age apply. */
+export function thisRunOwner(from = process.ppid): RunOwner | null {
+  let pid = from;
+  for (let hops = 0; hops < 8; hops++) {
+    const p = procOf(pid);
+    if (!p) return null;
+    if (!WRAPPERS.has(p.comm) || p.ppid <= 1) {
+      const boot = readTrim('/proc/sys/kernel/random/boot_id');
+      return boot ? { machine: thisMachine(), boot, pid, start: p.start, comm: p.comm, ...(SHARED_HARNESSES.has(p.comm) ? { shared: true as const } : {}) } : null;
+    }
+    pid = p.ppid;
+  }
+  return null;
+}
+
+/**
+ * Whether a run's owner is provably gone: on this machine, it ran before the last boot, or its pid now names no process or one
+ * that started at another time. A shared harness, another machine, a missing or malformed owner proves nothing.
+ */
+export function ownerGone(o: unknown): boolean {
+  const w = o as RunOwner | undefined;
+  if (!w || typeof w !== 'object' || w.shared || !Number.isInteger(w.pid) || w.pid <= 1 || !Number.isFinite(w.start) || typeof w.boot !== 'string' || w.machine !== thisMachine()) return false;
+  if (w.boot !== readTrim('/proc/sys/kernel/random/boot_id')) return true;
+  const p = procOf(w.pid);
+  return !p || p.start !== w.start;
+}
 const STATES: readonly RunState[] = ['open', 'stopped', 'finished', 'abandoned'];
 const SHA = /^[0-9a-f]{40,64}$/;
 
@@ -185,13 +233,14 @@ export function finishRun(cwd: string, named: readonly string[] | null): { remov
 
 /**
  * gstack-ship-run abandon's checks on what it read: never as gstack, the run named exactly (an unreadable record as `unknown` with its
- * digest), and never a record whose beat_at is under ABANDON_AFTER_MS old. A legacy marker or an unreadable record has no beat, so any age.
+ * digest), and never a record whose beat_at is under ABANDON_AFTER_MS old while its owner may still run. A legacy marker or an unreadable
+ * record has no beat, and a record whose owner process is provably gone (ownerGone) is no longer working, so either goes at any age.
  */
 export function abandonRefusal(read: RunRead, run: string, sha256: string | undefined, now = Date.now()): string | null {
   if (read.kind === 'unreadable') return run !== 'unknown' ? `the record is unreadable (${read.why}): pass --run unknown --sha256 <its digest from gstack-ship-run status>`
     : !read.sha256 || sha256 !== read.sha256 ? `--sha256 does not match the unreadable record's digest ${read.sha256 ?? '(unreadable bytes)'}: it changed since you read it, or the digest is wrong` : null;
   if (recordRun(read) !== run) return `the record names run ${recordRun(read) ?? 'none'}, not ${run}`;
-  if (read.kind !== 'record') return null;
+  if (read.kind !== 'record' || ownerGone(read.record.owner)) return null;
   const beat = Date.parse(read.record.beat_at);
   return now - beat < ABANDON_AFTER_MS ? `run ${run} beat ${Math.floor((now - beat) / 60_000)}m ago (state ${read.record.state}, beat_age ${Math.floor((now - beat) / 60_000)}m; the earliest abandon is ${new Date(beat + ABANDON_AFTER_MS).toISOString()}): a run that beat in the last 60 minutes is still working` : null;
 }

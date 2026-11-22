@@ -64,7 +64,10 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           [--owner-ref <thread code>:<message id or timestamp>: relays the grant from the lane's or Captain's message, so it
           records while a stopped /ship run is still open on this checkout; needs --words]
           [--stop-run <run> --findings <ids>: fix-check only, the stop gstack-ship-receipt stop recorded and the findings
-          its fix round is for; it buys one scoped fix-check of the PR's own change since that stop's head]
+          its fix round is for; it buys one scoped fix-check of the PR's own change since that stop's head. A fix-check
+          with neither buys one scoped fix-check of the change since --head, the reviewed head: a post-review edit (the
+          docs audit), or a ruling at the cap whose run recorded no stop. A reason longer than the 300-character ask is
+          cut there with an ellipsis; its full words stay in --words]
           a review round the PR's R51 count would not plan (docs/review-policy.md#rounds-per-pull-request): extra-round is
           one round with its fix round past the cap of 2, instead of the read-only final review; it binds
           that head of that PR only and is spent by the round; the lane or its Captain records it, never the owner, and
@@ -189,9 +192,10 @@ function main(argv: string[]): number {
       const open = openShipRun(process.cwd());
       const ownStop = open?.state === 'stopped' && !open.claim && kind === 'fix-check' && stopRun === open.run && open.stop?.head === head.stdout.trim().toLowerCase();
       if (open && ownerRef === undefined && !ownStop) return invalid(`${open.line}: ${open.state !== 'stopped' ? "a round grant is the lane's or its Captain's, never the run's own" : open.claim ? `this run already spent its own stop's fix-check grant (${open.claim.grant}), so a second fix round is the lane's or its Captain's` : `a stopped run records only the fix-check grant for its own stop (--kind fix-check --stop-run ${open.run} --head ${open.stop?.head ?? '<its stop head>'})`}; relay it with --owner-ref <thread code>:<message id or timestamp> --words <their exact words>, or record it from the lane after the run stops`);
-      if (kind === 'fix-check' && (!STOP_RUN.test(stopRun) || !findings.length || !findings.every(f => FINDING_ID.test(f)))) return invalid('round-grant --kind fix-check needs --stop-run <the run gstack-ship-receipt stop named> and --findings <the open finding ids it is for, comma-separated>: it buys the fix round of that one stop');
+      const stopped = flags['--stop-run'] !== undefined || flags['--findings'] !== undefined;
+      if (kind === 'fix-check' && stopped && (!STOP_RUN.test(stopRun) || !findings.length || !findings.every(f => FINDING_ID.test(f)))) return invalid('round-grant --kind fix-check with a stop needs --stop-run <the run gstack-ship-receipt stop named> and --findings <the open finding ids it is for, comma-separated>: it buys the fix round of that one stop; with neither, it buys one scoped fix-check of the change since --head, the reviewed head (a post-review edit, or a stop no stop record holds)');
       if (kind !== 'fix-check' && (flags['--stop-run'] !== undefined || flags['--findings'] !== undefined)) return invalid('--stop-run and --findings belong to --kind fix-check: an extra-round grant names no stop');
-      const built = buildRow({ ...reviewRoundGrantRow(head.stdout.trim().toLowerCase(), Number(pr), kind, reason, kind === 'fix-check' ? { run: stopRun, findings } : undefined), words: flags['--words'] ?? reason, by, date: flags['--date'], source: ruledNoteSource({ ownerRef }) }, loc.branch);
+      const built = buildRow({ ...reviewRoundGrantRow(head.stdout.trim().toLowerCase(), Number(pr), kind, reason, kind === 'fix-check' && stopped ? { run: stopRun, findings } : undefined), words: flags['--words'] ?? reason, by, date: flags['--date'], source: ruledNoteSource({ ownerRef }) }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];
     } else if (cmd === 'lane-exception') {

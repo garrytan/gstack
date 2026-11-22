@@ -109,10 +109,12 @@ describe('which grant answers which stop (lib/pr-review-history.ts grantedStop)'
     expect(answer(body, [fixGrant('a-000000000001')])).toMatchObject({ ok: false });
     expect(prReviewHistory(stopped())).toMatchObject({ full: 3, rounds: 3, stubs: 2, heads: 2 });
   });
-  test('a fix-check row that lacks its stop, or an extra-round row naming one, is no grant', () => {
+  test('a fix-check row with no stop answers its own head and no stop record (GST-3546); an extra-round row naming a stop is no grant', () => {
     const bare = row('a-000000000004', { scope: 'review_round_grant ' + S + ' pr=7 kind=fix-check', ask: 'review_round_grant fix-check at ' + S + ' for pr 7: x' });
     const extra = row('a-000000000005', { scope: 'review_round_grant ' + S + ' pr=7 kind=extra-round stop=ro findings=f#1', ask: 'review_round_grant extra-round at ' + S + ' for pr 7: x' });
-    expect(reviewRoundGrants([bare, extra])).toEqual([]);
+    expect(reviewRoundGrants([bare, extra])).toEqual([expect.objectContaining({ kind: 'fix-check', head: S, pr: 7, approval: 'a-000000000004', findings: [] })]);
+    expect(reviewRoundGrants([bare])[0]!.stop_run).toBeUndefined();
+    expect(answer(placeRunEntry(stopped(), grantMarker({ head: S, run: 'fc1', grant: 'a-000000000004' })), [bare])).toMatchObject({ ok: false });
   });
 });
 
@@ -156,7 +158,8 @@ describe('the CLI seams', () => {
     const ok = r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s.slice(0, 10), '--kind', 'fix-check', '--stop-run', 'ro', '--findings', 'p1/outside-voice#1,p1/red-team#2', '--reason', 'fixable blocker', '--by', 'Captain GStack Minder (GSTA-36)']);
     expect(ok.status, ok.stderr).toBe(0);
     expect(r.run('gstack-approvals', ['list', '--json']).stdout).toContain('review_round_grant ' + s + ' pr=7 kind=fix-check stop=ro findings=p1/outside-voice#1,p1/red-team#2');
-    expect(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'fix-check', '--reason', 'x', '--by', 'Captain GStack Minder']).status).toBe(2);
+    expect(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'fix-check', '--stop-run', 'ro', '--reason', 'x', '--by', 'Captain GStack Minder']).status).toBe(2);
+    expect(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'fix-check', '--findings', 'f#1', '--reason', 'x', '--by', 'Captain GStack Minder']).status).toBe(2);
     expect(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'extra-round', '--stop-run', 'ro', '--findings', 'f#1', '--reason', 'x', '--by', 'Captain GStack Minder']).status).toBe(2);
     expect(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', s, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', 'f#1', '--reason', 'x', '--by', 'gstack']).status).toBe(2);
   });

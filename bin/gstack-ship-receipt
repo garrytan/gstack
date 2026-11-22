@@ -70,7 +70,7 @@ import { laneExceptionBodyLines } from '../lib/test-lane-exception';
 import { abandonMarker, grantedStop, grantMarker, historyLine, placeRunEntry, prReviewHistory, receiptedRun, reviewRoute, runStub, stopFrom, stopMarker } from '../lib/pr-review-history';
 import { changeRunRecord, readRunRecord } from '../lib/ship-run-record';
 import { splitAgentNotes, withAgentNotes } from '../lib/agent-notes';
-import { grantFor, publicRoundGrant, readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
+import { grantFor, grantForPr, publicRoundGrant, readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { patchId, productPatchAgainstBase, productRules, productSpec, verifiedOutputs } from '../lib/ship-receipt-patch';
 import { runCalls } from '../lib/ship-clock';
@@ -395,7 +395,7 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
     const at = headSha ?? head, baseRef = `origin/${base.replace(/^origin\//, '')}`, run = flag(rest, '--run'), pr = Number(flag(rest, '--pr'));
     const blockers = (Array.isArray(loopRaw?.open) ? loopRaw.open : []).filter((b: any) => ruledOpen.includes(typeof b === 'string' ? b : b?.id));
     const rows = ruledOpen.length ? reviewRows(repoRoot) ?? [] : [];
-    const grants = ruledOpen.length ? readReviewRoundGrants(repoRoot).filter(g => g.kind === 'fix-check' && g.pr === pr) : [];
+    const grants = ruledOpen.length ? readReviewRoundGrants(repoRoot).filter(g => g.kind === 'fix-check' && grantForPr(g, pr)) : [];
     const live = grants.length && !receiptRuns(bodyText).length && flag(rest, '--pr') ? readBody(['--pr', flag(rest, '--pr')!, ...(flag(rest, '--repo') ? ['--repo', flag(rest, '--repo')!] : [])]) : undefined;
     const clearing = ruledOpen.length ? await import('../lib/fix-check-clearing') : undefined;
     const byGrant = !grants.length || !clearing ? undefined : !run ? { ids: [], why: 'write names no --run, so no run spent the grant' } : clearing.clearByGrant(repoRoot, { pr, run, head: at, baseRef, body: live?.ok ? live.body : bodyText, grants, rows, open: blockers });
@@ -1070,7 +1070,7 @@ function cmdClaim(rest: string[]): number {
   const read = readBody(rest);
   if (!read.ok) { process.stderr.write(`gstack-ship-receipt claim: ${read.why}; fix: ${read.fix}\n`); return EXIT.fail; }
   const g = readReviewRoundGrants(repoRoot).find(x => x.approval === id);
-  if (!g) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_UNKNOWN', `no approved review_round_grant row ${id} in this branch's approval record`)}\n`); return EXIT.refused; }
+  if (!g) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_UNKNOWN', `no approved fix-check or round grant ${id} (a gstack-approvals round-grant row, or an owner's review_loop_grant <head> row) in this branch's approval record`)}\n`); return EXIT.refused; }
   const other = receiptRuns(read.body).find(r => r.mark === 'grant' && r.grant === id && r.run !== run);
   if (other) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${other.run}: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
   const err = postBody(rest, read.pr, placeRunEntry(read.body, grantMarker({ head: g.head, run, grant: id })));
@@ -1080,7 +1080,9 @@ function cmdClaim(rest: string[]): number {
   if (!again.ok) { process.stderr.write(`gstack-ship-receipt claim: ${again.why}; the claim is unconfirmed, so do not dispatch\n`); return EXIT.fail; }
   const first = receiptRuns(again.body).find(r => r.mark === 'grant' && r.grant === id);
   if (first?.run !== run) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${first?.run ?? 'another run'} while this run claimed it: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
-  const recorded = changeRunRecord(repoRoot, 'claim', run, { claim: { grant: id, ...(g.stop_run ? { stop_run: g.stop_run } : {}), stop_head: g.head, findings: g.findings ?? [], pr: g.pr } });
+  const bodyPr = read.pr ?? flag(rest, '--pr');
+  const claimPr = g.pr || (bodyPr && /^[1-9]\d*$/.test(bodyPr) ? Number(bodyPr) : undefined);
+  const recorded = changeRunRecord(repoRoot, 'claim', run, { claim: { grant: id, ...(g.stop_run ? { stop_run: g.stop_run } : {}), stop_head: g.head, findings: g.findings ?? [], ...(claimPr ? { pr: claimPr } : {}) } });
   if (!recorded.ok && readRunRecord(repoRoot).kind !== 'none') { process.stderr.write(`gstack-ship-receipt claim: the run record did not take the claim (${recorded.why}); not claimed, so do not dispatch: the PR body already holds run ${run}'s claim, so rerun claim with this same --run once the record is writable (a new run id reads GRANT_SPENT)\n`); return EXIT.fail; }
   process.stdout.write(`GRANT_CLAIMED: grant=${id} kind=${g.kind} run=${run} head=${g.head.slice(0, 12)}\n${recorded.ok ? '' : `RUN_RECORD: claim not recorded (${recorded.why})\n`}`);
   return EXIT.ok;

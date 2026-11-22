@@ -15,26 +15,47 @@ import { isSecurityFinding, opaqueFindingId, REDACTED_FINDING, REDACTED_REASON }
 export const ROUND_GRANT_KINDS = ['extra-round', 'fix-check'] as const;
 export type RoundGrantKind = (typeof ROUND_GRANT_KINDS)[number];
 /** stop_run and findings: a fix-check grant's stop (the run that stopped at head) and the finding ids it is for. */
-export interface ReviewRoundGrant { kind: RoundGrantKind; head: string; pr: number; by: string; reason: string; at: string; approval: string; stop_run?: string; findings?: string[] }
+/**
+ * One grant kind (GST-3546): a fix-check grant names its head (a stop record's head, or the reviewed head a post-review edit
+ * follows, with no stop) and buys one scoped fix-check from it. An owner's `review_loop_grant <head>` approval row reads as the
+ * same grant (legacy, pr 0: it names no PR, so it binds to whichever PR claims it), so the planner, claim and write accept
+ * either row.
+ */
+export interface ReviewRoundGrant { kind: RoundGrantKind; head: string; pr: number; by: string; reason: string; at: string; approval: string; stop_run?: string; findings?: string[]; legacy?: true }
 
 export const STOP_RUN = /^[\w.:-]{1,120}$/;
 export const FINDING_ID = /^[\w.:/#@-]{1,200}$/;
 const SCOPE = /^review_round_grant ([0-9a-f]{40}) pr=([1-9]\d*) kind=(extra-round|fix-check)(?: stop=(\S+) findings=(\S+))?$/;
+const LEGACY = /\breview_loop_grant\s+([0-9a-f]{7,40})\b/;
+const OTHER_ROW = /^\s*(ruled_note|gate_disposition|review_loop_exception|test_lane_exception|review_round_grant)\b/;
 const ASK = /^review_round_grant (extra-round|fix-check) at ([0-9a-f]{40}) for pr ([1-9]\d*): (\S(?:.*\S)?)$/;
 export const REVIEW_ROUND_GRANT_SCOPE = /^\s*review_round_grant\b/;
 
-export const reviewRoundGrantRow = (head: string, pr: number, kind: RoundGrantKind, reason: string, stop?: { run: string; findings: readonly string[] }) =>
-  ({ scope: `review_round_grant ${head} pr=${pr} kind=${kind}${stop ? ` stop=${stop.run} findings=${stop.findings.join(',')}` : ''}`, ask: `review_round_grant ${kind} at ${head} for pr ${pr}: ${reason}` });
+/** The ask's cap (lib/approval-record.ts CAPS.ask); a longer reason is cut with an ellipsis and its full words stay in --words. */
+export const ROUND_GRANT_ASK_MAX = 300;
+export function reviewRoundGrantRow(head: string, pr: number, kind: RoundGrantKind, reason: string, stop?: { run: string; findings: readonly string[] }) {
+  const lead = `review_round_grant ${kind} at ${head} for pr ${pr}: `;
+  const room = ROUND_GRANT_ASK_MAX - lead.length;
+  const said = reason.length <= room ? reason : `${reason.slice(0, room - 1).trimEnd()}…`;
+  return { scope: `review_round_grant ${head} pr=${pr} kind=${kind}${stop ? ` stop=${stop.run} findings=${stop.findings.join(',')}` : ''}`, ask: lead + said };
+}
 
-export function reviewRoundGrants(rows: readonly ApprovalRow[]): ReviewRoundGrant[] {
+export function reviewRoundGrants(rows: readonly ApprovalRow[], resolve?: (sha: string) => string | undefined): ReviewRoundGrant[] {
   const out: ReviewRoundGrant[] = [];
   for (const r of rows) {
+    if (r.outcome !== 'approved' || isGstackActorName(r.by)) continue;
     const s = SCOPE.exec(r.scope), a = ASK.exec(r.ask);
-    if (r.outcome !== 'approved' || !s || !a || isGstackActorName(r.by)) continue;
+    if (!s && !REVIEW_ROUND_GRANT_SCOPE.test(r.scope) && !OTHER_ROW.test(r.scope)) {
+      const l = LEGACY.exec(`${r.ask} ${r.scope}`);
+      const head = l ? (l[1]!.length === 40 ? l[1]! : resolve?.(l[1]!)) : undefined;
+      if (head) out.push({ kind: 'fix-check', head: head.toLowerCase(), pr: 0, by: r.by, reason: r.ask, at: r.recorded_at, approval: r.id, findings: [], legacy: true });
+      continue;
+    }
+    if (!s || !a) continue;
     if (a[1] !== s[3] || a[2] !== s[1] || a[3] !== s[2]) continue;
     const findings = s[5]?.split(',');
-    if ((s[3] === 'fix-check') !== (s[4] !== undefined) || (s[4] !== undefined && (!STOP_RUN.test(s[4]) || !findings!.every(f => FINDING_ID.test(f))))) continue;
-    out.push({ kind: s[3] as RoundGrantKind, head: s[1]!, pr: Number(s[2]), by: r.by, reason: a[4]!, at: r.recorded_at, approval: r.id, ...(s[4] ? { stop_run: s[4], findings } : {}) });
+    if ((s[3] !== 'fix-check' && s[4] !== undefined) || (s[4] !== undefined && (!STOP_RUN.test(s[4]) || !findings!.every(f => FINDING_ID.test(f))))) continue;
+    out.push({ kind: s[3] as RoundGrantKind, head: s[1]!, pr: Number(s[2]), by: r.by, reason: a[4]!, at: r.recorded_at, approval: r.id, ...(s[4] ? { stop_run: s[4], findings } : s[3] === 'fix-check' ? { findings: [] } : {}) });
   }
   return out;
 }
@@ -54,8 +75,15 @@ export function publicRoundGrant(g: ReviewRoundGrant, ruled: readonly RuledNote[
 
 export function readReviewRoundGrants(cwd: string, env: Env = process.env): ReviewRoundGrant[] {
   const loc = locate({ cwd, env });
-  return 'code' in loc ? [] : reviewRoundGrants(readRecord(loc).rows);
+  if ('code' in loc) return [];
+  return reviewRoundGrants(readRecord(loc).rows, sha => {
+    const r = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], { cwd, encoding: 'utf8', timeout: 10_000 });
+    return r.status === 0 ? r.stdout.trim() : undefined;
+  });
 }
+
+/** Whether a grant binds this PR: its own PR, or any PR for a legacy review_loop_grant row, which names none. */
+export const grantForPr = (g: Pick<ReviewRoundGrant, 'pr'>, pr: number | undefined) => !g.pr || g.pr === pr;
 
 /** The newest extra-round grant for this PR at exactly this head (a fix-check grant answers a stop instead: lib/pr-review-history.ts grantedStop). */
 export const grantAt = (grants: readonly ReviewRoundGrant[], pr: number, head: string) =>
@@ -126,4 +154,4 @@ export function ownLinesSame(repoRoot: string, baseRef: string, a: string, b: st
 
 /** The text after "Review round grant: " in the PR body. */
 export const reviewRoundGrantText = (g: ReviewRoundGrant) =>
-  `${g.kind} at ${g.head.slice(0, 12)} for PR #${g.pr}${g.stop_run ? ` (stop ${g.stop_run}, findings ${g.findings!.join(', ')})` : ''} recorded by ${g.by} at ${g.at}: ${g.reason} (approval ${g.approval})`;
+  `${g.kind} at ${g.head.slice(0, 12)} for PR #${g.pr}${g.stop_run ? ` (stop ${g.stop_run}, findings ${g.findings!.join(', ')})` : g.kind === 'fix-check' ? ' (no stop: the reviewed head)' : ''} recorded by ${g.by} at ${g.at}: ${g.reason} (approval ${g.approval})`;

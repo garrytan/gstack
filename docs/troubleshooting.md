@@ -2037,7 +2037,12 @@ ends (R75: upgrades wait for the workflow boundary); fix: <install> once the
 run ends (UPGRADE_BUSY))`, for a ship-budget ledger with no `closed_at`
 written in the last 6 hours, or `review run <token> (<file>)` for a review
 start under 120 minutes old that `gstack-review-log --finish` has not
-consumed.
+consumed. A run that provably ended stops deferring at once
+(`gstack-ship-run live` prints `RUN_HOLD_RELEASED:` for each, GST-3546): the
+harness it ran under has exited or the machine restarted, or its checkout's
+/ship run record stopped, finished or was abandoned. A run whose record is
+still open on Capy's shared harness keeps deferring until it ends; end a run
+that stopped working with `gstack-ship-run abandon`.
 
 **Fix.** Wait for those sessions to finish (`bin/gstack-lease list` shows
 every lease with its age and `alive|idle|dead|stale`; a holder is named as
@@ -7957,9 +7962,14 @@ gstack can tie to one commit: the newest `via:ship` reading row since
 or its commit isn't HEAD or under it. It recorded no stop record, so
 no fix-check grant can buy that review's fix round.
 
-**Fix.** Nothing for a grant to answer. The lane's Captain ships with the open
-notes listed or parks; a fresh `/ship` run gives the head its review
-([review-policy.md](review-policy.md#rounds-per-pull-request)).
+**Fix.** The lane's Captain ships with the open notes listed, parks, or rules
+the fix round with a grant that needs no stop record: `gstack-approvals
+round-grant --pr <n> --head <the reviewed head> --kind fix-check --reason <why>
+--by <lane or Captain>` (add `--owner-ref` and `--words` inside an open run).
+The run then claims it, commits the fix, runs the one scoped fix-check
+`gstack-review-plan --round-grant <id> --stop <that head>` plans, and write
+closes the blockers that clean fix-check's fix list named
+([review-policy.md](review-policy.md#one-grant-path)).
 
 <a id="ship-run-abandon-refused"></a>
 ### `SHIP_RUN_ABANDON_REFUSED`
@@ -7969,6 +7979,13 @@ the run beat (preflight, a review start or finish, stub, stop or claim) in the
 last 60 minutes, so it may still be working; or the record names another run,
 or already ended (finished or abandoned); or the record is unreadable and the
 `--sha256` given isn't its digest. `--by` naming gstack itself is a usage error.
+
+A run whose owner process is provably gone (preflight records the harness it
+ran under; that process exited or the machine restarted) is taken at any age,
+and no longer holds gstack upgrades either (`gstack-ship-run live`, GST-3546).
+On Capy every session runs under one shared harness, so there the 60 minutes
+still apply to an open run; a run that stopped, finished or was abandoned
+releases the upgrade hold at once.
 
 **Fix.** Run `gstack-ship-run status`. It prints the run, its state, its
 `beat_age` and the exact abandon command. Wait until the earliest abandon time
@@ -7995,7 +8012,10 @@ The digest binds the abandon to the bytes you inspected.
 
 **Meaning.** `gstack-ship-receipt claim` found another `/ship` run's grant
 record for this round grant in the PR body's runs block. A grant buys one round,
-and a voided run's claim still spends it.
+and a voided run's claim still spends it. Within the run that claimed it, a
+fix-check row that doesn't count (`converged:false`, partial hunks) spends
+nothing: log a correct row in the same run instead of asking for a new grant
+([review-policy.md](review-policy.md#one-grant-path)).
 
 **Fix.** Record a new grant for the stop the PR is at now; `gstack-ship-receipt
 stop` prints the command ([troubleshooting](#pr-round-cap)).
@@ -8004,8 +8024,9 @@ stop` prints the command ([troubleshooting](#pr-round-cap)).
 ### `GRANT_UNKNOWN`
 
 **Meaning.** `gstack-ship-receipt claim --grant <id>` found no approved
-`review_round_grant` row with that id in the branch's approval record or its
-mirror.
+fix-check or round grant with that id in the branch's approval record or its
+mirror: neither a `gstack-approvals round-grant` row nor an owner's
+`review_loop_grant <head>` row (both are the same grant since GST-3546).
 
 **Fix.** Pass the id `gstack-approvals round-grant` printed, from a checkout
 that sees that record ([troubleshooting](#pr-round-cap)).
