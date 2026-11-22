@@ -224,10 +224,13 @@ export interface Verification { ok: boolean; code?: 'PREGATE_STALE' | 'PREGATE_R
  * user-owned policy behind the run (or its absence, under the defaults) must
  * still hold, since it lives outside the tree.
  */
-export function verifyPregate(repoRoot: string, file: PregateFile, treeNow: WtreeResult = wtreeFingerprint({ cwd: repoRoot })): Verification {
+export function verifyPregate(repoRoot: string, file: PregateFile, treeNow: WtreeResult = wtreeFingerprint({ cwd: repoRoot }), base?: string): Verification {
   const uncleared = (file.requires_remote ?? []).filter(r => !r.receipt);
   const treeCurrent = 'tree' in treeNow && treeNow.tree === file.tree;
   if (!treeCurrent) return { ok: false, code: 'PREGATE_STALE', message: `pregate.json was recorded against tree ${file.tree.slice(0, 12)}; ${'tree' in treeNow ? `the tree is now ${treeNow.tree.slice(0, 12)}` : `the tree cannot be fingerprinted now (${treeNow.error})`}`, current: false, uncleared };
+  const recordedBase = base === undefined ? null : baseBranchOf(file.base);
+  const shipBase = base?.replace(/^origin\//, '');
+  if (recordedBase && recordedBase !== shipBase) return { ok: false, code: 'PREGATE_STALE', message: `pregate.json was recorded against origin/${recordedBase}, but this ships against origin/${shipBase}; its checks and clears used origin/${recordedBase}'s policy and run profiles`, current: false, uncleared };
   const policyChange = userPolicyChange(file);
   if (policyChange) return { ok: false, code: 'PREGATE_STALE', message: policyChange, current: false, uncleared };
   const current = true;

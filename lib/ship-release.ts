@@ -672,7 +672,7 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
     if (!/^(pass|warn)/.test(verdict)) return r.stop(`pregate preflight ${verdict} on the stamped tree: fix it, then rerun finish`);
     return r.next(`Step 16 stage 5, then Step 17's guard block and gstack-ship-release push; then gstack-ship-release accept --base ${base} ${laneArgs} carries ${deferred.join(', ')} from CI at the pushed head${loop ? '; Step 18 records the same exception with gstack-ship-receipt write --review-loop-exception' : ''}`);
   }
-  const v = bin(cwd, 'gstack-pregate', ['verify'], 60_000);
+  const v = bin(cwd, 'gstack-pregate', ['verify', '--base', base], 60_000);
   if (v.status === 0) r.add('PREGATE: verify ok on the stamped tree');
   else {
     const policy = lanesOnlyHeadPolicy(cwd, base);

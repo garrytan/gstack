@@ -5146,10 +5146,14 @@ tell the two apart and knows which to confirm elsewhere first.
 fingerprint than the one being published (the final stamp, a regen, any edit),
 or the user-owned policy it ran under was edited or deleted (or one appeared,
 or a symlink on its path started pointing nowhere, after a run under the
-defaults).
+defaults), or, when the step names a base (`gstack-pregate verify --base`,
+`gstack-ship-receipt write --base`, `gstack-ship-queue ready`), the record was
+taken against another base branch, so its checks and clears used that branch's
+policy and run profiles.
 
 **Fix.** Rerun `gstack-pregate` after the final generation and stamp; Step 18
-refuses to write the ship receipt otherwise.
+refuses to write the ship receipt otherwise. For a base mismatch, rerun
+`gstack-pregate --base <the PR's real base>`.
 
 <a id="pregate-remote-uncleared"></a>
 ### `PREGATE_REMOTE_UNCLEARED`
@@ -7212,7 +7216,9 @@ base (the PR's base from `gh`, else the remote's live HEAD from
 `git ls-remote --symref`, else `origin/main`, else `origin/master`). For
 a pull request's head the queue refuses whenever the base contains it. On the
 base branch itself, on a detached HEAD, and on a fresh branch with no commits
-past its base, the step runs as before. `gstack-diff-scope` reports it as
+past its base, the step runs as before, except `gstack-pregate clear`, which
+refuses a base that contains the recorded head on a branch or a detached
+checkout, before it reads that base's policy. `gstack-diff-scope` reports it as
 `SCOPE_ERROR=base_contains_head` (all flags false, exit 2) with the reason on a
 comment line.
 

@@ -174,6 +174,22 @@ describe('finish (Steps 15-16)', () => {
     expect(f.git('ls-remote', '--heads', 'origin', 'feat').stdout).toBe('');
   });
 
+  // Value: protects=finish verifies the pregate against the base it ships to, so a record taken against another base reruns instead of passing;
+  //   fails_when=finish runs gstack-pregate verify with no base and a record cleared under a stacked base passes after a retarget (GST-3493);
+  //   why_new=GST-3493; seam=gstack-pregate verify --base; no_claim=the rerun's own verdict
+  test('finish reruns the pregate when its record was taken against another base', () => {
+    const f = fx();
+    const reviewed = wtree(f);
+    expect(f.run(RELEASE, ['version', '--base', 'main', '--bump', 'micro']).status).toBe(0);
+    const args = ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', snapshot(f), '--lane', LANE];
+    expect(f.run(RELEASE, args).status).toBe(0);
+    expect(lineOf(f.run(RELEASE, args).stdout, 'PREGATE')).toBe('PREGATE: verify ok on the stamped tree');
+    const out = path.join(f.work, '.gstack/tmp/pregate.json');
+    const record = JSON.parse(fs.readFileSync(out, 'utf8'));
+    fs.writeFileSync(out, JSON.stringify({ ...record, base: record.base.replace(/^origin\/main@/, 'origin/stack@') }));
+    expect(lineOf(f.run(RELEASE, args).stdout, 'PREGATE')).toMatch(/\(rerun on the stamped tree\)$/);
+  });
+
   // Value: protects=finish --plan resolves the brief's Plan line before any stage: require + Plan: required stops with no commit; a resolvable line prints PLAN: first; fails_when=finishPlan runs after the stages, its stop is dropped, or the line is not first; why_new=plan-record.test.ts covers the helper only; seam=none; no_claim=approved-row resolution (exempt line used)
   test('finish --plan: under GSTACK_PLAN_RECORD=require "Plan: required" stops before any stage; a resolvable line under warn prints PLAN: first', () => {
     const f = fx();
