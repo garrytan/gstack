@@ -236,8 +236,10 @@ caught on another crew's PRs.
    gstack writes for itself, `gstack` or `gstack no-stop default (K1)`, matched
    whole and case-insensitively, so "gstack-evals Captain" or "GStack Minder" can
    grant) and a grant from inside an open `/ship` run are refused, and `add`
-   refuses the scope. A stopped run's marker stays on its checkout, so the lane
-   records its Captain's grant there as a relay: `--owner-ref <thread
+   refuses the scope. A stopped run (state `stopped` in its run record,
+   [what ends a run](ship-policy.md#what-ends-a-run)) may record the fix-check grant
+   for its own stop, once per run; any other grant on that checkout, a second fix
+   round included, is the lane's relay of its Captain's grant: `--owner-ref <thread
    code>:<message id or timestamp> --words <their exact words>`, the same relay
    `gstack-approvals rule` takes, which the row keeps as `relayed:<ref>` (#4531). `--by` is otherwise the caller's own text, recorded and
    not checked: a lane that records a grant (or a ruling) from another checkout
