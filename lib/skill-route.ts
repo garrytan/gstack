@@ -277,9 +277,10 @@ const PARAGRAPH_BREAK = /(\n[ \t]*\n)/;
  * A prompt split into its prose and its Markdown code, as CommonMark reads them: fenced code blocks (an unclosed fence
  * runs to the end) and inline code spans (a backtick run closed by the next run of the same length in its paragraph; an
  * unmatched run is prose). A command quoted in backticks names the command; it does not ask for anything, so triggers
- * match the prose only (#4564). Each run looks up its closer once, so a long prompt full of unmatched runs stays linear.
+ * match the prose only (#4564). Each run looks up its closer once, so a long prompt full of unmatched runs stays linear. An inline
+ * span that matches keep stays in the prose as plain text.
  */
-export function splitCode(prompt: string): { prose: string; code: string } {
+export function splitCode(prompt: string, keep?: RegExp): { prose: string; code: string } {
   const prose: string[] = [];
   const code: string[] = [];
   let fence = '';
@@ -308,8 +309,9 @@ export function splitCode(prompt: string): { prose: string; code: string } {
       const close = closer[i];
       if (close === undefined) continue;
       const open = runs[i];
-      code.push(part.slice(open.index + open[0].length, runs[close].index));
-      out += `${part.slice(at, open.index)} `;
+      const inner = part.slice(open.index + open[0].length, runs[close].index);
+      code.push(inner);
+      out += `${part.slice(at, open.index)}${keep?.test(inner) ? inner : ' '}`;
       at = runs[close].index + runs[close][0].length;
       i = close;
     }
@@ -330,6 +332,20 @@ export interface RouteCandidate { skill: string; score: number; matched: number;
 const SPECIFIC_WORD = /^(?!(?:what|which|where|whose)$)[a-z0-9]{5,}$/;
 /** How close, in words, a trigger made only of everyday words must sit when it matches out of order. */
 export const EVERYDAY_SPAN = 8;
+
+/** True when the phrase's words appear in text in order, with only stopwords added between them: "find bugs on my site" holds "find bugs on site". */
+function holdsPhrase(text: string, phrase: string): boolean {
+  const want = tokens(phrase);
+  const seq = words(text);
+  return want.length > 0 && seq.some((_, start) => {
+    let k = 0;
+    for (let j = start; j < seq.length && k < want.length; j++) {
+      if (concept(stem(seq[j])) === want[k]) k++;
+      else if (k === 0 || !STOPWORDS.has(seq[j])) return false;
+    }
+    return k === want.length;
+  });
+}
 
 /** True when every word in want appears within some run of span consecutive words of seq. */
 function within(seq: string[], want: string[], span: number): boolean {
@@ -415,24 +431,33 @@ const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/,
   /\b(?:los(?:es|t|ing)|gone|ignored|ignores|drops|dropped|dropping|twice|duplicated?|truncated|half-written|wipes|wiped|resets)\b/];
 
 /**
- * A feature request's title: the prose's first line, or the first after a lone opening tag such as <task>, standing alone (a
- * blank line, the prompt's edge or a lone tag on each side), whose first word, after any leading #, asks for something new, the way gstack-evals draws
- * its non-fit tasks (wiki/plans/2026-11-21-capy-b1f-description-rewrite-prereg/sets.py). Its body may name an error or a
- * failing case (GEVA-558: 13 of 27 feature-titled tasks routed as bug reports), so it is no bug report unless the title itself
- * names a defect.
+ * A feature request's title: the prose's first line, or the first line inside the prose's first lone opening tag such as <task>
+ * when the prose outside that tag names no defect and asks for no fix, standing alone (a blank line, the prompt's edge or a lone
+ * tag on each side), whose first word, after any leading #, asks for something new, the way gstack-evals draws its non-fit tasks
+ * (wiki/plans/2026-11-21-capy-b1f-description-rewrite-prereg/sets.py). Its body may name an error or a failing case (GEVA-558:
+ * 13 of 27 feature-titled tasks routed as bug reports), so it is no bug report unless the title itself names a defect. A line
+ * inside a later tag (`The uploader crashes` then <steps>) is no title, and reportSigns keeps exception names in code in it.
  */
 const FEATURE_TITLE = /^(?:\[?feature(?: request)?\]?|feat(?:\([^)]*\))?:|enhancement|add|adds|adding|support|allow|implement|introduce|provide|expose|new)\b/i;
 const LONE_TAG = /^\s*<\/?[A-Za-z][\w-]*>\s*$/;
 function featureTitled(prose: string): boolean {
   const lines = prose.split('\n');
   const edge = (l: string | undefined) => l === undefined || !l.trim() || LONE_TAG.test(l);
-  const opensTag = (l: string | undefined) => l === undefined || (LONE_TAG.test(l) && !l.trim().startsWith('</'));
-  return lines.some((line, i) => {
-    if (!line.trim() || LONE_TAG.test(line) || !edge(lines[i - 1]) || !edge(lines[i + 1])) return false;
-    if (!opensTag(lines.slice(0, i).filter(l => l.trim()).pop())) return false;
+  const namesDefect = (text: string) => defectSign(text.toLowerCase()) || words(text).some(w => FIX_WORD.test(w));
+  const titled = (i: number) => {
+    const line = lines[i];
+    if (line === undefined || LONE_TAG.test(line) || !edge(lines[i - 1]) || !edge(lines[i + 1])) return false;
     const title = line.trim().replace(/^#+\s*/, '');
-    return FEATURE_TITLE.test(title) && !defectSign(title.toLowerCase()) && !words(title).some(w => FIX_WORD.test(w));
-  });
+    return FEATURE_TITLE.test(title) && !namesDefect(title);
+  };
+  const first = lines.findIndex(l => l.trim());
+  if (first < 0) return false;
+  if (titled(first)) return true;
+  const open = lines.findIndex(l => LONE_TAG.test(l));
+  if (open < 0 || lines[open].trim().startsWith('</')) return false;
+  const close = lines.findIndex((l, i) => i > open && l.trim() === `</${lines[open].trim().slice(1)}`);
+  const outside = [...lines.slice(0, open), ...(close < 0 ? [] : lines.slice(close + 1))].join('\n');
+  return titled(lines.findIndex((l, i) => i > open && l.trim())) && !namesDefect(outside);
 }
 
 /** A strong sign in lowercased prose: a symptom word, an exception name as a word, or a STRONG_SIGN phrase. */
@@ -454,7 +479,7 @@ const EXCEPTION_NAME = /\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b/;
 function reportSigns(prompt: string): { defect: boolean; fix: boolean } {
   const { prose, code } = splitCode(prompt);
   const window = promptWindow(prose);
-  if (featureTitled(window)) return { defect: false, fix: false };
+  if (featureTitled(promptWindow(splitCode(prompt, EXCEPTION_NAME).prose))) return { defect: false, fix: false };
   const text = window.toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
   return {
     defect: EXCEPTION_NAME.test(promptWindow(code)) || defectSign(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2,
@@ -507,8 +532,8 @@ const AGENT_MESSAGE = /^<(?:cross-session-message|task-notification)[\s>]/;
  * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. Nor is a message
  * another agent or session sent (AGENT_MESSAGE): it reports work, and asks the person's session for nothing. A bug
  * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
- * it holds every word of one of /review's or /qa's own triggers within EVERYDAY_SPAN words ("review this pr for bugs",
- * "find bugs on my site") and never asks for a fix: finding bugs is not fixing one. With no such skill installed, a report
+ * it holds one of /review's or /qa's own triggers as a phrase (holdsPhrase: "review this pr for bugs", "find bugs on my site")
+ * and never asks for a fix: finding bugs is not fixing one. With no such skill installed, a report
  * of a defect is still not a request to find bugs, so /review and /qa are not named for it (GSTA-759: three long reports that
  * said "test the site" or "find" and "broken" went to /qa); "test the site and fix what you find" reports no defect. Any other prompt goes to the skills whose triggers reach the threshold, and the installed skill that
  * claims bug reports leads when it is one of them: an agent runs the first skill named (GEVA-562: /verify named before
@@ -524,9 +549,8 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   const routed = skills.filter(isRouted);
   const candidates = scorePrompt(prompt, routed);
   const window = promptWindow(splitCode(prompt).prose);
-  const seq = tokens(window);
   const findsBugs = !words(window).some(w => FIX_WORD.test(w)) && routed.some(s => isGstackSkill(s)
-    && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => contentTokens(t).length > 0 && within(seq, contentTokens(t), EVERYDAY_SPAN)));
+    && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => holdsPhrase(window, t)));
   const signs = reportSigns(prompt);
   const fixer = !findsBugs && (signs.defect || signs.fix) ? bugFixRoute(routed, candidates) : null;
   if (fixer) return { route: fixer, routes: [fixer], candidates, bugReport: true };

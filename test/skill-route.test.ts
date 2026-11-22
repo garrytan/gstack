@@ -392,6 +392,19 @@ describe('installed skills beside gstack (GST-3123)', () => {
     expect(bugReport(wrap('Upload fails with KeyError\n\nSteps to reproduce:\n\nAdd a file named a.toml\n\nRun mycli upload.'))).toBe(true);
   });
 
+  test('a reported defect reaches /review or /qa only on one of their trigger phrases; a later tag holds no title; an exception name in code stays in the title (GSTA-794)', () => {
+    const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
+    const named = (text: string) => { const d = routePrompt(text, [...routed, proveIt]); return d.route ? d.routes.map(r => r.skill) : []; };
+    for (const text of [
+      'The site crashes during the smoke test.',
+      "Opening a PR review page throws TypeError: cannot read property 'id' of undefined.",
+      'The uploader crashes\n\n<steps>\nAdd a file\n</steps>',
+      'New `ValueError` on launch',
+    ]) expect([text, named(text)]).toEqual([text, ['prove-it']]);
+    expect(named('find bugs on my site')).toEqual(['qa']);
+    expect(named('Please review this PR for bugs.')).toEqual(['review']);
+  });
+
   test('the installed bug-fix skill leads when it reaches the threshold beside a gstack skill: an agent runs the first one named (GEVA-562)', () => {
     const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
     const d = routePrompt('Write a test that reproduces the timeout in the upload path, then make the tests pass.', [...routed, proveIt]);
