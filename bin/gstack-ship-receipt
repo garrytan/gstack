@@ -1069,7 +1069,7 @@ function cmdClaim(rest: string[]): number {
   const first = receiptRuns(again.body).find(r => r.mark === 'grant' && r.grant === id);
   if (first?.run !== run) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${first?.run ?? 'another run'} while this run claimed it: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
   const recorded = changeRunRecord(repoRoot, 'claim', run, { claim: { grant: id, ...(g.stop_run ? { stop_run: g.stop_run } : {}), stop_head: g.head, findings: g.findings ?? [], pr: g.pr } });
-  if (!recorded.ok && readRunRecord(repoRoot).kind !== 'none') { process.stderr.write(`gstack-ship-receipt claim: the run record did not take the claim (${recorded.why}); not claimed, so do not dispatch: rerun claim once the record is writable\n`); return EXIT.fail; }
+  if (!recorded.ok && readRunRecord(repoRoot).kind !== 'none') { process.stderr.write(`gstack-ship-receipt claim: the run record did not take the claim (${recorded.why}); not claimed, so do not dispatch: the PR body already holds run ${run}'s claim, so rerun claim with this same --run once the record is writable (a new run id reads GRANT_SPENT)\n`); return EXIT.fail; }
   process.stdout.write(`GRANT_CLAIMED: grant=${id} kind=${g.kind} run=${run} head=${g.head.slice(0, 12)}\n${recorded.ok ? '' : `RUN_RECORD: claim not recorded (${recorded.why})\n`}`);
   return EXIT.ok;
 }

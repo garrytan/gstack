@@ -1,4 +1,4 @@
 {
-  "bytes": 125,
-  "why": "Docs audit steps say --carry-stopped replaces --carry when the earlier audit stopped before its post snapshot"
+  "bytes": 180,
+  "why": "The docs audit steps say a re-audit carries each earlier audit by its post snapshot, or by its Prepare snapshot with --carry-stopped when it stopped before one"
 }
