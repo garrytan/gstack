@@ -559,10 +559,10 @@ rebase a reviewed branch.
 
 A finished PR that sits unmerged goes stale: main moves under it, conflicts appear, and
 its lane sits idle. On 2026-11-22 gbrain had 22 waiting and gstack 21, gstack's held for
-hours by a stale land lock. Garry's rule R119, that day: "I feel like we are perpetually
-running into this problem. Solve this problem now but also make sure the processes are in
-place to always do it in this project and elsewhere in capy captains as needed". So every
-Captain that lands PRs counts its queue at every wake and drains it before it piles up.
+hours by a stale land lock. The repository owner's ruling that day: fix it now, and put a
+standing process in place so it never builds up again, in this project and in every other
+crew. So every Captain that lands PRs counts its queue at every wake and drains it before it
+piles up.
 
 **Count at every sweep and standing wake.** Run `gstack-ship-queue count` in each repository
 you land, from its checkout. It makes one gh call and prints one `QUEUE_COUNT:` line (how
