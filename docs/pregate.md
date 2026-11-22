@@ -904,7 +904,11 @@ once:
   (`tree_mismatch` otherwise). The API answers with
   the newest attempt, so an earlier green attempt under a newer red one is
   refused, and the run is read again after the evidence is collected: a new
-  attempt meanwhile is `run_changed`.
+  attempt meanwhile is `run_changed`. A newer run of the same workflow on the
+  head, of any event, vetoes it (`newer_run_vetoes`) when that run failed, was
+  cancelled or is still running. A newer green run doesn't, and neither does a
+  newer skipped run, which ran no job and so says nothing about the tree
+  (GST-3514).
 - Every job the profile names appears exactly once in that attempt and
   succeeded. Jobs and runs are read across every page.
 - `tree.json` (an artifact of at most 8 MiB) names this run, attempt, event and

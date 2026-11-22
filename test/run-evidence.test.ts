@@ -102,6 +102,15 @@ describe('verifyRun', () => {
     expect(reason(world({ run: { ...w.run, run_started_at: '2026-10-29T12:00:00Z' }, others: [newer('completed', 'failure')] }))).toBe('newer_run_vetoes');
   });
 
+  test('a skipped run cannot veto: a pull_request run created in the same second with every job skipped leaves the dispatch green (GST-3514)', () => {
+    const w = world();
+    const skipped = (over: Partial<ApiRun> = {}): ApiRun => ({ ...w.run, id: 101, event: 'pull_request', status: 'completed', conclusion: 'skipped', ...over });
+    expect(reason(world({ others: [skipped()] }))).toBe('ok');
+    expect(reason(world({ others: [skipped({ event: 'workflow_dispatch' })] }))).toBe('ok');
+    expect(reason(world({ others: [skipped({ event: 'workflow_dispatch', conclusion: 'failure' })] }))).toBe('newer_run_vetoes');
+    expect(reason(world({ others: [skipped({ event: 'workflow_dispatch', status: 'in_progress', conclusion: null })] }))).toBe('newer_run_vetoes');
+  });
+
   test('a newer failure on another head the consumer names (same tree, the lane\'s own head) vetoes too', () => {
     const w = world();
     const other = 'e'.repeat(40);
