@@ -6048,7 +6048,9 @@ edit `.gstack/eval-models.json` in a reviewed PR.
 
 **Meaning.** One of two rules refused a model. R116: a preregistration's arm,
 judge, reader or simulator, or a dry-run or pilot arm, is gpt-4o (any variant or
-snapshot) or a model `lib/pricing.ts` marks `superseded_by`; the
+snapshot), a model `lib/pricing.ts` marks `superseded_by`, or an unpriced id
+whose family has rows there and whose generation is older than the family's
+current rows; the
 `MODEL_GENERATION:` line names the model, its role and the replacement. Or the
 eval model rules declare `families` (newest first), and an arm uses an id that
 is not the first one in its family.
@@ -6056,7 +6058,9 @@ is not the first one in its family.
 **Fix.** Use the replacement the `MODEL_GENERATION:` or `EVAL_MODEL:` line names.
 A competitor system tested as its vendor ships it keeps its built-in model with a
 `vendor-default: <model> <system>` line in `## Models`; the results must name it.
-If the `families` order is wrong, fix it in a reviewed PR.
+A dry run applies those lines, and a `frozen:` date before 2026-11-21, only when
+you pass the plan with `dry-run --prereg <file>`; the date counts only when the
+plan's `## Arms` names every dry-run arm. If the `families` order is wrong, fix it in a reviewed PR.
 
 <a id="eval-model-generation-unresolved"></a>
 ### `EVAL_MODEL_GENERATION_UNRESOLVED`

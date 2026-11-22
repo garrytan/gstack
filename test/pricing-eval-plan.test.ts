@@ -62,7 +62,7 @@ describe('preregistration', () => {
       .replace('## Scoring\n- filled in', '## Scoring\njudge: none')
       .replace('## Pilot\n- filled in', '## Pilot\nshare: 10%\ncounted: no\nran: shown in each arm\'s outputs\nsupply: three rows per arm\nunits: every task type\nseed: 7')
       .replace('## Cost\n- filled in', '## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger')
-      .replace('## Held-out exposure\n- filled in', '## Held-out exposure\nanswers: other git refs and build caches checked');
+      .replace('## Held-out exposure\n- filled in', '## Held-out exposure\nanswers: other git refs and build caches checked\ngrader: none, the scorer runs no git');
     expect(checkPrereg(filled)).toMatchObject({ ok: true, missing: [], empty: [] });
     expect(checkPrereg('# nothing here\n').missing).toEqual([...PREREG_SECTIONS]);
   });

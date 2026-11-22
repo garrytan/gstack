@@ -14,7 +14,7 @@ import { checkPrereg, parsePreregDiagnostics, preregTemplate } from '../lib/eval
 import { capyHost, type CapyHost } from './helpers/capy-host';
 
 const BIN = path.resolve(import.meta.dir, '..', 'bin', 'gstack-eval-plan');
-const LOOP = '\n## Pilot\nshare: 10%\ncounted: no\nran: the part under test shows in each arm\'s own transcripts\njudge: labels checked on each arm\'s pilot outputs\nsupply: three development rows per arm at the planned rate\nunits: every task type, one each\nseed: 7, independent of the number of workers\n\n## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger\n\n## Held-out exposure\n- filled in\nanswers: other git refs and build caches checked on each task machine\n';
+const LOOP = '\n## Pilot\nshare: 10%\ncounted: no\nran: the part under test shows in each arm\'s own transcripts\njudge: labels checked on each arm\'s pilot outputs\nsupply: three development rows per arm at the planned rate\nunits: every task type, one each\nseed: 7, independent of the number of workers\n\n## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger\n\n## Held-out exposure\n- filled in\nanswers: other git refs and build caches checked on each task machine\ngrader: none, the scorer runs no git in the agent\'s repo\n';
 const FILLED = ['Bars', 'Arms', 'Decoys', 'Stop rules'].map(s => `## ${s}\n- filled in\n`).join('\n') + LOOP + '\n## Comparison\nstack: none\nwhy: one arm, no skill stack\n\n## Decisions\nif the bar is met: run the full set\nif the bar is missed: fix the scorer first\n\n## Scoring\njudge: none\n';
 const SUMMARIZER = [
   'touch ran.marker',

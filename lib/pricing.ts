@@ -148,11 +148,43 @@ export function hasPricing(model: string | undefined): boolean {
 /** gpt-4o in any variant, snapshot or provider form (`openrouter:openai/gpt-4o`, `gpt-4o-mini-2024-07-18`, `chatgpt-4o-latest`), priced or not. */
 const GPT_4O = /^(?:chatgpt-4o|gpt-4o)(?:$|-)/;
 
-/** The current model that replaces `model` when it is gpt-4o or a row marked `superseded_by` (R116), else null. */
+/**
+ * A model id's family and major generation: `claude-<tier>-<major>` or the older `claude-<major>-<tier>`, `gpt-<major>`,
+ * `o<major>` and `gemini-<major>-<tier>`, with `small` for a mini or nano size; null for any other id.
+ */
+function generationOf(id: string): { family: string; major: number; small: boolean } | null {
+  const small = /(?:^|-)(?:mini|nano)(?:-|$)/.test(id);
+  const m = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-|$)/.exec(id) ?? /^claude-(\d+)(?:[-.]\d+)?-(opus|sonnet|haiku|fable)(?:-|$)/.exec(id);
+  if (m) return { family: `claude-${/\d/.test(m[1]!) ? m[2] : m[1]}`, major: Number(/\d/.test(m[1]!) ? m[1] : m[2]), small };
+  const g = /^(gpt-|o)(\d+)(?:\.\d+)?(?:-|$)/.exec(id);
+  if (g) return { family: g[1] === 'o' ? 'o' : 'gpt', major: Number(g[2]), small };
+  const ge = /^gemini-(\d+)(?:\.\d+)?-([a-z]+)/.exec(id);
+  return ge ? { family: `gemini-${ge[2]}`, major: Number(ge[1]), small } : null;
+}
+
+/**
+ * The replacement for an unpriced id whose family has rows here and whose major generation is older than the family's
+ * current rows (or than every row, when all of them are superseded): the superseded_by of the family's newest marked row of
+ * the same size, else its newest current row. A newer or unknown id, or a family with no row, is null.
+ */
+function olderGeneration(model: string): string | null {
+  const id = model.trim().toLowerCase().split(/[:/]/).map(s => s.replace(/-\d{8}$/, '')).find(s => generationOf(s)) ?? '';
+  const gen = generationOf(id);
+  if (!gen) return null;
+  const rows = Object.entries(PRICING).flatMap(([row, p]) => { const g = generationOf(row); return g?.family === gen.family ? [{ row, p, g }] : []; }).sort((a, b) => b.g.major - a.g.major);
+  if (!rows.length) return null;
+  const current = rows.filter(r => !r.p.superseded_by);
+  if (gen.major >= (current.length ? current[0]!.g.major : rows[0]!.g.major + 1)) return null;
+  const marked = rows.filter(r => r.p.superseded_by);
+  return (marked.find(r => r.g.small === gen.small) ?? marked[0])?.p.superseded_by ?? current[0]!.row;
+}
+
+/** The current model that replaces `model` when it is gpt-4o, a row marked `superseded_by` or an unpriced older generation of a priced family (R116), else null. */
 export function currentReplacement(model: string): string | null {
   const segments = model.trim().toLowerCase().split(/[:/]/);
   if (segments.some(s => GPT_4O.test(s))) return segments.some(s => /4o-mini/.test(s)) ? 'gpt-6-luna' : PRICING['gpt-4o']!.superseded_by!;
-  return pricingRow(model)?.superseded_by ?? null;
+  const row = pricingRow(model);
+  return row ? row.superseded_by ?? null : olderGeneration(model);
 }
 
 const WARNED = new Set<string>();

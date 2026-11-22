@@ -2158,6 +2158,7 @@ checks. Logic in `checkLoop` and `checkQuickLook` (`lib/eval-plan-checks.ts`):
 | `## Interim look` when `paid:` is above $500: `at: 50%`, `looks: 1`, `bounds:` O'Brien-Fleming, `futility:` | `PREREG_INCOMPLETE` |
 | An arm or bar asking for a smaller change or less code has a `regression test` bar beside it | `PREREG_INCOMPLETE` |
 | `## Held-out exposure` has an `answers:` line: how each task machine was checked for answers the agent could read there | `PREREG_INCOMPLETE` |
+| `## Held-out exposure` has a `grader:` line: how a grader that runs git in the agent's repo treats that repo as hostile, or `none` when no grader runs git there (a plan frozen before 2026-11-23 keeps its rules) | `PREREG_INCOMPLETE` |
 | With `per-arm: yes`, `judge --check` needs an `arm` on every label row, rows naming only arms in `## Arms` and covering every one, and the bar met on each arm's labels (`JUDGE_ARM:` lines) | `EVAL_JUDGE_UNCHECKED` |
 | A quick look (`kind: quick look`; `question:`, `decision:`, `stop:`, `cap:` of $100 or less) publishes no number | `results --check`: `EVAL_QUICK_LOOK_NO_NUMBER` |
 
@@ -2240,7 +2241,17 @@ For R116, `prereg --check` prints `MODEL_GENERATION: refused <model> role=<role>
 replacement=<model>` for each refused use, adds `models=refused` to its `PREREG:`
 line and exits 1 with `EVAL_MODEL_OLD_GENERATION`. `dry-run` prints `CHECK:
 model-generation refused …` and fails, and `pilot start` refuses an
-older-generation arm even when its dry run passed on other arms.
+older-generation arm even when its dry run passed on other arms. Pass the plan to
+`dry-run --prereg <file>` so its `vendor-default:` lines and `frozen:` date apply
+there as they do in `prereg --check`; the dry run records them in `dry-run.json`,
+and `pilot start` reads them from that record.
+
+A model with no price row is read by its family and major version
+(`claude-opus-4-5`, `claude-3-5-sonnet`, `gpt-4.1`, `o1`, `gemini-2.0-flash`). When
+its family has rows in `lib/pricing.ts` and its generation is older than the
+family's current rows, or than every row when all of them are superseded, it is
+refused the same way, with the replacement its family's marked rows name. An id
+the check can't read, or a family with no price row, isn't refused.
 
 **Judge labels (R78 amendment).** Garry approved on 2026-11-21: a plan frozen on
 or after 2026-11-22, or with no `frozen:` line, checks its model judge against at

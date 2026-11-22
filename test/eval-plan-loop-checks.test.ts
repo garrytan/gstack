@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { checkPrereg, quickLookTemplate } from '../lib/eval-plan';
-import { checkJudgeLabels, LOOP_CHECKS_SINCE } from '../lib/eval-plan-checks';
+import { checkJudgeLabels, GRADER_CHECK_SINCE, LOOP_CHECKS_SINCE } from '../lib/eval-plan-checks';
 import { checkResults } from '../lib/eval-plan-report';
 
 const PILOT: Record<string, string> = { share: '10%', counted: 'no', ran: "the skill's tool calls appear in each arm's transcripts", judge: "labels checked on each arm's pilot outputs", supply: 'three development rows per arm at the planned rate', units: 'bug fix, refactor and docs tasks, one each', seed: '7, independent of the number of workers' };
@@ -96,6 +96,16 @@ describe('smaller is scored with tests (G11) and no answers on the machine (G13)
     const arms = '- claude-opus-5-5#smaller "make the smaller change"\n- claude-opus-5-5#plain no instruction';
     expect(messages(plan({ arms }))).toEqual(['Bars: an']);
     expect(checkPrereg(plan({ arms, bars: '- pass rate, higher is better\n- regression test added, co-primary, higher is better' })).ok).toBe(true);
+  });
+
+  test(`from ${GRADER_CHECK_SINCE}, held-out exposure says how a grader running git treats the agent's repo, or none`, () => {
+    const hostile = 'answers: other git refs checked on each task machine\ngrader: a sanitized copy of .git with no config, hooks or attributes';
+    const scoring = 'judge: gpt-6.2-astra\nlabels: 100\nagreement: 0.6\nper-arm: yes\neffort: high\npaired: yes\ninterval: 95%\nmdd: 3 of 20 items';
+    expect(messages(plan({ frozen: GRADER_CHECK_SINCE }))).toEqual(['Held-out exposure: grader:']);
+    expect(messages(plan({ frozen: GRADER_CHECK_SINCE, heldOut: 'answers: other git refs checked\ngrader: tbd' }))).toEqual(['Held-out exposure: grader:']);
+    expect(checkPrereg(plan({ frozen: GRADER_CHECK_SINCE, scoring, heldOut: hostile })).ok).toBe(true);
+    expect(checkPrereg(plan({ frozen: GRADER_CHECK_SINCE, scoring, heldOut: 'answers: other git refs checked\n- grader: none, the scorer runs no git' })).ok).toBe(true);
+    expect(checkPrereg(plan({ frozen: '2026-11-22', scoring })).ok).toBe(true);
   });
 
   test('held-out exposure says how each task machine was checked for answers', () => {

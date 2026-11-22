@@ -53,6 +53,8 @@ export function modelFamily(model: string): string {
  * number. A preregistration frozen before LOOP_CHECKS_SINCE keeps its rules.
  */
 export const LOOP_CHECKS_SINCE = '2026-11-21';
+/** The Held-out exposure `grader:` line (H2): a plan frozen before this date keeps the rules it was frozen under. */
+export const GRADER_CHECK_SINCE = '2026-11-23';
 export const PILOT_MAX_SHARE_PCT = 10;
 export const INTERIM_LOOK_ABOVE_USD = 500;
 export const QUICK_LOOK_MAX_USD = 100;
@@ -73,7 +75,7 @@ export function checkQuickLook(text: string): QuickLookCheck {
 }
 
 export interface LoopCheck { paid: number | null; interim_required: boolean; errors: Array<{ section: string; message: string }> }
-export interface LoopSections { pilot: string[] | null; cost: string[] | null; interim: string[] | null; scoring: string[] | null; bars: string[] | null; arms: string[] | null; heldOut: string[] | null }
+export interface LoopSections { pilot: string[] | null; cost: string[] | null; interim: string[] | null; scoring: string[] | null; bars: string[] | null; arms: string[] | null; heldOut: string[] | null; frozen?: string | null }
 /** The dated eval-loop checks over a counted run's preregistration sections. */
 export function checkLoop(s: LoopSections): LoopCheck {
   const errors: LoopCheck['errors'] = [];
@@ -113,6 +115,8 @@ export function checkLoop(s: LoopSections): LoopCheck {
   if (SMALLER.test([...(s.arms ?? []), ...(s.bars ?? [])].join('\n')) && !(s.bars ?? []).some(l => /regression test/i.test(l))) add('Bars', 'an arm asks for a smaller change or less code, so "regression test added" is a co-primary bar (a shorter diff can come from skipping the test)');
   const answers = (s.heldOut ?? []).map(l => /^\s*(?:[-*]\s+)?answers(?: on the task machine)?:(.*)$/i.exec(l)?.[1]).find(v => v !== undefined);
   if (s.heldOut?.length && !filled(answers?.trim().replace(/^`(.*)`$/, '$1'))) add('Held-out exposure', 'answers: how each task machine was checked, before any session, for answers the agent could read there');
+  const grader = (s.heldOut ?? []).map(l => /^\s*(?:[-*]\s+)?grader:(.*)$/i.exec(l)?.[1]?.trim().replace(/^`(.*)`$/, '$1')).find(v => v !== undefined);
+  if (s.heldOut?.length && !(s.frozen && s.frozen < GRADER_CHECK_SINCE) && !(grader && (/^none\b/i.test(grader) || filled(grader)))) add('Held-out exposure', 'grader: how a grader that runs git in the agent\'s repo treats that repo as hostile (eval-plan/SKILL.md, "A grader treats the agent\'s repo as hostile"), or none when no grader runs git there');
   return { paid, interim_required, errors };
 }
 
@@ -128,6 +132,8 @@ export function checkLoop(s: LoopSections): LoopCheck {
 export const MODEL_GENERATIONS_SINCE = '2026-11-21';
 export type ModelRole = 'arm' | 'judge' | 'reader' | 'simulator';
 export interface ModelUse { model: string; role: ModelRole; loadout?: string }
+/** What dry-run and pilot start read from `--prereg <file>`: its `## Models` lines and `frozen:` date, so a vendor-default line and a freeze date count there as in prereg --check. */
+export interface PlanModels { file: string; frozen: string | null; models: string[] | null }
 export interface ModelGenerationCheck { ok: boolean; exempt: boolean; refused: Array<{ model: string; role: ModelRole; replacement: string }>; exceptions: Array<{ model: string; system: string; roles: ModelRole[] }>; errors: string[] }
 export function checkModelGenerations(o: { arms: string[]; judge?: string | null; models?: string[] | null; frozen?: string | null }): ModelGenerationCheck {
   if (o.frozen && o.frozen < MODEL_GENERATIONS_SINCE) return { ok: true, exempt: true, refused: [], exceptions: [], errors: [] };
