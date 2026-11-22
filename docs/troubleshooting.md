@@ -5035,8 +5035,9 @@ as attested rather than validated.
 
 `gstack-pregate clear --run <id|url>` refusals use this code too: the line
 reads `gstack-pregate clear: receipt refused — REUSE: refused reason=<code> —
-…`, and the GitHub Actions runs offered did not verify against the base
-branch's `run_profiles`. Each reason code and
+…`, and the GitHub Actions runs offered did not verify against the
+`run_profiles` of the base `pregate.json` was recorded against (`--base`
+naming another branch refuses `base_mismatch`). Each reason code and
 what it checks is listed in [run evidence](pregate.md#run-evidence).
 
 `gstack-pregate clear --remote <workflow.yml/job> --run-url <url>` on a lane
