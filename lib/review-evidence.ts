@@ -494,7 +494,7 @@ const hunksFile = (cwd: string) => {
 
 /** The ledger ids and path:line:category fingerprints a fix list names: the only grant ids its clean fix-check can close. */
 export function fixListNames(text: string): string[] {
-  return [...new Set(text.split(/[\s`'"(),;]+/).map(t => t.replace(/[.:]+$/, '')).filter(t => t.includes('#') || /:\d+:/.test(t)))].sort();
+  return [...new Set(text.split(/[\s`'"(),;]+/).map(t => t.replace(/^[[*]+/, '').replace(/[\].:*]+$/, '')).filter(t => t.includes('#') || /:\d+:/.test(t)))].sort();
 }
 
 /** gstack-review-plan --fix-check-prompt and the pass program's fix-check render record the hunks and fix list they rendered from; a failed write only leaves the row without hunks, so it closes nothing. */

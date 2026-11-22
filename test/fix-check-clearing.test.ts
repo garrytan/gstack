@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, te
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { bindFixCheckRow, clearByGrant, clearByTrailer, grantSpent } from '../lib/fix-check-clearing';
-import { hunksDigest } from '../lib/review-evidence';
+import { fixListNames, hunksDigest } from '../lib/review-evidence';
 import { grantMarker, placeRunEntry, stopMarker } from '../lib/pr-review-history';
 import { readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { extractReceipt, receiptRuns } from '../lib/ship-receipt';
@@ -305,6 +305,13 @@ describe('clearing refuses every gap GSTA-665\'s trail reads found in #4546 (lib
   test('the fix list\'s names are recorded, and a grant id the fix list left out closes nothing', () => {
     expect(fixRow().hunks.fix_list).toEqual([ID]);
     expect(clear({ rows: withRow({ ...fixRow(), hunks: { ...fixRow().hunks, fix_list: [] } }) })).toMatchObject({ ids: [], why: expect.stringContaining('does not name ' + ID) });
+  });
+  // Value: protects=a fix list that bolds or brackets its ids still names them (#4664 note p2/outside-voice#1); fails_when=markdown
+  //   markup stays on the id, so it never matches a grant id and the granted fix-check closes nothing; seam=fixListNames
+  test('the fix list\'s names drop markdown bold and brackets around an id', () => {
+    expect(fixListNames('- **p1/x#1** and [p1/x#2]: fix')).toEqual(['p1/x#1', 'p1/x#2']);
+    expect(fixListNames('1. `src/a.ts:3:outside-voice` (p1/x#3); done.')).toEqual(['p1/x#3', 'src/a.ts:3:outside-voice']);
+    expect(fixListNames('[app/[id]/page.tsx:3:outside-voice] fixed')).toEqual(['app/[id]/page.tsx:3:outside-voice']);
   });
   test('no trailer, or a trailer with no later full round, closes nothing by trailer', () => {
     expect(clearByTrailer(g.f.work, { head: g.F, baseRef: 'origin/main', rows: base.rows, open: base.open })).toEqual([]);
