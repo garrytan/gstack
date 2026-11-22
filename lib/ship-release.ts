@@ -18,6 +18,7 @@ import { matchesAny } from './ship-policy';
 import { baseHolds, boundedPaths, comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type BoundedKind, type PatchSides } from './ship-patch';
 import { extractReceipt, heldBy, receiptRuns } from './ship-receipt';
 import { finishRun, readRunRecord } from './ship-run-record';
+import { bindFixCheckRow, type RowBinding } from './fix-check-clearing';
 import { locate, readRecord } from './approval-record';
 import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
@@ -253,7 +254,7 @@ function patchBase(cwd: string, baseRef: string, commit: string, parent: string 
   return parent && fork && holds(parent, commit) && holds(fork, parent) ? parent : fork;
 }
 
-type FixLink = { row: Record<string, any>; commit: string; from: string };
+type FixLink = { row: Record<string, any>; commit: string; from: string; bound?: RowBinding };
 type BridgeOpts = { reviewed: string; baseRef: string; metadata: (p: string) => boolean; bookkeeping: readonly string[]; testCode: readonly string[] };
 
 /**
@@ -300,12 +301,14 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
   const onBranch = (c: string) => !!c && ancestor(c, 'HEAD');
   const commits = rows.map(row => commitOf(row.commit_full));
+  const approvals = (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env }));
   const chain: FixLink[] = [];
   let gap = '', bridged = '';
   for (let i = rows.length - 1; i >= 0;) {
-    const link = { row: rows[i]!, commit: commits[i]!, from: commitOf(rows[i]!.range_base) };
+    const row = rows[i]!, bound = row.fix_check_base !== undefined ? bindFixCheckRow(cwd, row, reviewRoundGrants(approvals)) : undefined;
+    const link = { row, commit: commits[i]!, from: commitOf(bound ? row.fix_check_base : row.range_base), bound };
     chain.unshift(link);
-    if (!onBranch(link.from) || git(cwd, ['rev-parse', `${link.from}^{tree}`]).stdout.trim() === o.reviewed) break;
+    if (bound?.ok || !onBranch(link.from) || git(cwd, ['rev-parse', `${link.from}^{tree}`]).stdout.trim() === o.reviewed) break;
     i = commits.slice(0, i).lastIndexOf(link.from);
     const bridge = i < 0 ? docsBridge(cwd, link.from, o) : null;
     if (bridge) bridged = `FIX_CHECK_DOCS_BRIDGE: range_base ${link.from.slice(0, 12)} follows the reviewed commit ${bridge.reviewedAt.slice(0, 12)} by docs or release metadata only (${bridge.commits.map(c => c.slice(0, 12)).join(',')})`;
@@ -317,12 +320,12 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const gates = readGateDispositions(cwd);
   for (const d of gates) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).length) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
   const gatedOn = (l: FixLink) => new Set(dispositionedOn(cwd, l.row, gates).map(d => gateKey(d.finding, d.gate_id)));
-  const grants = chain.length ? (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env })).filter(g => g.outcome === 'approved' && (`${g.ask} ${g.scope}`.includes('review_loop_grant') || reviewRoundGrants([g]).some(x => x.kind === 'fix-check'))) : [];
+  const grants = approvals.filter(g => g.outcome === 'approved' && (`${g.ask} ${g.scope}`.includes('review_loop_grant') || reviewRoundGrants([g]).some(x => x.kind === 'fix-check')));
   const granted: (typeof grants[number] | undefined)[] = [];
   const used = new Set<string>();
   for (let k = chain.length - 1; k >= 0; k--) {
     const l = chain[k]!;
-    const g = grants.filter(g => !used.has(g.id))
+    const g = l.bound?.ok ? (id => grants.find(x => x.id === id && !used.has(x.id)))(l.bound.grant.approval) : grants.filter(g => !used.has(g.id))
       .flatMap(g => { const fc = reviewRoundGrants([g]).find(x => x.kind === 'fix-check'); return (fc ? (commitOf(fc.head) === l.from ? [fc.head] : []) : `${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c)).map(stop => ({ g, stop })); })
       .reduce<{ g: typeof grants[number]; stop: string } | undefined>((best, c) => (!best || ancestor(best.stop, c.stop) ? c : best), undefined)?.g;
     if (g) used.add(g.id);
@@ -332,7 +335,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   const why = (l: FixLink) => {
     const read = l.row.wtree ?? l.row.review_binding?.end_wtree;
     const fresh = reviewFreshness(l.row, read, ruledOn(l), gatedOn(l));
-    return fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
+    return l.bound && !l.bound.ok ? `the granted fix-check row: ${l.bound.why}` : fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
       : l.row.tree !== read || !onBranch(l.commit) ? 'the row was logged on content no branch commit holds'
       : !onBranch(l.from) ? 'the row names no range_base commit on this branch' : '';
   };

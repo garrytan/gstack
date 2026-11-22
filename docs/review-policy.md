@@ -247,6 +247,32 @@ caught on another crew's PRs.
    Captain's check of the receipt's `review_round_grants` and the PR body's lines
    is the control. The receipt lists grants under `review_round_grants`.
 
+<a id="what-closes-a-finding"></a>
+### What closes a finding (GST-3260)
+
+A fix-check that a grant bought and that read the fix clean closes exactly the
+findings the grant names, with no owner ruling. `gstack-ship-receipt write`
+checks it from records gstack's tools wrote, never from the `--review-loop`
+file (`lib/fix-check-clearing.ts`): the grant answers the newest stop record
+for this PR; the PR body's first claim of it is this run's; exactly one
+`review-fix-check` row carries it, and `gstack-review-log` stamped that row from
+the claim (`fix_check_base`, `run`, `grant`, `pr`) with the digest of the hunks
+its reader was given, which cover every path the stop-to-fix diff changes, and
+the ledger ids and fingerprints its fix list named; the row read the stop's head to the receipt head (or a
+head that only merges the base in) on one committed tree, with nothing open at
+any severity; and the stop, the claim and the row's start were recorded in that
+order. Each grant id the fix list named closes the one open blocker carrying
+that id; a grant id the fix list left out closes nothing, and a fingerprint
+shared by two blockers closes neither. Anything less closes nothing, and write
+says why on a `FIX_CHECK_CLEAR:` line. The receipt records `cleared_by_grant`,
+and the Agent notes section gets one `Closed by grant …` line. A finding whose
+fix commit carries its `Review-Finding:` trailer also closes once a later full
+round, bound to its committed tree and holding that commit, left nothing open
+at all, by its status, its findings file or an inline finding
+(`cleared_by_trailer`, #4597). finish counts the same
+stamped row, anchored on the grant's stop rather than the newest reviewed tree
+(#4612).
+
 <a id="transitions"></a>
 ### Transitions
 
@@ -865,7 +891,7 @@ puts in the receipt:
 | `review_loop.passes` | full review passes this ship ran (1 or 2; up to 3 under `review_scope: diff-plus-blocking` or `all`) |
 | `review_loop.blocking_found` | every blocker found (GST-951): the rows' blocking findings (classified, or an unclassified CRITICAL), plus each ledger CRITICAL (as collected or judged) that no row finding from the same reviewer at the same path:line accounts for (each row finding pairs with one per ledger), so an adversarial, outside-voice or not-yet-classified blocker counts and one whose newest classification is below the floor does not. An unreadable ledger, merged file or judged set, or a judged set changed since `judge`, is `REVIEW_SCOPE_LEDGER`, never a count |
 | `review_loop.unrecorded` | blockers found that no row gives a disposition (fixed, deferred, noted, skipped, a gate answer); absent when 0 |
-| `review_loop.open` | blockers a row still holds as `open` at its newest action, gate findings aside (GST-3075), each its ledger id or fingerprint (or `{ id, fingerprint }`); Step 11's `adversarial-review` row counts here like a pass's row but is never a pass or a round. Only a later row's action clears one, and while any is left with no owner ruling, `gstack-ship-receipt write` refuses with [`RECEIPT_BLOCKER_OPEN`](troubleshooting.md#receipt-blocker-open); absent when 0 |
+| `review_loop.open` | blockers a row still holds as `open` at its newest action, gate findings aside (GST-3075), each its ledger id or fingerprint (or `{ id, fingerprint }`); Step 11's `adversarial-review` row counts here like a pass's row but is never a pass or a round. Only a later row's action clears one, or a [granted fix-check or a trailer-carrying fix](#what-closes-a-finding) (`cleared_by_grant`, `cleared_by_trailer`), and while any is left with no owner ruling, `gstack-ship-receipt write` refuses with [`RECEIPT_BLOCKER_OPEN`](troubleshooting.md#receipt-blocker-open); absent when 0 |
 | `review_loop.unbound` | what could not bind (GST-1168), each printed as `REVIEW_SCOPE_UNBOUND: <what>: <why>`: a row with no start token and no readable time, a `pN` ledger with no review row of pass N (a fix-check ledger in a `pN` directory is not a pass ledger, GST-1775), a row finding's `ledger_id` no ledger collected, a `Review-Finding` trailer naming nothing; absent when 0 |
 | `review_loop.ledgers_read` | dispatch ledgers the count read; absent under `--no-ledger` |
 | `REVIEW_SCOPE_VOIDED:` (stderr, not a receipt field) | an abandoned pass (GBEV-3): a `pN` ledger never judged that no row names, replaced by a later `pM` ledger (M > N) that was judged or is named. Its findings are left out of every count above instead of counting as unbound and unrecorded. A fix-check ledger and the last pass are never voided |

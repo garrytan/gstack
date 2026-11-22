@@ -130,6 +130,10 @@ export interface ShipReceipt {
   review_loop_exception?: { accepted_by: string; date: string; via: string; reason: string; fix_check?: { head: string; findings: number; files?: string[] }; second_pass?: { head: string; deferred: string[] } };
   /** Review round grants the lane or its Captain recorded for this PR (gstack-approvals round-grant, lib/review-round-grant.ts; GST-2673): never the owner's, so never in review_loop_exception. */
   review_round_grants?: Array<{ kind: 'extra-round' | 'fix-check'; head: string; pr: number; by: string; reason: string; at: string; approval: string; stop_run?: string; findings?: string[] }>;
+  /** The open blockers a granted fix-check closed at write (lib/fix-check-clearing.ts clearByGrant; GST-3260): the grant, the run that spent it and the ids it named. */
+  cleared_by_grant?: { approval: string; run: string; ids: string[] };
+  /** The open blockers a Review-Finding trailer's fix closed because a later full round read it clean (clearByTrailer, #4597). */
+  cleared_by_trailer?: Array<{ id: string; commit: string; review: string }>;
   /** The owner's rulings that a finding ships as a disclosed note (gstack-approvals rule, lib/ruled-notes.ts); the PR body lists each one word for word (GST-1537). */
   ruled_notes?: Array<{ finding: string; head: string; by: string; reason: string; at: string; approval: string; relayed?: string; not_security?: true }>;
   /** The owner's dispositions of gate findings (gstack-approvals gate, lib/gate-dispositions.ts); the PR body lists each one word for word (GST-2491). */
@@ -287,6 +291,8 @@ export const ARTIFACT_SCHEMAS = {
       review_exclude_fallback: { type: 'object', required: ['source', 'errors'], properties: { source: str, errors: strList } },
       review_loop_exception: { type: 'object', required: ['accepted_by', 'date', 'via', 'reason'], properties: { accepted_by: str, date: str, via: str, reason: str, fix_check: { type: 'object', required: ['head', 'findings'], properties: { head: str, findings: { type: 'integer', minimum: 0 }, files: strList } }, second_pass: { type: 'object', required: ['head', 'deferred'], properties: { head: str, deferred: strList } } } },
       review_round_grants: { type: 'array', items: { type: 'object', required: ['kind', 'head', 'pr', 'by', 'reason', 'at', 'approval'], properties: { kind: { enum: ['extra-round', 'fix-check'] }, head: str, pr: { type: 'integer', minimum: 1 }, by: str, reason: str, at: str, approval: str, stop_run: str, findings: { type: 'array', items: str } } } },
+      cleared_by_grant: { type: 'object', required: ['approval', 'run', 'ids'], properties: { approval: str, run: str, ids: strList } },
+      cleared_by_trailer: { type: 'array', items: { type: 'object', required: ['id', 'commit', 'review'], properties: { id: str, commit: str, review: str } } },
       ruled_notes: { type: 'array', items: { type: 'object', required: ['finding', 'head', 'by', 'reason', 'at', 'approval'], properties: { finding: str, head: str, by: str, reason: str, at: str, approval: str, relayed: str, not_security: { const: true } } } },
       gate_dispositions: { type: 'array', items: { type: 'object', required: ['finding', 'gate_id', 'head', 'by', 'reason', 'words', 'at', 'approval'], properties: { finding: str, gate_id: str, head: str, by: str, reason: str, words: str, at: str, approval: str } } },
       mechanical: strList,

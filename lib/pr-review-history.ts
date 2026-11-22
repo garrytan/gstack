@@ -94,10 +94,11 @@ export const runStub = (o: { head: string; run: string; status: 'started' | 'voi
 /**
  * A stop record (GST-2968): the review a /ship run stopped on, written by gstack-ship-receipt stop when the plan prints NEXT: stop.
  * head is the commit that review read, tree its tree; the review row bound to it (lib/ship-stop.ts). A grant marker records
- * that a run claimed a round grant before dispatching the round it buys. Markers count no round and are never trimmed.
+ * that a run claimed a round grant before dispatching the round it buys. Markers count no round and are never trimmed. Both carry
+ * when they were recorded, so a granted fix-check orders stop, claim and row from the PR body alone (lib/fix-check-clearing.ts).
  */
-export const stopMarker = (o: { head: string; tree: string; run: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'stop', tree: o.tree });
-export const grantMarker = (o: { head: string; run: string; grant: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'grant', grant: o.grant });
+export const stopMarker = (o: { head: string; tree: string; run: string; at?: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'stop', tree: o.tree, at: o.at ?? new Date().toISOString() });
+export const grantMarker = (o: { head: string; run: string; grant: string; at?: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'grant', grant: o.grant, at: o.at ?? new Date().toISOString() });
 /** gstack-ship-run abandon's entry (GST-3260): who ended a run that stopped working, and why, at the head it was abandoned on. */
 export const abandonMarker = (o: { head: string; run: string; by: string; reason: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'abandoned', by: o.by, reason: o.reason });
 /** The newest receipt a run id already wrote, in the runs block or current: a run id names one /ship run (gstack-evals#406). */
