@@ -130,11 +130,10 @@ decision does not depend on it.
   diffs against `origin/main` on the planted path. Nine F runs are flagged: F2t1 and F5t1 saw only file names, line
   counts or a one-line changelog summary that mention this plan; F7t1-3, F9t1, F9t3, F10t1 and F10t2 looked at main's version of the planted
   file. In five of those seven the plant was already caught before the lookup; in F9t1 and F9t3 the catch may have
-  been informed by main, and F7t2 and F9t1 used main's version as their fix. No audited transcript shows a read of this plan's
-  contents or the label file, or a `git log -S`, `git log -p` or `git blame` on a planted file; for C that covers only
-  the thread, not its /ship subagent. C's /ship runs in a
-  subagent whose tool calls the audit cannot read, so C's exposure is undercounted against F's; the sensitivity row
-  above leaves out F runs only, which tilts it against F.
+  been informed by main, and F7t2 and F9t1 used main's version as their fix. No audited transcript shows a read of
+  this plan's contents or the label file, or a `git log -S`, `git log -p` or `git blame` on a planted file. For C the
+  audit covers only the thread: C's /ship runs in a subagent whose tool calls the audit cannot read, so C's exposure
+  is undercounted against F's; the sensitivity row above leaves out F runs only, which tilts it against F.
 - **Cost far below plan.** Runs cost about $11.50, not the planned $38, because they stop at the round cap or the
   Step 16 refusal; the profile's $34.66 came from complete runs.
 - **No-gstack harness.** N runs in the Claude Agent SDK (the `claude_code` preset) in a container on the runner's
