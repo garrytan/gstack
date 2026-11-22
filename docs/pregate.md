@@ -1507,12 +1507,27 @@ job keeps the workflow's `contents: read`). It runs
 1. finds the pull request whose merge commit is the pushed commit
    (`repos/{repo}/commits/{sha}/pulls`, one page of at most 10), merged into
    main from a same-repository head (`no_pr`, `ambiguous_pr`, `fork_head`);
-2. requires that head's tree to equal the pushed tree (`tree_mismatch`);
+2. requires that head's tree to equal the pushed tree, with one exception
+   below for a stale-base land (`tree_mismatch`);
 3. lists that head's `pull_request` and `workflow_dispatch` runs of the same
    workflow, newest first, at most 10 (`no_candidate`); and
 4. accepts the first one `verifyRun` accepts under the profile in the pushed
    tree's `.gstack/pregate.json` (`no_verified_run` lists each refusal; a newer
    red run on the head vetoes an older green one).
+
+The exception is a pull request that `gstack-ship-queue land` merged onto a
+base that had moved past it. Under `land.merged_ci`, land already ran this
+workflow on the merged commit, on the scratch branch `gstack-land/<n>`
+([ship-policy.md](ship-policy.md#land-direct)), and GitHub's merge has that
+same tree unless main moved again before the merge. So when the head's tree
+differs, `find` takes the newest `workflow_dispatch` run on `gstack-land/<n>`
+and reuses it only when `verifyRun` accepts it and its `tested-tree` record
+names the pushed tree (`no_verified_run` or `tree_mismatch` otherwise; a branch
+with no such run keeps `tree_mismatch`). Only the newest run counts, so a red
+retry on the same tree is never hidden behind an older green one. Unlike a pull
+request consumer, this one needs no byte-identical check on the reuse files:
+the run executed the workflow in its own commit, whose tree is the pushed tree,
+so the rules it ran under are the ones now on main, whoever dispatched it.
 
 It writes `reused=true` with the run's id and link, or `reused=false` and the
 reason, and prints one `REUSE:` line in the step summary. Every suite job
