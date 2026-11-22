@@ -3167,8 +3167,6 @@ within 30 minutes. The drill proves that once, with a clock:
    the low-risk lane. Over 30 minutes, the repository keeps re-testing every land until
    the slow step is fixed and a new drill passes.
 
-A drill's two PRs change nothing else, so either one can land or revert at any time.
-
 <a id="direct-freeze"></a>
 #### The freeze under `merge: direct`: `land --pin --repair`
 
