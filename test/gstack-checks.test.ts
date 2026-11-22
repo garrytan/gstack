@@ -259,10 +259,10 @@ describe('gstack-checks on a fixture repo', () => {
     const noRemote = runBin(s.repo, 'gstack-checks', ['quick'], {}, bare);
     expect(noRemote.status).toBe(0);
     expect(noRemote.out).toMatch(/^VERIFY skipped: no origin\/\S+ to compare against .*\(POLICY_SOURCE_UNAVAILABLE\)\n$/);
-    expect(spawnSync('bash', [path.join(ROOT, 'bin/gstack-config'), 'set', 'verify_before_commit', 'off'], { env: { ...process.env, ...s.repo.env }, encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
-    const off = quick();
-    expect(off.status).toBe(0);
-    expect(off.out).toStartWith('VERIFY skipped: verify_before_commit is off');
+    fs.appendFileSync(path.join(s.repo.env.GSTACK_HOME, 'config.yaml'), 'verify_before_commit: off\n');
+    const retired = quick();
+    expect(retired.status).toBe(0);
+    expect(last(retired.out)).toMatch(/^VERIFY PASS: /);
   }, 60_000);
 
   // Value: protects=a check that times out fails the pre-commit pass, and the pass ends with its line inside its --timeout, so a

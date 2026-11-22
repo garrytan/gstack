@@ -6,6 +6,7 @@
     "benchmark",
     "benchmark-models",
     "browse",
+    "build-check",
     "canary",
     "captain",
     "capy-factory",
@@ -69,7 +70,6 @@
     "test-audit",
     "ubicloud",
     "unfreeze",
-    "verify",
     "write-skill"
   ]
 }

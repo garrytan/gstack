@@ -1,5 +1,5 @@
 #!/bin/sh
-# Checks for the /verify skill evals. Usage: sh "$SKILL_EVAL_FIXTURES/check.sh" <task-id>
+# Checks for the /build-check skill evals. Usage: sh "$SKILL_EVAL_FIXTURES/check.sh" <task-id>
 # Runs after the session and reads only the work dir. Exit 0 means the session behaved correctly;
 # every failure prints why. Tests, scripts, package.json and the pregate policy must match the seed
 # commit, so weakening a check never passes.

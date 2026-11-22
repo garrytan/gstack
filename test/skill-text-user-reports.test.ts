@@ -26,8 +26,8 @@ describe('skill text fixes from user reports', () => {
     expect(shotgun).toContain('`fonts: <a>; colors: <b>; layouts: <c>; aesthetics: <d>`');
   });
 
-  test('/verify says what CHECKS: none means and how to declare a check (#4346)', () => {
-    const verify = read('verify/SKILL.md');
+  test('/build-check says what CHECKS: none means and how to declare a check (#4346)', () => {
+    const verify = read('build-check/SKILL.md');
     expect(verify).toContain('this never reaches `READY_FOR_SHIP`');
     expect(verify).toContain('`gstack:verify: <command>`');
   });

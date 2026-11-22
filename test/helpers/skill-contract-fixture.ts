@@ -15,8 +15,8 @@ export const ROUTE_HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'skill-rou
 export const CONTRACT_HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'skill-contract-stop-hook.ts');
 
 export const SKILLS: Record<string, string> = {
-  verify: `---
-name: verify
+  "build-check": `---
+name: build-check
 description: Fixture copy for the contract tests. (gstack)
 triggers:
   - debug this
@@ -30,7 +30,7 @@ contract:
       heading: DEBUG REPORT
       labels: [Symptom, Root cause, Fix, Evidence]
 ---
-# /verify (fixture)
+# /build-check (fixture)
 
 ## How to work
 
@@ -93,20 +93,20 @@ export const DEBUG_REPORT = [
   'Status:          DONE',
 ].join('\n');
 
-/** Load /verify through the Skill tool, edit, answer with no status line: must be blocked (gate rev 2, J1). */
+/** Load /build-check through the Skill tool, edit, answer with no status line: must be blocked (gate rev 2, J1). */
 export const J1_TRANSCRIPT = [
   user('the login test fails, fix it'),
-  tool('t1', 'Skill', { skill: 'verify' }),
-  result('t1', 'Launching skill: verify'),
-  meta('# /verify ...skill body...'),
+  tool('t1', 'Skill', { skill: 'build-check' }),
+  result('t1', 'launching skill: build-check'),
+  meta('# /build-check ...skill body...'),
   tool('t2', 'Edit', { file_path: 'src/auth.ts', old_string: 'a', new_string: 'b' }),
   result('t2', 'The file src/auth.ts has been updated.'),
   say('Fixed: the null check was missing in src/auth.ts.'),
 ];
 
-/** An interactive /verify across three turns; each turn's prefix is a Stop point that must not block. */
+/** An interactive /build-check across three turns; each turn's prefix is a Stop point that must not block. */
 export const INTERACTIVE_TURNS: string[][] = [
-  [slash('verify', 'login fails'), meta('# /verify ...skill body...'), say('I will look into it. Can you paste the error you see?')],
+  [slash('build-check', 'login fails'), meta('# /build-check ...skill body...'), say('I will look into it. Can you paste the error you see?')],
   [user('TypeError: cannot read properties of undefined (reading user)'),
     tool('r1', 'Read', { file_path: 'src/auth.ts' }), result('r1', 'export function login() {}'),
     tool('e1', 'Edit', { file_path: 'src/auth.ts', old_string: 'a', new_string: 'b' }), result('e1', 'updated'),

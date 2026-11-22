@@ -24,7 +24,7 @@ test('setup and gstack-relink retire the same skills as the generator', () => {
   const r = spawnSync('bash', ['-c', '. "$1" && printf %s "$GSTACK_RETIRED_SKILLS"', '_', REGISTRY], { encoding: 'utf8', timeout: 10_000 });
   expect(r.status, r.stderr).toBe(0);
   expect(r.stdout.split(/\s+/).filter(Boolean)).toEqual(RETIRED_SKILLS);
-  expect(RETIRED_SKILLS.join(' ')).toBe('investigate');
+  expect(RETIRED_SKILLS.join(' ')).toBe('investigate verify');
 });
 
 describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () => {
@@ -310,3 +310,58 @@ test('every host renders /plan-eng-review; external hosts also keep the same met
     fs.rmSync(out, { recursive: true, force: true });
   }
 }, 300_000);
+
+// Value: protects=an upgrade gives Claude Code its built-in /verify back by removing gstack's old verify entry, and only gstack's;
+//   fails_when=relink leaves the renamed skill's verify or gstack-verify link behind, or deletes a user's own verify skill;
+//   why_new=/verify became /build-check (#4593); seam=the real gstack-relink on a fixture install; no_claim=Claude Code's own lookup
+describe('gstack-relink after /verify became /build-check (#4593)', () => {
+  let tmp: string;
+  let install: string;
+  let skills: string;
+  const relink = () => spawnSync('bash', [path.join(install, 'bin', 'gstack-relink')], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    env: {
+      ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '',
+      GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '',
+    },
+  });
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-verify-renamed-'));
+    install = path.join(tmp, 'gstack');
+    skills = path.join(tmp, 'skills');
+    fs.mkdirSync(path.join(install, 'bin'), { recursive: true });
+    for (const b of BINS) {
+      fs.copyFileSync(path.join(ROOT, 'bin', b), path.join(install, 'bin', b));
+      fs.chmodSync(path.join(install, 'bin', b), 0o755);
+    }
+    fs.mkdirSync(path.join(install, 'build-check'));
+    fs.writeFileSync(path.join(install, 'build-check', 'SKILL.md'), '---\nname: build-check\ndescription: test\n---\n# build-check\n');
+    fs.mkdirSync(skills, { recursive: true });
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  test("gstack's old verify and gstack-verify entries are removed and /build-check is linked", () => {
+    fs.mkdirSync(path.join(skills, 'verify'));
+    fs.symlinkSync(path.join(install, 'verify', 'SKILL.md'), path.join(skills, 'verify', 'SKILL.md'));
+    fs.writeFileSync(path.join(skills, 'verify', '.gstack-owned'), install + '\n');
+    fs.symlinkSync(path.join(install, 'verify'), path.join(skills, 'gstack-verify'));
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.lstatSync(path.join(skills, 'verify'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(fs.lstatSync(path.join(skills, 'gstack-verify'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(fs.readFileSync(path.join(skills, 'build-check', 'SKILL.md'), 'utf8')).toContain('name: build-check');
+  });
+
+  test("a user's own verify skill is left alone", () => {
+    fs.mkdirSync(path.join(skills, 'verify'));
+    const own = '---\nname: verify\ndescription: mine\n---\nmy own end-to-end check\n';
+    fs.writeFileSync(path.join(skills, 'verify', 'SKILL.md'), own);
+    fs.writeFileSync(path.join(skills, 'verify', 'notes.md'), 'mine\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(skills, 'verify', 'SKILL.md'), 'utf8')).toBe(own);
+    expect(fs.readFileSync(path.join(skills, 'verify', 'notes.md'), 'utf8')).toBe('mine\n');
+  });
+});

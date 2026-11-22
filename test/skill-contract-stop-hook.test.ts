@@ -15,7 +15,7 @@ import {
 } from './helpers/skill-contract-fixture';
 
 const BIN = path.join(ROOT, 'bin', 'gstack-skill-contract');
-const SKILLS_LEGACY = SKILLS.verify.replace('      labels: [Symptom, Root cause, Fix, Evidence]\n', '      labels: [Symptom, Root cause, Fix, Evidence]\n    - id: repro-after-fix\n      kind: check_after_last_edit\n');
+const SKILLS_LEGACY = SKILLS["build-check"].replace('      labels: [Symptom, Root cause, Fix, Evidence]\n', '      labels: [Symptom, Root cause, Fix, Evidence]\n    - id: repro-after-fix\n      kind: check_after_last_edit\n');
 const PINNED = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-contract', 'block-message.txt'), 'utf8').trimEnd().replace('{bin}', BIN);
 const STATE_ERROR = /^gstack-skill-contract: SKILL_CONTRACT_STATE_ERROR .+: .+; stop allowed, miss not recorded \(see docs\/skill-routing-and-contracts\.md#state-error\)\n$/;
 
@@ -46,7 +46,7 @@ const stop = (file: string, env: Record<string, string> = {}, extra: Record<stri
 const record = () => JSON.parse(fs.readFileSync(path.join(state, 'skill-contracts', 'sess-1.json'), 'utf8'));
 
 describe('block once, with the pinned text', () => {
-  test('J1: /verify loaded, edited, answered with no status line -> blocked with the pinned message', () => {
+  test('J1: /build-check loaded, edited, answered with no status line -> blocked with the pinned message', () => {
     const r = stop(transcript(J1_TRANSCRIPT));
     expect(r.code).toBe(0);
     expect(r.stderr).toBe('');
@@ -56,7 +56,7 @@ describe('block once, with the pinned text', () => {
     expect(out.reason).toBe(PINNED);
     expect(out.reason).not.toMatch(/skill_contracts|gstack-config|\boff\b/);
     const run = Object.values(record().runs)[0] as any;
-    expect(run).toMatchObject({ skill: 'verify', outcome: 'blocked', missing: ['debug-report'] });
+    expect(run).toMatchObject({ skill: 'build-check', outcome: 'blocked', missing: ['debug-report'] });
     expect(fs.statSync(path.join(state, 'skill-contracts', 'sess-1.json')).mode & 0o777).toBe(0o600);
   });
 
@@ -136,7 +136,7 @@ describe('block once, with the pinned text', () => {
     expect((Object.values(record().runs)[0] as any).outcome).toBe('blocked');
   });
 
-  test('an /verify run that ends with Status: BLOCKED in its DEBUG REPORT is met, not blocked', () => {
+  test('an /build-check run that ends with Status: BLOCKED in its DEBUG REPORT is met, not blocked', () => {
     const file = transcript([...J1_TRANSCRIPT.slice(0, -1), say(DEBUG_REPORT.replace('Status:          DONE', 'Status:          BLOCKED'))]);
     expect(stop(file)).toEqual({ code: 0, stdout: '', stderr: '' });
     expect((Object.values(record().runs)[0] as any).outcome).toBe('met');
@@ -151,9 +151,9 @@ describe('block once, with the pinned text', () => {
   });
 
   test('a custom skill whose contract still lists the removed check_after_last_edit kind: warned once, the rest still blocks', () => {
-    const legacy = SKILLS_LEGACY.replace('name: verify', 'name: legacy');
+    const legacy = SKILLS_LEGACY.replace('name: build-check', 'name: legacy');
     skills = skillsDir([], { legacy });
-    const r = stop(transcript(J1_TRANSCRIPT.map(l => l.replace('"skill":"verify"', '"skill":"legacy"'))));
+    const r = stop(transcript(J1_TRANSCRIPT.map(l => l.replace('"skill":"build-check"', '"skill":"legacy"'))));
     expect(JSON.parse(r.stdout).decision).toBe('block');
     expect(r.stderr).toBe(`gstack-skill-contract: SKILL_CONTRACT_SKIPPED ${path.join(skills, 'legacy', 'SKILL.md')}: repro-after-fix: kind check_after_last_edit was removed from gstack, so this item is not checked; delete it from the contract
 `);
@@ -248,7 +248,7 @@ describe('fails open on state errors with one stderr line', () => {
     const bad = runHook(CONTRACT_HOOK, '{oops', hookEnv(state, skills, { GSTACK_SKILL_CONTRACTS: 'on' }));
     expect(bad.code).toBe(0);
     expect(bad.stderr).toMatch(STATE_ERROR);
-    const invalid = skillsDir([], { verify: '---\nname: verify\ncontract:\n  version: 2\n  items: []\n---\n' });
+    const invalid = skillsDir([], { "build-check": '---\nname: build-check\ncontract:\n  version: 2\n  items: []\n---\n' });
     const r = runHook(CONTRACT_HOOK, payload(transcript(J1_TRANSCRIPT)), hookEnv(state, invalid, { GSTACK_SKILL_CONTRACTS: 'on' }));
     fs.rmSync(invalid, { recursive: true, force: true });
     expect(r.stdout).toBe('');
