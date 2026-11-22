@@ -12,6 +12,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resultLine } from './result-codes';
+import { thisRunOwner } from './ship-run-record';
+import { spawnSync } from './spawn-sync';
 import {
   BudgetError, DEFAULT_TAIL, SUBAGENT_DEFAULT_CAP, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
   aboveFloor, admits, applyCredits, applyReading, budgetError, creditsUsed, parseCredits, budgetLine, keepsSmallRun, labelScope, ledgerFileFor, loadCalibration, measureSettled, mintRunId, mutateLedger, newEpoch,
@@ -27,6 +29,8 @@ import { claudeConfigDir, loadMeterState, newMeterState, nonceSessions, readClau
 export type Opts = Record<string, string | true>;
 export interface Outcome { stdout: string[]; exit: number }
 export interface Ctx { env: NodeJS.ProcessEnv; cwd: string }
+
+const toplevel = (cwd: string) => { const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', timeout: 10_000 }); return r.status === 0 ? r.stdout.trim() : ''; };
 
 export function parseArgs(argv: string[], values: string[], flags: string[] = []): Opts {
   const out: Opts = {};
@@ -270,6 +274,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   }
   const run = mintRunId();
   const dir = runDirFor(ctx.env, run);
+  const owner = thisRunOwner(), checkout = toplevel(ctx.cwd);
   const cal = loadCalibration(str(o, 'calibration'));
   const contract = METER_CONTRACTS[meter];
   const paths = reviewPaths(ctx.cwd, ctx.env);
@@ -283,6 +288,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     marker: paths.marker, review_log: paths.reviewLog, ...(str(o, 'calibration') ? { calibration: path.resolve(str(o, 'calibration')!) } : {}),
     ...(callFloor !== undefined ? { call_floor: callFloor } : {}), ...(mode === 'observe' ? { mode } : {}),
     ...(scope === 'tree' || parentCounter ? { meter_scope: 'tree' as const } : {}),
+    ...(checkout ? { checkout } : {}), ...(owner ? { owner } : {}),
   };
   if (meter === 'capy' && tokensOpt(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', 'start --meter capy');
   if (meter === 'capy') l.meter.baseline = tokensOpt(o, 'reading')!;

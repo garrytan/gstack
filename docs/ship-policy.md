@@ -1817,7 +1817,8 @@ record (only when the open PR's body names that run), `gstack-ship-receipt stop`
 marks it stopped (it may then record the fix-check grant for its own stop, once
 per run, and a new run's preflight replaces it), `gstack-skill-end` marks it finished on any
 outcome, and `gstack-ship-run abandon` ends a run that stopped working, never
-within 60 minutes of its last beat. No timer ends a run. A bare marker from an
+within 60 minutes of its last beat unless the harness process it ran under is
+provably gone (GST-3546). No timer ends a run. A bare marker from an
 older gstack reads as `legacy` and an unreadable record as `unreadable`; both
 block until abandoned. The record guards against mistakes, such as a base merge
 under a run's readers or a run granting itself a round; it is not proof of who

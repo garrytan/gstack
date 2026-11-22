@@ -18,7 +18,7 @@ import { AgentModelError, resolveAgentModel } from './agent-model';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, sliceDiff, sliceNote, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
-import { recordFixCheckHunks } from './review-evidence';
+import { claimedFixCheckHunks, recordFixCheckHunks } from './review-evidence';
 import { policySelection, selectFor } from './review-selection';
 import { SPECIALISTS, diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
@@ -250,7 +250,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     if (role === 'fix-check') {
       const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };
       const fc = m.fix_check!;
-      Object.assign(slots, { fix_list: read(fc.fix_list, 'fix list'), hunks: read(fc.hunks, 'hunks'), tests: read(fc.tests, 'tests'), callers: read(fc.callers, 'callers') });
+      Object.assign(slots, { fix_list: read(fc.fix_list, 'fix list'), hunks: claimedFixCheckHunks(process.cwd())?.text ?? read(fc.hunks, 'hunks'), tests: read(fc.tests, 'tests'), callers: read(fc.callers, 'callers') });
       recordFixCheckHunks(process.cwd(), slots.hunks ?? '', m.ledger, slots.fix_list ?? '');
     }
     let targeted = {};

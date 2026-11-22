@@ -4,7 +4,7 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFi
 import { join, resolve } from 'node:path';
 import { deriveReviewStatus, isCriticalFinding, isOpenByAction, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
-import { readRunRecord } from './ship-run-record';
+import { readRunRecord, thisRunOwner } from './ship-run-record';
 
 const DIFF_REVIEWS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
 const SHARED_LIBS_COVERAGE_VERSION = 1;
@@ -210,7 +210,7 @@ export function captureReviewStart(skill: string, env = process.env, fixRange = 
   const token = crypto.randomUUID();
   writeFileSync(join(dir, `${token}.json`), JSON.stringify({
     skill, repo: env.GSTACK_REVIEW_REPO, branch: env.GSTACK_REVIEW_BRANCH,
-    wtree: env.GSTACK_STAMP_WTREE, started_at: new Date().toISOString(),
+    wtree: env.GSTACK_STAMP_WTREE, started_at: new Date().toISOString(), ...(o => (o ? { owner: o } : {}))(thisRunOwner()),
     ...(fixBase ? { scope: 'fix-range', fix_base: fixBase } : {}),
     ...(claimed?.claim ? { fix_check: { base: claimed.claim.stop_head, run: claimed.run, grant: claimed.claim.grant, pr: claimed.claim.pr ?? claimed.pr } } : {}),
   }), { mode: 0o600, flag: 'wx' });
@@ -495,6 +495,19 @@ const hunksFile = (cwd: string) => {
   const r = spawnSync('git', ['rev-parse', '--git-path', 'gstack-fix-check-hunks'], { cwd, encoding: 'utf8', timeout: 60_000 });
   return r.status === 0 && r.stdout.trim() ? resolve(cwd, r.stdout.trim()) : '';
 };
+
+/**
+ * The hunks a claimed fix-check reads, built by gstack (GST-3546): git diff <the claimed grant's head> HEAD, the exact bytes
+ * bindFixCheckRow later compares, so a thread never hand-builds a partial or stale packet. Undefined when this checkout's run
+ * record holds no open claim, or git cannot diff it (the caller's --hunks file stands then).
+ */
+export function claimedFixCheckHunks(cwd: string): { base: string; text: string } | undefined {
+  const read = readRunRecord(cwd);
+  const base = read.kind === 'record' && read.record.state === 'open' ? read.record.claim?.stop_head : undefined;
+  if (!base) return undefined;
+  const r = spawnSync('git', ['diff', base, 'HEAD'], { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+  return r.status === 0 && r.stdout.trim() ? { base, text: r.stdout } : undefined;
+}
 
 /** The ledger ids, path:line:category fingerprints and a-… approval ids a fix list names: the only grant ids its clean fix-check can close. */
 export function fixListNames(text: string): string[] {

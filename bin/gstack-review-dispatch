@@ -39,7 +39,7 @@ import { effectiveReaders, READERS_POLICY_DEFAULT, type EffectiveReaders } from 
 import { defaultRoots, foundLines, ignoredLines, inventory, quarantineStage, rerunBlocked, sweepResult, type Inventory } from '../lib/review-sweep';
 import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff } from '../lib/review-exclude';
 import { logShipCall } from '../lib/ship-call-log';
-import { restampFixCheckHunks } from '../lib/review-evidence';
+import { claimedFixCheckHunks, restampFixCheckHunks } from '../lib/review-evidence';
 
 logShipCall('gstack-review-dispatch');
 
@@ -188,7 +188,7 @@ function render(): number {
     classes: flag('--classes'), brief, ...(merged ? { checklist: path.join(ROOT, 'review/specialists/targeted.md') } : {}),
     policy_exclude: policyItems.map(quote).join(' ') || undefined, ...(sel.disclosure ? { disclosure: sel.disclosure, keep: sel.keep?.map(quote).join(' ') || undefined } : {}),
     ...(sel.disclosure && 'excerpt_file' in sel && sel.excerpt_file ? { excerpt_file: sel.excerpt_file.file, excerpt_bytes: String(sel.excerpt_file.bytes), excerpt_sha256: sel.excerpt_file.sha256, excerpt_files: String(sel.excerpt_file.files) } : {}),
-    fix_list: readFile(flag('--fix-list'), 'fix list'), hunks: readFile(flag('--hunks'), 'hunks'), tests: readFile(flag('--tests'), 'tests'), callers: readFile(flag('--callers'), 'callers'),
+    fix_list: readFile(flag('--fix-list'), 'fix list'), hunks: (role === 'fix-check' ? claimedFixCheckHunks(process.cwd())?.text : undefined) ?? readFile(flag('--hunks'), 'hunks'), tests: readFile(flag('--tests'), 'tests'), callers: readFile(flag('--callers'), 'callers'),
   };
   const workdir = checkoutRoot();
   const tree = checkoutTree(workdir);
@@ -508,7 +508,7 @@ function passStep(cmd: string): number {
       process.stdout.write(`LOG_START: ${logStart} token=${m.log_starts[logStart]}\n`);
       if (fresh && m.fix_check?.hunks && logStart.includes('review-fix-check')) {
         let text: string | undefined;
-        try { text = fs.readFileSync(m.fix_check.hunks, 'utf8'); } catch { /* reported below; the start token is already recorded */ }
+        try { text = claimedFixCheckHunks(process.cwd())?.text ?? fs.readFileSync(m.fix_check.hunks, 'utf8'); } catch { /* reported below; the start token is already recorded */ }
         process.stdout.write(`FIX_CHECK_HUNKS: ${text === undefined ? 'not restamped (hunks file unreadable)' : restampFixCheckHunks(process.cwd(), text) ? 'restamped' : 'not restamped (no render record with these hunks)'}\n`);
       }
       return EXIT.ok;

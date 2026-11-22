@@ -185,12 +185,15 @@ describe('a granted, clean fix-check closes exactly its grant\'s findings at wri
 
 describe('a fix-check reader given only part of the fix closes nothing', () => {
   // Value: protects=the hunks a granted fix-check read cover the whole stop-to-fix diff; fails_when=hunks over one of two changed
-  //   files bind and close the grant; seam=bindFixCheckRow
-  test('hunks covering only part of the stop..fix diff close nothing', () => {
+  //   files bind and close the grant, or a hand-built partial packet reaches the claimed reader (GST-3546, gskills#25: gstack
+  //   now builds the packet from git diff <claimed head> HEAD); seam=gstack-review-plan --fix-check-prompt, bindFixCheckRow
+  test('a hand-built partial packet is replaced by git diff <stop> HEAD, and a row recording partial hunks still closes nothing', () => {
     const g = grantedRun({ sameRun: false, extra: { 'src/y.ts': 'export const y = 1;\n' }, hunkPaths: ['src/x.ts'] });
     const row = rowsOf(g).filter(r => r.skill === 'review-fix-check').at(-1)!;
-    expect(row.hunks.paths).toEqual(['src/x.ts']);
-    expect(bindFixCheckRow(g.f.work, row, grantsOf(g))).toMatchObject({ ok: false, why: expect.stringContaining('leave out src/y.ts') });
+    expect(row.hunks).toMatchObject(hunksDigest(g.f.git('diff', g.S, g.F).stdout));
+    expect(bindFixCheckRow(g.f.work, row, grantsOf(g))).toMatchObject({ ok: true });
+    const partial = { ...row, hunks: { ...row.hunks, ...hunksDigest(g.f.git('diff', g.S, g.F, '--', 'src/x.ts').stdout) } };
+    expect(bindFixCheckRow(g.f.work, partial, grantsOf(g))).toMatchObject({ ok: false, why: expect.stringContaining('leave out src/y.ts') });
   });
 });
 
@@ -199,9 +202,11 @@ describe('harness-evals#504: a fix-check grant answering a stop after a gate-cla
   //   fails_when=a fix-check that ran before the grant spends it, or one that carries it leaves it unspent; seam=grantSpent
   test('a grant is spent by the fix-check that carries it or starts after it, never by an earlier one', () => {
     const g = { approval: 'a-2', at: '2026-11-21T01:00:00.000Z' };
-    expect(grantSpent([{ skill: 'review-fix-check', review_binding: { started_at: '2026-11-21T00:59:00.000Z' } }], g)).toBe(false);
-    expect(grantSpent([{ skill: 'review-fix-check', review_binding: { started_at: '2026-11-21T01:01:00.000Z' } }], g)).toBe(true);
-    expect(grantSpent([{ skill: 'review-fix-check', grant: 'a-2', review_binding: { started_at: '2026-11-21T00:00:00.000Z' } }], g)).toBe(true);
+    const read = (started_at: string) => ({ skill: 'review-fix-check', completed: true, converged: true, status: 'clean', review_binding: { state: 'verified', started_at } });
+    expect(grantSpent([{ ...read('2026-11-21T01:01:00.000Z'), converged: false }], g)).toBe(false);
+    expect(grantSpent([read('2026-11-21T00:59:00.000Z')], g)).toBe(false);
+    expect(grantSpent([read('2026-11-21T01:01:00.000Z')], g)).toBe(true);
+    expect(grantSpent([{ ...read('2026-11-21T00:00:00.000Z'), grant: 'a-2' }], g)).toBe(true);
   });
 
   // Value: protects=the same through the CLI: --round-grant and --stop after --last fix-check with a gate-class fix plan next=fix-check
@@ -265,7 +270,7 @@ describe('clearing refuses every gap GSTA-665\'s trail reads found in #4546 (lib
     expect(clear({ run: 'fc9' }).ids).toEqual([]);
   });
   test('a spent grant (a second stamped row) closes nothing', () => {
-    expect(clear({ rows: [...base.rows, { ...fixRow(), run: 'fc2', commit_full: g.S, findings: [{ fingerprint: 'x' }] }] })).toMatchObject({ ids: [], why: expect.stringContaining('holds 2') });
+    expect(clear({ rows: [...base.rows, { ...fixRow(), run: 'fc2', commit_full: g.S, findings: [{ fingerprint: 'x' }] }] })).toMatchObject({ ids: [], why: expect.stringContaining("holds run fc2's") });
   });
   test('a row with another fix_check_base, or an agent range_base that disagrees, closes nothing', () => {
     const fork = g.f.git('merge-base', 'origin/main', 'HEAD').stdout.trim();

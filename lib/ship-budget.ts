@@ -22,6 +22,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { withFileLock } from './spend-ledger';
+import type { RunOwner } from './ship-run-record';
 import { resolveStateRoot } from './state-root';
 import { resultLine, type ResultCodeName } from './result-codes';
 import { capyDriveFolder } from './autoplan-checkpoint';
@@ -103,6 +104,8 @@ export interface Ledger {
   /** tree: the reading is the root thread's counter (a subagent cannot read its own jam id), so every cost line carries TREE_METER. */
   meter_scope?: 'tree';
   stopped?: { at: string; reason: string; step: string; next: string }; closed_at?: string;
+  /** The checkout the run ships and the harness it runs under (GST-3546): lib/ship-run-live.ts stops counting an ended or dead run as open. */
+  checkout?: string; owner?: RunOwner;
   /** Where the 100-minute clock starts (lib/ship-clock.ts): created_at, or the resume after a time stop. */
   clock_from?: string;
 }

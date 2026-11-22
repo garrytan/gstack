@@ -326,7 +326,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   for (let k = chain.length - 1; k >= 0; k--) {
     const l = chain[k]!;
     const g = l.bound?.ok ? (id => grants.find(x => x.id === id && !used.has(x.id)))(l.bound.grant.approval) : grants.filter(g => !used.has(g.id))
-      .flatMap(g => { const fc = reviewRoundGrants([g]).find(x => x.kind === 'fix-check'); return (fc ? (commitOf(fc.head) === l.from ? [fc.head] : []) : `${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c)).map(stop => ({ g, stop })); })
+      .flatMap(g => { const fc = reviewRoundGrants([g]).find(x => x.kind === 'fix-check' && !x.legacy); return (fc ? (commitOf(fc.head) === l.from ? [fc.head] : []) : `${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c)).map(stop => ({ g, stop })); })
       .reduce<{ g: typeof grants[number]; stop: string } | undefined>((best, c) => (!best || ancestor(best.stop, c.stop) ? c : best), undefined)?.g;
     if (g) used.add(g.id);
     granted[k] = g;

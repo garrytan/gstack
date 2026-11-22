@@ -5,6 +5,7 @@
  *   gstack-ship-run status
  *   gstack-ship-run abandon --run <id> --by <lane or Captain> --reason <one line> [--sha256 <digest>] [--pr <n> [--repo <r>] | --body <file>]
  *   gstack-ship-run skill-end --run <session id>
+ *   gstack-ship-run live [--state-root <dir>]
  */
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
@@ -14,6 +15,8 @@ import { isGstackActorName } from '../lib/ruled-notes';
 import { BIN_DIR, runScriptSync } from '../lib/script-invocation';
 import { abandonRefusal, changeRunRecord, openRun, readRunRecord, RUN_ID } from '../lib/ship-run-record';
 import { spawnSync } from '../lib/spawn-sync';
+import { liveRun } from '../lib/ship-run-live';
+import { resolveStateRoot } from '../lib/state-root';
 
 const HELP = `gstack-ship-run — this checkout's /ship run record (docs/ship-policy.md#what-ends-a-run)
 
@@ -27,6 +30,10 @@ const HELP = `gstack-ship-run — this checkout's /ship run record (docs/ship-po
               the --sha256 status printed. It completes in one call: never rerun it after RUN_ABANDONED
   skill-end --run <session id>
               what gstack-skill-end calls: marks the record finished (ended_by skill-end) when it names that run
+  live [--state-root <dir>]
+              RUN_LIVE: <kind> run <id> (<file>) (exit 0) for the first /ship or review run on this machine that still holds
+              gstack upgrades, or RUN_LIVE: none (exit 0 either way); RUN_HOLD_RELEASED: lines name runs that no longer hold because
+              their owner process is gone or their own run record finished or was abandoned (lib/ship-run-live.ts)
 
 ${exitTableHelp()}`;
 
@@ -54,6 +61,12 @@ function main(argv: string[]): number {
     if (!run) { process.stderr.write('gstack-ship-run skill-end: --run <session id> is required\n'); return EXIT.usage; }
     const done = changeRunRecord(cwd, 'skill-end', run, { ended_by: 'skill-end' });
     process.stdout.write(done.ok ? `RUN_ENDED: run=${run} state=finished ended_by=skill-end\n` : `RUN_ENDED: none (${done.why})\n`);
+    return EXIT.ok;
+  }
+  if (cmd === 'live') {
+    const found = liveRun(flag('--state-root') ?? resolveStateRoot());
+    for (const e of found.ended) process.stdout.write(`RUN_HOLD_RELEASED: ${e}\n`);
+    process.stdout.write(`RUN_LIVE: ${found.live ?? 'none'}\n`);
     return EXIT.ok;
   }
   if (cmd !== 'abandon') { process.stderr.write(`gstack-ship-run: unknown command ${cmd}\n${HELP}\n`); return EXIT.usage; }
