@@ -3053,7 +3053,10 @@ The run is on CI runners, so it needs no `--allow-repo-commands`, and
 under `ci-reuse/free-tests`, so the whole free suite has run on a stale-base tree
 before it lands (about 5 minutes); its `merged_checks` still run first and fail
 fast. A rerun after the merge checks the landed tree with `merged_checks` only,
-and main's own push run tests it in CI.
+and main's own push run tests it in CI. When main didn't move again before
+the merge, the landed tree is the one this run tested, so main's push run of
+`free-tests.yml` reuses it instead of running the suite a second time
+([pregate.md](pregate.md#ci-reuse)).
 
 Then land runs `gh pr merge
 --squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),

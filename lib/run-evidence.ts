@@ -105,6 +105,8 @@ const PROFILE_KEYS = ['workflow', 'events', 'jobs', 'artifact', 'max_age_hours',
 const WORKFLOW_FILE = /^[A-Za-z0-9_.-]+\.ya?ml$/;
 const NAME = /^[A-Za-z0-9_.\/-]{1,128}$/;
 export const DEFAULT_MAX_AGE_HOURS = 24;
+/** The scratch branch land.merged_ci runs CI on (lib/land-merged-ci.ts), whose run a main push of that land may reuse (scripts/ci-tree-reuse.ts). */
+export const landBranch = (pr: number | string): string => `gstack-land/${pr}`;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 /** Same-named artifacts one run may hold, one per attempt of the job that uploads it. */
 const MAX_ARTIFACT_ATTEMPTS = 10;
