@@ -389,6 +389,21 @@ describe('import --autoplan', () => {
     expect(typed.status).not.toBe(0);
   });
 
+  // Value: protects=an interactive /autoplan run (no run.json; its gate rows carry the run id) imports under that run id,
+  //   so the id can be cited and two interactive runs never share one gate state; fails_when=the import falls back to the
+  //   shared directory name "autoplan"; why_new=every answered-gate import case wrote run.json (#4402); seam=none
+  test('an interactive run without run.json imports under the run id its gate rows carry', () => {
+    const run = path.join(tmp('appr-run-'), 'autoplan');
+    fs.mkdirSync(run);
+    const id = 'feature-x-20261122-104500';
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: id, id: `${id}-p1`, label: 'P1', title: 'Plan approval',
+      options: ['a', 'b'], recommended: 'a', kind: 'approval', status: 'approved', gate_rev: 1, chosen: 'a', answered_at: '2026-11-22T10:50:00.000Z', reply: 'a' }) + '\n');
+    const rows = importAutoplan(run, 'b', 'owner');
+    if ('code' in rows) throw new Error(rows.message);
+    expect(rows.map(r => r.source)).toEqual([`autoplan:${id}@gate_rev=1`]);
+    expect(rows[0]!.ask).toContain(`autoplan run ${id}`);
+  });
+
   test('an unanswered gate imports nothing and says why', () => {
     const run = tmp('appr-run-');
     fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: 'run-1', id: 'run-1-p1', label: 'P1', status: 'pending', gate_rev: 1 }) + '\n');

@@ -66,7 +66,7 @@ describe('Autoplan hook journal-root verdicts', () => {
   const entry = path.join(ROOT, 'autoplan/sections/design-phase.md');
   const real = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/claude-native-journal-roots-2.1.284.json'), 'utf8'));
   /** One owned native journal; the current phase-entry Read is its last record unless `current` is false. */
-  function session(shape: 'unknown' | 'competing_root' | 'foreign_cwd' | 'sidechain' | 'agent' | 'cycle' | 'startup',
+  function session(shape: 'unknown' | 'competing_root' | 'foreign_cwd' | 'sidechain' | 'agent' | 'cycle' | 'startup' | 'bridge' | 'bridge_competing',
     { current = true, partial = false } = {}) {
     const base = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'autoplan-hook-roots-'))); dirs.push(base);
     const cwd = path.join(base, 'project'), project = path.join(base, 'config', 'projects', 'project');
@@ -84,10 +84,13 @@ describe('Autoplan hook journal-root verdicts', () => {
       rows = real.journals.startup.lines.map((line: string) => JSON.parse(line.replaceAll('__CWD__', JSON.stringify(cwd).slice(1, -1))));
       for (const row of rows as any[]) if (row.sessionId) row.sessionId = sessionId;
     } else {
-      const head = shape === 'unknown' ? node(null, { type: 'system', subtype: 'local_command' }) : hook(null);
+      const head = shape === 'unknown' ? node(null, { type: 'system', subtype: 'local_command' })
+        : shape.startsWith('bridge') ? node(null, { type: 'system', subtype: 'bridge_status', isMeta: false,
+          content: '/remote-control is active', url: 'https://claude.ai/code/session_x' })
+        : hook(null);
       const turn = prompt(head.uuid);
-      rows = [head, turn];
-      if (shape === 'competing_root') rows.push(prompt(null));
+      rows = shape.startsWith('bridge') ? [{ type: 'bridge-session', sessionId }, head, turn, hook(turn.uuid)] : [head, turn];
+      if (shape === 'competing_root' || shape === 'bridge_competing') rows.push(prompt(null));
       if (shape === 'foreign_cwd') Object.assign(head, { cwd: path.join(base, 'config') });
       if (shape === 'sidechain') Object.assign(head, { isSidechain: true });
       if (shape === 'agent') Object.assign(head, { agentId: 'agent-1' });
@@ -169,6 +172,22 @@ describe('Autoplan hook journal-root verdicts', () => {
     expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
     // Ownership succeeded: the denial is the evaluator's own invocation check.
     expect(output.hookSpecificOutput.permissionDecisionReason).toContain('Autoplan invocation evidence is unavailable');
+  });
+
+  // Value: protects=a session with Remote Control active from the start (a system bridge_status record as the journal
+  //   root, #4298) is owned and verified like a plain session, while a competing root next to it still denies;
+  //   fails_when=the bridge head reads as unrecognized_shape and publication enforcement is skipped, or the new
+  //   preamble record hides a second root; why_new=only SessionStart attachments were accepted above the first turn; seam=none
+  test('a Remote Control bridge_status root is owned and reaches publication evaluation', async () => {
+    const output = await session('bridge').hookRun();
+    expect(output.systemMessage ?? '').not.toContain('NOT verified');
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain('Autoplan invocation evidence is unavailable');
+  });
+  test('a bridge_status root next to a second null-parent prompt is still a competing root', async () => {
+    const output = await session('bridge_competing').hookRun();
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain('code competing_root');
   });
 
   test('the shipped shim degrades and denies with real native spellings', () => {

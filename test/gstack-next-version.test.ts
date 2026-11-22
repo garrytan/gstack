@@ -1378,3 +1378,44 @@ describe("concurrent VERSION fetches (W2-A3)", () => {
     }
   }, 30_000);
 });
+
+describe("sibling scan finds git worktrees outside the workspace_root layout (#4196)", () => {
+  const NEXTVER = join(import.meta.dir, "..", "bin", "gstack-next-version");
+
+  // Value: protects=a linked worktree anywhere on disk (Claude Code's .claude/worktrees, plain git worktree add) counts
+  //   as a sibling when /ship picks a version, and workspace_root null still turns the scan off; fails_when=only
+  //   <workspace_root>/<repo>/<workspace>/ is read, so two worktrees can take the same version; why_new=every sibling
+  //   case used the Conductor layout or disabled the scan; seam=none
+  test("a linked worktree outside workspace_root is a sibling; null disables the scan", () => {
+    const root = mkdtempSync(join(tmpdir(), "nextver-wt-"));
+    const work = join(root, "work");
+    mkdirSync(work);
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 });
+    git(work, "init", "-q", "-b", "main");
+    writeFileSync(join(work, "VERSION"), "1.0.0.0\n");
+    git(work, "add", "-A");
+    git(work, "commit", "-qm", "base");
+    const wt = join(root, "elsewhere", "wt1");
+    git(work, "worktree", "add", "-q", "-b", "feat", wt);
+    writeFileSync(join(wt, "VERSION"), "1.0.1.0\n");
+    git(wt, "commit", "-qam", "bump");
+    const stubDir = mkdtempSync(join(tmpdir(), "nextver-stubgh-"));
+    writeFileSync(join(stubDir, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const run = (workspaceRoot: string) => {
+      const proc = Bun.spawnSync(
+        ["bun", "run", NEXTVER, "--base", "main", "--bump", "patch", "--current-version", "1.0.0.0", "--workspace-root", workspaceRoot],
+        { cwd: work, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` }, timeout: 30_000 },
+      );
+      return JSON.parse(new TextDecoder().decode(proc.stdout));
+    };
+    try {
+      const found = run(join(root, "no-such-root"));
+      expect(found.siblings.map((s: any) => [s.branch, s.version])).toEqual([["feat", "1.0.1.0"]]);
+      expect(run("null").siblings).toEqual([]);
+    } finally {
+      rmSync(stubDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+});

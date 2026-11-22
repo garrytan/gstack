@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildPage, cleanText, diffLines, hunks, pathSides, resolveCommit } from '../lib/pr-shots';
+import { buildPage, cleanText, defaultBase, diffLines, hunks, pathSides, resolveCommit } from '../lib/pr-shots';
 import { wtreeFingerprint } from '../lib/script-invocation';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -26,6 +26,50 @@ function repo(files: Record<string, string>): { dir: string; base: string } {
   git('add', '-A'); git('commit', '-q', '-m', 'base');
   return { dir, base: git('rev-parse', 'HEAD').stdout.trim() };
 }
+
+describe('default base (#3733)', () => {
+  const featureRepo = (baseBranch: string) => {
+    const r = repo({ 'doc.md': 'before\n' });
+    const git = (...a: string[]) => {
+      const out = spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', env: GIT_ENV, timeout: 30_000 });
+      if (out.status !== 0) throw new Error(`fixture git ${a.join(' ')} failed: ${out.stderr}`);
+      return out.stdout.trim();
+    };
+    if (baseBranch !== 'main') git('branch', '-m', baseBranch);
+    const origin = tmp('shots-origin-');
+    git('init', '-q', '--bare', '--initial-branch', baseBranch, origin);
+    git('remote', 'add', 'origin', origin);
+    git('push', '-q', '-u', 'origin', baseBranch);
+    git('remote', 'set-head', 'origin', baseBranch);
+    git('checkout', '-q', '-b', 'feature');
+    fs.writeFileSync(path.join(r.dir, 'doc.md'), 'after\n');
+    git('add', 'doc.md'); git('commit', '-q', '-m', 'feature text');
+    git('push', '-q', '-u', 'origin', 'feature');
+    return { ...r, git };
+  };
+
+  // Value: protects=a clone whose origin/HEAD names the pushed feature branch still compares against the real base, so
+  //   committed PR changes show; fails_when=the feature head is its own before-image and generation refuses with
+  //   PR_SHOTS_IDENTICAL; why_new=path-mode tests always passed --base; seam=none
+  test.each(['main', 'develop'])('origin/HEAD naming the feature branch still compares against %s', baseBranch => {
+    const r = featureRepo(baseBranch);
+    expect(defaultBase(r.dir)).toBe(r.base);
+    r.git('remote', 'set-head', 'origin', 'feature');
+    const chosen = defaultBase(r.dir);
+    expect(chosen).toBe(r.base);
+    const sides = pathSides(r.dir, 'doc.md', chosen as string);
+    if ('code' in sides) throw new Error(sides.message);
+    expect([sides.before.text, sides.after.text]).toEqual(['before\n', 'after\n']);
+  });
+
+  // Value: protects=a stale origin/HEAD (its branch is gone) falls back to main instead of refusing; fails_when=the
+  //   dangling target is taken as the base with no fallback; why_new=the case above always resolves; seam=none
+  test('a dangling origin/HEAD falls back to main', () => {
+    const r = featureRepo('main');
+    r.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/retired');
+    expect(defaultBase(r.dir)).toBe(r.base);
+  });
+});
 
 describe('diff and hunks', () => {
   test('a change at line 240 of 300 stays visible; gaps say how much they hide', () => {
