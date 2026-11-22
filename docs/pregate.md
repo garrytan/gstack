@@ -1977,13 +1977,19 @@ those, each with its scope and its reason:
   warning there.
 - JavaScript and TypeScript (GST-3500): a key bound by `const`, `let` or `var`
   (with or without `export` or a type), or by a class field
-  (`private apiKey = "<key>";`, `#secret = "<key>"`), reports as `env.kv.js`
+  (`private apiKey = "<key>";`, `private #secret = "<key>"`), reports as `env.kv.js`
   in a `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts` or `.cts` file.
   Declarations without a literal (types, destructuring, imports, calls,
   `process.env` reads) give nothing, and neither does a literal that names a
-  key (`'agent_model'`, `'test/skill-e2e-bws.test.ts'`) or a template with a
-  `${…}` slot. Known limit: a fallback after an environment read
-  (`process.env.TOKEN ?? "<key>"`) is not read by this rule.
+  key (`'agent_model'`, `'test/skill-e2e-bws.test.ts'`) or a template whose
+  text beside its `${…}` slots holds no secret. A key split across a `+` chain
+  reports. Known limits, not read by this rule: a fallback after an
+  environment read (`process.env.TOKEN ?? "<key>"`); a declaration that does
+  not start its line (`if (x) { const token = "<key>"; }`,
+  `const a = 1, token = "<key>"`); a value on the line after its `=`, since
+  the check reads added lines alone; `.vue`, `.svelte` and other files; and a
+  lowercase passphrase of dictionary words (`"summer-breeze-falcon"`), which
+  reads as a key name. A bare `#secret = "<key>"` line stays `env.kv`'s.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with

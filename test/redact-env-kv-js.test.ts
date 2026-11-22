@@ -34,7 +34,9 @@ describe("env.kv.js: a key bound by a JS/TS declaration reports (GST-3500)", () 
       ["const authToken = " + BT + S + BT + ";", "src/config.jsx"],
       ['  private apiKey = "' + S + '";', "src/client.ts"],
       ['  static readonly ACCESS_TOKEN: string = "' + S + '";', "src/client.ts"],
-      ['  #password = "' + S + '";', "src/client.js"],
+      ['  private #password = "' + S + '";', "src/client.js"],
+      ["const token = " + BT + S + "${suffix}" + BT + ";", "src/client.ts"],
+      ["const token = " + BT + "${prefix}-" + S + BT + ";", "src/client.ts"],
       ['const API_KEY = "' + S + '" as const;', "src/config.cts"],
       ['// const token = "' + S + '";', "src/client.ts"],
       ["const token = 'ef41947a-643b-4494-aaee-149f288a9b29';", "src/client.ts"],
@@ -88,6 +90,8 @@ describe("env.kv.js: a key bound by a JS/TS declaration reports (GST-3500)", () 
       ['  apiKey: "' + S + '",', "src/client.ts"],
       ['API_KEY=' + S, ".env"],
       ['const a = 1; // apiKey: "' + S + '"', "src/client.ts"],
+      ['  #password = "' + S + '";', "src/client.js"],
     ], true);
+    expect(ids('  #password = "' + S + '";', "src/client.js")).not.toContain("env.kv.js");
   });
 });
