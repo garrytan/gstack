@@ -6434,13 +6434,24 @@ the lane fixes it at a new head (a flaky case gets its one rerun under rule
 ### `QUEUE_LAND_MERGED_CHECKS`
 
 **Meaning.** `origin/main` moved since the pin's merge base, and a
-`land.merged_checks` command failed on the pin merged onto main's tip. The
-message names the command, its exit and its last output lines. Nothing was
-merged.
+`land.merged_checks` command or the `land.merged_ci` run failed on the pin merged
+onto main's tip. The message names the command, its exit and its last output
+lines, or the CI run and its conclusion. Nothing was merged. When the message
+says the checks changed files land's later git and gh calls read (the
+checkout's git config, hooks, `commondir` or `gitdir` files, its `.git`, a config
+file git includes, the global git config, gh's config, or the pinned `git` or
+`gh`), land made no further git or gh call, pushed no lock release, and a
+`LOCK: warn` line says the land lock stays held.
 
-**Fix.** The lane merges `origin/main` into the branch, fixes what the
-command names, pushes, waits for the required checks, runs /ship and `ready`
-at the new head, and sends a new READY.
+**Fix.** For changed files, hold: nothing goes back to the lane yet. Inspect
+each named path and restore it from a trusted copy (delete a hook the checks
+added) before any git command in that checkout, then release the lock without
+running the checks with `gstack-ship-queue land --pr <n> --pin <sha>` (no
+`--allow-repo-commands`), and find out why the PR's checks wrote there before it
+lands. For a failed command or a red CI run, read the output or the failed job;
+a flaky case gets one rerun of land, and a real failure goes back to the lane,
+which merges `origin/main` into the branch, fixes it, pushes, waits for the
+required checks, runs /ship and `ready` at the new head, and sends a new READY.
 
 <a id="queue-land-not-clean"></a>
 ### `QUEUE_LAND_NOT_CLEAN`

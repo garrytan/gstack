@@ -45,6 +45,13 @@ describe('a hash or pin manifest does not keep the files it lists (HARN-64)', ()
 
   // Value: protects=a manifest-shaped file with any other line is read as a consumer (negative control); fails_when=a few digest
   //   lines exempt a file that also carries code or prose; seam=gstack-review-plan --json
+  // Value: protects=the scan still reads consumer names when git is set to color grep output; fails_when=git grep -l wraps names
+  //   in ANSI escapes, every lookup misses and each file stays as consumer-scan-unavailable; why_new=the -l call lost --no-color;
+  //   seam=gstack-review-plan --json with color.grep=always from GIT_CONFIG_*; no_claim=other color.* settings
+  test('files a pins.sha256 lists are still excluded when git colors grep output', () => {
+    expect(planned(repoWith({ 'docs/run/pins.sha256': manifest() }), { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'color.grep', GIT_CONFIG_VALUE_0: 'always' })).toEqual({ excluded: 2, kept: {} });
+  }, 120_000);
+
   test('a manifest with a code line keeps what it names', () => {
     expect(planned(repoWith({ 'docs/run/pins.sha256': manifest(['run(process.argv[2])']) }))).toEqual({ excluded: 0, kept: { 'data/run/a.json': 'named-by-code', 'data/run/b.json': 'named-by-code' } });
   }, 120_000);

@@ -418,6 +418,9 @@ script or `foreignObject` included, keeps it code. More than
 2,000 data paths keep every one code (`GSTACK_REVIEW_CONSUMER_SCAN_CAP` raises the count, a whole
 number; an empty, zero, negative or non-numeric value keeps 2,000), and the plan then prints a
 `CONSUMER_SCAN: skipped:` line naming both ways out: raise the cap or move the data into its own PR.
+The cap is read from the environment, not recorded in the receipt, so a raised cap must also be set
+wherever depth is recomputed (`gstack-ship-receipt carry` and the merge queue); without it they read
+2,000, find a deeper depth than the receipt's and refuse it (`RECEIPT_CARRY_REFUSED`).
 The cap counts files before `review_exclude_paths` applies, because the exclusion's own name scan reads
 the depth this scan decides, and it changes only depth: excluded files still stay out of the readers' diffs; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. The scan first lists the files that contain a candidate's

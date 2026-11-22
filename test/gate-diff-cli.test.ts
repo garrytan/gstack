@@ -51,7 +51,7 @@ describe('gstack-gate-diff arguments and exit contract', () => {
   test('--help exits 0 with usage on stdout', () => {
     const r = run(repo(), ['--help']);
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('usage: gstack-gate-diff [base-ref] [--format table|jsonl] [--commit <sha>] [--help]');
+    expect(r.stdout).toContain('usage: gstack-gate-diff [base-ref] [--format table|jsonl] [--commit <sha> | --head <sha>] [--help]');
   });
 
   test('an unknown option or bad --format is a tool failure: GATE_ERROR=internal, exit 2', () => {
