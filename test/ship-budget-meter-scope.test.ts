@@ -122,22 +122,27 @@ describe('meter scope (GST-467)', () => {
     }
   });
 
-  // Value: protects=a /ship subagent metering its own task row can't grow past R70's 50M stop-and-look line (100M before Capy's token counts halved on 2026-11-15); fails_when=an observe-mode --reading-from task start with no cap stays uncapped, its note past 50M doesn't stop, a task-row run is labeled tree, or none, an explicit cap, admit mode, a root run or a tree-metered subagent get the default;
-  //   why_new=FOUN-4's Subagent 40 reached 485M over five /ship runs in one context (GST-1279); a tree reading would count sibling lanes (autoplan review d2); seam=none; no_claim=that the lane passes the title
-  test('an observe-mode /ship subagent metering its own task row gets the 50M default; none, an explicit cap or a tree meter does not', () => {
+  // Value: protects=a /ship run metering its own counter (its thread's own jam, or a task row) can't grow past R70's 50M stop-and-look line (100M before Capy's token counts halved on 2026-11-15); fails_when=an observe-mode own-counter or --reading-from task start with no cap stays uncapped, its note past 50M doesn't stop, a task-row run is labeled tree, or none, an explicit cap, admit mode, a shared "this" reading or a tree-metered run get the default;
+  //   why_new=FOUN-4's Subagent 40 reached 485M over five /ship runs in one context (GST-1279); GST-3466 moved /ship into the thread's own counter; a tree reading would count sibling lanes (autoplan review d2); seam=none; no_claim=that the lane passes the title
+  test('an observe-mode /ship run metering its own counter gets the 50M default; none, an explicit cap, a shared or tree meter does not', () => {
     const sub = ['--mode', 'observe', '--reading', '10000000', '--credits', '100', '--reading-from', 'task'];
     const h = fresh();
     const s = h.sb(['start', '--record', h.record(), ...sub]);
     expect(s.code, s.err).toBe(0);
-    expect(s.out).toContain('BUDGET_DEFAULT_CAP: 50M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)');
+    expect(s.out).toContain('BUDGET_DEFAULT_CAP: 50M (a /ship run metering its own counter; --token-cap <n> or none to change it)');
     expect(s.out).not.toContain(TREE);
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
     expect(h.sb(['note', '--run', run, '--step', '6', '--reading', '50000000', '--credits', '150']).code).toBe(0);
     expect(h.sb(['note', '--run', run, '--step', '9', '--reading', '62500000', '--credits', '160']).code).toBe(3);
     const viaEnv = fresh();
     expect(viaEnv.sb(['start', '--record', viaEnv.record(), '--mode', 'observe', '--reading', '10000000'], { GSTACK_SHIP_TASK_TITLE: 'ship #1 at abc1234 q7x2' }).out).toContain('BUDGET_DEFAULT_CAP: 50M');
+    for (const own of [['--mode', 'observe', '--reading', '1000000000'], ['--mode', 'observe', '--reading', '1000000000', '--reading-from', 'own']]) {
+      const o = fresh();
+      expect(o.sb(['start', '--record', o.record(), ...own]).out).toContain('BUDGET_DEFAULT_CAP: 50M');
+    }
     for (const [args, env] of [[[...sub, '--token-cap', 'none'], {}], [sub, { GSTACK_SHIP_TOKEN_CAP: 'none' }], [[...sub, '--token-cap', '200M'], {}],
-      [['--mode', 'observe', '--reading', '1000000000'], {}], [['--reading', '1000000000', '--reading-from', 'task'], {}],
+      [['--mode', 'observe', '--reading', '1000000000', '--meter-scope', 'tree'], {}], [['--reading', '1000000000', '--reading-from', 'task'], {}],
+      [['--mode', 'observe', '--reading', '1000000000', '--reading-from', 'this'], {}],
       [['--mode', 'observe', '--reading', '1000000000', '--subagent', '--reading-from', 'this'], {}]] as const) {
       const o = fresh();
       const out = o.sb(['start', '--record', o.record(), ...args], env);

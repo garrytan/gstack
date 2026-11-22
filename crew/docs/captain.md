@@ -526,8 +526,8 @@ a push included. The sequence that works unattended on Capy (steps 3 to 8 run in
 The lane runs /ship itself, in its own thread: one call per `ship/DRIVER.md` phase, with every
 reviewer started as the lane's own subagent. It never hands /ship to a subagent. gstack's trial of
 /ship without one (GST-3003, 30 paired runs on fresh threads, review and fix phases only) found no
-clear difference in cost or catches; its verdict rested on one scoring ruling, and Garry chose to drop
-the extra layer (A1, 2026-11-22). Lanes that reach /ship with a large context were not measured.
+clear difference in cost or catches; its verdict rested on one scoring ruling, and the owner chose to
+drop the extra layer (A1, 2026-11-22). Lanes that reach /ship with a large context were not measured.
 Every READY duty has one owner, so `train build`
 never refuses the pin with `QUEUE_NOT_READY` for a step nobody ran:
 
