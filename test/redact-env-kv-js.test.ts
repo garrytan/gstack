@@ -41,6 +41,8 @@ describe("env.kv.js: a key bound by a JS/TS declaration reports (GST-3500)", () 
       ["const key = 'sekrit-ubi-key-4711';", "src/client.ts"],
       ["const token = 'tunnel-start-token-0123456789';", "src/client.ts"],
       ["const secret = " + BT + "prefix-" + S, "src/client.ts"],
+      ['const token = "sk_live_" + "' + S + '";', "src/client.ts"],
+      ['const token = "ab" + "' + S + '";', "src/client.ts"],
       ['diff --git a/src/a.ts b/src/a.ts\n+++ b/src/a.ts\n@@ -0,0 +1 @@\n+const token = "' + S + '";\n', "src/a.ts"],
     ], true);
   });

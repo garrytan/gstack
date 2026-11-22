@@ -1886,12 +1886,14 @@ export const PATTERNS: RedactPattern[] = [
     // pattern so env.kv's matches are unchanged, and validate keeps it to .js,
     // .jsx, .ts, .tsx, .mjs, .cjs, .mts and .cts files; a scan without a path
     // is env.kv.rust's. The name and value get env.kv's checks plus no `${`
-    // slot, the test-file fixture-label exemption and isJsKeyName.
-    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}#?|#)[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]([^\s'"\x60\\]{8,})/i,
+    // slot, the test-file fixture-label exemption and isJsKeyName. As in
+    // env.kv, a short first piece followed by `+` is captured and a secret
+    // in a `+` chain of literals reports first (concatenationHoldsSecret).
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}#?|#)[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]([^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
     validate: (span, match, opts) => {
       if (!opts?.sourcePath || !JS_SOURCE.test(opts.sourcePath)) return false;
       const name = /([$\w]+)[?!]?[ \t]*(?::[^=\n]*)?=/.exec(match[0])?.[1]?.replace(/\$/g, "");
-      return !!name && isCredentialShapedEnvName(`${name}=`) && !span.includes("${") && !isPlaceholderSpan(span) && !/^\$\{?[A-Za-z_]/.test(span) && !isTestFixtureLabel(span, opts.sourcePath) && !isJsKeyName(span, match) && shannonEntropy(span) >= 3.0;
+      return !!name && isCredentialShapedEnvName(`${name}=`) && (concatenationHoldsSecret(match) || (!span.includes("${") && !isPlaceholderSpan(span) && !/^\$\{?[A-Za-z_]/.test(span) && !isTestFixtureLabel(span, opts.sourcePath) && !isJsKeyName(span, match) && shannonEntropy(span) >= 3.0));
     },
   },
   {
