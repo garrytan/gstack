@@ -432,9 +432,7 @@ verdict_kept() {
 # An ok run keeps what an earlier ok install certified for this checkout, project, HEAD and Bun,
 # so one machine serving /ship and its docs step stays admitted for both (#3561): required is
 # the union, pins count as planning-only only when both runs skipped them, and for= lists every
-# workflow (comma-separated). A failing run, another HEAD or another Bun replaces the verdict, so
-# each run also records its own workflow's verdict at <verdict>.for/<workflow>.json, which admission
-# falls back to: a later install for another workflow never drops this one (GST-1233).
+# workflow (comma-separated). A failing run, another HEAD or another Bun replaces the verdict.
 record_verdict() { # TRAILER OK — --check keeps the recorded resolution (drift is reported, never re-recorded)
   local v_for="${FOR:-}" v_req v_plan e_for id
   if verdict_kept; then
