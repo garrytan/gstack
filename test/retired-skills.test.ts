@@ -17,7 +17,7 @@ import { runGeneration } from '../scripts/gen-skill-docs';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const REGISTRY = path.join(ROOT, 'bin', 'gstack-install-registry.sh');
-const BINS = ['gstack-config', 'gstack-relink', 'gstack-patch-names', 'gstack-skill-name.sh', 'gstack-state-root.sh', 'gstack-install-registry.sh'];
+const BINS = ['gstack-config', 'gstack-lock.sh', 'gstack-relink', 'gstack-patch-names', 'gstack-skill-name.sh', 'gstack-state-root.sh', 'gstack-install-registry.sh'];
 const PLAN_ENG = 'plan-eng-review'; // pregate-literal: GST-2726 took plan-eng-review off GSTACK_RETIRED_SKILLS; investigate stays retired
 
 test('setup and gstack-relink retire the same skills as the generator', () => {
@@ -116,6 +116,18 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
     expect(r.status, r.stderr).toBe(0);
     expect(fs.existsSync(path.join(skills, 'build-check', 'SKILL.md'))).toBe(false);
     expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+  });
+
+  test('gstack-config set disabled_skills verify stores build-check (#4593)', () => {
+    fs.mkdirSync(path.join(install, 'build-check'));
+    fs.writeFileSync(path.join(install, 'build-check', 'SKILL.md'), '---\nname: build-check\ndescription: test\n---\n# build-check\n');
+    const r = spawnSync('bash', [path.join(install, 'bin', 'gstack-config'), 'set', 'disabled_skills', 'verify,ship'], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      env: { ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '', GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '1' },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(tmp, 'state', 'config.yaml'), 'utf8')).toMatch(/^disabled_skills: build-check,ship$/m);
   });
 
   test('the retired verify name is not mapped: build-check stays on when nothing disables it', () => {

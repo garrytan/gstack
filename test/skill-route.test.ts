@@ -294,6 +294,7 @@ describe('installed skills beside gstack (GST-3123)', () => {
       'What does this print?\n~~~sh\nrun the checks || echo broken\n~~~',
       'What does this print?\n```\nrun the checks\n````\nmore\n````',
       'rename `handleError` to `onError`',
+      'verify my change',
     ]) {
       expect([text, names(text)]).toEqual([text, []]);
       expect([text, names(text, 'codex')]).toEqual([text, []]);

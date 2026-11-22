@@ -212,11 +212,25 @@ describe('literals (pure)', () => {
       { name: 'limit', old: '10', new: '30', file: 'f.ts' }, { name: 'limit', old: '20', new: '30', file: 'f.ts' },
     ]);
   });
-  test('#4593: a quoted list that only gained items is not a changed literal; a dropped or replaced item still is', () => {
-    expect(changedLiterals('r.sh', 'GSTACK_RETIRED_SKILLS="investigate"\n', 'GSTACK_RETIRED_SKILLS="investigate verify"\n')).toEqual([]);
+  test('#4593: a quoted list that only gained items is marked gained; a dropped or replaced item is a plain change', () => {
+    expect(changedLiterals('r.sh', 'GSTACK_RETIRED_SKILLS="investigate"\n', 'GSTACK_RETIRED_SKILLS="investigate verify"\n')).toEqual([{ name: 'GSTACK_RETIRED_SKILLS', old: '"investigate"', new: '"investigate verify"', file: 'r.sh', gained: true }]);
     expect(changedLiterals('r.sh', 'RETIRED="a b"\n', 'RETIRED="b"\n')).toEqual([{ name: 'RETIRED', old: '"a b"', new: '"b"', file: 'r.sh' }]);
     expect(changedLiterals('r.sh', 'RETIRED="a b"\n', 'RETIRED="a c d"\n')).toEqual([{ name: 'RETIRED', old: '"a b"', new: '"a c d"', file: 'r.sh' }]);
     expect(changedLiterals('f.ts', "export const MODE = 'fast';\n", "export const MODE = 'slow';\n")).toEqual([{ name: 'MODE', old: "'fast'", new: "'slow'", file: 'f.ts' }]);
+  });
+
+  test('#4593: for a list that only gained items, a member used on its own is not a consumer; a statement naming the constant still is', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-gained-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'test/member.test.ts': ['// GSTACK_RETIRED_SKILLS from bin/registry.sh', "fs.mkdirSync(path.join(skills, 'investigate'));", ''].join(nl),
+      'test/whole.test.ts': ['const out = run("bin/registry.sh");', "expect(GSTACK_RETIRED_SKILLS).toBe('investigate');", ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    const change = { name: 'GSTACK_RETIRED_SKILLS', old: '"investigate"', new: '"investigate verify"', file: 'bin/registry.sh' };
+    expect(consumersOf(root, Object.keys(files), change)).toEqual(['test/member.test.ts:2', 'test/whole.test.ts:2']);
+    expect(consumersOf(root, Object.keys(files), { ...change, gained: true })).toEqual(['test/whole.test.ts:2']);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   // Value: protects=a sibling file that shares the module's stem (`postgres-unit-arms.txt` beside `postgres-unit-arms.ts`) is not the
