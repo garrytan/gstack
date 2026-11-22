@@ -81,3 +81,35 @@ single counterexample fails it.
 ## Results
 
 Filled in after the run, below this line.
+
+**Verdict: pass.** Run 2026-11-22 as `test/r51-final-review-replay.test.ts`
+(14 tests, all passing; about 2 seconds, no model calls) on the PR 3 branch
+after commit `02757fcd2`. The repin names replay `GST-3260`.
+
+- **Recorded histories:** 2,596 distinct histories (with depth) from the six
+  planner test files plus the `bin/gstack-review-plan` calls they make, captured
+  into `test/fixtures/r51-replay/histories.json`. Every one plans the same step
+  and the same reason as main.
+- **Grid:** 1,658,880 histories without the new field: identical step and
+  reason on every one. 1,105,920 with `grantFixChecked` set (`last` full or
+  fix-check): never a `fix-check` or `scoped` step; a `full` step appears in
+  27,648 of them, each exactly where main said `done` after a fix-check whose
+  range changed runtime lines; after a full pass the field yields only
+  `done`, `stop` or `voices`.
+- **Real shapes:** all ten keep every old review step in order. Eight add one
+  read-only `full` right after the granted fix-check, followed by `done`
+  (#4537, harness-evals#508, #4612, harness-evals#504, #4664, #4663,
+  gbrain#10036) or `stop` (the final-review-blocker control). #4597 (no grant)
+  and the 0-runtime-line control are unchanged.
+- **Packets:** with no untracked file the documented command is byte-identical
+  to plain `git diff $PASS_HEAD` on tracked edits, a committed fix plus an
+  uncommitted edit, a committed new file, a deletion and ignored files; a file
+  the fix created is included, and its bytes equal `git diff $PASS_HEAD HEAD`
+  once committed, which is what the clearing code hashes.
+- **Negative control of the replay itself:** changing the added step to
+  `fix-check` fails the grid and nine of the ten shapes.
+
+Limits: the recorded corpus is what the tests exercise, not production logs;
+the grid covers each field at a fixed value set, not every integer; the shapes
+follow each PR's recorded route, not its bytes. #4663's final review was ruled
+by hand, so the shape shows the planner now asks for what the Captain ruled.

@@ -220,6 +220,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/review-fetch/**': ['test/review-fetch.test.ts'],
   'test/fixtures/review-ledger/**': ['test/review-dispatch.test.ts'],
   'test/fixtures/review-pins/**': ['test/review-packets-removed.test.ts'],
+  'test/fixtures/r51-replay/**': ['test/r51-final-review-replay.test.ts'],
   'test/fixtures/review-risk/gbrain-evals-289.json': ['test/review-risk-routing.test.ts'],
   'test/fixtures/review-design-lite-reports-ci-36633323521.json': ['test/review-finalization-budget.test.ts'],
   'test/fixtures/review-gate-integrity-opus-reports.json': ['test/gate-integrity-templates.test.ts'],
