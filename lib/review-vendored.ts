@@ -204,6 +204,7 @@ function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string
     if (!head.ok || !def) { fail(`could not read the default branch (${head.err.split('\n').pop() || 'no HEAD'})`); return; }
     const heads = new Set(head.out.split('\n').map(l => l.split('\t')[1]).filter(Boolean));
     const named = up.branches.filter(b => b.includes('*') || heads.has(`refs/heads/${b}`));
+    for (const b of up.branches) if (!b.includes('*') && !heads.has(`refs/heads/${b}`)) git(refs, ['update-ref', '-d', `refs/vendored/heads/${b}`], genv);
     const specs = [`+refs/heads/${def}:refs/vendored/heads/${def}`, '+refs/tags/*:refs/vendored/tags/*', ...named.map(b => `+refs/heads/${b}:refs/vendored/heads/${b}`)];
     const f = git(refs, [...flags, 'fetch', '--quiet', '--no-tags', '--prune', '--filter=tree:0', url, ...specs], genv, t);
     if (!f.ok) { fail(`could not fetch its branches and tags (${f.err.split('\n').pop()})`); return; }
@@ -289,3 +290,50 @@ export function resolveVendored(i: ResolveInput): { entries: EntryResult[]; pins
 
 /** The cache directory under a state root. */
 export const vendoredCacheRoot = (stateRoot: string) => path.join(stateRoot, 'vendored-cache');
+
+/** What a review range may treat as vendored (lib/review-exclude.ts): sorted verified paths, the entries that did not verify, the pins, and a digest of the verified list. */
+export interface VendoredSelection { verified: string[]; failed: EntryResult[]; pins: PinResult[]; digest: string }
+
+/**
+ * The verified vendored files among `changed`: entries of the head's manifests, checked at the head, and files the range
+ * deletes that the merge base's manifests list, checked at the merge base (a re-pin's old files). With no head (a live
+ * tree) the manifests and blobs come from HEAD, and a file the working tree or index changes is not verified. A manifest
+ * that is missing at the head, does not parse, or pins one path twice gives { error } and nothing is verified.
+ */
+export function vendoredSelection(i: { root: string; policy: VendoredPolicy; head?: string; mergeBase: string; changed: ReadonlySet<string>; fetch: boolean; cacheRoot: string; env?: NodeJS.ProcessEnv }): VendoredSelection | { error: string } {
+  const show = (rev: string, f: string) => { const r = spawnSync('git', ['show', `${rev}:${f}`], { cwd: i.root, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? r.stdout ?? '' : null; };
+  const rev = i.head ?? 'HEAD';
+  const now: VendoredEntry[] = [];
+  const old: VendoredEntry[] = [];
+  for (const m of i.policy.manifests) {
+    const text = show(rev, m);
+    if (text === null) return { error: `${m} is not in ${i.head ? i.head.slice(0, 12) : 'HEAD'}` };
+    const parsed = parseManifest(text, m);
+    if (parsed.errors.length) return { error: parsed.errors[0]! };
+    now.push(...parsed.entries);
+    const before = show(i.mergeBase, m);
+    if (before !== null) old.push(...parseManifest(before, m).entries);
+  }
+  const lower = new Set<string>();
+  for (const e of now) { if (lower.has(e.path.toLowerCase())) return { error: `${e.path} is pinned more than once` }; lower.add(e.path.toLowerCase()); }
+  const atHead = now.filter(e => i.changed.has(e.path));
+  const dropped = old.filter(e => i.changed.has(e.path) && !lower.has(e.path.toLowerCase()) && !e.path.includes('\n'));
+  const probe = dropped.length ? spawnSync('git', ['cat-file', '--batch-check=%(objectname)'], { cwd: i.root, input: dropped.map(e => `${rev}:${e.path}\n`).join(''), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }) : null;
+  if (probe && probe.status !== 0) return { error: 'git could not check which vendored files the range deletes' };
+  const probed = (probe?.stdout ?? '').split('\n');
+  const gone = dropped.filter((e, k) => probed[k] === `${rev}:${e.path} missing` && (i.head || !fs.existsSync(path.join(i.root, e.path))));
+  const head = resolveVendored({ root: i.root, rev, policy: i.policy, entries: atHead, fetch: i.fetch, cacheRoot: i.cacheRoot, env: i.env });
+  const base = gone.length ? resolveVendored({ root: i.root, rev: i.mergeBase, policy: i.policy, entries: gone, fetch: i.fetch, cacheRoot: i.cacheRoot, env: i.env }) : { entries: [], pins: [], digest: '' };
+  if (!head || !base) return { error: 'git could not list the vendored files' };
+  const dirty = new Set<string>();
+  if (!i.head) {
+    const d = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--name-only', '-z', '--no-renames', 'HEAD'], { cwd: i.root, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+    if (d.status !== 0) return { error: 'git could not list the working tree changes' };
+    for (const f of (d.stdout ?? '').split('\0')) if (f) dirty.add(f);
+  }
+  const all = [...head.entries, ...base.entries];
+  const verified = all.filter(e => e.verdict === 'verified' && !dirty.has(e.path)).map(e => e.path).sort();
+  const failed = all.filter(e => e.verdict !== 'verified' || dirty.has(e.path)).map(e => (e.verdict === 'verified' ? { ...e, verdict: 'mismatched' as const, detail: 'changed in the working tree' } : e));
+  return { verified, failed, pins: [...head.pins, ...base.pins], digest: createHash('sha256').update(JSON.stringify(verified)).digest('hex') };
+}
+
