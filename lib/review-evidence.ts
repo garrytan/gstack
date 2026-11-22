@@ -339,8 +339,12 @@ export const unresolvedFinding = (f: unknown) => record(f) && (f.action === 'ope
   ((f.action === 'deferred' || f.action === 'noted') && (f.blocking === true || isCriticalFinding(f))) ||
   (!f.gate && isCriticalFinding(f) && isOpenByAction(f)));
 export const RULABLE = new Set(['open', 'skipped', 'noted', 'deferred']);
-/** What a ruling must cover before rulings can clear a row: every unresolved finding and every one the reader marked blocking, whatever its action. */
-export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || f.blocking === true;
+/**
+ * What a ruling must cover before rulings can clear a row: every unresolved finding and every one the reader marked blocking,
+ * unless the reader recorded it fixed. A fixed finding cannot be ruled, and a row with no rulings already reads it as resolved,
+ * so holding it open left a fix-check that confirmed its blockers fixed uncountable (GST-3501, gbrain#10036).
+ */
+export const holdsOpen = (f: unknown) => !record(f) || unresolvedFinding(f) || (f.blocking === true && f.action !== 'fixed');
 
 /**
  * GST-1537: the row (claimed, or derived with its file's findings shown, GST-3296) with each finding the owner ruled a disclosed note (`ruled`: fingerprints from approved
