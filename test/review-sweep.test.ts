@@ -131,7 +131,7 @@ describe('review-sweep inventory diff', () => {
     const found = [big('dist/blob.bin', elf), big('bin/chats.tar', elf), big('bin/notes.txt', [0x68, 0x69, 0x0a, 0x0a])];
     const r = sweepResult(start, inventory([root], checkout, []));
     expect(r.found.map(f => f.path).sort()).toEqual([...found].sort());
-    expect(r.ignored).toEqual([{ path: core, reason: 'build-output' as const }, { path: exe, reason: 'build-output' as const }].sort((a, b) => a.path.localeCompare(b.path)));
+    expect([...r.ignored!].sort((a, b) => a.path < b.path ? -1 : 1)).toEqual([{ path: core, reason: 'build-output' as const }, { path: exe, reason: 'build-output' as const }]);
     expect(ignoredLines('specialists', 1, r.ignored!)[0]).toContain('reason=build-output');
     fs.rmSync(core); fs.writeFileSync(core, 'not a binary\n'); fs.truncateSync(core, BIG_BYTES);
     fs.appendFileSync(path.join(checkout, '.gitignore'), 'bin/notes.txt\n');
