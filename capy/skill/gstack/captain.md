@@ -168,10 +168,9 @@ every wake more than about five minutes after its last call rewrites its whole c
 warm price. The merge lane reports to the Captain only a landing, a decision or a blocker
 (`crew/docs/captain.md` in the gstack checkout, Roles).
 
-A token cap in a brief goes to /ship as `--token-cap <n>`. Run each /ship in a fresh subagent titled
-`ship #<n> at <head7> <4-char nonce>` (unique), with `GSTACK_SHIP_TASK_TITLE=<that title>` in its brief and the instruction to
-take every reading (start, notes, close) from its own row of the root thread's `tasks` and start the budget with
-`--reading-from task`, so it caps at 50M by default; never message a finished /ship subagent to run another. When /ship stops on it (`STOP:
+A token cap in a brief goes to /ship as `--token-cap <n>`. Run /ship in your own thread, never in a subagent, and
+take every reading (start, notes, close) from your own jam id's `tools.thread.get`, which counts its reviewers
+too; a rerun at the same head is a new /ship run with a new run id. When /ship stops on the cap (`STOP:
 reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
 owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
 `--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.

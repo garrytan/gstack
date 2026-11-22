@@ -295,9 +295,13 @@ export function refreshBase(ctx: QueueContext): QueueFailure | null {
 /**
  * TRIAL_MERGES (rule 14): each open PR into the base that changes a path this PR changes, trial-merged with this head by git
  * merge-tree; one line per such PR, or a MISSING line when gh or the fetch cannot tell. A PR from a fork is an outside
- * contribution, not a sibling lane: it is labelled and never fetched or merged (outside code is read as text only).
+ * contribution, not a sibling lane: it is labelled and never fetched or merged (outside code is read as text only). Heads this
+ * clone lacks come down in one git fetch, then one at a time if that fails, all within GSTACK_TRIAL_FETCH_TIMEOUT_MS (default
+ * 60 s); a head still missing when the time runs out gets a TRIAL_FETCH_STALLED line, which ready refuses (GST-3460).
  */
-export function trialMergeLines(ctx: QueueContext, pr: string, head: string, changed: readonly string[]): string[] {
+export const TRIAL_FETCH_STALLED = 'the trial-merge fetch time limit ran out';
+
+export function trialMergeLines(ctx: QueueContext, pr: string, head: string, changed: readonly string[], progress?: (line: string) => void): string[] {
   const list = ctx.gh(['pr', 'list', '--state', 'open', '--base', ctx.base, '--limit', '200', '--json', 'number,headRefOid,files,isCrossRepository']);
   let open: Array<{ number: number; headRefOid: string; files?: Array<{ path: string }>; isCrossRepository?: boolean }> | undefined;
   try { open = list.ok ? JSON.parse(list.out) : undefined; } catch { open = undefined; }
@@ -307,11 +311,27 @@ export function trialMergeLines(ctx: QueueContext, pr: string, head: string, cha
   const siblings = others.map(p => ({ ...p, shared: (p.files ?? []).map(f => f.path).filter(f => own.has(f)) })).filter(p => p.shared.length);
   if (!siblings.length) return [`TRIAL_MERGES: none share a file (${others.length} open PRs checked)`];
   const remote = ctx.remote ?? 'origin';
+  const has = (sha: string) => git(ctx.repoRoot, ['cat-file', '-e', `${sha}^{commit}`]).ok;
+  const limitMs = Number(process.env.GSTACK_TRIAL_FETCH_TIMEOUT_MS) || 60_000;
+  const deadline = Date.now() + limitMs;
+  let missing = siblings.filter(p => !p.isCrossRepository && !has(p.headRefOid));
+  let stalled = false;
+  if (missing.length) {
+    const refs = missing.map(p => `refs/pull/${p.number}/head`);
+    progress?.(`TRIAL_MERGES: fetching ${refs.length} PR head(s) from ${remote} (time limit ${Math.ceil(limitMs / 1000)} s): ${refs.slice(0, 5).join(' ')}${refs.length > 5 ? ` (+${refs.length - 5} more)` : ''}`);
+    stalled = git(ctx.repoRoot, ['fetch', '--no-tags', '-q', remote, ...refs], undefined, undefined, limitMs).status === null;
+    missing = missing.filter(p => !has(p.headRefOid));
+    for (const p of stalled ? [] : missing) {
+      const left = deadline - Date.now();
+      if (left <= 0 || git(ctx.repoRoot, ['fetch', '--no-tags', '-q', remote, `refs/pull/${p.number}/head`], undefined, undefined, left).status === null) { stalled = true; break; }
+    }
+  }
   return siblings.map(p => {
     const at = `#${p.number} ${p.headRefOid.slice(0, 12)} shares ${p.shared.slice(0, 5).join(', ')}${p.shared.length > 5 ? ` (+${p.shared.length - 5} more)` : ''}`;
     if (p.isCrossRepository) return `TRIAL_MERGES: ${at}: outside PR from a fork, not a sibling lane; not trial-merged (rule 19)`;
-    if (!git(ctx.repoRoot, ['cat-file', '-e', `${p.headRefOid}^{commit}`]).ok) git(ctx.repoRoot, ['fetch', '--no-tags', '-q', remote, `refs/pull/${p.number}/head`]);
-    if (!git(ctx.repoRoot, ['cat-file', '-e', `${p.headRefOid}^{commit}`]).ok) return `TRIAL_MERGES: ${at}: MISSING: its head is not in this clone after git fetch ${remote} refs/pull/${p.number}/head, so no trial merge ran`;
+    if (!has(p.headRefOid)) return stalled
+      ? `TRIAL_MERGES: ${at}: MISSING: ${TRIAL_FETCH_STALLED} (${Math.ceil(limitMs / 1000)} s) waiting on git fetch ${remote} refs/pull/${p.number}/head, so no trial merge ran`
+      : `TRIAL_MERGES: ${at}: MISSING: its head is not in this clone after git fetch ${remote} refs/pull/${p.number}/head, so no trial merge ran`;
     const m = git(ctx.repoRoot, ['merge-tree', '--write-tree', '--name-only', '--no-messages', head, p.headRefOid]);
     const [tree, ...files] = m.out.split('\n').filter(Boolean);
     if (m.status === 0) return `TRIAL_MERGES: ${at}: merge-tree clean (tree ${(tree ?? '').slice(0, 12)})`;
@@ -387,6 +407,8 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   const attempt = currentAttempt(ctx.repoRoot, o.pr);
   const changed = git(ctx.repoRoot, ['-c', 'core.quotePath=false', 'diff', '--name-only', `${baseSha}...${head}`]).out.split('\n').filter(Boolean);
   const hint = conflictHint(info.mergeable, ci, info.headRefName, info.isCrossRepository === true, head);
+  const trials = trialMergeLines(ctx, o.pr, head, changed, line => process.stderr.write(`gstack-ship-queue ready: ${line}\n`));
+  const stalled = trials.filter(l => l.includes(TRIAL_FETCH_STALLED)).map(l => /refs\/pull\/\d+\/head/.exec(l)?.[0]);
   const lines = [
     `READY #${o.pr} ${head} STAMP_VERSION=${version}`,
     `pr: ${info.url ?? `#${o.pr}`}`,
@@ -403,7 +425,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     ...(receipt.depthLine ? [receipt.depthLine] : []),
     ...(receipt.targetedLine ? [receipt.targetedLine] : []),
     ...(gates?.lines ?? []),
-    ...readyTailLines(receipt.ok ? { ...receipt.receipt, gate_dispositions: undefined } : undefined, { trialMerges: trialMergeLines(ctx, o.pr, head, changed), trailRead: trailReadRow(o.trail) }),
+    ...readyTailLines(receipt.ok ? { ...receipt.receipt, gate_dispositions: undefined } : undefined, { trialMerges: trials, trailRead: trailReadRow(o.trail) }),
   ];
   const gate = policy.policy.full_e2e ? gateEvidence(ctx, o.pr, head, attempt, o.gateExit, o.gateLog) : null;
   if (gate) lines.push(gate.line);
@@ -412,6 +434,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (gate && !gate.ok) return fail({ code: 'QUEUE_GATE_MISSING', message: `full_e2e is set and no passing gate is bound to ${head.slice(0, 12)}: ${gate.line}` }, lines, run);
   if (!receipt.ok) return fail({ code: receipt.code, message: receipt.message }, lines, run);
   if (gates?.failure) return fail(gates.failure, lines, run);
+  if (stalled.length) return fail({ code: 'QUEUE_NOT_READY', message: `the trial merges (rule 14) ran out of time waiting on git fetch ${ctx.remote ?? 'origin'} ${stalled.join(' ')}`, fix: `fetch those refs by hand (git fetch ${ctx.remote ?? 'origin'} <ref>), then rerun ready; GSTACK_TRIAL_FETCH_TIMEOUT_MS raises the limit` }, lines, run);
   const plan: ReturnType<typeof readyPlan> = policy.policy.train ? {} : readyPlan({ cwd: ctx.repoRoot, env: process.env, body: info.body ?? '', policyValue: policy.policy.plan_record, changed, fragmentsDir: policy.policy.changelog_fragments?.dir, finishLine: finishPlanLine(ctx.repoRoot, info.headRefName, head) });
   if (plan.line) lines.push(plan.line);
   if (plan.failure) return fail(plan.failure, lines, run);

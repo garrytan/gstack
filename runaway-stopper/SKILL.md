@@ -224,8 +224,8 @@ cold starts (after the 5-minute cache lapsed) and empty wakes cost; `scan --wake
 | `RUNAWAY_INPUT:`, `FETCH_FAILED:` | That thread wasn't read: fetch it again and rerun; never count it as OK. |
 
 No `RUNAWAY:` or `SWEEP:` line means the scan failed, never that the crew is clean. `DEFER:` holds a rotation, and
-a stop of a subagent that is itself, or holds, a /ship mid-run (its own cap stops it); stopping any other subagent
-goes ahead.
+a stop of a /ship reader mid-run, or of a subagent that holds one (the run's own cap stops it); stopping any other
+subagent goes ahead.
 
 ## 2. Stop a subagent
 
@@ -254,10 +254,8 @@ Put the lines that apply into every brief you write:
   message to a parent or Captain: send a READY, a decision you need, a blocker or the final report.
 - **Compact returns.** A program returns only the lines the next step needs; big output goes to a file under
   ~/.capy/work and you read the part you need.
-- **One /ship subagent per PR head.** A rerun or another PR gets a fresh subagent with the run directory path; never
-  message a finished /ship subagent to run another. Title it `ship #<n> at <head7> <4-char nonce>` and put
-  `GSTACK_SHIP_TASK_TITLE=<title>` in its brief: /ship then takes every reading from that one row and caps at
-  50M by default (`BUDGET_DEFAULT_CAP:`); raising the cap needs the owner's words.
+- **/ship runs in the PR's own thread.** The thread follows `ship/DRIVER.md` itself and starts only the reviewers as
+  subagents; it never starts a subagent to run /ship. Raising a brief's `--token-cap` needs the owner's words.
 - **Two review rounds.** Reader and review rounds stop at 2 per PR (R51), and every reader's title names the PR
   (`#<n>`) so the scan can count them.
 - **Rotate standing roles** at 250M own tokens or 3 days. An automation gets a fresh thread per run that archives

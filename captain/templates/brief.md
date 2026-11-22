@@ -17,7 +17,7 @@ Context: after the install check, read the gstack skill's lane-card.md (the chec
    Batch independent reads in one parallel program; return 4k characters or less per call and
    send long output to files under ~/.capy/work. A wait under about 30 minutes checks in every
    240 s (wait on the operation with duration_seconds 240, then a silent re-wait, for about 30
-   minutes at most); longer waits sleep on their operations, and so does the lane while /ship runs. Past twice the median lane spend, write handoffs/<code>/next.md and
+   minutes at most); longer waits sleep on their operations. Past twice the median lane spend, write handoffs/<code>/next.md and
    tell me in one line (crew/docs/captain.md, Lane context).
 
 1. Plan (when Plan: required). After the session-start install check, install for autoplan
@@ -40,10 +40,10 @@ Context: after the install check, read the gstack skill's lane-card.md (the chec
 3. Ship. CHANGELOG entry under [Unreleased]; GUARD_CHECKS, pregate and /ship at the final
    head; one unstamped READY block (captain/templates/READY.md) to me; the PR body carries
    gstack-approvals render --plan "<this brief's Plan line>". Never merge; stamp only on my slot call.
-   After dispatching /ship, end your turn; wake only on /ship's completion, holding no PR
-   watch meanwhile (cancel one you hold; a red check during /ship waits for it to finish).
-   /ship owns the receipt and the PREGATE line. On that wake you subscribe to the PR, read
-   its checks and comments once, stop the /ship subagent, run gstack-ship-queue ready
+   Run /ship yourself, in this thread: follow ship/DRIVER.md phase by phase and start its
+   reviewers as your own subagents; never start a subagent to run /ship (a red check during
+   /ship waits for it to finish). /ship owns the receipt and the PREGATE line. After the
+   receipt, read the PR's checks and comments once, run gstack-ship-queue ready
    --pr <n> --pregate <pregate.json> --screen|--no-screen at the pin (its notes on origin),
    audit your decision trail, write Attention and send READY; after READY, handle PR events
    as usual (crew/docs/captain.md, the lane's /ship sequence).

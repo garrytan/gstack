@@ -77,7 +77,7 @@ branch that changes the policy.
 | `review_content_patterns` | git glob pathspecs | `[]` | Files that `review_exclude_paths` also matches and that count as content whatever their extension (`.patch` files, `MANIFEST.sha256`, extension-less licence texts), so the exclusion leaves them out. Source code, agent prose, config and the other keep rules still keep a matched file in review. Explicit policy only; a pattern here with no `review_exclude_paths` pattern over the same files excludes nothing. Read from the base only. See [review_content_patterns](#review-content-patterns). Needs `min_gstack_version`. |
 | `review` | `{ panel?, reader_model?, platform?, risk_paths? }` | `{ all, lane, off, [] }` | Who does `/ship`'s review, read from the base only; see [Who reads](review-policy.md#who-reads-r65-the-base-policys-review-key). `panel`: `all` (today's panel on every class) \| `risk` \| `off` (the opt-in one-reader shapes); `reader_model`: `lane`, `cross-family` or a model id; `platform`: `off` \| `on` (a docs or tests diff with no numeric, results or prereg claims whose PR carries capy-ai[bot]'s review at the exact head skips the readers); `risk_paths`: globs of code paths that count as risk class `policy`. Introduced at 1.94.30.0; needs `min_gstack_version` when set to a non-default value. |
 | `readers` | `{ forbid_fetch?, forbid_paths?, brief_note? }` | `{ [], [], null }` | What `/ship`'s readers may not reach beyond the fetch rule every brief carries; see [readers](#readers). Read from the base; the head may add `forbid_fetch` entries, never remove one. Needs `min_gstack_version`. |
-| `review_vendored` | `{ upstreams, manifests }` or `null` | `null` | The repositories this repo copies unchanged files from (https URLs, or `{ url, branches }`) and the manifests that pin each copied file to a path at a commit. `gstack-vendored-verify` checks every pinned file is byte-for-byte that upstream file at a commit on the upstream's default branch or a tag; see [vendored-code.md](vendored-code.md). Read from the base only. Needs `min_gstack_version`. |
+| `review_vendored` | `{ upstreams, manifests }` or `null` | `null` | The repositories this repo copies unchanged files from (https URLs, or `{ url, branches }`) and the manifests that pin each copied file to a path at a commit. `gstack-vendored-verify` checks every pinned file is byte-for-byte that upstream file at a commit on the upstream's default branch, a tag, or a branch the base names for that upstream. Under `review_exclude_paths`, a matched file that verifies is vendored content that review can leave out; every other keep rule still applies (see [vendored-code.md](vendored-code.md#what-review-leaves-out)). Read from the base only. Needs `min_gstack_version`. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
@@ -1864,7 +1864,9 @@ counts. That includes the usual order, where the fix-check finds a new CRITICAL,
 logs it `open` with `converged:false` and stops for the owner, and the owner rules
 afterwards: the row's `incomplete` binding still names the one tree it read, so
 once every blocking finding on it is ruled it binds at that tree as a clean read
-(harness-evals#361, GST-2251). A CRITICAL with no ruling stays open, and while one
+(harness-evals#361, GST-2251). A blocking finding the row records `fixed` or
+`auto-fixed` needs no ruling, since a fixed finding cannot be ruled and already
+reads resolved (gbrain#10036, GST-3501). A CRITICAL with no ruling stays open, and while one
 does, finish prints `FIX_CHECK_OPEN: <fingerprints> on the fix-check at <commit12>`
 naming the `gstack-approvals rule` command for each
 ([troubleshooting](troubleshooting.md#fix-check-open)). On any stopped review row,
@@ -1893,7 +1895,8 @@ file, not on the row, so `gstack-review-read` shows the file's findings on the r
 (`findings_from` names the file) while the file still derives the counts the row
 recorded. A Step 11 native row that lists no findings shows the findings of the
 Step 9 row of the same pass, commit and bound tree, because Step 9 carries Step
-11's queued findings; rulings must then cover every blocker of that pass. A file
+11's queued findings; rulings must then cover every blocker of that pass that is not recorded `fixed` or
+`auto-fixed`. A file
 that is missing or changed attaches nothing, and any row that claims issues but
 lists no findings reads `it lists no findings (fcount 0) but claims …` with the
 cause (harness-evals#515, GST-3296).

@@ -251,7 +251,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const record = str(o, 'record');
   if (!record) throw usageError('start needs --record <invocation record path>');
   const rawCap = str(o, 'token-cap') ?? ctx.env.GSTACK_SHIP_TOKEN_CAP;
-  const defaultCap = rawCap === undefined && mode === 'observe' && from === 'task' && tokensOpt(o, 'reading') !== undefined;
+  const defaultCap = rawCap === undefined && mode === 'observe' && (from === 'task' || from === 'own' || (from === undefined && scope !== 'tree')) && tokensOpt(o, 'reading') !== undefined;
   const cap = defaultCap ? SUBAGENT_DEFAULT_CAP : rawCap === undefined || rawCap === 'none' ? null : parseTokens(rawCap, '--token-cap');
   const callFloor = tokensOpt(o, 'call-floor');
   const delegate = str(o, 'delegate') ?? 'auto';
@@ -291,7 +291,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const out = decide(l, '0.9', { kind: 'step', step: '1' }, call, true);
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
-  const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)`] : [];
+  const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship run metering its own counter; --token-cap <n> or none to change it)`] : [];
   return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
 }
 

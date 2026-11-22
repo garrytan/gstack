@@ -1,0 +1,4 @@
+{
+  "bytes": -124,
+  "why": "GST-3466: /ship runs in the PR's own thread, never a subagent; budget-handoff Meter drops the task-row clause"
+}

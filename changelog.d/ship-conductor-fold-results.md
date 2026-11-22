@@ -1,0 +1,1 @@
+Published the results of the /ship conductor trial: run in the pull request's own thread, /ship showed no clear difference in cost or bugs caught from running it through its separate conductor subagent, over the review and fix phases the runs reached; the verdict depends on one scoring ruling made after seeing the data (docs/evals/ship-conductor-fold-results.md).

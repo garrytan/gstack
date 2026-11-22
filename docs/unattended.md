@@ -1101,8 +1101,11 @@ whose decision names the reader (`gstack-decision-trail <file> trail-read
 for a risk-class receipt, then that row's flags (`Flags (trail row <n>): …`, or
 `No flags (trail row <n>)`), or `MISSING: cross-family trail read` when the trail
 has none, and one `TRIAL_MERGES` line per open PR that shares a file, from
-`git merge-tree` at both heads. A PR from a fork is labelled as an outside PR
-and never fetched or merged. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
+`git merge-tree` at both heads. Heads this clone lacks come down in one
+`git fetch` (then one at a time if that fails) within
+`GSTACK_TRIAL_FETCH_TIMEOUT_MS` (default 60 s); ready prints a progress line
+before the fetch and refuses with `QUEUE_NOT_READY` when the limit runs out.
+A PR from a fork is labelled as an outside PR and never fetched or merged. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
 trail is the plain one a person reads, and `column -s$'\t' -t decisions.tsv`
 renders it in a terminal.
 
