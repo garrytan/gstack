@@ -422,7 +422,14 @@ The cap counts files before `review_exclude_paths` applies, because the exclusio
 the depth this scan decides, and it changes only depth: excluded files still stay out of the readers' diffs; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. The scan first lists the files that contain a candidate's
 extension and then searches only those, docs files left out, so a large data tree
-costs one cheap pass. Each scan gets one 120-second deadline, set in milliseconds with
+costs one cheap pass. That extension pass runs once per scan at each commit and in the working
+tree; the files it keeps go into a scratch index, `git grep -l` lists the ones that hold a
+name, and the scan picks each such file's matches itself the way `git grep -o` does
+(earliest start, longest name there, then on from its end), so its results are
+byte-identical to the -o grep. git's own -o retries every name after each match and took
+220 s on one 16 MB trials file with 80 names (HARN-98, harness-evals #551); on that PR's
+304,000-file tree the whole scan now takes about 40 s on a 4-core machine, where it used to
+run past its deadline. Each scan gets one 120-second deadline, set in milliseconds with
 `GSTACK_CONSUMER_SCAN_TIMEOUT_MS`; a scan that runs past it, or whose matches pass
 256 MB, is also `consumer_scan_failed`, and its detail says what stopped it and names
 the deadline. One scan fits a minute inside the 180 seconds /ship gives
