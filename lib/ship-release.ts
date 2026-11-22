@@ -16,7 +16,8 @@ import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
 import { matchesAny } from './ship-policy';
 import { baseHolds, boundedPaths, comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type BoundedKind, type PatchSides } from './ship-patch';
-import { heldBy } from './ship-receipt';
+import { extractReceipt, heldBy, receiptRuns } from './ship-receipt';
+import { finishRun, readRunRecord } from './ship-run-record';
 import { locate, readRecord } from './approval-record';
 import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
@@ -39,7 +40,7 @@ import { finishPlan, recordFinishPlan } from './plan-record';
 import { PREPUSH_CHECK_IDS } from './pregate/index';
 import { checkBranch, loadPlainTitlePolicy, type PlainFinding } from './plain-title';
 import { buildRunCheck } from './pregate/run-check';
-import { bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, recordCiTimeout, releasePaths, Report, runLanes, sh, shipPolicy, shipRunMarker, short, stampedFiles } from './ship-bin-common';
+import { bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, recordCiTimeout, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
 
@@ -570,16 +571,26 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   return true;
 }
 
-/** Steps 15-16; once they pass, the /ship run's preflight marker is cleared, so a full preflight may merge the base again (GST-1204). */
+/**
+ * Steps 15-16; once they pass, the /ship run's record is removed, so a full preflight may merge the base again (GST-1204). Only the
+ * record of a run the open PR's body names (a stub, stop, grant or receipt entry) is removed, or any run's when no PR is open: a late
+ * finish never removes another run's record (GST-3260); gh failing keeps it.
+ */
 export async function finish(argv: readonly string[], cwd: string): Promise<Report> {
   const { flag } = flagReader(argv);
   const plan = finishPlan(cwd, flag('--base')!, flag('--plan'));
   if (plan.failure) return new Report().add(plan.line!).stop(`${plan.failure.message} (${plan.failure.code}); fix: ${plan.failure.fix}`);
   const r = await finishStages(argv, cwd);
   if (plan.line) r.lines.unshift(plan.line);
-  if (r.exit === 0) recordFinishPlan(cwd, flag('--plan') ? plan.record : undefined);
-  const marker = r.exit === 0 && shipRunMarker(cwd);
-  if (marker) fs.rmSync(marker, { force: true });
+  if (r.exit !== 0) return r;
+  recordFinishPlan(cwd, flag('--plan') ? plan.record : undefined);
+  if (readRunRecord(cwd).kind === 'none') return r;
+  const branch = git(cwd, ['branch', '--show-current']).stdout.trim();
+  const listed = hostedOrigin(cwd) && branch ? gh(cwd, ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'body', '--jq', '.[0].body // empty']) : undefined;
+  const body = listed?.status === 0 ? listed.stdout.trim() : '';
+  const ended = listed && listed.status !== 0 ? { line: `RUN_RECORD: kept (gh pr list failed: ${firstLine(listed.stderr)}; finish removes a run record only when the PR body names its run)` }
+    : finishRun(cwd, body ? [...receiptRuns(body), extractReceipt(body).receipt].flatMap(e => typeof e?.run === 'string' ? [e.run] : []) : null);
+  if (ended.line) r.add(ended.line);
   return r;
 }
 

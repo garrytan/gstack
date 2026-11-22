@@ -68,7 +68,8 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           a review round the PR's R51 count would not plan (docs/review-policy.md#rounds-per-pull-request): extra-round is
           one round with its fix round past the cap of 2, instead of the read-only final review; it binds
           that head of that PR only and is spent by the round; the lane or its Captain records it, never the owner, and
-          --by is recorded, not enforced; refused inside this checkout's open /ship run, so a run never grants itself
+          --by is recorded, not enforced; refused inside this checkout's open /ship run, so a run never grants itself;
+          a stopped run (gstack-ship-run status) records only the fix-check grant naming its own --stop-run and stop --head
   lane-exception --head <the pushed head the owner granted at> --files <the uncovered inventory files, comma-separated>
           --reason <why, one line> --words <the owner's exact words> --by <who granted>
           the owner's grant that a CI-carried lane counts although exactly those files are in no run's tree.json
@@ -184,9 +185,10 @@ function main(argv: string[]): number {
       if (!by || isGstackActorName(by)) return invalid('round-grant needs --by <the lane or its Captain>: gstack never grants itself a round');
       const ownerRef = flags['--owner-ref']?.trim();
       if (ownerRef !== undefined && (!OWNER_REF.test(ownerRef) || !(flags['--words'] ?? '').trim())) return invalid('--owner-ref relays the lane\'s or Captain\'s grant: <thread code>:<message id or timestamp> (GSTA-36:2026-11-19T12:29:59Z), with --words <their exact words>');
-      const open = openShipRun(process.cwd());
-      if (open && ownerRef === undefined) return invalid(`/ship run ${open} is open on this checkout: a round grant is the lane's or its Captain's, never the run's own; relay it with --owner-ref <thread code>:<message id or timestamp> --words <their exact words>, or record it from the lane after the run stops`);
       const stopRun = (flags['--stop-run'] ?? '').trim(), findings = [...new Set((flags['--findings'] ?? '').split(',').map(f => f.trim()).filter(Boolean))];
+      const open = openShipRun(process.cwd());
+      const ownStop = open?.state === 'stopped' && !open.claim && kind === 'fix-check' && stopRun === open.run && open.stop?.head === head.stdout.trim().toLowerCase();
+      if (open && ownerRef === undefined && !ownStop) return invalid(`${open.line}: ${open.state !== 'stopped' ? "a round grant is the lane's or its Captain's, never the run's own" : open.claim ? `this run already spent its own stop's fix-check grant (${open.claim.grant}), so a second fix round is the lane's or its Captain's` : `a stopped run records only the fix-check grant for its own stop (--kind fix-check --stop-run ${open.run} --head ${open.stop?.head ?? '<its stop head>'})`}; relay it with --owner-ref <thread code>:<message id or timestamp> --words <their exact words>, or record it from the lane after the run stops`);
       if (kind === 'fix-check' && (!STOP_RUN.test(stopRun) || !findings.length || !findings.every(f => FINDING_ID.test(f)))) return invalid('round-grant --kind fix-check needs --stop-run <the run gstack-ship-receipt stop named> and --findings <the open finding ids it is for, comma-separated>: it buys the fix round of that one stop');
       if (kind !== 'fix-check' && (flags['--stop-run'] !== undefined || flags['--findings'] !== undefined)) return invalid('--stop-run and --findings belong to --kind fix-check: an extra-round grant names no stop');
       const built = buildRow({ ...reviewRoundGrantRow(head.stdout.trim().toLowerCase(), Number(pr), kind, reason, kind === 'fix-check' ? { run: stopRun, findings } : undefined), words: flags['--words'] ?? reason, by, date: flags['--date'], source: ruledNoteSource({ ownerRef }) }, loc.branch);
@@ -201,7 +203,7 @@ function main(argv: string[]): number {
       if (!flags['--head'] || head.status !== 0) return invalid('lane-exception needs --head <the pushed head the owner granted at, a commit in this repository>');
       if (isGstackActor(flags['--by'] ?? '')) return invalid('--by names gstack; a test-lane exception is the owner\'s, so --by names who granted it');
       const open = openShipRun(process.cwd());
-      if (open) return invalid(`/ship run ${open} is open on this checkout: a test-lane exception is the owner's, never the lane's own runner's; record it from the owner's session`);
+      if (open) return invalid(`${open.line}: a test-lane exception is the owner's, never the lane's own runner's; record it from the owner's session`);
       const built = buildRow({ ...testLaneExceptionRow(head.stdout.trim(), files, reason), words: flags['--words'] ?? '', by: flags['--by'] ?? '', date: flags['--date'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];
@@ -217,8 +219,8 @@ function main(argv: string[]): number {
       if (ownerRef !== undefined && (!OWNER_REF.test(ownerRef) || !(flags['--words'] ?? '').trim() || !(flags['--by'] ?? '').trim())) return invalid('--owner-ref relays the owner\'s ruling: <thread code>:<message id or timestamp> (GSTA-36:2026-11-19T12:29:59Z), with --by <the owner> and --words <their exact words>');
       if (notSecurity && !/:red-team$/i.test(finding)) return invalid('--not-security is the owner\'s call on a red-team finding (path:line:red-team); a security, auth or secret finding is security class by its category');
       const open = openShipRun(process.cwd());
-      if (open && notSecurity) return invalid(`--not-security lifts a red-team finding's redaction, so it is recorded only outside a /ship run: /ship run ${open} is open on this checkout; record it after the run stops`);
-      if (open && ownerRef === undefined) return fail(cmd, { code: 'APPROVAL_RULING_RUN_OPEN', message: `/ship run ${open} is open on this checkout, and its own runner cannot rule on the run's findings: relay the owner's ruling with --owner-ref <thread code>:<message id or timestamp> --by <the owner> --words <their exact words>, or record it after the run stops` });
+      if (open && notSecurity) return invalid(`--not-security lifts a red-team finding's redaction, so it is recorded only outside a /ship run: ${open.line}; record it after the run ends`);
+      if (open && ownerRef === undefined) return fail(cmd, { code: 'APPROVAL_RULING_RUN_OPEN', message: `${open.line}, and its own runner cannot rule on the run's findings: relay the owner's ruling with --owner-ref <thread code>:<message id or timestamp> --by <the owner> --words <their exact words>, or record it after the run stops` });
       const built = buildRow({ ...ruledNoteRow(finding, head.stdout.trim(), reason), words: flags['--words'] ?? '', by: flags['--by'] ?? '', date: flags['--date'], source: ruledNoteSource({ ownerRef, notSecurity }) }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];

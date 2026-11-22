@@ -712,32 +712,33 @@ fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tre
 `review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
 
 <a id="ship-preflight-run-open"></a>
-### `STOP: /ship run <id> is open on this checkout and past its preflight (<marker>; open until its finish or for 120 minutes) ...`
+### `STOP: /ship run <id> is open on this checkout and past its preflight (<record>; state …, beat_age …; …) ...`
 
 **Meaning.** A full `gstack-ship-preflight` (Steps 1-3) ran on a checkout where a
 /ship run already passed them and has not finished. A full preflight merges the
 base into the working tree, and that run's review readers diff this tree, so the
 merge would void their pass (gbrain-evals#317). /ship passes `--run <id>` (Step 1:
 the preamble's `SESSION_ID`; `ship/DRIVER.md` Phase 2: the run dir's name). Once
-Steps 1-3 succeed, preflight records the run in the checkout's git dir
-(`gstack-ship-run`) and opens it on the checkout's own lease
-(`<git dir>/gstack-leases`, so the driver needs no workflow lease). The run
-counts as open while the marker exists, which `gstack-ship-release finish` removes
-when Steps 15-16 pass, and while `bin/gstack-lease open` says so: under 120
-minutes old and its holder (the harness that ran preflight) alive. A finished,
-aged-out or dead run never blocks, and /ship's own first preflight (or a rerun
-after a Step 3 STOP) is never refused. A different `--run` from the open run's
-holder replaces it: that is a new /ship after one that stopped before finish.
-The holder is the first non-shell process above preflight: the Claude Code
-session, or on Capy the machine's one `capy-server`, so there only the same id or
-a missing `--run` is refused. The same id, no `--run`, or an open run held by
-another live process (another session) stops.
+Steps 1-3 succeed, preflight opens the run in the checkout's run record (the
+git dir's `gstack-ship-run`, [ship-policy.md](ship-policy.md#what-ends-a-run)).
+The run stays open until a gstack command ends it: `gstack-ship-release finish`
+removes the record, `gstack-ship-receipt stop` marks it stopped,
+`gstack-skill-end` marks it finished, and `gstack-ship-run abandon` ends a run
+that stopped working. No timer ends it, so a run that has waited two hours on CI
+still blocks (GST-3260). A stopped, finished or abandoned record of another run
+never blocks: the new run replaces it. A bare marker an older gstack wrote
+(state `legacy`) and a record gstack can't read (state `unreadable`) block as
+open. /ship's own first preflight, or a rerun after a Step 3 STOP, is never
+refused. A `--run` the record already names stops with `/ship run <id> already
+ended on this checkout` (or `already stopped`): a run id names one /ship run.
 
 **What is kept.** Nothing ran: no fetch, no merge, the tree is untouched.
 
 **Fix.** Rerun Step 5 with `gstack-ship-preflight --tests-only`, which never
-merges, or let that /ship finish. If that run is no longer running (it stopped
-before finish), remove the marker the STOP names (`rm <marker>`), then rerun.
+merges, or let that /ship finish. If that run is no longer working, end it with
+the `gstack-ship-run abandon` command the STOP prints, from the earliest time it
+prints ([ship-run-abandon-refused](#ship-run-abandon-refused)), then rerun. A
+reused `--run` id needs a new id.
 
 **Expected result.** The preflight continues to `STATUS:` and `MERGE:`.
 
@@ -7617,8 +7618,9 @@ closes a gate finding, and nothing the lane writes on its review row does either
 
 **Fix.** When the owner approved the gate change, record the owner's answer at the
 stop head the review read, with the `fingerprint` and `gate_id` from the review row,
-while no /ship run is open on that branch in any worktree (a parked run's marker stops
-counting once its 120-minute lease ends, as it does for preflight):
+while no /ship run is open on that branch in any worktree (a parked run's record
+counts until `gstack-ship-run abandon` or another gstack command ends it, as it does
+for preflight; [ship-policy.md](ship-policy.md#what-ends-a-run)):
 
 ```bash
 gstack-approvals gate --finding '<fingerprint>' --gate-id <gate_id> --head <stop head> \
@@ -7891,14 +7893,44 @@ is refused) ([review-policy.md](review-policy.md#rounds-per-pull-request)).
 ### `STOP_UNBOUND`
 
 **Meaning.** `gstack-ship-receipt stop` found no review of this run that
-gstack can tie to one commit: the newest `via:ship` review row since
-`--since` is missing, didn't finish, read a tree that moved or wasn't
-committed, or its commit isn't HEAD or under it. It recorded no stop record, so
+gstack can tie to one commit: the newest `via:ship` reading row since
+`--since` (a full pass, a fix-check or a Step 11 voice, whichever read last,
+#4591) is missing, didn't finish, read a tree that moved or wasn't committed,
+or its commit isn't HEAD or under it. It recorded no stop record, so
 no fix-check grant can buy that review's fix round.
 
 **Fix.** Nothing for a grant to answer. The lane's Captain ships with the open
 notes listed or parks; a fresh `/ship` run gives the head its review
 ([review-policy.md](review-policy.md#rounds-per-pull-request)).
+
+<a id="ship-run-abandon-refused"></a>
+### `SHIP_RUN_ABANDON_REFUSED`
+
+**Meaning.** `gstack-ship-run abandon` left the run record as it was. Either
+the run beat (preflight, a review start or finish, stub, stop or claim) in the
+last 60 minutes, so it may still be working; or the record names another run,
+or already ended (finished or abandoned); or the record is unreadable and the
+`--sha256` given isn't its digest. `--by` naming gstack itself is a usage error.
+
+**Fix.** Run `gstack-ship-run status`. It prints the run, its state, its
+`beat_age` and the exact abandon command. Wait until the earliest abandon time
+when the run may still be working, and pass the run the record names. Abandon
+completes in one call: after `RUN_ABANDONED` the record is ended, so never
+rerun it, even when `RUN_ABANDON_PR` says the PR body entry was skipped or not
+recorded (add that entry with `gstack-ship-receipt abandoned` instead).
+
+<a id="ship-run-record-unreadable"></a>
+### `SHIP_RUN_RECORD_UNREADABLE`
+
+**Meaning.** This checkout's /ship run record (the git dir's `gstack-ship-run`)
+is neither a run record nor a bare run id. Every guard reads it as an open run
+(it fails closed), so preflight, round grants, rulings without `--owner-ref`,
+gate dispositions and lane exceptions stop until it is ended.
+
+**Fix.** If no /ship run is working on this checkout, run the command
+`gstack-ship-run status` prints once:
+`gstack-ship-run abandon --run unknown --sha256 <digest> --by <lane or Captain> --reason "<one line>"`.
+The digest binds the abandon to the bytes you inspected.
 
 <a id="grant-spent"></a>
 ### `GRANT_SPENT`

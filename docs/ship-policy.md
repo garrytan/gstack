@@ -1801,6 +1801,21 @@ construction:
    the run and names the finding (path, severity, problem) for the owner instead
    of a third round; the owner may grant one scoped fix-check.
 
+<a id="what-ends-a-run"></a>
+**What ends a /ship run (GST-3260).** Preflight opens the run in the checkout's
+run record (`git rev-parse --git-path gstack-ship-run`), and while it is open a
+full preflight, round grants, gate dispositions, lane exceptions and rulings
+without `--owner-ref` stop. Only gstack's commands end it: `finish` removes the
+record (only when the open PR's body names that run), `gstack-ship-receipt stop`
+marks it stopped (it may then record the fix-check grant for its own stop, once
+per run, and a new run's preflight replaces it), `gstack-skill-end` marks it finished on any
+outcome, and `gstack-ship-run abandon` ends a run that stopped working, never
+within 60 minutes of its last beat. No timer ends a run. A bare marker from an
+older gstack reads as `legacy` and an unreadable record as `unreadable`; both
+block until abandoned. The record guards against mistakes, such as a base merge
+under a run's readers or a run granting itself a round; it is not proof of who
+the owner is.
+
 <a id="ruled-notes"></a>
 **Ruled notes (GST-1537).** R51's other answer to an open finding is the owner's
 ruling that it ships as a disclosed note, with the note listed. The owner records
@@ -1820,7 +1835,8 @@ a later head is a new row. Its `by` is the ruler and its `recorded_at` the time.
 newline or control character, a `--by` naming gstack (any `--by` that starts with
 `gstack`, except a crew named `GStack <Name>` such as `GStack Minder`, which is a
 person's crew; `gstack` and `gstack no-stop default (K1)` are always refused), and a ruling while this
-checkout holds an open /ship run's marker (the lane's own runner) unless the lane
+checkout holds an open /ship run's record (the lane's own runner; a stopped, legacy or
+unreadable record counts, [what ends a run](#what-ends-a-run)) unless the lane
 relays the owner's words with `--owner-ref <thread code>:<message id or timestamp>`
 (on Capy the owner, a Captain, has no session on the lane's checkout). A relayed row's
 source is `relayed:<owner ref>`, and its `RULED_NOTE:`, receipt entry and `Ruled note:`
@@ -1937,9 +1953,10 @@ The row is an approved `gstack-approvals` row with scope `gate_disposition
 trimmed first), a `--head` that is not a commit, a `--by` naming gstack (as for
 `rule`: a `GStack <Name>` crew may record), a row that
 `dispositions` would not list (a head that is not 40 hex, for one), and any call
-while a /ship run is open on the branch in any worktree of the repository: its
-marker counts while its lease is open, the same test preflight uses, so a run parked
-before finish stops counting once its 120-minute lease ends. It finds those worktrees
+while a /ship run is open on the branch in any worktree of the repository: each
+worktree's run record decides ([what ends a run](#what-ends-a-run)), so an open,
+stopped, legacy or unreadable record counts, a finished or abandoned one does not,
+and no timer ends a run. It finds those worktrees
 through the git common dir, and it checks and appends under a lock there that
 /ship's preflight also takes to write its marker. `add` refuses the scope and
 `--source gate`, so `gate` is the only writer. A row counts only when it has every
@@ -2041,7 +2058,8 @@ The row is an approved `gstack-approvals` row with scope `test_lane_exception <h
 (`lib/test-lane-exception.ts`). `lane-exception` refuses a head that is not a
 commit, a file with whitespace, a multi-line reason, a `--by` naming gstack (as
 for `rule`: a `GStack <Name>` crew may grant) and
-any grant while this checkout holds an open /ship run's marker, and `add` refuses
+any grant while this checkout holds an open /ship run's record
+([what ends a run](#what-ends-a-run)), and `add` refuses
 the scope, so the lane's own runner cannot write one; a row by gstack is ignored
 wherever it came from. `gstack-evidence record-ci` binds a grant only when its
 head is HEAD and its files are exactly the uncovered set, and only after a local

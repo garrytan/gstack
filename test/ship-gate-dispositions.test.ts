@@ -210,12 +210,15 @@ describe('finish with a gate disposition (GST-2491)', () => {
 describe('a disposition the lane makes for itself is refused or ignored (GST-2491)', () => {
   const store = (f: ShipFx) => locate({ cwd: f.work, env: { ...process.env, GSTACK_STATE_ROOT: f.state, GSTACK_HOME: f.state, GSTACK_APPROVALS_MIRROR: '0' }, branch: 'feat' }) as StoreLocation;
 
-  test('a recorder name is trimmed and one line, and a parked run whose lease ended no longer refuses', () => {
+  test('a recorder name is trimmed and one line, and a parked run refuses until it is abandoned', () => {
     const { f, head } = firstPass();
     const lines = gate(f, GATE, head, { by: 'Founderstar\nCaptain' });
     expect([lines.status, lines.stderr]).toEqual([EXIT.usage, expect.stringContaining('one line')]);
     const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
     fs.writeFileSync(marker, 'ship-906-parked\n');
+    expect(gate(f, GATE, head, { by: ` ${BY} ` }).stderr).toContain('ship-906-parked: state legacy, beat_age unknown');
+    const abandoned = run(f, 'gstack-ship-run', ['abandon', '--run', 'ship-906-parked', '--by', BY, '--reason', 'parked before finish']);
+    expect(abandoned.status, abandoned.stderr).toBe(0);
     const spaced = gate(f, GATE, head, { by: ` ${BY} ` });
     expect(spaced.status, spaced.stderr).toBe(0);
     expect(run(f, 'gstack-approvals', ['dispositions']).stdout).toContain(`by ${BY} at`);

@@ -17,15 +17,16 @@ import { reviewPlanTimeoutMs } from './review-collect';
 import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
-import { withGateLock } from './gate-dispositions';
-import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, mappedLanes, recordCiTimeout, Report, runLanes, shipPolicy, shipRunMarker, short } from './ship-bin-common';
+import { changeRunRecord, openRun, readRunRecord } from './ship-run-record';
+import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, mappedLanes, recordCiTimeout, Report, runLanes, shipPolicy, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
 
   gstack-ship-preflight --base <base> [--lane <label>=<command>]...   Steps 1-3; with lanes also Step 5
-      --run <id>           the /ship run (SESSION_ID, or the driver's run dir name): once Steps 1-3 pass it is recorded in
-                           this checkout's git dir and opened on its lease, and a later full preflight stops until finish
-                           clears it or 120 minutes pass, because its merge would move the tree the run's readers diff (GST-1204)
+      --run <id>           the /ship run (SESSION_ID, or the driver's run dir name): once Steps 1-3 pass it is opened in this
+                           checkout's run record (git dir gstack-ship-run), and a later full preflight stops until finish, stop,
+                           gstack-skill-end or gstack-ship-run abandon ends it, because its merge would move the tree the run's
+                           readers diff (GST-1204, GST-3260); a --run the record already names stops too (one id, one run)
       --run-uncarried-here   run a lane origin/<base> maps in ship_lanes_from here when its CI carry refuses; without it any
                            refused carry stops with SHIP_LANE_NOT_CARRIED before any lane runs, naming the CI route (GST-3019, GST-3277)
   gstack-ship-preflight --tests-only --base <base> --lane <label>=<command>...   Step 5 only (after a repair)
@@ -57,22 +58,26 @@ const DIST = /(^|\/)(cmd\/[^/]+\/main\.go|bin\/[^/]+|Cargo\.toml|setup\.py|packa
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 /**
- * GST-1204: a full preflight merges the base, so it stops while the /ship run that already passed Steps 1-3 on this checkout
- * is open: its marker is in the git dir (finish removes it) and its run is open on the checkout's own lease (gstack-lease
- * open: GST-1205's released, 120-minute and dead-holder rules). The run's readers diff this tree. A different --run whose
- * caller is the open run's holder (the harness behind preflight: the Claude Code session, or Capy's one capy-server) is a
- * new /ship after one that stopped before finish, so it goes on; the same id, no --run, or another live holder's run stops.
- * A --run is opened on the lease here, before the fetch, and one that cannot be is a STOP, never an unprotected run.
+ * GST-1204, GST-3260: a full preflight merges the base, so it stops while another /ship run's record on this checkout is open, legacy
+ * (a bare marker) or unreadable: that run's readers diff this tree, and no timer ends it (lib/ship-run-record.ts). A stopped, finished
+ * or abandoned record of another run is replaced once Steps 1-3 pass; a preflight with no --run stops on a stopped one, which it
+ * could not replace. A record that already names this --run stops too: a run id is
+ * one /ship run (gstack-evals#406). A --run is still opened on the checkout's lease, before the fetch, for the upgrade guard alone, and
+ * one that cannot be is a STOP, never an unprotected run.
  */
 function shipRunClear(cwd: string, base: string, run: string | undefined, r: Report): boolean {
-  const marker = shipRunMarker(cwd);
-  const open = marker && fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : '';
-  const lease = (verb: string, id: string, from = false) => bin(cwd, 'gstack-lease', [verb, '--root', cwd, '--run', id, ...(from ? ['--from', String(process.ppid)] : [])], 60_000);
-  if (RUN_ID.test(open) && lease('open', open).status === 0 && !(run && run !== open && lease('open', open, true).status === 0)) {
-    r.stop(`/ship run ${open} is open on this checkout and past its preflight (${marker}; open until its finish or for 120 minutes): a full preflight would merge origin/${base} into the tree its review readers diff; rerun Step 5 with --tests-only, or let that /ship finish; if it is no longer running, rm ${marker}, then rerun`);
+  const read = readRunRecord(cwd);
+  const open = openRun(read);
+  if (open && (open.state !== 'stopped' || !run)) {
+    r.stop(`/ship run ${open.run} is open on this checkout and past its preflight (${read.file}; ${open.detail}): a full preflight would merge origin/${base} into the tree its review readers diff; rerun Step 5 with --tests-only, or let that /ship finish`);
     return false;
   }
-  const touch = run ? lease('touch', run, true) : undefined;
+  if (run && read.kind === 'record' && read.record.run === run) {
+    const { state, ended_by } = read.record;
+    r.stop(`/ship run ${run} already ${state === 'stopped' ? 'stopped' : 'ended'} on this checkout (state ${state}${ended_by ? `, ended_by ${ended_by}` : ''}): a run id names one /ship run, and a full preflight under it would merge origin/${base} into the tree that run reviewed; rerun Step 5 with --tests-only, or start the new /ship with a new --run id (gstack-ship-run status)`);
+    return false;
+  }
+  const touch = run ? bin(cwd, 'gstack-lease', ['touch', '--root', cwd, '--run', run, '--from', String(process.ppid)], 60_000) : undefined;
   if (!touch || touch.status === 0) return true;
   r.stop(`cannot record /ship run ${run} on this checkout's lease (${firstLine(touch.stderr) || `gstack-lease touch exit ${touch.status}`}): unrecorded, a later full preflight could merge origin/${base} under this run's reviews; fix that, then rerun`);
   return false;
@@ -107,8 +112,10 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
     // R51 per pull request (GST-2673): the rounds earlier heads spent, which Step 9 passes to every plan, and the review this
     // head gets: a product change runs Steps 2-16, whose plan is the merge head's full review; a re-check never carries.
     const hist = bin(cwd, 'gstack-ship-receipt', ['history', '--pr', n, '--base', base, ...(run ? ['--run', run] : [])], 120_000);
-    const histLines = hist.stdout.split('\n').filter(l => /^PR_REVIEW_(HISTORY|FLAGS|ROUTE): /.test(l));
+    const histLines = hist.stdout.split('\n').filter(l => /^PR_REVIEW_(HISTORY|FLAGS|ROUTE|RUN_USED): /.test(l));
     histLines.forEach(l => r.add(l));
+    const reused = histLines.find(l => l.startsWith('PR_REVIEW_RUN_USED: '));
+    if (reused) { r.stop(`${reused.slice('PR_REVIEW_RUN_USED: '.length)} in PR #${n}'s body: a run id names one /ship run, so each head's rounds count once; start this /ship with a new --run id (gstack-evals#406)`); return false; }
     if (hist.status !== 0 || !histLines.some(l => l.startsWith('PR_REVIEW_FLAGS: '))) r.add('PR_REVIEW_FLAGS: --prior-rounds 0').add(`PR_REVIEW_ROUTE: first (history unavailable: ${firstLine(hist.stderr) || `gstack-ship-receipt history exit ${hist.status}`}; the plan counts this run's rounds only)`);
     if (line.startsWith('CARRY: would carry')) {
       r.next(`carry route (Step 1.4): fix what the base merge broke (CHANGELOG, size caps), commit, gstack-ship-release push --branch ${branch} --early, gstack-ci-carry wait --base ${base} (CI_CARRY: none is not a stop), gstack-pregate --allow-repo-commands, then gstack-ship-receipt carry --pr ${n} --base ${base} --pregate .gstack/tmp/pregate.json`);
@@ -126,12 +133,11 @@ function integrate(cwd: string, base: string, run: string | undefined, r: Report
   if (scopeError) r.add(`SCOPE: unknown (gstack-diff-scope origin/${base}: SCOPE_ERROR=${scopeError})`);
   else r.add(`SCOPE: frontend=${/SCOPE_FRONTEND=true/.test(scope)}${/SCOPE_FRONTEND=true/.test(scope) ? ' (Step 9 runs the static design lite check only, no preview declared; mention /design-review when no design review exists)' : ''}`);
   if (!merge(cwd, base, r)) return false;
-  const marker = run && shipRunMarker(cwd);
-  try {
-    const locked = marker ? withGateLock(cwd, () => fs.writeFileSync(marker, `${run}\n`)) : undefined;
-    if (locked && 'code' in locked) throw new Error(locked.message);
-  } catch (e) { r.stop(`cannot record /ship run ${run} in ${marker} (${firstLine((e as Error).message)}): the base is merged, but a later full preflight could merge again under this run's reviews; fix that, then rerun`); return false; }
-  return true;
+  if (!run) return true;
+  const opened = changeRunRecord(cwd, 'preflight', run, /^[1-9]\d*$/.test(n) ? { pr: Number(n) } : {});
+  if (opened.ok) return true;
+  r.stop(`cannot record /ship run ${run} on this checkout (${opened.why}): the base is merged, but a later full preflight could merge again under this run's reviews; check gstack-ship-run status, then rerun`);
+  return false;
 }
 
 /** The diff against origin/<base> must be about the PR's size: far more files (a stale or wrong base, HARN-15's 17,000-file review of main's history) or fewer (a fork's origin ahead of the PR's base, which would leave commits out of the gate scan) stops before any reader runs. Checked only when HEAD is the PR's pushed head. */

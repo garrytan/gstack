@@ -455,6 +455,16 @@ export const RELEASE_RESULT_CODES = {
     summary: 'another /ship run already claimed this round grant, and a grant buys one round',
     fix: 'the lane or its Captain records a new grant for the stop the PR is at now (gstack-ship-receipt stop prints the command)',
   },
+  SHIP_RUN_ABANDON_REFUSED: {
+    anchor: 'ship-run-abandon-refused',
+    summary: 'gstack-ship-run abandon left the /ship run record as it was: the run beat in the last 60 minutes, the record names another run or already ended, or an unreadable record\'s digest did not match',
+    fix: 'read gstack-ship-run status: wait until the earliest abandon time it prints if the run may still be working, pass the run it names (an unreadable record: --run unknown --sha256 <its digest>), and leave an ended run alone',
+  },
+  SHIP_RUN_RECORD_UNREADABLE: {
+    anchor: 'ship-run-record-unreadable',
+    summary: 'this checkout\'s /ship run record (git dir gstack-ship-run) is neither a run record nor a run id, so every guard reads it as an open run',
+    fix: 'if no /ship run is working on this checkout, end it with the gstack-ship-run abandon --run unknown --sha256 <digest> command status prints, once',
+  },
   GRANT_UNKNOWN: {
     anchor: 'grant-unknown',
     summary: 'the branch approval record holds no approved review_round_grant row with this id',

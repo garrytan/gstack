@@ -133,8 +133,8 @@ export const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]
  * carries), `carry` for any other hop. status: a /ship run that
  * started and wrote no receipt yet (`started`, its counters so far) or ended on an infrastructure failure (`voided`).
  */
-export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string; carry_kind?: 'carry' | 'recheck'; status?: 'started' | 'voided'; mark?: 'stop' | 'grant'; tree?: string; grant?: string };
-/** The runs block keeps the newest RECEIPT_RUNS_KEPT run entries and every stop or grant marker (lib/pr-review-history.ts), in order. */
+export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string; carry_kind?: 'carry' | 'recheck'; status?: 'started' | 'voided'; mark?: 'stop' | 'grant' | 'abandoned'; tree?: string; grant?: string; by?: string; reason?: string };
+/** The runs block keeps the newest RECEIPT_RUNS_KEPT run entries and every stop, grant or abandoned marker (lib/pr-review-history.ts), in order. */
 export function keptRuns(runs: readonly ReceiptRun[]): ReceiptRun[] {
   const keep = new Set(runs.filter(r => !r.mark).slice(-RECEIPT_RUNS_KEPT));
   return runs.filter(r => r.mark || keep.has(r));
