@@ -340,11 +340,12 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   const head = git(ctx.repoRoot, ['rev-parse', 'HEAD']).out;
   const dirty = git(ctx.repoRoot, ['status', '--porcelain', '--untracked-files=no']).out;
   if (dirty) return fail({ code: 'QUEUE_NOT_READY', message: `uncommitted tracked changes: ${dirty.split('\n').map(l => l.slice(3)).slice(0, 8).join(', ')}` }, [], run);
-  const view = ctx.gh(['pr', 'view', o.pr, '--json', 'headRefOid,url,body,mergeable,headRefName,isCrossRepository']);
-  let info: { headRefOid?: string; url?: string; body?: string; mergeable?: string; headRefName?: string; isCrossRepository?: boolean } = {};
+  const view = ctx.gh(['pr', 'view', o.pr, '--json', 'headRefOid,url,body,mergeable,headRefName,isCrossRepository,baseRefName']);
+  let info: { headRefOid?: string; url?: string; body?: string; mergeable?: string; headRefName?: string; isCrossRepository?: boolean; baseRefName?: string } = {};
   try { info = view.ok ? JSON.parse(view.out) : {}; } catch {}
   if (!info.headRefOid) return fail({ code: 'QUEUE_NOT_READY', message: `cannot read PR #${o.pr}'s head through gh (${(view.err ?? view.out).trim().slice(0, 120)})` }, [], run);
   if (info.headRefOid !== head) return fail({ code: 'QUEUE_NOT_READY', message: `HEAD ${head.slice(0, 12)} is not PR #${o.pr}'s pushed head ${info.headRefOid.slice(0, 12)}` }, [], run);
+  if (info.baseRefName && info.baseRefName !== ctx.base) return fail({ code: 'QUEUE_NOT_READY', message: `#${o.pr} targets ${info.baseRefName}, not ${ctx.base}` }, [], run);
   const atHead = versionAtRef(ctx.repoRoot, head);
   const baseSha = git(ctx.repoRoot, ['rev-parse', `origin/${ctx.base}`]).out;
   const atFork = versionAtRef(ctx.repoRoot, git(ctx.repoRoot, ['merge-base', baseSha, head]).out || baseSha);

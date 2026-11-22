@@ -28,19 +28,31 @@ function commit(repo: FixtureRepo, rel: string, text: string): string {
   return repo.git('rev-parse', 'HEAD');
 }
 
-/** origin/HEAD names main; PR #2 is a branch off ${WIP}, which has a commit main lacks. */
-function prIntoWip() {
+/**
+ * origin/HEAD names main; PR #2 is a branch off `branch` (default ${WIP}), which has a commit main lacks. GitHub reports the PR's
+ * base as `baseRefName` (default the branch). With failBaseLookup, gh fails the bin's own `pr view --json baseRefName` lookup and
+ * answers every other call.
+ */
+function prIntoWip(o: { branch?: string; baseRefName?: string; failBaseLookup?: boolean } = {}) {
+  const branch = o.branch ?? WIP;
   const repo = makeFixtureRepo({ prefix: 'gstack-ready-pr-base-', policy: BASE_POLICY });
   repos.push(repo);
   repo.git('checkout', '-q', '-b', 'wip', 'origin/main');
   commit(repo, 'plan.txt', 'wip plan\n');
-  repo.git('push', '-q', 'origin', `HEAD:refs/heads/${WIP}`);
+  repo.git('push', '-q', 'origin', `HEAD:refs/heads/${branch}`);
   repo.git('fetch', '-q', 'origin');
-  repo.git('checkout', '-q', '-b', 'pr-2', `origin/${WIP}`);
+  repo.git('checkout', '-q', '-b', 'pr-2', `origin/${branch}`);
   const head = commit(repo, 'feature.txt', 'feature\n');
   const pregate = path.join(repo.root, 'pregate.json');
   fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
-  const ready = (receiptBase: string, extra: string[] = []) => runBin(repo, 'gstack-ship-queue', ['ready', '--pr', '2', '--pregate', pregate, ...extra], ghQueueShim(repo, { prs: { '2': { headRefOid: head, url: 'https://github.com/o/r/pull/2', baseRefName: WIP, isCrossRepository: false, headRefName: 'pr-2', body: shippedBody('2', head, { base: receiptBase }) } }, checks: { [head]: green } }));
+  const ready = (receiptBase: string, extra: string[] = []) => {
+    const shim = ghQueueShim(repo, { prs: { '2': { headRefOid: head, url: 'https://github.com/o/r/pull/2', baseRefName: o.baseRefName ?? branch, isCrossRepository: false, headRefName: 'pr-2', body: shippedBody('2', head, { base: receiptBase }) } }, checks: { [head]: green } });
+    if (!o.failBaseLookup) return runBin(repo, 'gstack-ship-queue', ['ready', '--pr', '2', '--pregate', pregate, ...extra], shim);
+    const dir = path.join(repo.root, 'gh-flaky-base');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\nif [ "$1" = pr ] && [ "$2" = view ] && [ "$4" = --json ] && [ "$5" = baseRefName ]; then echo 'HTTP 502: Bad Gateway' >&2; exit 1; fi\nexec "${path.join(repo.root, 'gh-queue-shim', 'gh')}" "$@"\n`, { mode: 0o755 });
+    return runBin(repo, 'gstack-ship-queue', ['ready', '--pr', '2', '--pregate', pregate, ...extra], { PATH: `${dir}:${shim.PATH}` });
+  };
   return { repo, ready };
 }
 
@@ -69,5 +81,20 @@ describe('ready binds the receipt to the PR base, not the default branch (GST-34
     expect(r.err).toContain(`#2 targets ${WIP}, not main`);
     expect(r.err).toContain('QUEUE_NOT_READY');
     expect(r.err).not.toContain('QUEUE_RECEIPT_BASE_MISMATCH');
+  }, 180_000);
+
+  // Value: protects=ready never prints READY for a PR whose GitHub base is not the base ready checked the receipt against;
+  //   fails_when=ready trusts the bin's base lookup, so a failed lookup (falls back to main) or a base named origin/foo (stripped
+  //   to foo) binds the wrong receipt; why_new=the cases above only cover a lookup that succeeds with a plain name;
+  //   seam=lib/ship-queue.ts ready()'s own pr view; no_claim=land, which refuses a PR on another base by itself
+  test("ready refuses when the PR's base differs from the checked base: a failed base lookup, or a base named origin/<branch>", () => {
+    const lookupFailed = prIntoWip({ failBaseLookup: true }).ready('main');
+    expect(lookupFailed.status).toBe(EXIT.refused);
+    expect(lookupFailed.err).toContain(`#2 targets ${WIP}, not main`);
+    expect(lookupFailed.err).toContain('QUEUE_NOT_READY');
+    const stripped = prIntoWip({ branch: 'foo', baseRefName: 'origin/foo' }).ready('foo');
+    expect(stripped.status).toBe(EXIT.refused);
+    expect(stripped.err).toContain('#2 targets origin/foo, not foo');
+    expect(stripped.err).toContain('QUEUE_NOT_READY');
   }, 180_000);
 });
