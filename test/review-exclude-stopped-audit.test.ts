@@ -20,7 +20,7 @@ const RUN_A1 = '/records/ship2/../ship2-record.md';
 const RUN_A2 = '/records/ship2-record.md';
 
 /** Reviewed; audit a1 takes its Prepare snapshot, edits docs/key-files.md (so code now names lib/reader.js there) and stops; audit a2 takes its Prepare snapshot, edits nothing, and saves its post snapshot carrying `carry`; all of it is committed. */
-function stoppedThenReaudited(opts: { a1Run?: string; moveHead?: boolean } = {}) {
+function stoppedThenReaudited(opts: { a1Run?: string; moveHead?: boolean; refusals?: boolean } = {}) {
   const repo = makeFixtureRepo({ prefix: 'gst3502-', baseFiles: { '.gstack/ship-policy.json': policyText(['docs/**']), 'docs/key-files.md': '# key files\n', 'lib/index.js': "exports.k = 'docs/key-files.md';\n" } });
   repos.push(repo);
   commit(repo, BRANCH);
@@ -37,12 +37,19 @@ function stoppedThenReaudited(opts: { a1Run?: string; moveHead?: boolean } = {})
   const carried = snapshot(post, 'ship2-docs-2', RUN_A2, ['--pre', a2, '--carry-stopped', a1]);
   const plain = path.join(repo.root, 'ship2-docs-2-post-plain.json');
   expect(snapshot(plain, 'ship2-docs-2', RUN_A2, ['--pre', a2]).status).toBe(0);
+  const a1Post = path.join(repo.root, 'ship2-docs-1-post.json');
+  const refused = !opts.refusals ? undefined : {
+    postAsStopped: (expect(snapshot(a1Post, 'ship2-docs-1', RUN_A1, ['--pre', a1]).status).toBe(0), snapshot(path.join(repo.root, 'refused-1.json'), 'ship2-docs-2', RUN_A2, ['--pre', a2, '--carry-stopped', a1Post])),
+    itself: snapshot(path.join(repo.root, 'refused-2.json'), 'ship2-docs-2', RUN_A2, ['--pre', a2, '--carry-stopped', a2]),
+    noPre: snapshot(path.join(repo.root, 'refused-3.json'), 'ship2-docs-2', RUN_A2, ['--carry-stopped', a1]),
+    written: () => ['refused-1.json', 'refused-2.json', 'refused-3.json'].filter(f => fs.existsSync(path.join(repo.root, f))),
+  };
   commit(repo, {}, 'docs audit');
   const body = path.join(repo.root, 'body.md');
   const writeWith = (postFile: string) => runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '10036', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body,
     '--review-exclude', reviewed, '--docs-post', postFile, '--docs-pre', a2,
     '--review-targeted', JSON.stringify({ classes: ['money', 'gate', 'auth', 'secret'], rules: 'r', brief_sha: 'a'.repeat(64), status: 'done', findings: 0, raised_by: 'targeted', head: repo.git('rev-parse', 'HEAD') })]);
-  return { carried, post, plain, writeWith };
+  return { carried, post, plain, writeWith, refused };
 }
 
 describe('a re-audit carries the docs audit that stopped before its post snapshot (GST-3502)', () => {
@@ -70,5 +77,15 @@ describe('a re-audit carries the docs audit that stopped before its post snapsho
     const moved = stoppedThenReaudited({ moveHead: true });
     expect(moved.carried.status).not.toBe(0);
     expect(moved.carried.err).toContain('HEAD');
+  }, 240_000);
+
+  // Value: protects=--carry-stopped takes only an earlier audit's Prepare snapshot of a named run; fails_when=the post-snapshot,
+  //   same-audit or --pre/--run guard is dropped; seam=gstack-docs-candidate snapshot --carry-stopped; no_claim=-
+  test('a post snapshot, this audit\'s own Prepare snapshot, or a call without --pre is refused', () => {
+    const r = stoppedThenReaudited({ refusals: true }).refused!;
+    expect({ status: r.postAsStopped.status, err: r.postAsStopped.err }).toMatchObject({ status: 1, err: expect.stringContaining('is a post snapshot') });
+    expect({ status: r.itself.status, err: r.itself.err }).toMatchObject({ status: 1, err: expect.stringContaining('is this audit') });
+    expect({ status: r.noPre.status, err: r.noPre.err }).toMatchObject({ status: 1, err: expect.stringContaining('needs --pre and --run') });
+    expect(r.written()).toEqual([]);
   }, 240_000);
 });
