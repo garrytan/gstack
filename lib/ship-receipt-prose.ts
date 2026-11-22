@@ -12,7 +12,7 @@ import { docsExceptionLine, parseReceiptDocs } from './ship-receipt-docs';
 import { ruledNoteText, type RuledNote } from './ruled-notes';
 import { gateDispositionText, type GateDisposition } from './gate-dispositions';
 import { laneExceptionBodyLines } from './test-lane-exception';
-import { VISIBLE_CHARS, VISIBLE_LINES } from './pr-body-shape';
+import { VISIBLE_CHARS, VISIBLE_LINES, visibleOpening } from './pr-body-shape';
 
 export interface ProseClaim { field: string; prose: number; receipt: number }
 export interface ProseCheck { checked: number; mismatches: ProseClaim[] }
@@ -65,13 +65,13 @@ function withoutFences(body: string): string {
  * The body without its opening, the lines above its first `<details>` fold (after closed fences are gone): R76 keeps that
  * part to what changed for a user, why and what to do, so a number there is the subject of the PR (`58 fixed with gstack`,
  * a published result), never one of its receipt counters. A body with no fold, or an opening longer than R76 allows
- * (VISIBLE_LINES lines, VISIBLE_CHARS characters), is checked whole.
+ * (VISIBLE_LINES lines, VISIBLE_CHARS characters, measured as the PR body shape check measures it), is checked whole.
  */
 function withoutOpening(body: string): string {
   const lines = body.split(/(?<=\n)/);
   const fold = lines.findIndex(l => /^ {0,3}<details\b/i.test(l));
   if (fold <= 0) return body;
-  const opening = lines.slice(0, fold).map(l => l.trim()).filter(Boolean);
+  const opening = visibleOpening(body);
   return opening.length > VISIBLE_LINES || [...opening.join('\n')].length > VISIBLE_CHARS ? body : '(opening)\n' + lines.slice(fold).join('');
 }
 

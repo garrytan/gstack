@@ -95,6 +95,16 @@ describe('the opening above the first fold is not prose', () => {
     expect(checkReceiptProse(receipt, long).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 9, receipt: 1 }]);
     expect(checkReceiptProse(receipt, 'x'.repeat(601) + '\n9 fixed.\n<details><summary>n</summary>\n</details>\n').mismatches).toEqual([{ field: 'review_loop.fixed', prose: 9, receipt: 1 }]);
   });
+
+  // Value: protects=the opening is measured as the PR body shape check measures it (comments and the Agent notes marker do not count);
+  //   fails_when=a 3-line opening followed by the marker or a comment line is checked whole and its subject number refuses the receipt;
+  //   why_new=ship-4672 p2/red-team#1; seam=checkReceiptProse; no_claim=bodies the shape check refuses
+  test('a 3-line opening followed by the Agent notes marker or a comment is still skipped', () => {
+    const opening = 'gstack shows no gain: 58 fixed with gstack.\nWhy: the old page claimed a gain.\nNothing to do.\n';
+    const notes = '<details><summary>Agent notes</summary>\n\nReview: 2 passes, 1 fixed.\n</details>\n';
+    expect(checkReceiptProse(receipt, opening + '<!-- gstack:agent-notes -->\n' + notes).mismatches).toEqual([]);
+    expect(checkReceiptProse(receipt, opening + '<!-- a note -->\n' + notes).mismatches).toEqual([]);
+  });
 });
 
 describe('the rendered Approvals block is not prose', () => {
