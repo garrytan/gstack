@@ -1858,7 +1858,9 @@ counts. That includes the usual order, where the fix-check finds a new CRITICAL,
 logs it `open` with `converged:false` and stops for the owner, and the owner rules
 afterwards: the row's `incomplete` binding still names the one tree it read, so
 once every blocking finding on it is ruled it binds at that tree as a clean read
-(harness-evals#361, GST-2251). A CRITICAL with no ruling stays open, and while one
+(harness-evals#361, GST-2251). A blocking finding the row records `fixed` or
+`auto-fixed` needs no ruling, since a fixed finding cannot be ruled and already
+reads resolved (gbrain#10036, GST-3501). A CRITICAL with no ruling stays open, and while one
 does, finish prints `FIX_CHECK_OPEN: <fingerprints> on the fix-check at <commit12>`
 naming the `gstack-approvals rule` command for each
 ([troubleshooting](troubleshooting.md#fix-check-open)). On any stopped review row,
@@ -1887,7 +1889,8 @@ file, not on the row, so `gstack-review-read` shows the file's findings on the r
 (`findings_from` names the file) while the file still derives the counts the row
 recorded. A Step 11 native row that lists no findings shows the findings of the
 Step 9 row of the same pass, commit and bound tree, because Step 9 carries Step
-11's queued findings; rulings must then cover every blocker of that pass. A file
+11's queued findings; rulings must then cover every blocker of that pass that is not recorded `fixed` or
+`auto-fixed`. A file
 that is missing or changed attaches nothing, and any row that claims issues but
 lists no findings reads `it lists no findings (fcount 0) but claims …` with the
 cause (harness-evals#515, GST-3296).
