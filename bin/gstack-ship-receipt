@@ -161,6 +161,9 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   with the content HEAD holds, each excluded or kept only because code names it (GST-1429); prints REVIEW_EXCLUDE_DOCS_AUDIT: and
   records HEAD's selection. Any other change, or an unreadable snapshot, refuses as above. --docs-pre <Prepare snapshot> (the same
   audit's first snapshot) narrows the audit's files to those whose content it changed, so uncommitted docs the review read stay.
+  An audit file the review kept for its own content (gate path, gate tags, agent prose, a secret line) refuses with
+  RECEIPT_DOCS_AUDIT_READ and writes a packet of the audit's change for one scoped reader, not a review round (GST-3532);
+  --docs-audit-read <record.json> (its clean { head, paths, reviewer, verdict, packet_sha256 }) binds it as docs_audit_read.
   When a run audits twice, the last audit's post snapshot carries the earlier audit (gstack-docs-candidate snapshot --run --pre
   --carry): files the earlier audit edited reset too, to their content before it, when HEAD holds what it left; a carried audit of
   another run refuses (GST-1616).
@@ -349,7 +352,15 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
   if (review.exclude.state === 'refused') { for (const l of review.exclude.lines) process.stderr.write(`${l}; nothing written\n`); return EXIT.refused; }
   const excludeNow = review.exclude.state === 'active' ? review.exclude.record : null;
   const excludeGiven = flag(rest, '--review-exclude') ?? 'none';
-  const excludeBound = writeExcludeBinds(repoRoot, base, headSha ?? head, review, flag(rest, '--review-exclude'), flag(rest, '--docs-post'), flag(rest, '--docs-pre'));
+  const excludeBound = writeExcludeBinds(repoRoot, base, headSha ?? head, review, flag(rest, '--review-exclude'), flag(rest, '--docs-post'), flag(rest, '--docs-pre'), flag(rest, '--docs-audit-read'));
+  if (!excludeBound.ok && excludeBound.packet) {
+    const at = headSha ?? head;
+    const packet = path.resolve(repoRoot, git(['rev-parse', '--git-path', `gstack/docs-audit-read-${at.slice(0, 12)}.md`], repoRoot) ?? `.git/gstack/docs-audit-read-${at.slice(0, 12)}.md`);
+    try { fs.mkdirSync(path.dirname(packet), { recursive: true }); fs.writeFileSync(packet, excludeBound.packet.text); }
+    catch (e) { process.stderr.write(`gstack-ship-receipt write: ${excludeBound.why}, but the reader's packet ${packet} cannot be written (${(e as Error).message.split('\n')[0]}); make its directory writable, then rerun write; nothing written\n`); return EXIT.fail; }
+    process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_DOCS_AUDIT_READ', `${excludeBound.why}: one scoped reader (not a review round) reads ${packet}, then rerun write with --docs-audit-read <record.json> written outside the worktree ({"head":"${at}","paths":${JSON.stringify(excludeBound.packet.paths)},"reviewer":"<model>","verdict":"clean","packet_sha256":"${excludeBound.packet.sha256}"}); a finding goes to the lane's Captain; nothing written`) + '\n');
+    return EXIT.fail;
+  }
   if (!excludeBound.ok) {
     process.stderr.write(`gstack-ship-receipt write: field=review_exclude expected=${excludeNow?.digest ?? 'none'} recorded=${excludeGiven} source=${excludeNow?.source ?? `origin/${base} (no review_exclude_paths)`}: the --review-exclude argument names another selection than ${base}'s review_exclude_paths gives ${head.slice(0, 12)} (write compares the argument, not the review ledger)${flag(rest, '--review-exclude') === undefined ? '; no --review-exclude was given, so write compared none' : ''}${excludeBound.why ? `; the docs-audit exception does not apply: ${excludeBound.why}` : ''}; fix: when only Step 14.5's docs audit changed files under review_exclude_paths after the review, pass its --docs-post <audit-id>-post.json and --docs-pre <its Prepare snapshot>; otherwise rerun /ship's review on ${head.slice(0, 12)} (gstack-review-dispatch pass --base ${base}), run gstack-review-dispatch verify --ledger <ledger> and write with the --review-exclude <d> its REVIEW_EXCLUDE_RECORD: line prints (none when it prints no such line); nothing written (RECEIPT_INVALID)\n`);
     return EXIT.fail;
@@ -410,6 +421,7 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
       base_red: pause ? receiptBaseRed(pause) : undefined,
       review_exclude: receiptExclude(review.exclude),
       review_exclude_fallback: receiptExcludeFallback(review.exclude),
+      docs_audit_read: excludeBound.read,
       no_stop: noStopArg(flag(rest, '--no-stop')),
     };
   } catch (e: any) { process.stderr.write(`gstack-ship-receipt write: ${e.message}\n`); return EXIT.usage; }

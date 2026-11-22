@@ -7856,6 +7856,23 @@ none of carry's other checks would refuse; carry without `--dry-run` writes it.
 In /ship Step 1, `gstack-ship-preflight` prints the route as `NEXT: carry
 route (Step 1.4)`.
 
+<a id="receipt-docs-audit-read"></a>
+### `RECEIPT_DOCS_AUDIT_READ`
+
+**Meaning.** After the review, the Step 14.5 docs audit edited a doc the review
+read for its own content (a gate path, gate tags, agent prose or a secret line),
+and that edit changed the review selection. Write's docs-audit exception binds
+only docs the reviewers never read, so this change needs one reader first
+(GST-3532). It is not a review round, so the round cap doesn't stop it.
+
+**Fix.** Give one reader the packet the refusal names. Save its clean verdict
+outside the worktree as `{"head", "paths", "reviewer", "verdict": "clean",
+"packet_sha256"}`, with the values the refusal prints, and rerun write with
+`--docs-audit-read <record.json>`. The receipt records it as `docs_audit_read`.
+A finding goes to the lane's Captain. An edit over 20 changed lines in one doc
+is too large for one reader and still takes the review
+([review-policy.md](review-policy.md#docs-audit-edits-to-reviewed-docs)).
+
 <a id="receipt-carry-recheck"></a>
 ### Scoped re-check after `RECEIPT_CARRY_PRODUCT_CHANGED` (J1, advice only)
 

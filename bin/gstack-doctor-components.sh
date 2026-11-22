@@ -348,6 +348,7 @@ gstack_result_anchor() {
     SHIP_RUN_RECORD_UNREADABLE) printf '%s' 'ship-run-record-unreadable' ;;
     GRANT_UNKNOWN) printf '%s' 'grant-unknown' ;;
     RECEIPT_CARRY_SCOPED_REVIEW) printf '%s' 'receipt-carry-scoped-review' ;;
+    RECEIPT_DOCS_AUDIT_READ) printf '%s' 'receipt-docs-audit-read' ;;
     DOCS_AUDIT_BLOCKED) printf '%s' 'docs-audit-blocked' ;;
     DOCS_RESULT_INVALID) printf '%s' 'docs-result-invalid' ;;
     RECEIPT_PROSE_MISMATCH) printf '%s' 'receipt-prose-mismatch' ;;

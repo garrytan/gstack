@@ -1,0 +1,4 @@
+{
+  "bytes": 308,
+  "why": "One scoped reader for a docs-audit edit to a reviewed doc, plus the one-carry-flag wording and review fixes: hunk-only packet lines, CRLF-safe packet base, later-attempt refusals kept."
+}
