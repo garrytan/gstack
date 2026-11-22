@@ -7965,8 +7965,9 @@ the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
 `## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`,
 `Documentation exception: …`, `Ruled note: …`, `Gate disposition: …`, `Mechanical retake: …` and
-`Test-lane exception: …` lines the receipt requires, and the inside of a
-closed code fence are never read as claims.
+`Test-lane exception: …` lines the receipt requires, the body's opening above
+its first `<details>` fold when it fits 3 lines and 600 characters, and the
+inside of a closed code fence are never read as claims.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten

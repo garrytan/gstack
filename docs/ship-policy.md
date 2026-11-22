@@ -1440,7 +1440,7 @@ table and the `Source: gstack-approvals record` line) quotes the owner's
 words, not this PR's numbers, so it is skipped, and so is the body's opening
 above its first `<details>` fold, which says what changed for a user (a result
 the PR is about, "58 fixed with gstack", is not a `fixed` claim; a body with no
-fold is checked whole): "one Step 11 pass" in that table
+fold, or whose opening is longer than 3 lines or 600 characters, is checked whole): "one Step 11 pass" in that table
 is not a `pass` claim. Text you write under the heading after that block is
 still checked. The `Review-loop exception: …` line (GST-977) and the
 `Documentation exception: …` line (GST-983) the receipt's own exceptions
