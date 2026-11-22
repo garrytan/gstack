@@ -1,5 +1,5 @@
 {
-  "description": "Fixed probe set for the feature-title guard (GSTA-794 follow-up to #4674). Frozen before any guard code was written. label=bug: the bug-fix skill must be named first. label=feature: the bug-fix skill must not be named. wrapped=true: the prompt is placed inside the B1 task wrapper from skill-route-synthetic-prompts.json. Synthetic text only.",
+  "description": "Fixed probe set for the feature-title guard (GSTA-794 follow-up to #4674). Frozen before any guard code was written. label=bug: the prompt must read as a bug report. label=feature: it must not (until gstack-evals#426 these decided whether the bug-fix skill was named). wrapped=true: the prompt is placed inside the B1 task wrapper from skill-route-synthetic-prompts.json. Synthetic text only.",
   "frozen": "2026-11-22",
   "probes": [
     {
