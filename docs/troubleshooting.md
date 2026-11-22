@@ -4141,7 +4141,9 @@ removing files under a pattern, pass that run's `--docs-post <audit-id>-post.jso
 `--docs-pre` as well instead of rerunning the review; the refusal's `the docs-audit exception does not apply:` clause says why when it cannot
 ([ship-policy.md](ship-policy.md#review-exclude-paths), GST-1429). When the run audited twice (a re-audit after a base merge),
 pass the last audit's pair; its post snapshot must carry the earlier audit (`--carry <earlier -post.json>`, GST-1616), or the
-earlier audit's files stay in the selection and write refuses as before.
+earlier audit's files stay in the selection and write refuses as before. The last audit may have edited nothing: write still binds
+through the audits it carries, ignores docs files only the merged base changed, and accepts a base policy that gained a pattern
+in that merge (GST-3260).
 
 Write, carry and the queue bind a digest that differs (`recorded=none`, written before the base
 gained `review_exclude_paths`, or a digest from an older policy) when the recorded selection and
