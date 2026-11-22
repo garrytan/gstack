@@ -87,11 +87,13 @@ const HARNESS_PIN = /^scripts\/harness-pins\/(.+)\.json$/;
  * its other fields are the reviewed ones, and the harness manifest's version and patterns did not move. The pin is then a
  * function of the pinned file's bytes, so it is a regenerated output, but only when the pinned file is itself product: a
  * pinned test or metadata file carries on its own, so its re-pin is the only change that stops an unreviewed harness edit.
- * Anything else is product.
+ * The pin must be a regular file at both heads, since the harness reads a symlinked pin through its target while git shows the
+ * link text, and both pinned blobs must resolve. Anything else is product.
  */
 function rederivedHarnessPin(repoRoot: string, from: string, to: string, p: string, extra: ProductRules['extra']): boolean {
   const pinned = HARNESS_PIN.exec(p)?.[1];
   if (!pinned || classifyCarryPath(pinned, extra) !== 'product') return false;
+  if (![from, to].every(ref => git(['ls-tree', ref, '--', p], repoRoot)?.startsWith('100644 blob '))) return false;
   const json = (ref: string, rel: string): any => { const r = spawnSync('git', ['show', `${ref}:${rel}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); try { return r.status === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
   const [ma, mb] = [json(from, HARNESS_MANIFEST), json(to, HARNESS_MANIFEST)];
   if (!ma || !mb || ma.version !== mb.version || JSON.stringify(ma.patterns) !== JSON.stringify(mb.patterns)) return false;
@@ -99,8 +101,8 @@ function rederivedHarnessPin(repoRoot: string, from: string, to: string, p: stri
   if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) || Array.isArray(b)) return false;
   const { blob: blobA, ...restA } = a;
   const { blob: blobB, ...restB } = b;
-  return blobA === git(['rev-parse', '--verify', '--quiet', `${from}:${pinned}`], repoRoot) && blobB === git(['rev-parse', '--verify', '--quiet', `${to}:${pinned}`], repoRoot)
-    && JSON.stringify(restA) === JSON.stringify(restB);
+  const [pinnedA, pinnedB] = [from, to].map(ref => git(['rev-parse', '--verify', '--quiet', `${ref}:${pinned}`], repoRoot));
+  return !!pinnedA && !!pinnedB && blobA === pinnedA && blobB === pinnedB && JSON.stringify(restA) === JSON.stringify(restB);
 }
 
 export interface ProductRules { extra: { metadata: string[]; outputs: readonly string[]; fragments?: string }; metadata: string[]; templates: readonly string[]; placeholders: readonly string[] }
