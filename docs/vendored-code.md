@@ -158,8 +158,11 @@ for a credential line is shown as an excerpt, as any data file would be. A
 gate-tagged file is excerpted only off the gate floor, so a gate-tagged
 upstream test file (anything under `tests/`, `test/` or `spec/`) stays in
 review whole. When a re-pin deletes files, a deleted file that verifies at the
-base's pin can be left out too. A file that does not verify keeps the reason it
-had before.
+base's pin can be left out too; a file the branch drops from the manifest but
+keeps stays in review. A file that does not verify keeps the reason it had
+before. Keep the manifest outside every `review_exclude_paths` pattern: when a
+pattern matches it, nothing counts as verified and the plan prints
+`REVIEW_VENDORED: unavailable`.
 
 `gstack-review-plan` fetches the upstreams into the cache first and prints one
 summary line, one line per pin and up to 20 files that did not verify:

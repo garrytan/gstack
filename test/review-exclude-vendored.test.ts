@@ -55,11 +55,11 @@ function upstream(repo: FixtureRepo) {
 }
 
 const manifest = (commit: string, files: string[]) => JSON.stringify({ schema: 'gstack-vendored/v1', pins: [{ upstream: UP, commit, local_prefix: 'up/lib/', upstream_prefix: '', files }] }, null, 1) + '\n';
-const policy = (vendored = true) => JSON.stringify({ review_exclude_paths: ['up/**'], ...(vendored ? { review_vendored: { upstreams: [UP], manifests: ['VENDORED.json'] } } : {}), min_gstack_version: REVIEW_VENDORED_KEY_VERSION }) + '\n';
+const policy = (vendored = true, manifestPath = 'VENDORED.json') => JSON.stringify({ review_exclude_paths: ['up/**'], ...(vendored ? { review_vendored: { upstreams: [UP], manifests: [manifestPath] } } : {}), min_gstack_version: REVIEW_VENDORED_KEY_VERSION }) + '\n';
 const local = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).map(([k, v]) => [`up/lib/${k}`, v]));
 
-function fixture(vendored = true) {
-  const repo = makeFixtureRepo({ prefix: 'gstack-vx-', baseFiles: { '.gstack/ship-policy.json': policy(vendored) } });
+function fixture(vendored = true, manifestPath = 'VENDORED.json') {
+  const repo = makeFixtureRepo({ prefix: 'gstack-vx-', baseFiles: { '.gstack/ship-policy.json': policy(vendored, manifestPath) } });
   repos.push(repo);
   const up = upstream(repo);
   repo.git('checkout', '-q', '-b', 'feat');
@@ -130,6 +130,31 @@ describe('review_exclude_paths with review_vendored', () => {
     expect(f.plan(false).out).toContain('REVIEW_VENDORED: verified=3 unverified=0 pins=2');
     const x = JSON.parse(f.plan(true).out).review_exclude;
     expect({ excluded: x.excluded, kept: x.kept_files }).toEqual({ excluded: 3, kept: [] });
+  });
+
+  // Value: protects=a file the branch drops from the manifest but keeps and rewrites stays in review as code; only a file the
+  //   range deletes verifies at the base's pin; fails_when=the base's pin verifies a file the head still has;
+  //   why_new=/ship review of #4665 (specialist finding lib/review-vendored.ts:320)
+  test('a file dropped from the manifest but rewritten at the head stays in review', () => {
+    const f = fixture();
+    f.repo.git('checkout', '-q', 'main');
+    commit(f.repo, { ...local({ 'lib/util.py': U, 'tests/b.py': B1 }), 'VENDORED.json': manifest(f.up.c1, ['lib/util.py', 'tests/b.py']) }, 'vendor lib at v1');
+    f.repo.git('push', '-q', 'origin', 'main');
+    f.repo.git('checkout', '-q', '-B', 'feat');
+    commit(f.repo, { ...local({ 'lib/util.py': 'import os\nos.system("true")\n' }), 'VENDORED.json': manifest(f.up.c1, ['tests/b.py']) }, 'drop util from the manifest');
+    const x = JSON.parse(f.plan(true).out).review_exclude;
+    expect(x.kept_files).toEqual([{ path: 'up/lib/lib/util.py', reason: 'code' }]);
+    expect(x.vendored.verified).toEqual([]);
+  });
+
+  // Value: protects=a manifest under an applied pattern turns the vendored check off, so the files it pins stay in review
+  //   whole and a hidden re-pin cannot hide them too; fails_when=files verify against a manifest readers cannot see;
+  //   why_new=/ship review of #4665 (red-team finding lib/review-exclude.ts:483)
+  test('a manifest under the applied pattern verifies nothing', () => {
+    const f = fixture(true, 'up/VENDORED.json');
+    commit(f.repo, { ...local({ 'tests/a.py': A }), 'up/VENDORED.json': manifest(f.up.c1, ['tests/a.py']) }, 'vendor lib');
+    expect(f.plan(false).out).toContain('REVIEW_VENDORED: unavailable (up/VENDORED.json matches review_exclude_paths');
+    expect(keptOf(f.plan(true).out)).toEqual([{ path: 'up/lib/tests/a.py', reason: 'code' }]);
   });
 
   // Value: protects=a repo without review_vendored plans exactly as before: the same files kept as code, no vendored line and

@@ -317,7 +317,11 @@ export function vendoredSelection(i: { root: string; policy: VendoredPolicy; hea
   const lower = new Set<string>();
   for (const e of now) { if (lower.has(e.path.toLowerCase())) return { error: `${e.path} is pinned more than once` }; lower.add(e.path.toLowerCase()); }
   const atHead = now.filter(e => i.changed.has(e.path));
-  const gone = old.filter(e => i.changed.has(e.path) && !lower.has(e.path.toLowerCase()));
+  const dropped = old.filter(e => i.changed.has(e.path) && !lower.has(e.path.toLowerCase()) && !e.path.includes('\n'));
+  const probe = dropped.length ? spawnSync('git', ['cat-file', '--batch-check=%(objectname)'], { cwd: i.root, input: dropped.map(e => `${rev}:${e.path}\n`).join(''), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }) : null;
+  if (probe && probe.status !== 0) return { error: 'git could not check which vendored files the range deletes' };
+  const probed = (probe?.stdout ?? '').split('\n');
+  const gone = dropped.filter((e, k) => probed[k] === `${rev}:${e.path} missing` && (i.head || !fs.existsSync(path.join(i.root, e.path))));
   const head = resolveVendored({ root: i.root, rev, policy: i.policy, entries: atHead, fetch: i.fetch, cacheRoot: i.cacheRoot, env: i.env });
   const base = gone.length ? resolveVendored({ root: i.root, rev: i.mergeBase, policy: i.policy, entries: gone, fetch: i.fetch, cacheRoot: i.cacheRoot, env: i.env }) : { entries: [], pins: [], digest: '' };
   if (!head || !base) return { error: 'git could not list the vendored files' };

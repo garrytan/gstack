@@ -479,7 +479,8 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   const claimed = i.perPath.filter(e => e.binary && sel.files.has(e.path)).map(e => e.path);
   const binary = binaryContent(i, sel.files, new Set([...claimed, ...(bytesBinary(i, patterns) ?? sel.files.keys())]), unread, native);
   const vpol = vendoredPolicy(load.policy);
-  const vsel = vpol ? vendoredSelection({ root: i.root, policy: vpol, head: i.head, mergeBase: i.mergeBase, changed: new Set(sel.files.keys()), fetch: !!i.vendoredFetch, cacheRoot: vendoredCacheRoot(resolveStateRoot()) }) : undefined;
+  const hiddenManifest = vpol?.manifests.find(m => sel.files.has(m));
+  const vsel = hiddenManifest ? { error: `${hiddenManifest} matches review_exclude_paths, so readers would not see its pins` } : vpol ? vendoredSelection({ root: i.root, policy: vpol, head: i.head, mergeBase: i.mergeBase, changed: new Set(sel.files.keys()), fetch: !!i.vendoredFetch, cacheRoot: vendoredCacheRoot(resolveStateRoot()) }) : undefined;
   const vendored = vsel && !('error' in vsel) ? new Set(vsel.verified) : undefined;
   const fileName = (s: string) => s.slice(s.lastIndexOf('/') + 1);
   const x: Scope = { ...i, declared, vendored, named: new Set(patterns.flatMap(q => /[*?[\\]/.test(fileName(q)) ? [] : (sel.byPattern.get(q) ?? []).filter(f => fileName(f) === fileName(q)))) };
