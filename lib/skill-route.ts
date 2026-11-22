@@ -415,8 +415,8 @@ const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/,
   /\b(?:los(?:es|t|ing)|gone|ignored|ignores|drops|dropped|dropping|twice|duplicated?|truncated|half-written|wipes|wiped|resets)\b/];
 
 /**
- * A feature request's title: a line standing alone (a blank line, the prompt's edge or a lone tag such as <task> on each
- * side) whose first word, after any leading #, asks for something new, the way gstack-evals draws
+ * A feature request's title: the prose's first line, or the first after a lone opening tag such as <task>, standing alone (a
+ * blank line, the prompt's edge or a lone tag on each side), whose first word, after any leading #, asks for something new, the way gstack-evals draws
  * its non-fit tasks (wiki/plans/2026-11-21-capy-b1f-description-rewrite-prereg/sets.py). Its body may name an error or a
  * failing case (GEVA-558: 13 of 27 feature-titled tasks routed as bug reports), so it is no bug report unless the title itself
  * names a defect.
@@ -426,8 +426,10 @@ const LONE_TAG = /^\s*<\/?[A-Za-z][\w-]*>\s*$/;
 function featureTitled(prose: string): boolean {
   const lines = prose.split('\n');
   const edge = (l: string | undefined) => l === undefined || !l.trim() || LONE_TAG.test(l);
+  const opensTag = (l: string | undefined) => l === undefined || (LONE_TAG.test(l) && !l.trim().startsWith('</'));
   return lines.some((line, i) => {
     if (!line.trim() || LONE_TAG.test(line) || !edge(lines[i - 1]) || !edge(lines[i + 1])) return false;
+    if (!opensTag(lines.slice(0, i).filter(l => l.trim()).pop())) return false;
     const title = line.trim().replace(/^#+\s*/, '');
     return FEATURE_TITLE.test(title) && !defectSign(title.toLowerCase()) && !words(title).some(w => FIX_WORD.test(w));
   });

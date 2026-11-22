@@ -388,6 +388,8 @@ describe('installed skills beside gstack (GST-3123)', () => {
       const d = routePrompt(wrap(task), [...routed, proveIt]);
       expect([task, d.route ? d.routes : []]).toMatchObject([task, [{ skill: 'prove-it' }]]);
     }
+    expect(bugReport('parse() crashes on empty input\n\nNew users hit this on their first run.\n\nPlease fix it.')).toBe(true);
+    expect(bugReport(wrap('Upload fails with KeyError\n\nSteps to reproduce:\n\nAdd a file named a.toml\n\nRun mycli upload.'))).toBe(true);
   });
 
   test('the installed bug-fix skill leads when it reaches the threshold beside a gstack skill: an agent runs the first one named (GEVA-562)', () => {
