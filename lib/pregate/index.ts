@@ -371,7 +371,14 @@ export function clearDecision(file: PregateFile, lane: string, input: ClearInput
       return invalid(`workflow_mismatch — run ${id} attempt ${run?.run_attempt ?? '?'} ran ${run?.path ?? 'an unknown workflow'}, not ${want}${callers.length ? ` or a workflow that calls it (${names})` : ''}`, `clear ${lane} with a run of its own workflow${callers.length ? ` or of a workflow that calls it (${names})` : ''}: ${start}, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
     }
     const runOf = caller ?? { file: target.workflow, dispatch };
-    if (caller && run.head_sha !== file.head) return invalid(`head_mismatch — run ${id} attempt ${run.run_attempt} of ${caller.file} ran at ${(run.head_sha ?? '').slice(0, 12)}, not pregate.json's head ${file.head ? file.head.slice(0, 12) : '(none recorded)'}, and a caller run clears ${target.workflow} only at that exact head`, `${caller.dispatch ? `gh workflow run ${caller.file} --ref <branch>` : `push a commit that starts ${caller.file}`} at ${file.head ? file.head.slice(0, 12) : 'the head'}, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`);
+    if (caller) {
+      const at = `run ${id} attempt ${run.run_attempt} of ${caller.file}`;
+      const fresh = `${caller.dispatch ? `gh workflow run ${caller.file} --ref <branch>` : `push a commit that starts ${caller.file}`} at ${file.head ? file.head.slice(0, 12) : 'the head'}, then gstack-pregate clear --remote ${lane} --run-url <that run's URL>`;
+      if (run.head_sha !== file.head) return invalid(`head_mismatch — ${at} ran at ${(run.head_sha ?? '').slice(0, 12)}, not pregate.json's head ${file.head ? file.head.slice(0, 12) : '(none recorded)'}, and a caller run clears ${target.workflow} only at that exact head`, file.head ? fresh : `rerun gstack-pregate at the head, then ${fresh}`);
+      if (run.event === 'pull_request') return invalid(`merge_tested — ${at} is a pull_request run, which tested GitHub's merge of the head with its base, not the head itself`, fresh);
+      const tested = git(repoRoot, ['rev-parse', `${run.head_sha}^{tree}`]);
+      if (tested !== file.tree) return invalid(`tree_mismatch — ${at} tested tree ${(tested ?? 'unreadable').slice(0, 12)} at its head, not pregate.json's tree ${file.tree.slice(0, 12)}`, `commit what pregate.json recorded, rerun gstack-pregate, then ${fresh}`);
+    }
     const green = `then gstack-pregate clear --remote ${lane} --run-url <the green run's URL>`;
     if (run.status !== 'completed') return invalid(`run_in_progress — run ${id} attempt ${run.run_attempt} is ${run.status}`, `wait for run ${id} to finish green (or rerun ${runOf.file} if it fails), ${green}`);
     if (run.conclusion !== 'success') return invalid(`run_not_success — run ${id} attempt ${run.run_attempt} concluded ${run.conclusion}`, `rerun ${runOf.file} (gh run rerun ${id}${runOf.dispatch ? `, or gh workflow run ${runOf.file} --ref <branch>` : ''}), ${green}`);

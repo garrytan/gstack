@@ -1055,9 +1055,11 @@ of a caller: a workflow in the branch's own `.github/workflows/` with a job
 that says `uses: ./.github/workflows/<lane's>.yml` (GST-971), read at
 pregate.json's recorded tree, as long as the lane's own job succeeded in the
 run under that calling job (`<calling job> / <lane job>`); else it refuses
-with `caller_job_skipped`. A caller run counts only at pregate.json's own
-head: a green caller run of any other commit refuses with `head_mismatch`
-(GST-3554). Fix lines only suggest `gh workflow run` for
+with `caller_job_skipped`. A caller run counts only when it tested
+pregate.json's own head and tree (GST-3554): a run of another commit refuses
+with `head_mismatch`, a `pull_request` run (which tested GitHub's merge of the
+head with its base) with `merge_tested`, and a head whose tree is not
+pregate.json's tree with `tree_mismatch`. Fix lines only suggest `gh workflow run` for
 a file with a `workflow_dispatch` trigger.
 The run must also
 have finished green (GSTA-203 PR 8): a run that is still queued or running
