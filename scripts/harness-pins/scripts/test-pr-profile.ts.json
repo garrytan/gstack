@@ -1,1 +1,1 @@
-{"blob":"c1d0b8ffabc86df40aa8785a7af87b0dae64f3f2","since":7}
+{"blob":"7de8d1dd5060bc0ec25fca1f3b348c354e5938a1","since":7,"nonBehavioral":"GST-3386 adds .github/workflows/test-changes.yml to FREE_ONLY_PR_FILES in scripts/test-pr-profile.ts: the new workflow is a free, flag-only check, so it only classifies that file as free-lane in the workflow inventory; no paid case's selection, prompt, threshold, samples or verdict can change"}
