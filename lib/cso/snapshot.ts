@@ -462,7 +462,7 @@ class UnreadableSource extends CsoError {
     path: string,
     public errno: string,
   ) {
-    super('UNSAFE_PATH', `Source could not be read (${errno}): ${path}`);
+    super('UNSAFE_PATH', `Source could not be opened as a regular file: ${path}`);
   }
 }
 function readStableWith<T>(

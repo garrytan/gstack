@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, spyOn, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -12,8 +12,8 @@ import { newRun } from '../lib/cso/state';
 const roots: string[] = [];
 const tmp = () => { const p = fs.mkdtempSync(path.join(os.tmpdir(), 'cso-unreadable-')); roots.push(p); return p; };
 afterEach(() => { for (const p of roots.splice(0)) { try { fs.chmodSync(path.join(p, '.env.example'), 0o600); } catch {} try { fs.chmodSync(path.join(p, 'app.ts'), 0o600); } catch {} fs.rmSync(p, { recursive: true, force: true }); } });
-const originalState = process.env.GSTACK_HOME, state = fs.mkdtempSync(path.join(os.tmpdir(), 'cso-unreadable-state-'));
-process.env.GSTACK_HOME = state;
+let originalState: string | undefined, state = '';
+beforeAll(() => { originalState = process.env.GSTACK_HOME; state = fs.mkdtempSync(path.join(os.tmpdir(), 'cso-unreadable-state-')); process.env.GSTACK_HOME = state; });
 afterAll(() => { if (originalState === undefined) delete process.env.GSTACK_HOME; else process.env.GSTACK_HOME = originalState; fs.rmSync(state, { recursive: true, force: true }); });
 function git(repo: string, ...args: string[]) {
   const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: { ...process.env, HOME: repo, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }, timeout: 30_000 });
