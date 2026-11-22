@@ -41,6 +41,14 @@ const nameOf = (b: OpenBlocker) => (typeof b === 'string' ? b : b.id);
 export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'approval' | 'at'>) =>
   rows.some(r => r?.skill === 'review-fix-check' && (r.grant === g.approval || rowTime(r) > Date.parse(g.at)));
 
+/** R51 (GST-3260), gstack-review-plan's grantFixChecked: the grant's fix-check already ran; after a full pass, also a completed full review row started after it, so that pass is the read-only final review. */
+export function grantFixChecked(rows: readonly Row[], g: Pick<ReviewRoundGrant, 'approval' | 'at'>, last: 'fix-check' | 'full'): boolean {
+  const spentAt = rows.filter(r => r?.skill === 'review-fix-check' && (r.grant === g.approval || rowTime(r) > Date.parse(g.at))).map(rowTime);
+  if (!spentAt.length) return false;
+  const after = Math.min(...spentAt);
+  return last === 'fix-check' || rows.some(r => r?.skill === 'review' && r.via === 'ship' && r.completed === true && r.scope !== 'fix-range' && r.scope !== 'scoped' && rowTime(r) > after);
+}
+
 /**
  * The grant-and-row binding finish and write share (amendments A, B and H): a review-fix-check row gstack-review-log stamped from a
  * claim, whose grant is an approved fix-check grant naming its fix_check_base as the stop head on its PR; no agent-written

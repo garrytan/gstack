@@ -1,4 +1,4 @@
 {
-  "bytes": 45,
-  "why": "Decision 3.5's touched hunks include files the fix created (git add -N), GST-3260 PR 3 Part B"
+  "bytes": 276,
+  "why": "Decision 3.5 asks the plan again after a granted fix-check for R51's read-only final review, GST-3260 PR 3 Part C"
 }

@@ -1799,7 +1799,13 @@ construction:
    continues to Step 10: the loop ships with its deferred and noted items named in
    the PR body. A blocking finding still open after the last allowed step stops
    the run and names the finding (path, severity, problem) for the owner instead
-   of a third round; the owner may grant one scoped fix-check.
+   of a third round; the owner may grant one scoped fix-check. When that granted
+   fix-check reads the fix clean and its range changed runtime lines, the plan
+   adds one read-only full review of the final head, because a re-check of only
+   what changed never stands in for the PR's final full review (R51): it has no
+   fix round, and a blocker there stops with `PR_ROUND_CAP` for the lane's
+   Captain. A fix range of docs and tests only is done after the fix-check
+   ([review-policy.md](review-policy.md#transitions), GST-3260).
 
 <a id="what-ends-a-run"></a>
 **What ends a /ship run (GST-3260).** Preflight opens the run in the checkout's
@@ -2220,6 +2226,10 @@ fix-checks ran before (GST-1681, GEVA-363's third round). The previous link's
 grant is refused: it names an earlier stop head, or it was recorded before a
 later logged fix-check (a post-review link's grant names the commit its
 fix-check read). A grant at any other commit plans nothing: one grant, one link.
+The one replan a spent grant answers is a clean one (no `--fixed-blocking`,
+`--blocking-open` or `--touched-gate`): it plans the read-only full review of
+the final head (or `done` for a docs-and-tests range), never another fix-check
+(GST-3260).
 
 <a id="fix-check-chain"></a>**Chained fix-checks (GST-1627).** A second granted
 fix-check after the first one (a merge resolution, say) logs its row with

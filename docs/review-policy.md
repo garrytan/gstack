@@ -195,7 +195,9 @@ caught on another crew's PRs.
    (item 6); a below-floor fix at the cap finishes with its notes listed. The stop is the lane's or Captain's call, never an owner ask
    ([troubleshooting](troubleshooting.md#pr-round-cap)).
 5. **Read-only final review.** A PR that already had two full rounds and whose
-   own code changed since still gets one full review of its final head. It has
+   own code changed since still gets one full review of its final head. That
+   includes a head whose code changed in a granted fix round: after the granted
+   fix-check reads the fix clean, the plan adds this review (item 6). It has
    no fix round: below-floor findings ship as notes, and a blocker (open or
    fixed) or a gate-class edit stops with `PR_ROUND_CAP` for the lane's Captain
    to decide: ship with the note, park, or buy that review's fix round with a
@@ -219,7 +221,11 @@ caught on another crew's PRs.
      head, or another run claimed it (`PR_REVIEW_GRANT: not applied (why)`).
      A fix-check found nothing to read (an empty, reverted or base-only change)
      plans no fix-check. The fix-check never earns another: a blocker there
-     stops with `PR_ROUND_CAP` again.
+     stops with `PR_ROUND_CAP` again. A clean fix-check is a re-check of only
+     what changed, so when its range changed runtime lines the plan adds one
+     read-only full review of the final head (item 5's rules: no fix round, a
+     blocker stops with `PR_ROUND_CAP`); a range of docs and tests only is done
+     after the fix-check (GST-3260).
    - **`--kind extra-round`, before review.** One round past the cap, with its fix
      round, at a head no review has stopped at: instead of the read-only review.
      Step 1's `PR_REVIEW_FLAGS:` adds `--round-grant <id>` when the grant names
@@ -303,6 +309,18 @@ stamped row, anchored on the grant's stop rather than the newest reviewed tree
 | `--post-review` after a fix-check whose later edits are only release stamps and docs (`docsChangeSince`) | done, or the one targeted reader when a docs claim on a targeted-class diff needs it |
 | `--post-review` after a fix-check (edits after the review bound), with a new recorded grant at a stop head after the last fix-check's commit | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
 | a fix-check that stops in the loop, with a new recorded grant naming its own commit (`--range-base`, the stop it answers), after any number of fix-checks | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
+| a granted fix-check (`--grant`, or a fix-check round grant with `--stop`) that found nothing blocking, whose fix range changed runtime lines | one read-only full review of the final head (R51): no fix round, and no other step is added |
+| a granted fix-check that found nothing blocking, whose fix range is docs and tests only (0 runtime lines) | done |
+| the read-only full review after a granted fix-check, with nothing blocking | done: its below-floor findings are notes in the PR body |
+| the read-only full review after a granted fix-check, with a blocking finding (fixed or open) or a gate-class edit | stop: `PR_ROUND_CAP` for the lane's Captain (ship with the note or park), never another fix round or fix-check; after Step 11 on gate class |
+
+The plan tells the read-only final review apart from the review log, not from
+a flag: the grant counts as spent once a `review-fix-check` row carries it or
+started after it was recorded, and a full pass counts as that final review
+when a completed, full (not scoped) `review` row started after that fix-check
+(`grantFixChecked`, `lib/fix-check-clearing.ts`). With `--grant`, the replan
+after the final review may pass that review's own `PASS_HEAD` as
+`--range-base`; the grant's stop head then sits below it.
 
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is

@@ -406,6 +406,8 @@ export interface History {
   roundGrant?: string;
   /** A fix-check round grant that answers the stop record at --stop (GST-2968): the stopped review's fix round, one scoped fix-check of the PR's own change since the stop's head, in this run or a new one. */
   grantedStop?: string;
+  /** This invocation's grant (`grantedStop` or `granted`) was spent by a logged fix-check, and with `last` 'full' a full review row followed it (gstack-review-plan reads both from the review log): that full pass is R51's read-only final review. */
+  grantFixChecked?: boolean;
 }
 export interface NextStep { step: Step; reason: string }
 
@@ -423,14 +425,27 @@ export interface NextStep { step: Step; reason: string }
  * the grant cannot repeat. Edits after the review bound (`postReview`) that follow a fix-check are a new stop, and a new grant
  * there adds one fix-check, the next link of the chain finish counts (GST-1676, docs/ship-policy.md#fix-check-chain). In the
  * loop, a grant the CLI bound to the last fix-check's own stop head (`chained`) adds one more the same way (GST-1681).
+ * R51 (GST-3260): a clean granted fix-check (`grantFixChecked`) whose range changed runtime lines is followed by one read-only
+ * full review of the final head, never another fix-check; after it a blocker stops with PR_ROUND_CAP and nothing else plans.
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
+  const spent = !!h.grantFixChecked && h.last !== 'none';
+  const blocker = !!(h.fixedBlocking || h.blockingOpen || h.touchedGate);
+  if (spent && h.last === 'full') {
+    const n: NextStep = blocker
+      ? { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review (R51) after the granted fix-check found a blocker; it has no fix round, so the lane's Captain decides (ship with the note or park), never another fix round or fix-check` }
+      : { step: 'done', reason: 'read-only final review done (R51): its below-floor findings ship as notes in the PR body and receipt, with no fix round' };
+    return n.step === 'stop' && h.gate && !h.adversarialRan ? { step: 'voices', reason: `gate class: Step 11's ${h.lean ? 'one reader' : 'voices (adversarial, outside, targeted)'} run${h.lean ? 's' : ''} before the owner's exit, then ask again with --adversarial-ran (${n.reason})` } : n;
+  }
   if (h.grantedStop && h.last !== 'fix-check') return h.rangeRuntimeLines == null
     ? { step: 'stop', reason: `fix-check grant ${h.grantedStop} answers the stop, but there is no fix to read since its head: commit the fix (a base merge, an empty or reverted change is none), then ask again` }
     : { step: 'fix-check', reason: `fix-check grant ${h.grantedStop} buys the stopped review's fix round: one scoped fix-check of the PR's own change since the stop's head, never a new full review and never a second fix-check` };
-  const n = prCapped(h, h.lean ? leanStep(h, depth) : loopStep(h, depth));
+  const inner = prCapped(h, h.lean ? leanStep(h, depth) : loopStep(h, depth));
+  const n: NextStep = spent && inner.step === 'fix-check' ? { step: 'stop', reason: `the granted fix-check found a blocking finding: name it for the owner; the grant bought one fix-check, never a second (${inner.reason})` } : inner;
+  if (spent && n.step === 'done' && !blocker && (h.rangeRuntimeLines ?? 0) > 0) return { step: 'full', reason: `read-only final review (R51): the granted fix-check read the fix clean, but a re-check of only what changed never stands in for the final full review, and its range changed ${h.rangeRuntimeLines} runtime lines, so this head gets one full review with no fix round; a blocker goes to the lane's Captain as PR_ROUND_CAP` };
   if (n.step !== 'stop') return n;
   if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's ${h.lean ? 'one reader' : 'voices (adversarial, outside, targeted)'} run${h.lean ? 's' : ''} before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
+  if (spent) return n;
   const afterFixCheck = h.last === 'fix-check' && h.fullPasses === FULL_PASS_CAP - 1 && h.fixChecks === 1;
   if (h.postReview && h.last === 'fix-check' && h.granted && !h.blockingOpen) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check for the edits after the last fix-check, a new link of the fix-check chain (docs/ship-policy.md#fix-check-chain); a later post-review edit needs a grant of its own` };
   if (h.chained && h.last === 'fix-check' && h.granted && !h.blockingOpen) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check at the last fix-check's stop, a new link of the fix-check chain (docs/ship-policy.md#fix-check-chain); another stop needs a grant of its own` };

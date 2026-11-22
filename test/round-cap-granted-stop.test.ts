@@ -67,6 +67,33 @@ describe('the plan: a fix-check grant answering a stop buys its fix round (GST-2
   });
 });
 
+describe('R51: a clean granted fix-check that changed runtime lines is followed by one read-only full review (GST-3260)', () => {
+  // Value: protects=R51, the last review before merge is a full review of the final head, for both grant routes; fails_when=the plan
+  //   is done after the granted fix-check, the final review plans a fix round or fix-check, or a docs-and-tests fix range plans a
+  //   full review; seam=nextStep; no_claim=how gstack-review-plan derives grantFixChecked (test/fix-check-clearing.test.ts)
+  test('the fix-check-grant (--stop) route: full after a clean fix-check, then done or PR_ROUND_CAP', () => {
+    const fc = { fullPasses: 0, last: 'fix-check', fixChecks: 1, priorFull: 3, grantedStop: 'a-1', grantFixChecked: true, rangeRuntimeLines: 4 } as const;
+    expect(nextStep(fc as any)).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
+    expect(nextStep({ ...fc, rangeRuntimeLines: 0 } as any).step).toBe('done');
+    expect(nextStep({ ...fc, blockingOpen: true } as any).reason).toStartWith('PR_ROUND_CAP');
+    const full = { ...fc, fullPasses: 1, last: 'full' } as const;
+    expect(nextStep(full as any).step).toBe('done');
+    for (const flag of ['fixedBlocking', 'blockingOpen', 'touchedGate']) expect(nextStep({ ...full, [flag]: true } as any)).toMatchObject({ step: 'stop', reason: expect.stringContaining('PR_ROUND_CAP: the read-only final review (R51)') });
+    expect(nextStep({ ...full, fixedBlocking: true, gate: true } as any).step).toBe('voices');
+  });
+  test('the owner\'s round-2 grant route: full after a clean fix-check, then never a fix-check', () => {
+    const fc = { fullPasses: 2, last: 'fix-check', fixChecks: 1, granted: 'a-3', grantFixChecked: true, rangeRuntimeLines: 12 } as const;
+    expect(nextStep(fc as any).step).toBe('full');
+    expect(nextStep({ ...fc, fullPasses: 3, last: 'full', fixedBelow: true } as any).step).toBe('done');
+    expect(nextStep({ ...fc, fullPasses: 3, last: 'full', fixedBlocking: true } as any).reason).toStartWith('PR_ROUND_CAP');
+    const link = { fullPasses: 1, last: 'fix-check', fixChecks: 2, granted: 'a-4', chained: true, grantFixChecked: true, rangeRuntimeLines: 3 } as const;
+    expect(nextStep(link as any).step).toBe('full');
+    expect(nextStep({ ...link, fullPasses: 2, last: 'full', fixedBlocking: true } as any).step).toBe('stop');
+    expect(nextStep({ ...link, fixedBlocking: true } as any).step).toBe('stop');
+    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixChecks: 1, granted: 'a-5', lean: true, grantFixChecked: true, fixedBlocking: true } as any).step).toBe('stop');
+  });
+});
+
 describe('which grant answers which stop (lib/pr-review-history.ts grantedStop)', () => {
   test('G1/G2: a fix-check grant naming the newest stop\'s run, head and PR answers it', () => {
     expect(answer(stopped(), [fixGrant('a-000000000001')])).toMatchObject({ ok: true, grant: { approval: 'a-000000000001', findings: ['p1/outside-voice#1'] }, stop: { head: S, run: 'ro' } });

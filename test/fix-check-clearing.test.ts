@@ -43,7 +43,7 @@ function logRow(g: Pick<Granted, 'run'>, skill: string, row: Record<string, unkn
  * run (the stop's own run for harness-evals #508, a new run for gstack #4537) claims the grant, commits the fix at F and runs the
  * fix-check from the stop head through the logger and gstack-review-plan --fix-check-prompt, which records its hunks.
  */
-function grantedRun(o: { sameRun: boolean; fixRow?: Record<string, unknown>; extra?: Record<string, string>; hunkPaths?: string[] }): Granted {
+function grantedRun(o: { sameRun: boolean; fixRow?: Record<string, unknown>; extra?: Record<string, string>; hunkPaths?: string[]; fix?: Record<string, string> }): Granted {
   const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST });
   fxs.push(f);
   const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
@@ -57,7 +57,7 @@ function grantedRun(o: { sameRun: boolean; fixRow?: Record<string, unknown>; ext
   const grant = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(ok(run('gstack-approvals', ['round-grant', '--pr', '7', '--head', S, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', ID, '--reason', 'fixable blocker', '--by', 'Captain GStack Minder (GSTA-36)'])))![1]!;
   const fixRun = o.sameRun ? 'ro' : 'fc1';
   if (!o.sameRun) marker(f, fixRun);
-  f.write({ 'src/x.ts': 'export const x = 3;\n', ...o.extra }); f.commit('fix the blocker');
+  f.write({ ...(o.fix ?? { 'src/x.ts': 'export const x = 3;\n' }), ...o.extra }); f.commit('fix the blocker');
   const F = headOf(f);
   expect(ok(run('gstack-ship-receipt', ['claim', '--body', body, '--run', fixRun, '--grant', grant]))).not.toContain('RUN_RECORD');
   const start = ok(run('gstack-review-log', ['--start', 'review-fix-check'])).trim();
@@ -211,6 +211,67 @@ describe('harness-evals#504: a fix-check grant answering a stop after a gate-cla
     const plan = g.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '3', '--prior-full', '2', '--pr', '7', '--round-grant', g2, '--stop', s2, '--range-base', s2, '--last', 'fix-check', '--fix-checks', '1', '--touched-gate']);
     expect(plan.status, plan.stderr).toBe(0);
     expect(plan.stdout).toContain('next=fix-check');
+  });
+});
+
+describe('R51: a clean granted fix-check that changed runtime lines plans one read-only full review (gstack-review-plan)', () => {
+  const planArgs = (g: Granted, extra: string[]) => ['--base', 'main', '--gate-tagged', '0', '--prior-rounds', '3', '--prior-full', '2', '--pr', '7', '--round-grant', g.grant, '--stop', g.S, ...extra];
+  const fullRow = (g: Granted, row: Record<string, unknown> = {}) => logRow(g, 'review', { pass: 1, ...CLEAN, ...row });
+  // Value: protects=R51, a PR's last review is a full review of its final head: after the granted fix-check read the fix clean,
+  //   the plan is one read-only full review, and after it a blocker is PR_ROUND_CAP for the Captain, never a fix round; fails_when=
+  //   the plan is done after the fix-check, so the PR's last review is a scoped re-check, or the final review plans another
+  //   fix-check; seam=gstack-review-plan reading the review log (grantFixChecked); no_claim=finish and the receipt write after it
+  test('#4664 / harness-evals#508 shape: --stop route plans the final full review, then done or PR_ROUND_CAP', () => {
+    const g = grantedRun({ sameRun: true });
+    const after = g.run('gstack-review-plan', planArgs(g, ['--range-base', g.S, '--last', 'fix-check', '--fix-checks', '1']));
+    expect(after.status, after.stderr).toBe(0);
+    expect(after.stdout).toContain('next=full');
+    expect(after.stdout).toContain('read-only final review (R51)');
+    fullRow(g);
+    const done = g.run('gstack-review-plan', planArgs(g, ['--range-base', g.F, '--last', 'full', '--pass', '1', '--fix-checks', '1']));
+    expect(done.status, done.stderr).toBe(0);
+    expect(done.stdout).toContain('NEXT: done (read-only final review done (R51)');
+    const stop = g.run('gstack-review-plan', planArgs(g, ['--range-base', g.F, '--last', 'full', '--pass', '1', '--fix-checks', '1', '--fixed-blocking']));
+    expect(stop.status, stop.stderr).toBe(0);
+    expect(stop.stdout).toContain('NEXT: stop (PR_ROUND_CAP: the read-only final review (R51) after the granted fix-check found a blocker');
+    expect(stop.stdout).not.toContain('next=fix-check');
+    expect(stop.stdout).not.toContain('buys its fix round');
+  });
+  // Value: protects=a granted fix round that changed only docs and tests stays done after its fix-check (R51 asks a full review
+  //   only when code changed); fails_when=a 0-runtime-line range plans a full review; seam=gstack-review-plan
+  test('a granted fix-check whose range is tests only is done', () => {
+    const g = grantedRun({ sameRun: true, fix: { 'test/x.test.ts': TEST.replace('toBe(2)', 'toBe(2); expect(1).toBe(1)') } });
+    const after = g.run('gstack-review-plan', planArgs(g, ['--range-base', g.S, '--last', 'fix-check', '--fix-checks', '1']));
+    expect(after.status, after.stderr).toBe(0);
+    expect(after.stdout).toContain('next=done');
+  });
+  // Value: protects=the owner's in-run --grant route (gbrain#10036 shape): the replan after its clean fix-check plans the final full
+  //   review instead of refusing the spent grant, and the replan after that review takes the grant's stop below --range-base;
+  //   fails_when=the replan exits 3 or plans another fix-check, or the final review's blocker plans a fix-check; seam=gstack-review-plan
+  test('gbrain#10036 shape: --grant route plans the final full review, then PR_ROUND_CAP on a blocker', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    fxs.push(f);
+    const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
+    logRow({ run }, 'review', { pass: 2, completed: true, converged: false, status: 'issues_found', issues_found: 1, critical: 1, informational: 0, findings: [blocker] });
+    const S = headOf(f);
+    const grant = JSON.parse(ok(run('gstack-approvals', ['add', '--ask', `Owner grant: scoped fix-check (review_loop_grant ${S.slice(0, 12)})`, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json']))).added[0] as string;
+    const plan = (extra: string[]) => run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--grant', grant, ...extra]);
+    expect(plan(['--range-base', S, '--last', 'full', '--pass', '2', '--fixed-blocking']).stdout).toContain('next=fix-check');
+    f.write({ 'src/x.ts': 'export const x = 3;\n' }); f.commit('fix the blocker');
+    const F = headOf(f);
+    logRow({ run }, 'review-fix-check', { range_base: S, ...CLEAN });
+    const after = plan(['--range-base', S, '--last', 'fix-check', '--pass', '2', '--fix-checks', '1']);
+    expect(after.status, after.stderr).toBe(0);
+    expect(after.stdout).toContain('next=full');
+    expect(after.stdout).toContain('read-only final review (R51)');
+    const spent = plan(['--range-base', S, '--last', 'fix-check', '--pass', '2', '--fix-checks', '1', '--fixed-blocking']);
+    expect([spent.status, spent.stdout]).toEqual([3, '']);
+    logRow({ run }, 'review', { pass: 3, ...CLEAN });
+    const done = plan(['--range-base', F, '--last', 'full', '--pass', '3', '--fix-checks', '1']);
+    expect(done.status, done.stderr).toBe(0);
+    expect(done.stdout).toContain('NEXT: done (read-only final review done (R51)');
+    const stop = plan(['--range-base', F, '--last', 'full', '--pass', '3', '--fix-checks', '1', '--fixed-blocking']);
+    expect(stop.stdout).toContain('NEXT: stop (PR_ROUND_CAP: the read-only final review (R51)');
   });
 });
 

@@ -21,7 +21,7 @@ gave `--depth-floor <d>` (it only raises), and Step 1's `PR_REVIEW_FLAGS:` on ev
 earlier rounds and a round grant; past two the plan is one read-only full review, and `PR_ROUND_CAP` stops for the lane, never the owner).
 When they name `--round-grant <id>`, run `gstack-ship-receipt claim --pr <n> --run <SESSION_ID> --grant <id>` before the first
 dispatch (`GRANT_SPENT` stops the run). With `--stop <head>` too, the grant buys that stop's fix round: Step 9 is only decision
-3.5's fix-check of the PR's own change since `<head>`, for the grant's findings, Step 11.5 saves `<head>`'s tree, and the receipt's
+3.5's fix-check of the PR's own change since `<head>`, for the grant's findings (plus the read-only full review its plan may add), Step 11.5 saves `<head>`'s tree, and the receipt's
 `review_loop_exception` names the grant. Add `--declare-risk <classes>` when the diff touches a risk
 class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
 receipt write the same flag; a repeat uses the plan run that picked it.
@@ -859,7 +859,8 @@ Other scopes apply decisions 2–4 in order.
    on `gstack-review-plan --fix-check-prompt --fix-list <f> --hunks <f> --tests <f>
    --callers <f>`, plus the outside voice only if the plan lists it. Log item 6's
    row as `"skill":"review-fix-check"` with `--finish <token>`; not a pass. A
-   CRITICAL goes to decision 2; otherwise decision 4.
+   CRITICAL goes to decision 2. After a granted fix-check, ask the plan again (`--last fix-check`): its
+   `NEXT: full` is one read-only full review of the final head (decision 3, then the plan's `NEXT:` stands). Otherwise decision 4.
 4. **No edits in this pass:** Resolve the required-probe gate below. Only after it
    clears may you continue to Step 10. A pass whose only findings were deferred or
    noted applied no edits and continues here: the loop converges below the floor.
