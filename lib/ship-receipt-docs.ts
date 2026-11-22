@@ -5,6 +5,8 @@
  * (`docs.caps`, docs/ship-policy.md#ship-receipt). Kept beside
  * lib/ship-receipt.ts so that module stays under the size ratchet.
  */
+import * as path from 'node:path';
+
 export const DOCS_STATUSES = ['updated', 'current', 'blocked'] as const;
 export type DocsStatus = typeof DOCS_STATUSES[number];
 /** Only the owner accepts a documentation risk; the record names who, when, where and why, and the PR body repeats it word for word. */
@@ -47,6 +49,9 @@ export function docsExceptionLine(docs: ReceiptDocs): string | null {
   return `Documentation exception: accepted by ${e.accepted_by} ${e.date} via ${e.via}: ${e.reason}`;
 }
 
+/** Whether two snapshots name the same /ship run: its record's path, compared resolved, so `ship2/../ship2-record.md` is `ship2-record.md` (GST-3502). */
+export const sameRun = (a: unknown, b: unknown): boolean => a === b || (typeof a === 'string' && typeof b === 'string' && path.resolve(a) === path.resolve(b));
+
 /** One earlier Step 14.5 audit of the same /ship run that a post snapshot carries (gstack-docs-candidate snapshot --carry, GST-1616). */
 export interface CarriedAudit { run_id: string; audit_id: string; head: string; edited: Record<string, { before: string | null; after: string | null }> }
 
@@ -61,7 +66,7 @@ export function carriedAudits(post: { run_id?: unknown; audit_id?: unknown; earl
     const edited = e?.edited;
     if (!e || typeof e !== 'object' || !text(e.audit_id) || !sha(e.head) || !edited || typeof edited !== 'object' || Array.isArray(edited)
       || !Object.values(edited).every((v: any) => v && typeof v === 'object' && (v.before === null || sha(v.before)) && (v.after === null || sha(v.after)))) return 'it carries an earlier audit that is not { run_id, audit_id, head, edited }';
-    if (e.run_id !== post.run_id) return `it carries audit ${e.audit_id} of another /ship run (${String(e.run_id)}), not ${post.run_id}`;
+    if (!sameRun(e.run_id, post.run_id)) return `it carries audit ${e.audit_id} of another /ship run (${String(e.run_id)}), not ${post.run_id}`;
     if (seen.has(e.audit_id)) return `it carries audit ${e.audit_id} twice`;
     seen.add(e.audit_id);
   }

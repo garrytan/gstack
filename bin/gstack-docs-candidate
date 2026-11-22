@@ -5,7 +5,7 @@
  * Usage (run inside the repository):
  *   gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only
  *                                  --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>]
- *                                  [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>]]
+ *                                  [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>] [--carry-stopped <stopped-prepare.json>]]
  *   gstack-docs-candidate compare <candidate.json>
  *   gstack-docs-candidate attempt <child-output> --state <attempts.json>
  *   gstack-docs-candidate result <child-output> --audit-id <id> --out-dir <record dir> [--repair-of <first child-output>]
@@ -35,7 +35,10 @@
  * snapshot> (with --pre and --run) saves that audit and the ones it carried as
  * `earlier`, so receipt write resets every file this run's audits edited
  * (GST-1616); a snapshot of another run, one without `edited`, or one whose
- * HEAD is not an ancestor of HEAD is refused.
+ * HEAD is not an ancestor of HEAD is refused. --carry-stopped <the Prepare
+ * snapshot of an audit of this run that stopped before its post snapshot>, at
+ * this audit's HEAD, adds that audit with its edits read as what changed
+ * between the two Prepare snapshots (GST-3502).
  *
  * compare re-reads the same state and prints one JSON object: whether HEAD or
  * the index changed, which recorded paths' content changed or disappeared, and
@@ -68,7 +71,7 @@ import { baseContainsHead } from '../lib/default-base';
 import { baseArg } from '../lib/gate-diff/git';
 import { resultLine } from '../lib/result-codes';
 import { checkDocsRepair, checkDocsResult, docsRepairPrompt, docsRetryNote, type DocsResultCheck } from '../lib/ship-docs-result';
-import { parseReceiptDocs, type ReceiptDocs } from '../lib/ship-receipt-docs';
+import { parseReceiptDocs, sameRun, type ReceiptDocs } from '../lib/ship-receipt-docs';
 
 function git(args: string[]): string {
   const r = spawnSync('git', args, { encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, maxBuffer: 256 * 1024 * 1024 });
@@ -149,7 +152,7 @@ function one(args: string[], name: string): string {
   return values[0]!;
 }
 
-const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>] [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>]]
+const USAGE = `usage: gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only --base <rev> [--select <path>]... [--docs <path>[,<path>...]]... [--exception <docs-audit.json>] [--run <id>] [--pre <prepare.json> [--carry <earlier-post.json>] [--carry-stopped <stopped-prepare.json>]]
        gstack-docs-candidate compare <candidate.json>
        gstack-docs-candidate attempt <child-output> --state <attempts.json>
        gstack-docs-candidate result <child-output> --audit-id <id> --out-dir <record dir> [--repair-of <first child-output>]
@@ -190,7 +193,7 @@ type Edited = Record<string, { before: string | null; after: string | null }>;
 
 /** The post snapshot's own audit: each path whose content differs from this audit's Prepare snapshot, before (its Prepare hash, else HEAD's blob) and after. */
 function auditEdits(pre: Record<string, any>, file: string, post: { audit_id: string; run_id?: string; head: string; hashes: Record<string, string | null> }): { edited: Edited } {
-  if (pre.audit_id !== post.audit_id || pre.head !== post.head || pre.run_id !== post.run_id) throw new Error(`--pre ${file} is not this audit's Prepare snapshot (its audit id, HEAD or run differs)`);
+  if (pre.audit_id !== post.audit_id || pre.head !== post.head || !sameRun(pre.run_id, post.run_id)) throw new Error(`--pre ${file} is not this audit's Prepare snapshot (its audit id, HEAD or run differs)`);
   const paths = [...new Set([...Object.keys(pre.hashes), ...Object.keys(post.hashes)])].sort();
   const now = hashes(paths.filter(p => !(p in post.hashes)));
   const blob = (p: string) => spawnSync('git', ['rev-parse', '--verify', '--quiet', `${pre.head}:${p}`], { encoding: 'utf8', timeout: 60_000 }).stdout?.trim() || null;
@@ -205,11 +208,23 @@ function auditEdits(pre: Record<string, any>, file: string, post: { audit_id: st
 
 /** An earlier audit of this run and the audits it carried, oldest first; refuses another run's snapshot, one without `edited` and one whose HEAD is not an ancestor of HEAD. */
 function carried(prior: Record<string, any>, file: string, post: { audit_id: string; run_id?: string; head: string }): Array<{ run_id: string; audit_id: string; head: string; edited: Edited }> {
-  if (prior.run_id !== post.run_id) throw new Error(`--carry ${file} is audit ${prior.audit_id} of another /ship run (${prior.run_id ?? 'no --run'}), not ${post.run_id}: a post snapshot carries only this run's earlier audits`);
+  if (!sameRun(prior.run_id, post.run_id)) throw new Error(`--carry ${file} is audit ${prior.audit_id} of another /ship run (${prior.run_id ?? 'no --run'}), not ${post.run_id}: a post snapshot carries only this run's earlier audits`);
   if (!prior.edited || typeof prior.edited !== 'object' || Array.isArray(prior.edited)) throw new Error(`--carry ${file} names no edited files: take each post snapshot with --pre <its Prepare snapshot>`);
   if (prior.audit_id === post.audit_id) throw new Error(`--carry ${file} is this audit (${post.audit_id}), not an earlier one`);
   if (spawnSync('git', ['merge-base', '--is-ancestor', String(prior.head), post.head], { timeout: 60_000 }).status !== 0) throw new Error(`--carry ${file}: its HEAD ${String(prior.head).slice(0, 12)} is not an ancestor of HEAD`);
   return [...(Array.isArray(prior.earlier) ? prior.earlier : []), { run_id: prior.run_id, audit_id: prior.audit_id, head: prior.head, edited: prior.edited }];
+}
+
+/**
+ * An audit of this run that stopped (blocked) before its post snapshot (GST-3502), from its Prepare snapshot: its edits are what changed
+ * between that snapshot and this re-audit's Prepare snapshot at the same HEAD, so receipt write resets them like a carried audit's.
+ */
+function stoppedAudit(prepare: Record<string, any>, file: string, post: { audit_id: string; run_id?: string; head: string }, pre: Record<string, any>): { run_id: string; audit_id: string; head: string; edited: Edited } {
+  if (!sameRun(prepare.run_id, post.run_id)) throw new Error(`--carry-stopped ${file} is audit ${prepare.audit_id} of another /ship run (${prepare.run_id ?? 'no --run'}), not ${post.run_id}`);
+  if (prepare.audit_id === post.audit_id) throw new Error(`--carry-stopped ${file} is this audit (${post.audit_id}), not an earlier one`);
+  if (prepare.edited !== undefined || prepare.earlier !== undefined) throw new Error(`--carry-stopped ${file} is a post snapshot: carry it with --carry`);
+  if (prepare.head !== pre.head) throw new Error(`--carry-stopped ${file} was taken at HEAD ${String(prepare.head).slice(0, 12)}, not this audit's HEAD ${String(pre.head).slice(0, 12)}: a stopped audit is carried only at the HEAD the re-audit read`);
+  return { run_id: prepare.run_id, audit_id: prepare.audit_id, head: prepare.head, edited: auditEdits({ ...prepare, audit_id: post.audit_id, run_id: post.run_id }, file, { ...post, hashes: pre.hashes }).edited };
 }
 
 /** Each field compare needs that the record lacks or types wrongly; empty for a valid record. */
@@ -231,7 +246,7 @@ function main(argv: string[]): void {
     return;
   }
   if (command === 'snapshot') {
-    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception', '--run', '--pre', '--carry']);
+    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception', '--run', '--pre', '--carry', '--carry-stopped']);
     for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
     const out = path.resolve(one(args, '--out'));
     const top = fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim());
@@ -243,7 +258,7 @@ function main(argv: string[]): void {
     if (self) throw new Error(resultLine('snapshot', 'BASE_CONTAINS_HEAD', self));
     const exceptionFile = flag(args, '--exception')[0];
     const exception = exceptionFile === undefined ? undefined : acceptedException(exceptionFile);
-    const [preFile, carryFile] = ['--pre', '--carry'].map(name => { const v = optional(args, name); return v === undefined ? undefined : path.resolve(v); });
+    const [preFile, carryFile, stoppedFile] = ['--pre', '--carry', '--carry-stopped'].map(name => { const v = optional(args, name); return v === undefined ? undefined : path.resolve(v); });
     process.chdir(top);
     const now = state(base);
     const listed = nul(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']));
@@ -255,8 +270,10 @@ function main(argv: string[]): void {
     const run = optional(args, '--run');
     const record = { schema_version: 1, audit_id: auditId, ...(run === undefined ? {} : { run_id: run }), mode, base, ...now, selected, docs, hashes: hashes(tracked), ...(exception ? { exception } : {}) };
     if (carryFile !== undefined && (preFile === undefined || run === undefined)) throw new Error('--carry needs --pre and --run: only a post snapshot of a named /ship run carries an earlier audit');
+    if (stoppedFile !== undefined && (preFile === undefined || run === undefined)) throw new Error('--carry-stopped needs --pre and --run: only a post snapshot of a named /ship run carries a stopped audit');
     const audit = preFile === undefined ? {} : auditEdits(readRecord(preFile, '--pre'), preFile, record);
-    const earlier = carryFile === undefined ? {} : { earlier: carried(readRecord(carryFile, '--carry'), carryFile, record) };
+    const chain = [...(carryFile === undefined ? [] : carried(readRecord(carryFile, '--carry'), carryFile, record)), ...(stoppedFile === undefined ? [] : [stoppedAudit(readRecord(stoppedFile, '--carry-stopped'), stoppedFile, record, readRecord(preFile!, '--pre'))])];
+    const earlier = carryFile === undefined && stoppedFile === undefined ? {} : { earlier: chain };
     fs.writeFileSync(out, JSON.stringify({ ...record, ...audit, ...earlier }, null, 2) + '\n', { mode: 0o600 });
     console.log(`CANDIDATE: ${out}`);
     console.log(`base=${base} head=${now.head} branch=${now.branch || '(detached)'} mode=${mode}`);

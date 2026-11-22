@@ -1,0 +1,4 @@
+{
+  "bytes": 199,
+  "why": "Blocked docs recovery names --carry-stopped for an audit that stopped before saving its snapshot (GST-3502)"
+}
