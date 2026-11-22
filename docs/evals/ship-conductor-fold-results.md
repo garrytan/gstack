@@ -23,7 +23,7 @@ value t = 2.291 (10 cases).
   second-model checker).
 - **It cost the same.** F minus C was +$0.07 a run (-$1.42 to +$1.57), against a planned detectable difference of
   about $7. Mean cost was $11.47 for C and $11.54 for F.
-- **It caught the same.** Planted bugs: F minus C +0.03 (-0.18 to +0.25), 22 of 30 for F against 21 of 30 for C.
+- **It caught the same.** Planted bugs: F minus C +0.03 (-0.18 to +0.24), 22 of 30 for F against 21 of 30 for C.
   Real problems found by the judge: F minus C -0.003 (-0.21 to +0.20). No case was a structural loss (C catching in
   all three runs and F in none) on either measure.
 - **It took no longer.** Wall time F minus C was -1.9 minutes (-8.1 to +4.4), and `calls=` +0.35 (-2.8 to +3.5),
@@ -58,10 +58,10 @@ value t = 2.291 (10 cases).
 | `claude-opus-5-5#ship-folded` | F | 30 | 22 of 30 | 0.23 | $11.54 | 36.6 min | 30 of 30 under the ruling, 29 of 30 literal |
 | `claude-opus-5-5#no-gstack` | N | 30 | 16 of 30 | 0.40 | $0.83 | 6.6 min (SDK runs) | not applicable |
 
-| Bar (F minus C) | Primary (ruling) | Literal line 193 | Without the 9 exposure-flagged F runs (9 cases, t = 2.336) |
+| Bar (F minus C) | Owner's ruling (made after seeing data) | Literal line 193 (as frozen) | Without the 9 exposure-flagged F runs (9 cases, t = 2.336) |
 |---|---|---|---|
 | Cost a run | +$0.07 (-$1.42 to +$1.57), pass | same, pass | +$0.01 (-$1.62 to +$1.64), pass |
-| Planted-bug catch rate | +0.03 (-0.18 to +0.25), pass | same, pass | -0.04 (-0.39 to +0.32), fails on case 9 |
+| Planted-bug catch rate | +0.03 (-0.18 to +0.24), pass | same, pass | -0.04 (-0.39 to +0.32), fails on case 9 |
 | Real-problem catch rate | -0.003 (-0.21 to +0.20), pass | same, pass | -0.04 (-0.25 to +0.17), pass |
 | Reader fidelity | 30 of 30, pass | 29 of 30, fails | pass under the ruling |
 | Decision | conductor goes | conductor stays, one FIX-METHOD cycle | not a decision row |
@@ -130,8 +130,9 @@ decision does not depend on it.
   diffs against `origin/main` on the planted path. Nine F runs are flagged: F2t1 and F5t1 saw only file names, line
   counts or a one-line changelog summary that mention this plan; F7t1-3, F9t1, F9t3, F10t1 and F10t2 looked at main's version of the planted
   file. In five of those seven the plant was already caught before the lookup; in F9t1 and F9t3 the catch may have
-  been informed by main, and F7t2 and F9t1 used main's version as their fix. No run read this plan's contents or the
-  label file, and no run used `git log -S`, `git log -p` or `git blame` on a planted file. C's /ship runs in a
+  been informed by main, and F7t2 and F9t1 used main's version as their fix. No audited transcript shows a read of this plan's
+  contents or the label file, or a `git log -S`, `git log -p` or `git blame` on a planted file; for C that covers only
+  the thread, not its /ship subagent. C's /ship runs in a
   subagent whose tool calls the audit cannot read, so C's exposure is undercounted against F's; the sensitivity row
   above leaves out F runs only, which tilts it against F.
 - **Cost far below plan.** Runs cost about $11.50, not the planned $38, because they stop at the round cap or the
