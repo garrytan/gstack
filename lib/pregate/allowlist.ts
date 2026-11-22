@@ -70,21 +70,31 @@ export function applyAllowlist<F extends AllowlistFinding>(findings: readonly F[
   return { kept, allowlisted, untested, missed };
 }
 
+/**
+ * GST-3528: a file name as reports print it. A name holding a control, C1 or
+ * bidi-override character is JSON-quoted with those characters escaped, so it
+ * can't rewrite the terminal line that names it.
+ */
+export function displayPath(file: string): string {
+  const unsafe = /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g;
+  return unsafe.test(file) ? JSON.stringify(file).replace(unsafe, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`) : file;
+}
+
 /** sha256 of the entries, for the check's `inputs.allowlist`. */
 export const allowlistDigest = (entries: readonly AllowlistEntry[]) => sha256(JSON.stringify(entries));
 
 /** One table line per finding a pattern entry named but could not test: the finding is kept. */
 export function describeUntested(a: Allowlisted): string {
-  return `allowlist[${a.index}] ${a.entry.finding} not tested on ${a.finding.id} (${a.finding.file}): the scanner gave no position for its pattern; the finding is kept`;
+  return `allowlist[${a.index}] ${a.entry.finding} not tested on ${a.finding.id} (${displayPath(a.finding.file)}): the scanner gave no position for its pattern; the finding is kept`;
 }
 
 /** One table line per finding a pattern entry named but did not match: the pattern is tested from where the flagged value starts, never the name before it. */
 export function describeMissed(a: Allowlisted): string {
-  return `allowlist[${a.index}] ${a.entry.finding} pattern did not match ${a.finding.id} (${a.finding.file}${a.finding.line ? `, ${a.finding.fileLine ? 'line' : 'added line'} ${a.finding.line}` : ''}, col ${a.finding.col}): a pattern is matched from where the flagged value starts, not from the name; the finding is kept`;
+  return `allowlist[${a.index}] ${a.entry.finding} pattern did not match ${a.finding.id} (${displayPath(a.finding.file)}${a.finding.line ? `, ${a.finding.fileLine ? 'line' : 'added line'} ${a.finding.line}` : ''}, col ${a.finding.col}): a pattern is matched from where the flagged value starts, not from the name; the finding is kept`;
 }
 
 /** One table line per allowlisted finding: what, where, and which entry (with its reason) covered it. */
 export function describeAllowlisted(a: Allowlisted): string {
-  const where = a.finding.line ? ` (${a.finding.file}, ${a.finding.fileLine ? 'line' : 'added line'} ${a.finding.line})` : ` (${a.finding.file})`;
+  const where = a.finding.line ? ` (${displayPath(a.finding.file)}, ${a.finding.fileLine ? 'line' : 'added line'} ${a.finding.line})` : ` (${displayPath(a.finding.file)})`;
   return `allowlisted ${a.finding.id}${where} by allowlist[${a.index}] ${a.entry.finding}: ${a.entry.reason}`;
 }

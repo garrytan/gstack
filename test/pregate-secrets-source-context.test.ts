@@ -81,7 +81,27 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect(name).toBe('a\x1b[2Kb.rs');
     expect(displayPath(name)).toBe('"a\\u001b[2Kb.rs"');
     expect(displayPath('src/my file.rs')).toBe('src/my file.rs');
+    expect(displayPath('a\u009bb\u202ec.rs')).toBe('"a\\u009bb\\u202ec.rs"');
   });
+
+  test('a quoted .ts file reports at least what main reported when it read the file as added.txt (GST-3528 grant)', () => {
+    const body = 'const cfg = {\n  token: credentials.token,\n  apiKey: settings.apiKey,\n};\n';
+    const r = repo({ 'src/clé.ts': body }).secrets();
+    expect({ status: r.status, rows: r.lines.filter((l) => l.includes('src/clé.ts')).length > 0 }).toEqual({ status: 'fail', rows: true });
+    expect(repo({ 'src/cle.ts': body }).secrets()).toMatchObject({ status: 'pass' });
+  }, 60_000);
+
+  test.skipIf(process.platform !== 'linux')('a long name of invalid UTF-8 bytes is still scanned, never stopping the check (GST-3528 grant)', () => {
+    const secret = ['sk-live-FAKE-', 'Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');
+    const f = repo({ 'README.md': 'base\n' });
+    const name = Buffer.concat([Buffer.from('src/'), Buffer.alloc(120, 0xff), Buffer.from('.rs')]);
+    fs.mkdirSync(path.join(f.dir, 'src'), { recursive: true });
+    fs.writeFileSync(Buffer.concat([Buffer.from(f.dir + '/'), name]), 'fn c() {\n    let token = "' + secret + '";\n}\n');
+    f.git('add', '-A');
+    f.git('commit', '-qm', 'long name');
+    const r = f.secrets();
+    expect({ status: r.status, rust: r.lines.some((l) => l.includes('env.kv.rust')) }).toEqual({ status: 'fail', rust: true });
+  }, 60_000);
 
   test('a Rust key in a file whose name git quotes or ends with a tab still fails, naming the file (GST-3528)', () => {
     const secret = ['sk-live-FAKE-', 'Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');

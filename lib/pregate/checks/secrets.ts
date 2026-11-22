@@ -12,7 +12,7 @@ import { spawnSync } from '../../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { runScriptSync } from '../../script-invocation';
-import { allowlistDigest, applyAllowlist, describeAllowlisted, describeMissed, describeUntested, type AllowlistFinding } from '../allowlist';
+import { allowlistDigest, applyAllowlist, describeAllowlisted, describeMissed, describeUntested, displayPath, type AllowlistFinding } from '../allowlist';
 import { baseInputs, sha256 } from '../context';
 import { environmentResult, launchCause } from '../environment';
 import { checkScratch } from '../run-scratch';
@@ -44,10 +44,10 @@ export function diffHeaderPath(line: string): string {
   return '';
 }
 
-/** A file name as reports print it: one holding a control character (ESC, newline) is JSON-quoted, so it can't rewrite the terminal line that names it. */
-export function displayPath(file: string): string {
-  return /[\x00-\x1f\x7f]/.test(file) ? JSON.stringify(file) : file;
-}
+export { displayPath };
+
+/** A name git writes quoted or tab-ended in a `+++ ` header (a space, a non-ASCII byte, a quote, a backslash or a control character): main read it as no file. */
+export const gitMangledPath = (file: string): boolean => /[^\x21-\x7e]|["\\]/.test(file);
 
 /** The diff's added-line text per file, hunk-aware: a `+++` inside a hunk is content, not a header. */
 export function parseAddedLines(diff: string): Map<string, string[]> {
@@ -135,6 +135,22 @@ export function scannableReadings(text: string): string[] {
 
 /** Files whose source-syntax exemption needs the whole file: a line added inside an existing `'''`/`"""` block is a literal (#3630). */
 const LEXICAL_CONTEXT_SOURCE = /\.(?:dart|pyi?)$/i;
+
+/**
+ * The scratch names a part is scanned under. The scanner reads the file type
+ * from the name. A basename too long for the filesystem once decoded (invalid
+ * UTF-8 bytes become three-byte U+FFFD) is scanned as `added` plus its
+ * extension, so a long name never stops the check. A name git quotes or
+ * tab-ends is also scanned as `added.txt`, the way main read it, so the
+ * decoded name never reports less than main did (GST-3528).
+ */
+function scratchNames(part: { file: string; keep?: number[] }): string[] {
+  const base = path.basename(part.file);
+  const ext = path.extname(base);
+  const fit = Buffer.byteLength(base) <= 200 ? base : `added${Buffer.byteLength(ext) <= 32 ? ext : ''}`;
+  const name = (!part.keep && LEXICAL_CONTEXT_SOURCE.test(part.file) ? '' : fit) || 'added.txt';
+  return gitMangledPath(part.file) && name !== 'added.txt' ? [name, 'added.txt'] : [name];
+}
 const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
 
 /**
@@ -206,13 +222,13 @@ function run(ctx: PregateContext): CheckResult {
     let high = false;
     let medium = false;
     let parsedAll = true;
-    for (const [i, part] of parts.entries()) for (const [j, text] of part.texts.entries()) {
-      const file = path.join(tmp, `${i}.${j}`, (!part.keep && LEXICAL_CONTEXT_SOURCE.test(part.file) ? '' : path.basename(part.file)) || 'added.txt');
+    for (const [i, part] of parts.entries()) for (const [j, text] of part.texts.entries()) for (const [k, name] of scratchNames(part).entries()) {
+      const file = path.join(tmp, `${i}.${j}.${k}`, name);
       fs.mkdirSync(path.dirname(file), { mode: 0o700 });
       fs.writeFileSync(file, text, { mode: 0o600 });
       const r = runScriptSync(path.join(BIN_DIR, 'gstack-redact'), ['--from-file', file, '--json', '--max-bytes', String(64 * 1024 * 1024)], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: Math.min(ctx.timeoutMs, 300_000), maxBuffer: 64 * 1024 * 1024, env: ctx.env });
-      if (r.error || r.status === null) return environmentResult(base, launchCause('tool', `gstack-redact did not finish on ${part.file || 'added lines'} (${r.error?.message ?? 'killed'})`), `gstack-redact did not finish on ${part.file || 'added lines'}; an incomplete scan never passes`);
-      if (r.status !== 0 && r.status !== 2 && r.status !== 3) return environmentResult(base, launchCause('tool', `gstack-redact exited ${r.status} on ${part.file || 'added lines'}: ${(r.stderr ?? '').trim().split('\n').pop() ?? ''}`), `gstack-redact exited ${r.status}; an incomplete scan never passes`);
+      if (r.error || r.status === null) return environmentResult(base, launchCause('tool', `gstack-redact did not finish on ${part.file ? displayPath(part.file) : 'added lines'} (${r.error?.message ?? 'killed'})`), `gstack-redact did not finish on ${part.file ? displayPath(part.file) : 'added lines'}; an incomplete scan never passes`);
+      if (r.status !== 0 && r.status !== 2 && r.status !== 3) return environmentResult(base, launchCause('tool', `gstack-redact exited ${r.status} on ${part.file ? displayPath(part.file) : 'added lines'}: ${(r.stderr ?? '').trim().split('\n').pop() ?? ''}`), `gstack-redact exited ${r.status}; an incomplete scan never passes`);
       high ||= r.status === 3;
       medium ||= r.status === 2;
       const lines = text.split('\n');

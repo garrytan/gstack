@@ -47,7 +47,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
-import { diffHeaderPath, displayPath, scannableReadings } from "../lib/pregate/checks/secrets";
+import { diffHeaderPath, displayPath, gitMangledPath, scannableReadings } from "../lib/pregate/checks/secrets";
 import { resolveStateRoot } from "../lib/state-root";
 import { evaluateSealed, publishedCommits, renderSealed, sealedErrorReport, type SealedReport } from "../lib/sealed-guard";
 
@@ -710,8 +710,10 @@ function main() {
   const findingKey = (f: Finding) => `${f.id}:${f.line}:${f.col}`;
   // The readings of one binary file share its line list: a token every reading keeps is reported once.
   const reported = new Map<number[], Set<string>>();
-  for (const { part, allowlist } of parts) {
-    const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) };
+  // A name git quotes or tab-ends was read as no file before GST-3528, so it is
+  // also scanned without its path: the decoded name never reports less than that.
+  for (const { part, allowlist } of parts) for (const pathless of part.file && gitMangledPath(part.file) && !/\.(?:dart|pyi?)$/i.test(part.file) ? [false, true] : [false]) {
+    const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file && !pathless && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) };
     const findings = scanAddedLines(part.text, opts);
     const kept = allowlist.length
       ? new Set(scanAddedLines(part.text, { ...opts, allowlist }).map(findingKey))

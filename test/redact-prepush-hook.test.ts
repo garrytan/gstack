@@ -136,6 +136,14 @@ describe("a file git quotes or tab-ends in the diff header keeps its name (GST-3
     expect(stderr).toContain("env.kv.rust  src/my file.rs:2");
     expect(stderr).not.toContain("(unknown file)");
   });
+
+  test("a quoted .ts file still gets the no-path warning main gave it", () => {
+    const secret = ["sk-live-FAKE-", "Qx9vL2mZ", "p8Rt4Kw7", "Yn3Bh2Jd"].join("");
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commitFiles({ "src/clé.ts": 'const token = "' + secret + '";\n' }, "add key");
+    const { stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(stderr).toContain("env.kv.rust  src/clé.ts:1");
+  });
 });
 
 // #2856: a 4-part release version is shaped like a public IPv4 address.
