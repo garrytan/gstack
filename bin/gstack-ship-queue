@@ -22,7 +22,7 @@
  *   gstack-ship-queue train build|status|verdict|bisect|rebuild|watch|prune ...   (merge trains; train --help)
  *   gstack-ship-queue wave plan|build|status|settle ...   (wave PRs: 3-6 same-area PRs in one train slot; wave --help)
  *
- * Every subcommand takes --base <branch> (default lib/default-base.ts) and
+ * Every subcommand takes --base <branch> (default the --pr PR's base, else lib/default-base.ts) and
  * ends with GSTACK_RESULT: skill=ship-queue status=complete|refused run=<path>.
  * gstack-restamp stays the primitive. Nothing here pushes, except land, ready
  * under changelog_fragments (its READY receipt note), and under a
@@ -92,7 +92,7 @@ const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (doc
   wave plan|build|status|settle ...        wave PRs under a train policy: 3-6 same-area PRs in one slot and one version
                                            (wave --help; docs/ship-policy.md#wave-prs)
 
---base <branch>: base branch (default: origin/HEAD unless it names the checked-out branch, else the PR's base, origin/main). Nothing here pushes, except land (the stamp commit and the
+--base <branch>: base branch (default: the base of the PR --pr names; without --pr, origin/HEAD unless it names the checked-out branch, else the PR's base, origin/main; ready refuses a --base that is not its PR's base). Nothing here pushes, except land (the stamp commit and the
 refs/notes/gstack-land lock), ready under changelog_fragments (its READY receipt note) and merge trains.
 ${exitTableHelp()}`;
 
@@ -201,8 +201,14 @@ async function main(argv: string[]): Promise<number> {
   if (probe.status !== 0) return usage('not inside a git repository');
   const repoRoot = probe.stdout.trim();
   const gh = (a: string[]) => { const r = ghSpawnSync(a, { cwd: repoRoot, encoding: 'utf8', timeout: 60_000 }); return { ok: r.status === 0, out: r.stdout ?? '', err: r.stderr ?? (r.error ? String(r.error.message) : '') }; };
-  const ctx: QueueContext = { repoRoot, base: resolveBaseBranch(repoRoot, flag(args, '--base')), gh };
   const pr = flag(args, '--pr');
+  const explicitBase = flag(args, '--base');
+  let prBase: string | undefined;
+  if (pr && /^\d+$/.test(pr)) {
+    const view = gh(['pr', 'view', pr, '--json', 'baseRefName']);
+    try { prBase = view.ok ? JSON.parse(view.out).baseRefName || undefined : undefined; } catch {}
+  }
+  const ctx: QueueContext = { repoRoot, base: resolveBaseBranch(repoRoot, explicitBase ?? prBase), gh };
   if (cmd === 'gate-ahead') return gateAhead(ctx, args);
   if (cmd === 'train') {
     const train = await import('../crew/lib/ship-queue-train-cli');
@@ -234,6 +240,7 @@ async function main(argv: string[]): Promise<number> {
   if (gateExit !== undefined && !/^-?\d+$/.test(gateExit)) return usage('--gate-exit needs an exit code');
   const gate = { gateExit: gateExit === undefined ? undefined : Number(gateExit), gateLog: flag(args, '--gate-log') };
   if (cmd === 'ready') {
+    if (explicitBase && prBase && prBase !== ctx.base) return finish('ready', { ok: false, lines: [], run: 'none', failure: { code: 'QUEUE_NOT_READY', message: `#${pr} targets ${prBase}, not ${ctx.base}, so a receipt reviewed against ${ctx.base} does not cover it`, fix: `rerun ready without --base, or with --base ${prBase}` } });
     const unfetched = refreshBase(ctx);
     const loaded = loadBasePolicy(ctx);
     if (!('message' in loaded) && loaded.policy.train) return (await import('../crew/lib/ship-queue-train-cli')).readyMain(ctx, args, { pr, pregate: flag(args, '--pregate'), trail: flag(args, '--trail'), ...gate });
