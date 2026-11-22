@@ -399,7 +399,7 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
     if (!holds(head, p, post.hashes[p] ?? null)) return no(`${p} at HEAD is not the content the snapshot recorded (an edit after the audit)`);
   }
   const auditFiles = pre ? changed.filter(p => !(p in pre.hashes) || pre.hashes[p] !== post.hashes[p]) : changed;
-  const bindAudits = (carried: CarriedAudit[]): { ok: true; line: string; read?: DocsAuditRead } | { ok: false; why: string; retry?: true; packet?: { text: string; sha256: string; paths: string[] } } => {
+  const bindAudits = (carried: CarriedAudit[]): { ok: true; line: string; read?: DocsAuditRead } | { ok: false; why: string; retry?: true; matched?: true; packet?: { text: string; sha256: string; paths: string[] } } => {
     const resets = new Map<string, { rev: string; want: unknown; from: string }>(auditFiles.map(p => [p, { rev: at, want: pre ? pre.hashes[p] : undefined, from: `--docs-pre ${docsPre}` }]));
     const left = new Map<string, { after: string | null; audit: string }>();
     for (const e of carried) {
@@ -425,13 +425,14 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
     const run = (args: string[], input?: string) => { const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000 }); return { ok: r.status === 0, out: (r.stdout ?? '').trim() }; };
     const treeEntry = (rev: string, p: string) => run(['ls-tree', '-z', '--full-tree', rev, '--', p]).out.split('\0').find(l => l.endsWith(`\t${p}`));
     let reset: string;
+    const befores = new Map<string, string | null>();
     try {
       const entries: string[] = [];
       for (const [p, { rev, want, from }] of resets) {
         const atEntry = treeEntry(rev, p);
-        if (want === undefined || (atEntry && holds(rev, p, want))) entries.push(atEntry ? `${atEntry}\0` : `0 ${'0'.repeat(rev.length)}\t${p}\0`);
-        else if (want === null) entries.push(`0 ${'0'.repeat(rev.length)}\t${p}\0`);
-        else if (typeof want === 'string' && run(['cat-file', '-e', `${want}^{blob}`]).ok) entries.push(`${(treeEntry(head, p) ?? atEntry ?? '100644').split(' ')[0]} blob ${want}\t${p}\0`);
+        if (want === undefined || (atEntry && holds(rev, p, want))) { entries.push(atEntry ? `${atEntry}\0` : `0 ${'0'.repeat(rev.length)}\t${p}\0`); befores.set(p, atEntry ? blob(rev, p) : null); }
+        else if (want === null) { entries.push(`0 ${'0'.repeat(rev.length)}\t${p}\0`); befores.set(p, null); }
+        else if (typeof want === 'string' && run(['cat-file', '-e', `${want}^{blob}`]).ok) { entries.push(`${(treeEntry(head, p) ?? atEntry ?? '100644').split(' ')[0]} blob ${want}\t${p}\0`); befores.set(p, want); }
         else return no(`${p}'s content before the audit (${short(String(want))} in ${from}) is not in git's object store, so the selection the reviewers read cannot be rebuilt`);
       }
       const tree = run(['read-tree', head]).ok && run(['update-index', '-z', '--index-info'], entries.join('')).ok ? run(['write-tree']) : { ok: false, out: '' };
@@ -442,31 +443,32 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
     const before = exclusionAt(root, ref, sha, reset, collectCommit(root, sha ?? ref, reset), review.tagged, 'gstack-ship-receipt');
     if (before.state !== 'active') return no(`the selection with ${files.join(',')} reset to before the audit cannot be read`);
     if (!carryExcludeBinds(before, { review_exclude: reviewedRecord(root, base, before, given) })) return { retry: true, ...no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${pre ? 'their --docs-pre content' : short(at)}${left.size ? ` and the files audit ${carried.map(e => e.audit_id).join(',')} edited reset to before that audit` : ''} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`) };
+    const late = (why: string) => ({ ...no(why), matched: true as const });
     const read = new Set<string>();
     for (const p of files) for (const [side, s] of [['the review', before], ['HEAD', x]] as const) {
       const t = treatment(s, p);
       if (['absent', 'excluded', 'named-by-code'].includes(t)) continue;
-      if (!READ_REASONS.includes(t)) return no(`${p} is ${t} at ${side}: the docs audit binds only docs the exclusion hides, keeps because code names them, or keeps for the reviewers to read (${READ_REASONS.join(', ')}), which one scoped reader reads`);
+      if (!READ_REASONS.includes(t)) return late(`${p} is ${t} at ${side}: the docs audit binds only docs the exclusion hides, keeps because code names them, or keeps for the reviewers to read (${READ_REASONS.join(', ')}), which one scoped reader reads`);
       read.add(p);
     }
     const audit = new Set(files);
     for (const p of new Set([...before.excluded, ...x.excluded, ...before.kept.map(k => k.path), ...x.kept.map(k => k.path)])) {
-      if (!audit.has(p) && treatment(before, p) !== treatment(x, p)) return no(`${p} is ${treatment(before, p)} at the review and ${treatment(x, p)} at HEAD`);
+      if (!audit.has(p) && treatment(before, p) !== treatment(x, p)) return late(`${p} is ${treatment(before, p)} at the review and ${treatment(x, p)} at HEAD`);
     }
     const line = `REVIEW_EXCLUDE_DOCS_AUDIT: reviewed=${short(given)} head=${short(x.record.digest)} snapshot=${short(at)} files=${files.join(',')}${carried.length ? ` audits=${[...carried.map(e => e.audit_id), post.audit_id].join(',')}` : ''} (the selection changed only by this /ship run's Step 14.5 docs audits' files under review_exclude_paths; the receipt records HEAD's)`;
     if (!read.size) return { ok: true, line };
     const paths = [...read].sort();
-    const packet = docsAuditPacket(root, head, paths.map(p => { const r = resets.get(p)!; return { path: p, before: typeof r.want === 'string' ? r.want : r.want === null ? null : blob(r.rev, p) }; }));
-    if (!packet.ok) return no(packet.why);
-    if (docsRead === undefined) return { ok: false, why: `${paths.join(',')} ${paths.length === 1 ? 'is a doc' : 'are docs'} the reviewers read, edited by the docs audit after the review`, packet: { text: packet.text, sha256: packet.sha256, paths } };
+    const packet = docsAuditPacket(root, head, paths.map(p => ({ path: p, before: befores.get(p) ?? null })));
+    if (!packet.ok) return late(packet.why);
+    if (docsRead === undefined) return { ok: false, why: `${paths.join(',')} ${paths.length === 1 ? 'is a doc' : 'are docs'} the reviewers read, edited by the docs audit after the review`, matched: true, packet: { text: packet.text, sha256: packet.sha256, paths } };
     const record = readDocsAuditRead(docsRead, head, paths, packet.sha256);
-    if (!record.ok) return no(record.why);
+    if (!record.ok) return late(record.why);
     return { ok: true, line: `${line}; read=${paths.join(',')} by ${record.read.reviewer}`, read: record.read };
   };
   let first: { ok: false; why: string } | undefined;
   for (let k = 0; k <= earlier.length; k++) {
     const r = bindAudits(earlier.slice(k));
-    if (r.ok) return r;
+    if (r.ok || r.matched) return r;
     first ??= r;
     if (!r.retry) return first;
   }

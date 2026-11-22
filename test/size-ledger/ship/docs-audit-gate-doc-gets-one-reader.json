@@ -1,4 +1,4 @@
 {
   "bytes": 308,
-  "why": "Step 19 names the one docs-audit reader after the round cap; the docs audit steps say each carry flag is taken once"
+  "why": "One scoped reader for a docs-audit edit to a reviewed doc, plus the one-carry-flag wording and review fixes: hunk-only packet lines, CRLF-safe packet base, later-attempt refusals kept."
 }

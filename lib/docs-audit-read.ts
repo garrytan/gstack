@@ -26,9 +26,12 @@ export function docsAuditPacket(root: string, head: string, files: ReadonlyArray
     const from = before ?? git(['hash-object', '-w', '--stdin'], '')?.trim();
     const diff = after && from ? git(['diff', '--no-color', '--no-ext-diff', '-U3', from, after]) : null;
     if (diff === null) return { ok: false, why: `git could not diff ${p} from before the audit to HEAD` };
-    const changed = diff.split('\n').filter(l => /^[+-]/.test(l) && !/^(\+\+\+|---) /.test(l)).length;
+    const lines = diff.split('\n');
+    const at = lines.findIndex(l => l.startsWith('@@'));
+    const hunks = at < 0 ? [] : lines.slice(at);
+    const changed = hunks.filter(l => /^[+-]/.test(l)).length;
     if (changed > BOUNDED_LINES) return { ok: false, why: `the audit changed ${changed} lines of ${p}, a doc the reviewers read: too large for one scoped reader (at most ${BOUNDED_LINES})` };
-    sections.push(`## ${p}\n\n\`\`\`diff\n${diff.split('\n').filter(l => !/^(diff --git|index |\+\+\+ |--- )/.test(l)).join('\n').trimEnd()}\n\`\`\`\n`);
+    sections.push(`## ${p}\n\n\`\`\`diff\n${hunks.join('\n').trimEnd()}\n\`\`\`\n`);
   }
   const text = [`# Scoped review: the docs audit edited docs the reviewers read\n\nHEAD ${head.slice(0, 12)}. After the review, /ship's Step 14.5 docs audit changed these docs, which the review read for their own content (a gate path, gate tags, agent prose or a secret line). Read each change as gate text: does it still say what the code does, and does it change what a gate, cap, reviewer, approval, secret or money rule says? This one read replaces another review round (docs/review-policy.md#docs-audit-edits-to-reviewed-docs). Report clean, or findings at the blocking floor.\n`,
     ...sections, `## Targeted brief\n\n${packetBrief()}\n`].join('\n');

@@ -20,17 +20,19 @@ const policyText = JSON.stringify({ review_exclude_paths: ['docs/**'], min_gstac
 const STORE = ['# Secret store', '', 'A token is read from the store and retried 4 times on a timeout.', ''];
 
 /** The PR adds the store and its doc; the review reads them; the docs audit then edits the doc (`lines` replace the retry line) and adds a page the exclusion hides, which changes the selection. */
-function auditedAfterReview(lines = ['A token is read from the store and retried 2 times on a timeout.']) {
+function auditedAfterReview(lines = ['A token is read from the store and retried 2 times on a timeout.'], { store = STORE, crlf = false } = {}) {
   const repo = makeFixtureRepo({ prefix: 'gst3532-', baseFiles: { '.gstack/ship-policy.json': policyText, 'lib/index.js': 'exports.i = 1;\n' } });
   repos.push(repo);
-  commit(repo, { 'lib/secret-store.js': 'exports.retries = 2;\n', [DOC]: STORE.join('\n') }, 'feat: secret store');
+  if (crlf) repo.git('config', 'core.autocrlf', 'true');
+  commit(repo, { 'lib/secret-store.js': 'exports.retries = 2;\n', [DOC]: store.join('\n') }, 'feat: secret store');
+  if (crlf) { fs.rmSync(path.join(repo.work, DOC)); repo.git('checkout', '--', DOC); expect(fs.readFileSync(path.join(repo.work, DOC), 'utf8')).toContain('\r\n'); }
   const plan = JSON.parse(runBin(repo, 'gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--json']).out);
   const reviewed = plan.review_exclude.digest as string;
   const base = repo.git('rev-parse', 'origin/main');
   const snapshot = (out: string, extra: string[] = []) => runBin(repo, 'gstack-docs-candidate', ['snapshot', '--out', out, '--audit-id', 'ship-docs-1', '--mode', 'edit', '--base', base, '--docs', 'docs', '--run', '/records/ship-record.md', ...extra]);
   const pre = path.join(repo.root, 'docs-audit.json');
   expect(snapshot(pre).status).toBe(0);
-  write(repo.work, DOC, [STORE[0], STORE[1], ...lines, ''].join('\n'));
+  write(repo.work, DOC, [store[0], store[1], ...lines, ''].join('\n'));
   write(repo.work, 'docs/guides/restore.md', '# Restore\n\nRestore reads the sealed copy back.\n');
   const post = path.join(repo.root, 'ship-docs-1-post.json');
   expect(snapshot(post, ['--pre', pre]).status).toBe(0);
@@ -84,5 +86,21 @@ describe('a docs-audit edit to a doc the reviewers read takes one scoped reader 
     expect(r.status).toBe(EXIT.fail);
     expect(r.err).not.toContain('RECEIPT_DOCS_AUDIT_READ');
     expect(r.err).toContain('too large for one scoped reader');
+  }, 240_000);
+
+  // Value: protects=the packet shows the reader every line the audit changed, including doc lines that begin with "-- " or "++ ",
+  //   and builds from git's blob when autocrlf left the snapshot hashing CRLF bytes; fails_when=the packet drops such a line, or
+  //   write refuses because the snapshot's CRLF hash is no git object; seam=gstack-ship-receipt write --docs-post; no_claim=-
+  test('the packet keeps dash-led doc lines and survives autocrlf', () => {
+    const dashed = auditedAfterReview([STORE[2]!, '++ The sealed copy is kept for a day.'], { store: [...STORE.slice(0, 3), '-- The old copy is kept for a week.', ''] });
+    const ask = dashed.writeReceipt();
+    expect(ask.err).toContain('RECEIPT_DOCS_AUDIT_READ');
+    const text = fs.readFileSync(packetOf(ask.err)!, 'utf8');
+    expect(text).toContain('\n--- The old copy is kept for a week.\n');
+    expect(text).toContain('\n+++ The sealed copy is kept for a day.\n');
+    const crlf = auditedAfterReview(undefined, { crlf: true });
+    const w = crlf.writeReceipt();
+    expect(w.err).toContain('RECEIPT_DOCS_AUDIT_READ');
+    expect(fs.readFileSync(packetOf(w.err)!, 'utf8')).toContain('+A token is read from the store and retried 2 times on a timeout.');
   }, 240_000);
 });
