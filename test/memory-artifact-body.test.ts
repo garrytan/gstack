@@ -28,6 +28,13 @@ describe("artifactBody (#4362)", () => {
     expect(artifactBody("t.jsonl", raw, 7)).toBe("bb\ncc\n");
   });
 
+  test("an oversized final .jsonl row never yields an empty body", () => {
+    const raw = "a\n" + "x".repeat(ARTIFACT_BODY_MAX_CHARS + 10) + "\n";
+    const body = artifactBody("t.jsonl", raw);
+    expect(body.length).toBeGreaterThan(0);
+    expect(body.length).toBeLessThanOrEqual(ARTIFACT_BODY_MAX_CHARS);
+  });
+
   test("an oversized markdown file keeps its start, as before", () => {
     const raw = "# Plan\n" + "x".repeat(ARTIFACT_BODY_MAX_CHARS);
     expect(artifactBody("/h/.gstack/projects/p/ceo-plans/plan.md", raw)).toBe(raw.slice(0, ARTIFACT_BODY_MAX_CHARS));

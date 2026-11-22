@@ -12,5 +12,5 @@ export function artifactBody(path: string, raw: string, max = ARTIFACT_BODY_MAX_
   const start = raw.length - max;
   if (raw[start - 1] === "\n") return raw.slice(start);
   const nextRow = raw.indexOf("\n", start);
-  return nextRow === -1 ? raw.slice(0, max) : raw.slice(nextRow + 1);
+  return nextRow === -1 || nextRow === raw.length - 1 ? raw.slice(0, max) : raw.slice(nextRow + 1);
 }
