@@ -289,7 +289,7 @@ export function splitCode(prompt: string, keep?: RegExp): { prose: string; code:
     if (fence) {
       if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) fence = '';
       else code.push(line);
-      prose.push('');
+      prose.push(m === null && keep?.test(line) ? line : '');
     } else if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
       fence = m[1];
       prose.push('');
@@ -461,11 +461,15 @@ const defectSign = (text: string) => words(text).some(w => SYMPTOM_STEMS.has(ste
  * whose first word, after any leading #, asks for something new and is followed by a space or a colon, the way gstack-evals
  * draws its non-fit tasks. Its body may name an error or a failing case (GEVA-558: 13 of 27 feature-titled tasks routed as bug
  * reports), so it is no bug report unless the title names a defect (any strong or weak sign, the verb fix, or an error status
- * it returns) or the body follows an issue template (steps to reproduce, expected or actual behavior). A title whose feature word
- * names a thing (NOUN_LED: "Support page shows a blank screen", "New tab is empty") states a symptom and asks for nothing.
+ * it returns), the body asks for a fix, or the body follows an issue template (steps to reproduce, expected or actual behavior).
+ * A title whose feature word leads a noun phrase and a statement verb (NOUN_LED: "Support page shows a blank screen", "New users
+ * see a blank dashboard") states a symptom and asks for nothing.
  */
 const FEATURE_TITLE = /^(?:\[?feature(?: request)?\]?|feat(?:\([^)]*\))?:|enhancement|add|adds|adding|support|allow|implement|introduce|provide|expose|new)(?=[\s:]|$)/i;
-const NOUN_LED = /^(?:feature|support|new|add|allow)\s+(?!(?:a|an|the|for|to|us)\s)(?:[\w-]+\s+){1,2}(?:(?:is|are|was|were|has|have|had|does|did)\b|[a-z]+(?:[^s\W]s|ed)\s+(?:a|an|the|no|nothing)\b)/i;
+const NOUN_LED = new RegExp(String.raw`^(?:feature|support|new|add|allow|expose)\s+(?!(?:a|an|the|for|us)\s)(?:to\s+)?`
+  + String.raw`(?:(?!(?:that|which|who|whose|where|when|if|so|to)\s)[\w-]+\s+){1,3}(?:(?:is|are|was|were|has|have|had|do|does|did|sees?|shows?|loads?`
+  + String.raw`|returns?|redirects?|displays?|renders?|opens?|closes?|stays?|appears?|disappears?|keeps?|looks?|says?|prints?|takes?|goes|gets?)\b`
+  + String.raw`|[a-z]+(?:[^s\W]s|ed)\s+(?:a|an|the|no|nothing)\b)`, 'i');
 const LONE_TAG = /^\s*<\/?[A-Za-z][\w-]*>\s*$/;
 const ERROR_STATUS = /\b(?:returns?|returning|gives?|giving|throws?|responds? with)\s+(?:an?\s+)?(?:http\s+)?[45]\d\d\b/;
 const TEMPLATE_SIGN = /\b(?:steps to reproduce|(?:expected|actual) (?:behaviou?r|result|output))\b|(?:^|\n)\s*(?:expected|actual):/;
@@ -508,11 +512,12 @@ const EXCEPTION_NAME = /\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b/;
  */
 function reportSigns(prompt: string): { defect: boolean; fix: boolean } {
   const { prose, code } = splitCode(prompt);
-  if (featureTitled(promptWindow(splitCode(prompt, EXCEPTION_NAME).prose))) return { defect: false, fix: false };
   const text = promptWindow(prose).toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
+  const fix = words(text).some(w => FIX_WORD.test(w));
+  if (!fix && featureTitled(promptWindow(splitCode(prompt, EXCEPTION_NAME).prose))) return { defect: false, fix: false };
   return {
     defect: EXCEPTION_NAME.test(promptWindow(code)) || defectSign(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2,
-    fix: words(text).some(w => FIX_WORD.test(w)),
+    fix,
   };
 }
 

@@ -406,6 +406,18 @@ describe('installed skills beside gstack (GST-3123)', () => {
       'Add a retry for uploads\n\nWhen an upload fails we get no error detail.']) expect(bugReport(request)).toBe(false);
   });
 
+  test('a statement verb after the noun a feature word leads, a fix asked for in the body, or an exception in fenced code outside the tag keeps a bug report one', () => {
+    const fence = '`'.repeat(3);
+    for (const report of ['New users see a blank dashboard\n\nOpening it logs TypeError: x is undefined. Please fix.',
+      'Add to cart button does nothing\n\nClicking it throws an error. It used to work.',
+      'Support tickets page loads forever\n\nThe request hangs and then crashes the worker.',
+      'New install shows blank screen\n\nThe log has a ValueError traceback and it crashes. Run the checks after.',
+      'Expose metrics endpoint returns empty body\n\nThe handler crashes with KeyError.',
+      'New checkout redirects to login\n\nEvery payment fails with TypeError.',
+      'Add retry support\n\nUploads crash with ConnectionResetError; please fix that.',
+      `The app breaks on startup\n\nThe console prints this on startup:\n\n${fence}\nKeyError: user\n${fence}\n\n<steps>\nAdd a file\n</steps>`]) expect([report, bugReport(report)]).toEqual([report, true]);
+  });
+
   test('the installed bug-fix skill leads when it reaches the threshold beside a gstack skill: an agent runs the first one named (GEVA-562)', () => {
     const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
     const d = routePrompt('Write a test that reproduces the timeout in the upload path, then make the tests pass.', [...routed, proveIt]);
