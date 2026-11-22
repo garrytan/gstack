@@ -44,6 +44,11 @@ export function diffHeaderPath(line: string): string {
   return '';
 }
 
+/** A file name as reports print it: one holding a control character (ESC, newline) is JSON-quoted, so it can't rewrite the terminal line that names it. */
+export function displayPath(file: string): string {
+  return /[\x00-\x1f\x7f]/.test(file) ? JSON.stringify(file) : file;
+}
+
 /** The diff's added-line text per file, hunk-aware: a `+++` inside a hunk is content, not a header. */
 export function parseAddedLines(diff: string): Map<string, string[]> {
   const files = new Map<string, string[]>();
@@ -224,7 +229,7 @@ function run(ctx: PregateContext): CheckResult {
       return true;
     });
     if (parsedAll) { high = kept.some(f => f.severity === 'HIGH'); medium = kept.some(f => f.severity === 'MEDIUM'); }
-    const render = (f: Scanned) => `${f.severity} ${f.id} [${f.category}]: ${f.description ?? ''}${f.line ? ` (${f.file ? `${f.file}, ` : ''}${f.fileLine ? 'line' : 'added line'} ${f.line})` : ''}`;
+    const render = (f: Scanned) => `${f.severity} ${f.id} [${f.category}]: ${f.description ?? ''}${f.line ? ` (${f.file ? `${displayPath(f.file)}, ` : ''}${f.fileLine ? 'line' : 'added line'} ${f.line})` : ''}`;
     const allowLines = [...applied.allowlisted.map(describeAllowlisted), ...applied.untested.map(describeUntested), ...applied.missed.map(describeMissed)];
     const allowNote = applied.allowlisted.length ? `; ${applied.allowlisted.length} allowlisted (${[...new Set(applied.allowlisted.map(a => a.finding.id))].join(', ')})` : '';
     // HIGH and any MEDIUM credential fail; a MEDIUM hygiene/internal/pii/legal

@@ -8,7 +8,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { parseAddedLineNumbers, parseAddedLines, parsePostimages, secretsCheck } from '../lib/pregate/checks/secrets';
+import { diffHeaderPath, displayPath, parseAddedLineNumbers, parseAddedLines, parsePostimages, secretsCheck } from '../lib/pregate/checks/secrets';
 import type { PregateContext } from '../lib/pregate/types';
 import { cleanup, commit, makeFixtureRepo, runBin, BASE_PREGATE, type FixtureRepo } from './helpers/pregate-fixture';
 
@@ -74,6 +74,13 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect([...parseAddedLines(diff).keys()]).toEqual(files);
     expect([...parseAddedLineNumbers(diff).keys()]).toEqual(files);
     expect([...parsePostimages(diff).keys()]).toEqual(files);
+  });
+
+  test('a decoded name holding a control character is printed quoted, never raw (GST-3528 review)', () => {
+    const name = diffHeaderPath('+++ "b/a\\033[2Kb.rs"');
+    expect(name).toBe('a\x1b[2Kb.rs');
+    expect(displayPath(name)).toBe('"a\\u001b[2Kb.rs"');
+    expect(displayPath('src/my file.rs')).toBe('src/my file.rs');
   });
 
   test('a Rust key in a file whose name git quotes or ends with a tab still fails, naming the file (GST-3528)', () => {

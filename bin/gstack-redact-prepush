@@ -47,7 +47,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
-import { diffHeaderPath, scannableReadings } from "../lib/pregate/checks/secrets";
+import { diffHeaderPath, displayPath, scannableReadings } from "../lib/pregate/checks/secrets";
 import { resolveStateRoot } from "../lib/state-root";
 import { evaluateSealed, publishedCommits, renderSealed, sealedErrorReport, type SealedReport } from "../lib/sealed-guard";
 
@@ -601,7 +601,7 @@ function committedAllowlist(sha: string): string[] {
 /** File line (and commit) of a finding. Never the matched value. */
 function findingWhere(f: Finding, part: AddedFile): string {
   const line = part.lines[f.line - 1];
-  return `${part.file || "(unknown file)"}${line ? `:${line}` : ""}` +
+  return `${part.file ? displayPath(part.file) : "(unknown file)"}${line ? `:${line}` : ""}` +
     (part.commit ? ` in commit ${part.commit.slice(0, 12)}` : "");
 }
 
