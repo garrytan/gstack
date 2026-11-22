@@ -85,11 +85,13 @@ const HARNESS_PIN = /^scripts\/harness-pins\/(.+)\.json$/;
 /**
  * A harness pin a base merge only re-recorded (GSTA-749, #4652): at both heads the pin's `blob` is its pinned file's blob,
  * its other fields are the reviewed ones, and the harness manifest's version and patterns did not move. The pin is then a
- * function of the pinned file's bytes, which stay product, so it is a regenerated output. Anything else is product.
+ * function of the pinned file's bytes, so it is a regenerated output, but only when the pinned file is itself product: a
+ * pinned test or metadata file carries on its own, so its re-pin is the only change that stops an unreviewed harness edit.
+ * Anything else is product.
  */
-function rederivedHarnessPin(repoRoot: string, from: string, to: string, p: string): boolean {
+function rederivedHarnessPin(repoRoot: string, from: string, to: string, p: string, extra: ProductRules['extra']): boolean {
   const pinned = HARNESS_PIN.exec(p)?.[1];
-  if (!pinned) return false;
+  if (!pinned || classifyCarryPath(pinned, extra) !== 'product') return false;
   const json = (ref: string, rel: string): any => { const r = spawnSync('git', ['show', `${ref}:${rel}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); try { return r.status === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
   const [ma, mb] = [json(from, HARNESS_MANIFEST), json(to, HARNESS_MANIFEST)];
   if (!ma || !mb || ma.version !== mb.version || JSON.stringify(ma.patterns) !== JSON.stringify(mb.patterns)) return false;
@@ -142,7 +144,7 @@ export function productSpec(repoRoot: string, rules: ProductRules, from: string,
   const entryAt = (ref: string, p: string) => git(['ls-tree', ref, '--', p], repoRoot);
   const sameEntry = (a: string, b: string, p: string) => { const x = entryAt(a, p); return x !== undefined && x === entryAt(b, p); };
   const ownStampOnly = (p: string) => !!branch?.touched.has(p) && stamped(p) && branch.sides.every(([a, b]) => sameEntry(a, b, p) || classify(p, a, b) === 'metadata');
-  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: ownStampOnly(p) ? 'metadata' as const : branch && rederivedHarnessPin(repoRoot, from, to, p) ? 'generated' as const : classify(p, from, to) }));
+  const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: ownStampOnly(p) ? 'metadata' as const : branch && rederivedHarnessPin(repoRoot, from, to, p, rules.extra) ? 'generated' as const : classify(p, from, to) }));
   const repinned = changed.filter(c => c.class === 'generated' && HARNESS_PIN.test(c.path)).map(c => `:(exclude,literal)${c.path}`);
   const excludeGlobs = (globs: readonly string[]) => globs.map(g => `:(exclude,glob)${g}`);
   const demoted = !branch ? changed.filter(c => c.class === 'product' && matchesAny(rules.metadata, c.path)).map(c => c.path)

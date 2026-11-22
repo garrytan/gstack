@@ -3,7 +3,8 @@
  * edits a pinned harness file and records the edit as non-behavioral; the base lands its own edit and re-pin of the same
  * file; merging the base re-records the pin's blob for the merged file and nothing else. The pin is then a function of
  * the pinned file's bytes, which the carry still compares as product, so it carries as a regenerated output. Controls:
- * a pin whose blob is not the file's, a changed reason and a moved harness version still refuse.
+ * a pin whose blob is not the file's, a changed reason, a moved harness version and a blob-only re-pin of a pinned test
+ * helper (which carries as a test change on its own) still refuse.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as path from 'node:path';
@@ -45,6 +46,26 @@ function repinned(resolve: (merged: string) => Record<string, string>): { body: 
   repo.git('commit', '-q', '--no-edit');
   return { body, repo };
 }
+/** main pins a test helper; feature edits it and re-pins it as non-behavioral, /ship receipt there; then changes the helper's behavior and re-pins only its blob. */
+function repinnedHelper(): { body: string; repo: FixtureRepo; pinPath: string } {
+  const helper = 'test/helpers/gate.ts';
+  const pinPath = `scripts/harness-pins/${helper}.json`;
+  const repo = makeFixtureRepo(); repos.push(repo);
+  const blob = () => repo.git('rev-parse', `HEAD:${helper}`);
+  repo.git('checkout', '-q', 'main');
+  commit(repo, { [MANIFEST]: manifest(), [helper]: 'export const RETRIES = 1;\n' }, 'main: harness helper');
+  commit(repo, { [pinPath]: pin(blob(), 'main pins the helper') }, 'main: pin');
+  repo.git('push', '-q', 'origin', 'main');
+  repo.git('checkout', '-q', 'feature');
+  repo.git('reset', '-q', '--hard', 'origin/main');
+  commit(repo, { [helper]: '// retry budget\nexport const RETRIES = 1;\n' }, 'feat: comment the helper');
+  commit(repo, { [pinPath]: pin(blob(), 'a comment only, so no case verdict can change') }, 'feat: re-pin as non-behavioral');
+  const body = path.join(repo.root, 'body.md');
+  expect(runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '4652', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]).status).toBe(EXIT.ok);
+  commit(repo, { [helper]: '// retry budget\nexport const RETRIES = 5;\n' }, 'feat: retry more');
+  commit(repo, { [pinPath]: pin(blob(), 'a comment only, so no case verdict can change') }, 'feat: re-pin');
+  return { body, repo, pinPath };
+}
 const carry = (repo: FixtureRepo, body: string) => runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main', '--dry-run']);
 
 describe('carry across a harness pin a base merge re-recorded (GSTA-749)', () => {
@@ -72,6 +93,17 @@ describe('carry across a harness pin a base merge re-recorded (GSTA-749)', () =>
     const out = carry(repo, body);
     expect(out.status).toBe(EXIT.refused);
     expect(out.err).toContain(PIN);
+  }, 90_000);
+
+  // Value: protects=a pinned test helper's behavior change after review still needs a fresh /ship: the helper carries as a test
+  //   change, so its pin is the only product path that stops it (cross-family trail read on #4669); fails_when=any pin whose blob
+  //   is its file's carries; seam=productSpec; no_claim=gh pr edit
+  test('a blob-only re-pin of a pinned test helper still refuses', () => {
+    const { repo, body, pinPath } = repinnedHelper();
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+    expect(out.err).toContain(pinPath);
   }, 90_000);
 
   // Value: protects=a version bump starts a new pass-rate series, a behavior change; fails_when=a bump rides a re-record; seam=productSpec; no_claim=gh pr edit
