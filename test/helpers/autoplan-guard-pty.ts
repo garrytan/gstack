@@ -152,7 +152,41 @@ export function dispatchEventRewriter(artifacts: string, substituted: (phase: Di
   };
 }
 
-export interface DispatchRelay { url: string; substituted: DispatchPhase[]; stop(): void }
+/**
+ * GST-3441: the actor's wait for the CEO reviewer's completion notice is the relay's job, not the model's. A request whose
+ * history holds the actor's CEO-token Agent call, that call's "Async agent launched" result and no <task-notification>
+ * naming it is the actor about to act before the event step 5 waits on (Haiku 5.5 read the close packet there, 8 of 8 release
+ * gate attempts, GSTA-766). The relay answers it with an end_turn message itself, so the notice starts the next turn at any
+ * model speed. Every other request, the reviewer's own included, goes upstream.
+ */
+export function waitingForNotice(request: any): boolean {
+  const messages: any[] = Array.isArray(request?.messages) ? request.messages : [];
+  const blocks = (m: any): any[] => (Array.isArray(m?.content) ? m.content : typeof m?.content === 'string' ? [{ type: 'text', text: m.content }] : []);
+  const text = (b: any): string => (typeof b?.content === 'string' ? b.content : Array.isArray(b?.content) ? b.content.map((c: any) => text(c)).join('') : typeof b?.text === 'string' ? b.text : '');
+  const call = messages.filter(m => m?.role === 'assistant').flatMap(blocks).find(b => b?.type === 'tool_use' && b.name === 'Agent' && b.input?.prompt === dispatchToken('ceo'));
+  if (!call) return false;
+  const user = messages.filter(m => m?.role === 'user').flatMap(blocks);
+  const launched = user.some(b => b?.type === 'tool_result' && b.tool_use_id === call.id && /^Async agent launched/.test(text(b).trimStart()));
+  return launched && !user.some(b => text(b).includes('<task-notification>') && text(b).includes(`<tool-use-id>${call.id}</tool-use-id>`));
+}
+
+/** The relay's own end_turn reply to a waitingForNotice request, as a Messages API stream or JSON body. */
+export function noticeWaitResponse(request: any): Response {
+  const text = 'Waiting for the CEO review agent\'s completion notification.';
+  const message = { id: 'msg_relay_notice_wait', type: 'message', role: 'assistant', model: request?.model ?? 'relay', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } };
+  if (!request?.stream) return Response.json(message);
+  const frame = (data: Record<string, unknown>) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
+  return new Response([
+    frame({ type: 'message_start', message: { ...message, content: [], stop_reason: null } }),
+    frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+    frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }),
+    frame({ type: 'content_block_stop', index: 0 }),
+    frame({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } }),
+    frame({ type: 'message_stop' }),
+  ].join(''), { headers: { 'content-type': 'text/event-stream' } });
+}
+
+export interface DispatchRelay { url: string; substituted: DispatchPhase[]; noticeWaits: number; stop(): void }
 
 /**
  * A loopback relay to the Messages API for the live case (point ANTHROPIC_BASE_URL at url). Headers pass through and are
@@ -160,6 +194,7 @@ export interface DispatchRelay { url: string; substituted: DispatchPhase[]; stop
  */
 export function startDispatchRelay(artifacts: string, upstream = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'): DispatchRelay {
   const substituted: DispatchPhase[] = [];
+  const relay: DispatchRelay = { url: '', substituted, noticeWaits: 0, stop: () => {} };
   const server = Bun.serve({
     hostname: '127.0.0.1', port: 0, idleTimeout: 0,
     async fetch(req) {
@@ -168,7 +203,9 @@ export function startDispatchRelay(artifacts: string, upstream = process.env.ANT
       headers.set('accept-encoding', 'identity');
       let body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.text();
       if (body && url.pathname.endsWith('/messages')) {
-        try { const request = JSON.parse(body); restoreDispatchTokens(request, artifacts); body = JSON.stringify(request); } catch { /* not JSON: forward as sent */ }
+        let request: any;
+        try { request = JSON.parse(body); restoreDispatchTokens(request, artifacts); body = JSON.stringify(request); } catch { /* not JSON: forward as sent */ }
+        if (waitingForNotice(request)) { relay.noticeWaits++; return noticeWaitResponse(request); }
       }
       const res = await fetch(upstream.replace(/\/+$/, '') + url.pathname + url.search, { method: req.method, headers, body });
       const out = new Headers(res.headers);
@@ -190,7 +227,9 @@ export function startDispatchRelay(artifacts: string, upstream = process.env.ANT
       })), { status: res.status, headers: out });
     },
   });
-  return { url: `http://127.0.0.1:${server.port}`, substituted, stop: () => { server.stop(true); } };
+  relay.url = `http://127.0.0.1:${server.port}`;
+  relay.stop = () => { server.stop(true); };
+  return relay;
 }
 
 export function prepareGuardSession(apiKey: string | undefined): GuardSession {

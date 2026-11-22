@@ -218,8 +218,9 @@ at least one, so `expected` is 1 or more and the summarizer is shown to find it.
 3. **The eval-loop checks** (docs/TESTING_INTERNALS.md#eval-loop-checks): the Pilot,
    Cost and (above 500 dollars paid) Interim look sections; the judge's `per-arm:` and
    `effort:`; a `regression test` bar beside any arm that asks for a smaller change
-   or less code, because a shorter diff can come from skipping the test; and an
-   `answers:` line under Held-out exposure.
+   or less code, because a shorter diff can come from skipping the test; and the
+   `answers:` and `grader:` lines under Held-out exposure (`grader: none` when no grader
+   runs git in the agent's repo; a plan frozen before 2026-11-23 needs no `grader:` line).
 
 A `frozen: YYYY-MM-DD` line before 2026-11-15 keeps the rules it was frozen under
 (`result_checks=exempt`); one before 2026-11-21 skips item 3 (`loop_checks=exempt`)
@@ -244,7 +245,8 @@ Models under test are frontier models (`claude-opus-5-5`, `gpt-6.2-sol`, at most
 low-cost primary); a Haiku or Sonnet arm only with a stated tier question
 (docs/TESTING_INTERNALS.md#frontier-models-under-test). Judges: `gpt-6-astra` or
 `gpt-6.2-astra` for Claude arms, `claude-opus-5-5` for GPT arms. No arm, judge, reader or
-simulator may be gpt-4o or a model `lib/pricing.ts` marks `superseded_by` (R116): `prereg
+simulator may be gpt-4o, a model `lib/pricing.ts` marks `superseded_by`, or an unpriced
+older generation of a priced family such as `claude-opus-4-5` (R116): `prereg
 --check` prints `MODEL_GENERATION: refused <model> role=<role> replacement=<model>` and
 exits 1 (`EVAL_MODEL_OLD_GENERATION`); `dry-run` and `pilot start` refuse such an arm too.
 The one exception is a competitor system tested as its vendor ships it: its built-in model
@@ -291,7 +293,7 @@ same as a changed bar.
 Run the pipeline over the real development rows with a stub model that costs nothing:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-eval-plan dry-run --input <path> --arms <picked-models> --retry-prompt <path> --out <outdir>
+~/.claude/skills/gstack/bin/gstack-eval-plan dry-run --input <path> --arms <picked-models> --prereg <prereg-file> --retry-prompt <path> --out <outdir>
 ```
 
 Add `--fields <id>` when the rows' prompt field is not `prompt`, and `--output-budget` with

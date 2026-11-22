@@ -19,7 +19,7 @@ const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
 const DECISIONS = '## Decisions\nif the skill arm passes more items: keep the skill\nif there is no difference: cut the skill\n';
-const LOOP = '\n## Pilot\nshare: 10%\ncounted: no\nran: the part under test shows in each arm\'s own transcripts\njudge: labels checked on each arm\'s pilot outputs\nsupply: three development rows per arm at the planned rate\nunits: every task type, one each\nseed: 7, independent of the number of workers\n\n## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger\n\n## Held-out exposure\n- filled in\nanswers: other git refs and build caches checked on each task machine\n';
+const LOOP = '\n## Pilot\nshare: 10%\ncounted: no\nran: the part under test shows in each arm\'s own transcripts\njudge: labels checked on each arm\'s pilot outputs\nsupply: three development rows per arm at the planned rate\nunits: every task type, one each\nseed: 7, independent of the number of workers\n\n## Cost\npaid: $200\nmeter: $0\nledger: the private spend ledger\n\n## Held-out exposure\n- filled in\nanswers: other git refs and build caches checked on each task machine\ngrader: none, the scorer runs no git in the agent\'s repo\n';
 const SCORING = (judge = 'gpt-6-astra', extra = 'labels: 40\nagreement: 0.6\nper-arm: yes\neffort: high\npaired: yes\ninterval: 95%\nmdd: 3 of 20 items\n') => `## Scoring\njudge: ${judge}\n${extra}`;
 /** A freeze date before the R78 amendment's 100-label bar (2026-11-22), so these fixtures keep testing the 40-label rules they were written for. */
 const JUDGE_40_FROZEN = '2026-11-21';
@@ -102,6 +102,37 @@ describe(`R78 amendment: a plan frozen on or after ${JUDGE_LABELS_RAISED_SINCE} 
     const early = checkPrereg(prereg({ frozen: '2026-11-21' })).scoring;
     expect(checkJudgeLabels(early, labels(40, 4))).toMatchObject({ ok: true, need_n: 40 });
     expect(checkJudgeLabels({ judge: 'gpt-6-astra', labels: 40, agreement: 0.6, errors: [] }, labels(40, 4)).need_n).toBe(100);
+  });
+
+  const cli = (args: string[], files: Record<string, string>) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-judge-bar-')); dirs.push(d);
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(d, name), text);
+    const r = spawnSync(BIN, args, { cwd: d, encoding: 'utf8', timeout: 60_000 });
+    return { code: r.status, out: r.stdout ?? '', err: r.stderr ?? '' };
+  };
+
+  test('prereg --check on the command line: 40 labels pass the day before and fail from the date, where 100 pass', () => {
+    expect(cli(['prereg', '--check', 'p.md'], { 'p.md': prereg({ frozen: '2026-11-21' }) }).code).toBe(0);
+    const late = cli(['prereg', '--check', 'p.md'], { 'p.md': prereg({ frozen: JUDGE_LABELS_RAISED_SINCE }) });
+    expect(late.code).toBe(1);
+    expect(late.out).toContain('PREREG: incomplete');
+    expect(late.err).toContain('PREREG_INCOMPLETE');
+    expect(late.err).toContain('scoring: labels: needs at least 100 hand-labelled outputs the judge is checked against (40 only for a plan frozen before 2026-11-22)');
+    expect(cli(['prereg', '--check', 'p.md'], { 'p.md': prereg({ frozen: JUDGE_LABELS_RAISED_SINCE, scoring: SCORING('gpt-6-astra', scoring100) }) }).code).toBe(0);
+  });
+
+  test('judge --check on the command line: a plan frozen from the date needs 100 labelled rows; one frozen before keeps 40', () => {
+    const late = prereg({ frozen: JUDGE_LABELS_RAISED_SINCE, scoring: SCORING('gpt-6-astra', scoring100) });
+    const short = cli(['judge', '--check', 'p.md', '--labels', 'l.jsonl'], { 'p.md': late, 'l.jsonl': labels(40, 4) });
+    expect(short.code).toBe(1);
+    expect(short.err).toContain('EVAL_JUDGE_UNCHECKED');
+    expect(short.err).toContain('40 labelled outputs, needs 100');
+    const full = cli(['judge', '--check', 'p.md', '--labels', 'l.jsonl', '--json'], { 'p.md': late, 'l.jsonl': labels(100, 10) });
+    expect(full.code, full.err).toBe(0);
+    expect(JSON.parse(full.out)).toMatchObject({ ok: true, n: 100, need_n: 100, need_kappa: 0.6 });
+    const early = cli(['judge', '--check', 'p.md', '--labels', 'l.jsonl', '--json'], { 'p.md': prereg({ frozen: '2026-11-21' }), 'l.jsonl': labels(40, 4) });
+    expect(early.code, early.err).toBe(0);
+    expect(JSON.parse(early.out)).toMatchObject({ ok: true, n: 40, need_n: 40 });
   });
 });
 

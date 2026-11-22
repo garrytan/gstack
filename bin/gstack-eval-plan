@@ -4,7 +4,7 @@
  *
  *   gstack-eval-plan prereg --check <file> [--allow-repo-commands] [--json] | --init <file> [--title <t>] [--quick]
  *   gstack-eval-plan arms [--arms <model,model>] [--policy-doc <file>] [--input-tokens N] [--output-tokens N] [--json]
- *   gstack-eval-plan dry-run --input <rows.jsonl> --arms <model,model> [--fields a,b] [--output-budget N]
+ *   gstack-eval-plan dry-run --input <rows.jsonl> --arms <model,model> [--prereg <file>] [--fields a,b] [--output-budget N]
  *                            [--retry-prompt <file>] [--max-rows N] [--tier-question <why>] [--out <dir>] [--json]
  *   gstack-eval-plan pilot start  --out <dir> --cap <usd> --arms <model[#loadout],...> --dry-run <dry-run.json> [--n 3] [--seat-metered <arm,...>]
  *   gstack-eval-plan pilot settle --out <dir> --attempt <id> --usd <n|unknown>
@@ -34,8 +34,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { renderModelGenerations, modelGenerationProblems } from '../lib/eval-plan-checks';
-import { armIdentities, armModel, checkPrereg, DEFAULT_TOKENS, dryRun, pilotReport, preregTemplate, quickLookTemplate, priceGate, releasePilot, renderArms, renderDryRun, renderGatePrice, renderPilotReport, renderPreregDiagnostics, resolveArms, resolvePlanSource, runPreregDiagnostics, settlePilot, startPilot } from '../lib/eval-plan';
+import { frozenDate, renderModelGenerations, modelGenerationProblems } from '../lib/eval-plan-checks';
+import { armIdentities, armModel, checkPrereg, DEFAULT_TOKENS, dryRun, pilotReport, preregTemplate, quickLookTemplate, priceGate, releasePilot, renderArms, renderDryRun, renderGatePrice, renderPilotReport, renderPreregDiagnostics, resolveArms, resolvePlanSource, runPreregDiagnostics, sectionBody, settlePilot, startPilot } from '../lib/eval-plan';
 import { checkResults } from '../lib/eval-plan-report';
 import { checkJudgeLabels, renderJudgeLabels } from '../lib/eval-plan-checks';
 import { checkModelRules, EVAL_SCOPES, type EvalScope, type ModelRulesCheck } from '../lib/eval-models';
@@ -54,17 +54,18 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
                                      more arms, paired: yes, interval: 95% and mdd:; a frozen: date before 2026-11-15 skips both;
                                      an optional Diagnostics section's summarizer runs on its synthetic fixture only with
                                      --allow-repo-commands (else it is listed and exit 3) and every count must match;
-                                     no arm, judge, reader or simulator is gpt-4o or a superseded_by row (R116, MODEL_GENERATION
+                                     no arm, judge, reader or simulator is gpt-4o, a superseded_by row or an older generation of a priced family (R116, MODEL_GENERATION
                                      lines; a frozen: date before 2026-11-21 keeps its models); vendor-default lines print MODEL_EXCEPTION
   prereg --init <file> [--title <t>] [--quick] write the template (--quick: a quick look)
   arms [--arms m,m] [--policy-doc f] [--input-tokens N] [--output-tokens N] [--json]
                                      arms from \`gstack-models resolve --role eval-arms\`, else the repo policy doc, each priced per item
-  dry-run --input rows.jsonl --arms m,m [--fields a,b] [--output-budget N] [--retry-prompt f] [--max-rows N] [--cap usd] [--tier-question "<why>"] [--out dir] [--json]
+  dry-run --input rows.jsonl --arms m,m [--prereg f] [--fields a,b] [--output-budget N] [--retry-prompt f] [--max-rows N] [--cap usd] [--tier-question "<why>"] [--out dir] [--json]
                                      stub model over the real rows; checklist: price table, output budget, retry prompt text,
                                      and with --cap reservation-fits-cap (one call: largest row + output budget, priced);
                                      frontier: refuses a plan whose every arm is Haiku or Sonnet unless --tier-question
                                      names what it asks about that tier, and re-costs the plan on frontier prices (R54);
-                                     model-generation: refuses an arm that is gpt-4o or a lib/pricing.ts superseded_by row (R116)
+                                     model-generation: refuses an arm that is gpt-4o or an older generation (R116); --prereg applies
+                                     the plan's vendor-default lines and frozen: date, and pilot start reads them from dry-run.json
   pilot start --out dir --cap usd --arms m,m#no-gstack --dry-run dry-run.json [--n 3] [--seat-metered arm,...]
                                      --seat-metered: arms on a subscription with no incremental charge; they reserve $0,
                                      settle unknown, and sit outside the cap and the projection until one settles a charge
@@ -201,13 +202,17 @@ function doDryRun(rest: string[]): number {
   const modelRules = lintModels(rest, arms.map(model => ({ model, scope, where: 'dry-run --arms' })), 'dry-run');
   const tierQuestion = flag(rest, '--tier-question');
   if (tierQuestion?.startsWith('--')) return usage('--tier-question needs the question the preregistration asks about that tier, not another flag');
-  const r = dryRun({ input, arms, fields: csv(flag(rest, '--fields')), outputBudget: num(rest, '--output-budget'), retryPrompt: flag(rest, '--retry-prompt'), maxRows: num(rest, '--max-rows'), cap: num(rest, '--cap'), modelRules, tierQuestion });
+  const preregFile = flag(rest, '--prereg');
+  if (preregFile !== undefined && !fs.existsSync(preregFile)) return usage('--prereg needs the existing preregistration file the run follows');
+  const preregText = preregFile === undefined ? null : fs.readFileSync(preregFile, 'utf8');
+  const prereg = preregText === null ? undefined : { file: preregFile!, frozen: frozenDate(preregText), models: sectionBody(preregText, 'Models') };
+  const r = dryRun({ input, arms, fields: csv(flag(rest, '--fields')), outputBudget: num(rest, '--output-budget'), retryPrompt: flag(rest, '--retry-prompt'), maxRows: num(rest, '--max-rows'), cap: num(rest, '--cap'), modelRules, tierQuestion, prereg });
   const out = flag(rest, '--out');
   if (out) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, 'dry-run.json'), JSON.stringify(r, null, 2) + '\n'); }
-  if (rest.includes('--json')) process.stdout.write(JSON.stringify(r) + '\n'); else process.stdout.write(renderDryRun(r));
+  if (rest.includes('--json')) process.stdout.write(JSON.stringify(r) + '\n'); else process.stdout.write(renderDryRun(r) + renderModelGenerations({ ...r.checks.generation, refused: [] }) + (r.checks.generation.exempt ? `MODEL_GENERATION: exempt (frozen ${r.prereg!.frozen} in ${r.prereg!.file}, before R116)\n` : ''));
   if (out) process.stdout.write(`DRY_RUN_RECORD: ${path.join(out, 'dry-run.json')}\n`);
   if (!r.pass) {
-    const why = [r.rows === 0 ? 'no rows' : '', r.bad_rows.length ? `${r.bad_rows.length} bad rows` : '', !r.checks.price_table.ok ? `price missing: ${r.checks.price_table.missing.join(',') || 'no arms'}` : '', !r.checks.output_budget.ok ? 'output budget below the reasoning floor' : '', !r.checks.retry_prompt.ok ? 'retry prompt missing' : '', r.checks.reservation_fits_cap && !r.checks.reservation_fits_cap.ok ? `one call exceeds --cap $${r.checks.reservation_fits_cap.cap}` : '', r.checks.model_rules && !r.checks.model_rules.ok ? 'model rules refused an arm (EVAL_MODEL lines above)' : '', !r.checks.frontier.ok ? 'every arm is Haiku or Sonnet (R54; CHECK: frontier above)' : '', !r.checks.generation.ok ? 'an arm is gpt-4o or an older generation (R116; CHECK: model-generation above)' : ''].filter(Boolean).join('; ');
+    const why = [r.rows === 0 ? 'no rows' : '', r.bad_rows.length ? `${r.bad_rows.length} bad rows` : '', !r.checks.price_table.ok ? `price missing: ${r.checks.price_table.missing.join(',') || 'no arms'}` : '', !r.checks.output_budget.ok ? 'output budget below the reasoning floor' : '', !r.checks.retry_prompt.ok ? 'retry prompt missing' : '', r.checks.reservation_fits_cap && !r.checks.reservation_fits_cap.ok ? `one call exceeds --cap $${r.checks.reservation_fits_cap.cap}` : '', r.checks.model_rules && !r.checks.model_rules.ok ? 'model rules refused an arm (EVAL_MODEL lines above)' : '', !r.checks.frontier.ok ? 'every arm is Haiku or Sonnet (R54; CHECK: frontier above)' : '', !r.checks.generation.ok ? `an arm is gpt-4o or an older generation (R116; CHECK: model-generation above${r.prereg ? '' : '; pass --prereg <file> when the plan has a vendor-default line or a frozen: date before 2026-11-21'})` : ''].filter(Boolean).join('; ');
     process.stderr.write(resultLine('gstack-eval-plan dry-run', r.checks.price_table.ok ? 'EVAL_DRY_RUN_FAILED' : 'EVAL_PRICE_MISSING', why) + '\n');
     return EXIT.fail;
   }

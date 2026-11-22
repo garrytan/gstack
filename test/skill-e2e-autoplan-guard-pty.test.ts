@@ -18,12 +18,13 @@
  * input in the project's .gstack/tmp/autoplan/, the installed Phase 2 section)
  * must still raise no permission card.
  *
- * The actor stays on Claude Haiku 4.5. It acts out a scripted turn shape the
- * guard depends on and is not a model under test. On Haiku 5.5 (#4630) the actor
- * read the close packet and dispatched Phase 2 before the CEO reviewer's notice
- * arrived, so the notice-turn path never ran: 8 of 8 attempts failed in release
- * gate runs 44952328945, 44955253712 and 44956497475, against 11 of 11 passes on
- * Haiku 4.5 at bisect prefixes up to 79eea6d5 in runs 44954167348 and 44956497475.
+ * The actor is Claude Haiku 5.5. It acts out a scripted turn shape the guard
+ * depends on and is not a model under test, so the wait for the CEO reviewer's
+ * notice is the relay's, not the model's (GST-3441): the relay ends the actor's
+ * turn after the background dispatch until that notice arrives. Without it, Haiku
+ * 5.5 read the close packet and dispatched Phase 2 before the notice, so the
+ * notice-turn path never ran: 8 of 8 attempts failed in release gate runs
+ * 44952328945, 44955253712 and 44956497475 (#4639 pinned Haiku 4.5 meanwhile).
  */
 import { expect } from 'bun:test';
 import * as path from 'node:path';
@@ -31,7 +32,7 @@ import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
 import { launchClaudePty, selectPtyNumberedOption } from './helpers/claude-pty-runner';
 import { closePacketReadAfterNotice, guardRunNeedsJournal, prepareGuardSession, startDispatchRelay, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
 
 describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty'], () => {
   testIfSelected('autoplan-guard-pty', async () => {
@@ -65,7 +66,7 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
       }
       await Bun.sleep(3_000);
       const log = s.readLog(), evidence = s.noticeEvidence();
-      const summary = { prompts: prompts.length, substituted: relay.substituted, phase1Ms, totalMs: Math.round(performance.now() - started), evidence,
+      const summary = { prompts: prompts.length, substituted: relay.substituted, noticeWaits: relay.noticeWaits, phase1Ms, totalMs: Math.round(performance.now() - started), evidence,
         decisions: log.map(e => ({ decision: e.decision, code: e.code, path: e.path, version: e.claude_code_version, ts: e.ts })) };
       console.log(`[autoplan-guard-pty] ${JSON.stringify(summary)}`);
       if (log.length < 4 && stoppedAtPhaseBoundary(session.visibleText())) console.log('[autoplan-guard-pty] PHASE_BOUNDARY_STOP: the actor ended its turn after "Phase 1 complete." instead of going on to step 7');
@@ -74,6 +75,7 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
       if (log.some(e => e.code === 'dispatch_prompt')) console.log(`[autoplan-guard-pty] dispatch prompt deltas:\n${s.dispatchPromptDeltas().join('\n')}`);
       for (const prompt of prompts) console.log(`[autoplan-guard-pty] permission card approved:\n${prompt}`);
       expect(log.filter(e => e.decision === 'deny')).toEqual([]);
+      expect(relay.noticeWaits).toBeGreaterThan(0);
       // Phase 1 entry, the CEO reviewer dispatch (Cause A: run_in_background sent, stripped from the payload),
       // the Phase 2 transition and the Phase 2 reviewer dispatch: four guarded allows, each verified.
       expect(log.map(e => [e.decision, e.disposition])).toEqual(Array(4).fill(['allow', 'allow']));
