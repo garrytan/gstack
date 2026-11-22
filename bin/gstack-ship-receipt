@@ -53,7 +53,7 @@ import { approvalForReceipt } from '../lib/approval-citations';
 import {
   CARRY_NAMED_PATHS,
   bindReceipt, carryReceipt, recheckCarried, classifyCarryPath, computeCensus, extractReceipt, landedStackParent, missingIssueLines, orderReceipt, parseReviewLoop, placeReceipt, planCarry, planTreeCarry,
-  receiptIssuesFrom, receiptRuns, receiptSummaryLine, renderCensus, renderReceiptBlock, unruledOpenBlockers, validateReceipt, type CensusPr,
+  RUNS_FENCE, receiptIssuesFrom, receiptRuns, receiptSummaryLine, renderCensus, renderReceiptBlock, unruledOpenBlockers, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
@@ -439,7 +439,15 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
   const closed = [...(receipt.cleared_by_grant ? [`Closed by grant ${receipt.cleared_by_grant.approval}: ${receipt.cleared_by_grant.ids.join(', ')} (the granted fix-check of run ${receipt.cleared_by_grant.run} read the fix clean)`] : []),
     ...(receipt.cleared_by_trailer ?? []).map(t => `Closed by fix ${t.commit.slice(0, 12)}: ${t.id} (a later full review at ${t.review.slice(0, 12)} read it clean)`)];
   if (body) {
-    const text = fs.existsSync(body) ? fs.readFileSync(body, 'utf8') : '';
+    let text = fs.existsSync(body) ? fs.readFileSync(body, 'utf8') : '';
+    const pr = flag(rest, '--pr');
+    if (pr && fs.existsSync(body) && !extractReceipt(text).found && !receiptRuns(text).length) {
+      const live = readBody(['--pr', pr, ...(flag(rest, '--repo') ? ['--repo', flag(rest, '--repo')!] : [])]);
+      const prior = live.ok ? extractReceipt(live.body).receipt : undefined;
+      const runs = live.ok ? receiptRuns(live.body) : [];
+      if (!live.ok) process.stderr.write(`RECEIPT_RUNS: PR #${pr}'s earlier runs were not read (${live.why}), so ${body} keeps only this run; fix: ${live.fix}\n`);
+      else if (prior || runs.length) text = withAgentNotes(text, [(splitAgentNotes(text).notes ?? '').trim(), prior ? renderReceiptBlock(prior) : '', runs.length ? '```' + RUNS_FENCE + '\n' + runs.map(r => JSON.stringify(r)).join('\n') + '\n```\n' : ''].filter(Boolean).join('\n\n'));
+    }
     const notes = splitAgentNotes(text).notes ?? '';
     const lines = closed.filter(l => !notes.includes(l));
     fs.writeFileSync(body, placeReceipt(lines.length ? withAgentNotes(text, [notes.trim(), ...lines].filter(Boolean).join('\n\n')) : text, receipt));
