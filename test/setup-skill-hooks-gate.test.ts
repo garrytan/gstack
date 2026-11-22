@@ -205,7 +205,7 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     env: { PATH: process.env.PATH ?? '', HOME: home, GSTACK_STATE_ROOT: state }, encoding: 'utf8', timeout: 30_000,
   });
   const routeAt = (root: string, env: Record<string, string> = {}) => runHook(path.join(root, 'hosts', 'claude', 'hooks', 'skill-route-hook.ts'),
-    JSON.stringify({ session_id: 'sess-d', transcript_path: '/tmp/t.jsonl', cwd: work, hook_event_name: 'UserPromptSubmit', prompt: 'please fix this bug in login' }),
+    JSON.stringify({ session_id: 'sess-d', transcript_path: '/tmp/t.jsonl', cwd: work, hook_event_name: 'UserPromptSubmit', prompt: 'this test fails in login' }),
     hookEnv(state, skills, env));
   const stopAt = (root: string) => {
     const file = path.join(work, 'transcript.jsonl');
