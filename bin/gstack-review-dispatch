@@ -39,6 +39,7 @@ import { effectiveReaders, READERS_POLICY_DEFAULT, type EffectiveReaders } from 
 import { defaultRoots, foundLines, ignoredLines, inventory, quarantineStage, rerunBlocked, sweepResult, type Inventory } from '../lib/review-sweep';
 import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff } from '../lib/review-exclude';
 import { logShipCall } from '../lib/ship-call-log';
+import { restampFixCheckHunks } from '../lib/review-evidence';
 
 logShipCall('gstack-review-dispatch');
 
@@ -501,9 +502,15 @@ function passStep(cmd: string): number {
       const token = flag('--token');
       if (!token) { process.stderr.write('gstack-review-dispatch mark: --log-start <key> --token <t>\n'); return EXIT.usage; }
       m.log_starts ??= {};
+      const fresh = !m.log_starts[logStart];
       m.log_starts[logStart] ??= token;
       writeManifest(file, m);
       process.stdout.write(`LOG_START: ${logStart} token=${m.log_starts[logStart]}\n`);
+      if (fresh && m.fix_check?.hunks && logStart.includes('review-fix-check')) {
+        let text: string | undefined;
+        try { text = fs.readFileSync(m.fix_check.hunks, 'utf8'); } catch { /* reported below; the start token is already recorded */ }
+        process.stdout.write(`FIX_CHECK_HUNKS: ${text === undefined ? 'not restamped (hunks file unreadable)' : restampFixCheckHunks(process.cwd(), text) ? 'restamped' : 'not restamped (no render record with these hunks)'}\n`);
+      }
       return EXIT.ok;
     }
     const before = flag('--before');

@@ -496,9 +496,9 @@ const hunksFile = (cwd: string) => {
   return r.status === 0 && r.stdout.trim() ? resolve(cwd, r.stdout.trim()) : '';
 };
 
-/** The ledger ids and path:line:category fingerprints a fix list names: the only grant ids its clean fix-check can close. */
+/** The ledger ids, path:line:category fingerprints and a-… approval ids a fix list names: the only grant ids its clean fix-check can close. */
 export function fixListNames(text: string): string[] {
-  return [...new Set(text.split(/[\s`'"(),;]+/).map(t => t.replace(/[.:]+$/, '')).filter(t => t.includes('#') || /:\d+:/.test(t)))].sort();
+  return [...new Set(text.split(/[\s`'"(),;]+/).map(t => t.replace(/[.:]+$/, '')).filter(t => t.includes('#') || /:\d+:/.test(t) || /^a-[0-9a-f]{12}$/.test(t)))].sort();
 }
 
 /** gstack-review-plan --fix-check-prompt and the pass program's fix-check render record the hunks and fix list they rendered from; a failed write only leaves the row without hunks, so it closes nothing. */
@@ -507,6 +507,17 @@ export function recordFixCheckHunks(cwd: string, text: string, ledger: string | 
     const file = hunksFile(cwd);
     if (file) writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...hunksDigest(text), fix_list: fixListNames(fixList), ...(ledger ? { ledger: resolve(ledger) } : {}) }) + '\n');
   } catch { /* the row carries no hunks and closes nothing */ }
+}
+
+/** The pass program renders a fix-check brief before it takes the review-fix-check start (GST-3523): re-date that render's record, only while its digest still matches the hunks the brief carried, so the start's row attaches it. */
+export function restampFixCheckHunks(cwd: string, text: string): boolean {
+  try {
+    const file = hunksFile(cwd);
+    const o = JSON.parse(readFileSync(file, 'utf8'));
+    if (o.sha256 !== hunksDigest(text).sha256) return false;
+    writeFileSync(file, JSON.stringify({ ...o, at: new Date().toISOString() }) + '\n');
+    return true;
+  } catch { return false; }
 }
 
 /** The hunks record gstack-review-log stamps on a granted fix-check row: the newest render at or after the row's start. */
