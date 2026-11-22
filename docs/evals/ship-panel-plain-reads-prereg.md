@@ -6,7 +6,8 @@ Status: locked at merge, before any paid call. Owner: GStack Minder (GSTA-36); r
 after this file merges. Approved budget: about $1,300, cap $1,500 (GSTA-36, 2026-11-22).
 
 ## Question
-G1's trial ([ship-conductor-fold-results.md](ship-conductor-fold-results.md)) found that /ship's review panel caught 21
+G1's trial (preregistration [ship-conductor-fold-prereg.md](ship-conductor-fold-prereg.md); its results page,
+`ship-conductor-fold-results.md`, lands with gstack#4680) found that /ship, over its review and fix phases, caught 21
 and 22 of 30 planted bugs, against 16 of 30 for one plain review prompt. The panel was ahead or tied in every case, but
 10 cases could only detect a 28-point gap and the gap was 20. Its "Why null?" cycle (GST-3467) added two leads:
 
@@ -31,8 +32,8 @@ Opus 5.5 and on GPT-6.2 Sol?
 
 ## Decisions
 Each model's result decides for the /ship host that runs that model (Claude Code runs Opus, Codex runs Sol).
-- if N2V is no worse than P (the N2V minus P lower bound is at or above −0.10): /ship's first-pass panel on that host is a candidate to replace with two plain reads plus the second-model reviewer; that change is its own /ship plan, through /autoplan and Garry's approval, and nothing changes from this result alone
-- if P is better than N2V (the P minus N2V interval lies entirely above 0): the panel stays on that host, and G3 merges only the readers that find nothing alone (today, the targeted reader)
+- if N2V is no worse than P and P is not better (the N2V minus P lower bound is at or above −0.10 and the P minus N2V interval does not lie entirely above 0): /ship's first-pass panel on that host is a candidate to replace with two plain reads plus the second-model reviewer; that change is its own /ship plan, through /autoplan and Garry's approval, and nothing changes from this result alone
+- if P is better than N2V (the P minus N2V interval lies entirely above 0, whether or not the no-worse bound also passes): the panel stays on that host, and G3 merges only the readers that find nothing alone (today, the targeted reader)
 - if neither: the panel stays on that host, the null is published with this run's smallest detectable difference, and G3's panel question closes on that host
 - if the run stops incomplete (spend cap, a harness stop, a scorer below its bar): no decision is taken, the panel stays, and every finished trial is reported
 
@@ -53,17 +54,26 @@ metadata for `gpt-6.2-sol` and warns that it falls back. 0.170.0 is the version 
 carries the metadata. Per trial, the runner makes these runs on each model: one P run, two plain reads (R1 and R2) and
 one second-model review (V).
 
-**P.** The runner runs `gstack-review-dispatch pass --pass p1` on the case head. That runs `gstack-review-plan` with no
-flags and renders every reader brief byte for byte. The runner then starts each reader the manifest names, in its stage
-order (first, specialists, red-team, voices), as its own headless session in the case checkout. It records the exact
-prompt with `sent` and collects each output with `collect`.
+**P.** In the case checkout at the case head, the runner runs
+`gstack-review-dispatch pass --base origin/<case base branch> --out <trial dir>/p1 --pass <case>-t<trial>-p1`, where
+`<trial dir>` is a fresh directory per case, trial and model. That runs `gstack-review-plan` with no plan flags, writes
+`pass-manifest.json` and renders the first and specialist briefs byte for byte. Each later stage is rendered with
+`gstack-review-dispatch stage --manifest <trial dir>/p1/pass-manifest.json --stage <red-team|voices>` once every earlier
+reader is collected. The runner starts each reader the manifest names, in its stage order (first, specialists,
+red-team, voices), as its own headless session in the case checkout. It records the exact prompt with `sent` and
+collects each output with `collect`.
 - The readers run on the lane model at the reasoning effort the plan names.
-- The second-model reviewer runs on the other family's model that gstack's voice settings name for the lane.
+- When the printed plan names the second-model reviewer (`DISPATCH: outside-voice`), it runs on the other family's
+  model that gstack's voice settings name for the lane. When the plan skips it (for example a light case with no
+  numeric claims), P runs without it, as /ship ships. A $0 plan run on every case before any trial records each case's
+  P reader set, and the results report how many cases ran P without the second-model reviewer.
 - Nothing is fixed, committed or re-reviewed.
 - P's findings are every collected reader's output.
 
-**V.** /ship's second-model reviewer alone, run from the brief `gstack-review-dispatch render --role outside-voice` writes
-for the case, on the same model as P's reviewer.
+**V.** /ship's second-model reviewer alone, on every case, run from the brief
+`gstack-review-dispatch render --role outside-voice --out <trial dir>/v --diff-base <case base commit sha>` writes for the
+case, on the other family's model that gstack's voice settings name for the lane (the model P's reviewer uses when its
+plan names one).
 
 The plain-read arms are nested by design (N1 ⊂ N2 ⊂ N2V), so N2 minus N1 isolates the second read and N2V minus N2
 isolates the reviewer. P shares no run with them.
@@ -87,9 +97,9 @@ P loads gstack's review panel and V uses gstack's second-model brief; the questi
 - prompt: G1's plain prompt, unchanged: "Review this PR (branch `<branch>` against `<base>`, checked out here) for bugs that would fail a test, break production or lose data. List each as path:line and the cause." No SKILL.md, preamble, hooks, installed skills or routing lines
 - panel: the same kind (`behavior`, 3 independent trials per case), the same catch rule and the same judge
 - report: its rows sit beside P and N2V in every results table and verdict, including when they win
-- masking: each plain read runs as a separate Unix user on the runner VM whose home holds no gstack and no Capy drive; the VM mounts no Capy drive at all
+- masking: each plain read runs as a separate Unix user on the runner VM whose home holds no gstack and no Capy drive; the VM mounts no Capy drive at all; the case checkout carries no project instruction files (Checkouts), so no session loads gstack's `AGENTS.md` or `CLAUDE.md` at startup
 - install: `test ! -e ~/.local/share/gstack && test ! -e ~/.claude/skills && test ! -e ~/.codex/skills` as that user before each session
-- audit: each plain-read transcript is scanned for reads of a gstack install path or a drive path; a trial that read a gstack skill file is contaminated and scores zero
+- audit: each plain-read transcript is scanned for reads of a gstack install path, a drive path or a project instruction file, and for any instruction file the session loaded at startup; a trial that read or loaded one is contaminated and scores zero
 
 ## Scoring
 judge: gemini-4-carbon
@@ -125,12 +135,16 @@ The label check:
   blind.
 - The labels are frozen with a SHA-256 before the judge sees any.
 - `gstack-eval-plan judge --check` must print `JUDGE_AGREEMENT: ok` (kappa at least 0.6, read per arm) before any
-  real-problem number counts. Below that, real problems are reported as unscored.
+  real-problem number counts. Below that, real problems are reported as unscored, and the results check (After the
+  run) is expected to report exactly one issue, `EVAL_JUDGE_UNCHECKED`.
 
 The labeller is the same family as some arms. That is disclosed, and it is why the judge is a third family.
 
 **Comparisons.** Every comparison is paired by case: the per-case difference of catch rates, with a 95% t interval over
-the cases. Every trial is reported; nothing is averaged away.
+the cases. At the end of the run, every interval in Bars and Decisions is the paired t interval at the end bound's
+nominal level from Interim look (two-sided 0.0477, t of about 2.06 at 29 degrees of freedom, a 95.2% interval), and
+"95%" in this file means that interval; at the look, the look's level applies. Every trial is reported; nothing is
+averaged away.
 
 ## Models
 - reader: claude-opus-5-5 (P readers on the Opus lane; the second-model reviewer on the Sol lane)
@@ -171,6 +185,9 @@ are unchanged.
 - a local `origin` that has only the base branch
 - no other history, so no fix commit can be read
 - this file and its results file removed from both trees
+- the root `AGENTS.md` and `CLAUDE.md`, and any `.claude/`, `.codex/` or `.agents/` folder, removed from both trees for
+  every arm, so the diff under review is unchanged; a case whose host diff or plant touches one of those paths keeps it,
+  is flagged before any trial, and a sensitivity analysis repeats the comparisons without flagged cases
 
 Branch names are taken from the host's own branch. No branch, file, commit message or prompt carries an eval word.
 
@@ -192,9 +209,9 @@ Measured per run: the session's own reported cost; for Codex, the tokens priced 
 and for P each reader's state, model, effort and output hash.
 
 ## Pilot
-- share: 3% (2 of 90 case trials per arm)
+- share: 2% (2 of 90 case trials per arm)
 - counted: no
-- ran: on P's outputs the manifest lists every reader the printed plan named, each collected, with `sent` matching the rendered brief's hash and the second-model reviewer on the other family; on N1 and N2 the install check finds no gstack and the transcript audit finds no gstack or drive read; on V the output carries the reviewer brief's clean marker or findings, from the other family
+- ran: on P's outputs the manifest lists every reader the printed plan named, each collected, with `sent` matching the rendered brief's hash and, when the manifest lists it, the second-model reviewer on the other family; on N1 and N2 the install check finds no gstack and the transcript audit finds no gstack, drive or project instruction file read or loaded; on V the output carries the reviewer brief's clean marker or findings, from the other family
 - judge: the labeller and judge are run on the pilot's findings as a dry run of the label format and the per-arm label check; its kappa is printed and does not count
 - supply: both pilot cases build their two-commit checkout, `gstack-review-plan` prints a plan on each, typecheck runs on both trees, and every session finishes within 30 minutes; the pilot's measured cost per trial is projected over 90 trials per arm against the cap
 - units: one G1 case with a full-panel plan (G1's case 3) and one new case with a light plan, so both case sources and both review depths are drawn
@@ -277,6 +294,8 @@ answers: each case checkout is built by the runner as a fresh two-commit reposit
 
 ## After the run
 Results go to `docs/evals/ship-panel-plain-reads-results.md`. The page opens with two or three plain takeaways and
-has one table with a filled row for every arm on both models. It is checked with `gstack-eval-plan results --check`
-before any number leaves the run. A null gets one R48 "Why null?" cycle and a KEEP, FIX-METHOD or CUT-CANDIDATE
-verdict.
+has one table with a filled row for every arm on both models. It is checked with
+`gstack-eval-plan results --check <this file> <results page> --labels <the frozen labels>` before any number leaves the
+run, and must pass. The one allowed exception: when the judge misses its label bar, the check's single expected issue
+is `EVAL_JUDGE_UNCHECKED`, the page says so in its first lines, and every other check passes. A null gets one R48
+"Why null?" cycle and a KEEP, FIX-METHOD or CUT-CANDIDATE verdict.
