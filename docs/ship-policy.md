@@ -3310,6 +3310,44 @@ run until its title or body is edited or a commit is pushed; do one of those
 before landing it. The workflow reads the PR body from the event file, not an
 environment variable, so a very long body still reaches the checker.
 
+<a id="test-changes"></a>
+## Test changes: what a pull request does to its own tests (flag only)
+
+`.github/workflows/test-changes.yml` adds a **Test changes** check to every pull
+request in this repository. It is a two-week, flag-only trial (GST-3386): it never
+blocks a merge and is not a required check.
+
+It reports three things in the check's summary:
+
+- hunks that `bin/gstack-gate-diff` tags as removing or skipping a test (RH-1),
+  adding a suppression (RH-13), bypassing a gate (RH-14) or relaxing a gate value
+  (RH-15), by path and hunk id;
+- the number of test declarations the pull request adds and removes;
+- edits to the files that run or define this repository's own checks: any
+  workflow, `.gstack/`, `package.json`, the lockfile, `bunfig.toml`, the free-suite
+  shard runner and engine, `scripts/ci-tree-reuse.ts`, `lib/run-evidence.ts` and
+  `test/land-merged-checks.txt`.
+
+The workflow runs on `pull_request_target`, so main's copy of the workflow, of
+`scripts/test-changes-report.ts` and of the gate scan reports on the pull request,
+and the pull request can't edit the checker. It checks out main only, fetches the
+pull request's commits as git objects, and reads them with
+`gstack-gate-diff <base> --head <sha>`, which diffs merge-base to that commit without
+touching the working tree. The report names paths, tags and hunk ids, never the
+pull request's line content. A flag never turns the check red. The check fails only
+when the scan itself fails, so a broken run is never read as a quiet pull request.
+
+Each flag wants a reason in the pull request or a reviewer's ruling. The flags
+don't replace /review's and /ship's gate findings, which still need an owner ruling
+([gate dispositions](#gate-dispositions)).
+
+Replayed over the 303 landings on main from 2026-11-07 to 2026-11-21
+(`gstack-gate-diff --commit` on each landing), 24 (8%) carried at
+least one of the four tags and 50 (17%) edited a listed check file, about 12 and
+25 a week. The trial counts how many flags had a reason. A rule that would make
+`gstack-ship-queue land` refuse a pull request that edits its own checks without an
+owner ruling is out of scope until the trial reports.
+
 ## Approval classes
 
 `.gstack/approval-classes.json` lists change classes that need an explicit

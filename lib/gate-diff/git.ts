@@ -312,6 +312,11 @@ function decode(buf: Buffer): string {
 }
 
 /** merge-base → working tree (tracked changes, staged and unstaged, with rename detection). */
+export function diffRange(fromSha: string, toSha: string, cwd: string): FileDiff[] {
+  const r = runGit([...DIFF_FLAGS, fromSha, toSha, '--'], cwd);
+  if (r.status !== 0) throw new Error(`git diff failed: ${r.stderr.trim() || `exit ${r.status}`}`);
+  return parseUnifiedDiff(decode(r.stdout));
+}
 export function diffWorkingTree(mergeBaseSha: string, cwd: string): FileDiff[] {
   const r = runGit([...DIFF_FLAGS, mergeBaseSha, '--'], cwd);
   if (r.status !== 0) throw new Error(`git diff failed: ${r.stderr.trim() || `exit ${r.status}`}`);
@@ -382,8 +387,9 @@ export function untrackedAsAdded(cwd: string, root: string): FileDiff[] {
   return out;
 }
 
-export function commitsInRange(fromExclusive: string, toInclusive: string, cwd: string): CommitInfo[] {
+export function commitsInRange(fromExclusive: string, toInclusive: string, cwd: string, strict = false): CommitInfo[] {
   const r = runGit(['log', '--format=%H%x00%B%x00', `${fromExclusive}..${toInclusive}`, '--'], cwd);
+  if (r.status !== 0 && strict) throw new Error(`git log failed: ${r.stderr.toString().trim() || `exit ${r.status}`}`);
   if (r.status !== 0) return [];
   const parts = r.stdout.toString('utf-8').split('\0');
   const out: CommitInfo[] = [];
