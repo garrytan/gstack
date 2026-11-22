@@ -122,22 +122,27 @@ describe('meter scope (GST-467)', () => {
     }
   });
 
-  // Value: protects=a /ship subagent metering its own task row can't grow past R70's 50M stop-and-look line (100M before Capy's token counts halved on 2026-11-15); fails_when=an observe-mode --reading-from task start with no cap stays uncapped, its note past 50M doesn't stop, a task-row run is labeled tree, or none, an explicit cap, admit mode, a root run or a tree-metered subagent get the default;
-  //   why_new=FOUN-4's Subagent 40 reached 485M over five /ship runs in one context (GST-1279); a tree reading would count sibling lanes (autoplan review d2); seam=none; no_claim=that the lane passes the title
-  test('an observe-mode /ship subagent metering its own task row gets the 50M default; none, an explicit cap or a tree meter does not', () => {
+  // Value: protects=a /ship run metering its own counter (its thread's own jam, or a task row) can't grow past R70's 50M stop-and-look line (100M before Capy's token counts halved on 2026-11-15); fails_when=an observe-mode own-counter or --reading-from task start with no cap stays uncapped, its note past 50M doesn't stop, a task-row run is labeled tree, or none, an explicit cap, admit mode, a shared "this" reading or a tree-metered run get the default;
+  //   why_new=FOUN-4's Subagent 40 reached 485M over five /ship runs in one context (GST-1279); GST-3466 moved /ship into the thread's own counter; a tree reading would count sibling lanes (autoplan review d2); seam=none; no_claim=that the lane passes the title
+  test('an observe-mode /ship run metering its own counter gets the 50M default; none, an explicit cap, a shared or tree meter does not', () => {
     const sub = ['--mode', 'observe', '--reading', '10000000', '--credits', '100', '--reading-from', 'task'];
     const h = fresh();
     const s = h.sb(['start', '--record', h.record(), ...sub]);
     expect(s.code, s.err).toBe(0);
-    expect(s.out).toContain('BUDGET_DEFAULT_CAP: 50M (a /ship subagent metering its own task row; --token-cap <n> or none to change it)');
+    expect(s.out).toContain('BUDGET_DEFAULT_CAP: 50M (a /ship run metering its own counter; --token-cap <n> or none to change it)');
     expect(s.out).not.toContain(TREE);
     const run = h.field(s.out, 'BUDGET_RUN', 'id');
     expect(h.sb(['note', '--run', run, '--step', '6', '--reading', '50000000', '--credits', '150']).code).toBe(0);
     expect(h.sb(['note', '--run', run, '--step', '9', '--reading', '62500000', '--credits', '160']).code).toBe(3);
     const viaEnv = fresh();
     expect(viaEnv.sb(['start', '--record', viaEnv.record(), '--mode', 'observe', '--reading', '10000000'], { GSTACK_SHIP_TASK_TITLE: 'ship #1 at abc1234 q7x2' }).out).toContain('BUDGET_DEFAULT_CAP: 50M');
+    for (const own of [['--mode', 'observe', '--reading', '1000000000'], ['--mode', 'observe', '--reading', '1000000000', '--reading-from', 'own']]) {
+      const o = fresh();
+      expect(o.sb(['start', '--record', o.record(), ...own]).out).toContain('BUDGET_DEFAULT_CAP: 50M');
+    }
     for (const [args, env] of [[[...sub, '--token-cap', 'none'], {}], [sub, { GSTACK_SHIP_TOKEN_CAP: 'none' }], [[...sub, '--token-cap', '200M'], {}],
-      [['--mode', 'observe', '--reading', '1000000000'], {}], [['--reading', '1000000000', '--reading-from', 'task'], {}],
+      [['--mode', 'observe', '--reading', '1000000000', '--meter-scope', 'tree'], {}], [['--reading', '1000000000', '--reading-from', 'task'], {}],
+      [['--mode', 'observe', '--reading', '1000000000', '--reading-from', 'this'], {}],
       [['--mode', 'observe', '--reading', '1000000000', '--subagent', '--reading-from', 'this'], {}]] as const) {
       const o = fresh();
       const out = o.sb(['start', '--record', o.record(), ...args], env);
@@ -172,11 +177,13 @@ describe('meter scope (GST-467)', () => {
     expect(fs.readFileSync(path.join(ROOT, 'docs/troubleshooting.md'), 'utf8')).toContain(`<a id="${RESULT_CODES.METER_SCOPE_PARENT.anchor}"></a>`);
   });
 
-  // Value: protects=the /ship brief tells a subagent to meter tree-scoped and the docs say where exact cost comes from; fails_when=the Capy skill or docs/ship-budget.md drops --meter-scope tree or the root-replay pointer;
-  //   why_new=GST-467; seam=none; no_claim=agent compliance
-  test('the Capy skill and docs/ship-budget.md tell a subagent to pass --meter-scope tree; exact per-run cost comes from root replay threads', () => {
+  // Value: protects=the Capy skill has the thread that owns the PR run /ship and read its own counter, and the docs say how a subagent's reading is scoped and where exact cost comes from; fails_when=the skill drops the own-thread reading, sends /ship back to a subagent, or docs/ship-budget.md drops --meter-scope tree or the root-replay pointer;
+  //   why_new=GST-467, GST-3466 (the G1 trial: /ship runs in the calling thread); seam=none; no_claim=agent compliance
+  test('the Capy skill has the thread running /ship read its own counter and start no /ship subagent; docs/ship-budget.md keeps the tree scope and root replay pointer', () => {
     const skill = fs.readFileSync(path.join(ROOT, 'capy/skill/gstack/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
-    expect(skill).toContain('--subagent --reading-from this --meter-scope tree');
+    expect(skill).toContain('tools.thread.get({ thread_id: "<your own jam id>" })` (the thread running /ship, its reviewers included)');
+    expect(skill).toContain('never start a subagent to run /ship');
+    expect(skill).not.toContain('--reading-from this --meter-scope tree');
     const doc = fs.readFileSync(path.join(ROOT, 'docs/ship-budget.md'), 'utf8').replace(/\s+/g, ' ');
     expect(doc).toContain('--meter-scope tree');
     expect(doc).toContain(TREE);

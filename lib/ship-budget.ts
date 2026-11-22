@@ -46,7 +46,7 @@ export const MAX_CHAIN_DEPTH = 3;
 export const SEGMENTS: Record<string, string> = { '1': '22', '9': '11.5', '12': '22' };
 export const DEFAULT_TAIL = 2_000_000;
 /**
- * The cap an observe-mode /ship subagent metering its own task row (--reading-from task) gets when it names none:
+ * The cap an observe-mode /ship run metering its own counter (its thread's own jam, --reading-from own, or a task row) gets when it names none:
  * R70's stop-and-look line, 50M since Capy's token counts read about half from 2026-11-15 (it was 100M). Single-run /ship
  * subagent rows on 2026-11-03, on the old count (GSTA crew and FOUN-4/14/71, n=9): p50 64M, p90 92M; the one past 100M
  * (485M) was a subagent reused for five runs.
