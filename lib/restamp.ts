@@ -26,6 +26,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from './bun-isolation';
 import { checkChangelog, mergeChangelogs, parseChangelog, reheadChangelog } from './changelog-check';
+import { addWorktree, removeWorktree } from './git-worktree-lock';
 import { effectiveBump, foldIntoUnreleased, readFragments, type FragmentSet } from './changelog-fragments';
 import { releaseRefusal } from '../crew/lib/restamp-release';
 import { type ResultCodeName } from './result-codes';
@@ -662,12 +663,6 @@ function fragmentsOf(o: RestampOptions, dir: string, changelog: string | null): 
   return set;
 }
 
-function removeWorktree(repoRoot: string, dir: string): void {
-  git(repoRoot, ['worktree', 'remove', '--force', dir]);
-  fs.rmSync(dir, { recursive: true, force: true });
-  git(repoRoot, ['worktree', 'prune']);
-}
-
 export function restamp(o: RestampOptions): RestampResult {
   const stages: StageRecord[] = [];
   let staging: string | null = null;
@@ -711,7 +706,7 @@ export function restamp(o: RestampOptions): RestampResult {
     const wtree = fp.tree;
     staging = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-restamp-staging-'));
     fs.rmSync(staging, { recursive: true, force: true });
-    const add = git(o.repoRoot, ['worktree', 'add', '--detach', '-q', staging, 'HEAD']);
+    const add = addWorktree(o.repoRoot, staging, 'HEAD');
     if (!add.ok) throw new Refusal('RESTAMP_CONFLICT', `cannot create the staging worktree: ${add.err}; nothing written`);
     const seed = git(staging, ['read-tree', '--reset', '-u', wtree]);
     if (!seed.ok) throw new Refusal('RESTAMP_CONFLICT', `cannot seed the staging worktree: ${seed.err}; nothing written`);
@@ -752,7 +747,7 @@ function gateAhead(o: RestampOptions, plan: Plan, stages: StageRecord[], common:
   const dir = o.gateWorktree ?? path.join(o.repoRoot, '.gstack', 'tmp', 'gate-ahead-worktree');
   if (fs.existsSync(dir)) removeWorktree(o.repoRoot, dir);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
-  const add = git(o.repoRoot, ['worktree', 'add', '--detach', '-q', dir, branchHead]);
+  const add = addWorktree(o.repoRoot, dir, branchHead);
   if (!add.ok) throw new Refusal('RESTAMP_CONFLICT', `cannot create the gate-ahead worktree: ${add.err}; nothing written`);
   const env = { ...(o.env ?? process.env), GIT_AUTHOR_NAME: 'gstack-restamp', GIT_AUTHOR_EMAIL: 'restamp@gstack.local', GIT_COMMITTER_NAME: 'gstack-restamp', GIT_COMMITTER_EMAIL: 'restamp@gstack.local' };
   const merge = git(dir, ['-c', 'commit.gpgsign=false', 'merge', '--no-ff', '--no-edit', '-q', pred.head], env);
