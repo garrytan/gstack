@@ -10,10 +10,12 @@
  * lists which blockers are open.
  */
 import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { grantedStop } from './pr-review-history';
 import { ownLinesSame, type ReviewRoundGrant } from './review-round-grant';
 import { ledgerPass, parseFixTrailers, reviewRowKey, rowTime } from './review-scope';
+import { securityFingerprints } from './security-findings';
 import { receiptRuns } from './ship-receipt';
 import { spawnSync } from './spawn-sync';
 
@@ -68,7 +70,7 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
   if (unread === null || unread.length) return no(`the hunks its reader was given leave out ${unread?.join(', ') ?? 'paths git could not list'}, which git diff ${s12(base)} ${s12(commit)} changes`);
   if (typeof h.ledger === 'string') {
     let ids: string[];
-    try { ids = ledgerPass(h.ledger, id => `${path.basename(path.dirname(h.ledger))}/${id}`).ids ?? []; } catch { return no(`its dispatch ledger ${h.ledger} is unreadable`); }
+    try { fs.readFileSync(h.ledger); ids = ledgerPass(h.ledger, id => `${path.basename(path.dirname(h.ledger))}/${id}`).ids ?? []; } catch { return no(`its dispatch ledger ${h.ledger} is unreadable`); }
     const disposed = new Set(findings.filter(f => f.action !== 'open').map(f => f.ledger_id));
     const left = ids.filter(id => !disposed.has(id));
     if (left.length) return no(`its dispatch ledger holds ${left.join(', ')}, which the row does not dispose`);
@@ -104,7 +106,7 @@ export function clearByGrant(cwd: string, o: { pr: number; run: string; head: st
   if (!(Date.parse(String(stop.at)) < Date.parse(String(claim.at)) && Date.parse(String(claim.at)) < Date.parse(String(started)))) return none(`the stop (${stop.at ?? 'no time'}), the claim (${claim.at ?? 'no time'}) and the fix-check's start (${started ?? 'no time'}) are not recorded in that order`);
   const gated = new Set(o.rows.flatMap(r => findingsOf(r).filter(f => f.gate !== undefined).flatMap(f => [f.ledger_id, f.fingerprint])));
   const asked = new Set<string>(Array.isArray(row!.hunks?.fix_list) ? row!.hunks.fix_list : []);
-  const ids = g.findings!.filter(name => asked.has(name) && o.open.filter(b => nameOf(b) === name).length === 1 && !o.open.some(b => typeof b !== 'string' && b.fingerprint === name) && !gated.has(name));
+  const ids = g.findings!.filter(name => asked.has(name) && !securityFingerprints(name).length && o.open.filter(b => nameOf(b) === name).length === 1 && !o.open.some(b => typeof b !== 'string' && b.fingerprint === name) && !gated.has(name));
   const unasked = g.findings!.filter(name => !asked.has(name));
   const unnamed = g.findings!.filter(name => asked.has(name) && !ids.includes(name));
   const why = [...(unasked.length ? [`the fix list its reader was given does not name ${unasked.join(', ')}`] : []), ...(unnamed.length ? [`grant ${g.approval} names ${unnamed.join(', ')}, which no open blocker carries alone`] : [])].join('; ');
@@ -125,10 +127,11 @@ export function clearByTrailer(cwd: string, o: { head: string; baseRef: string; 
     const raised = o.rows.flatMap(r => findingsOf(r).filter(f => f.action === 'open' && (f.ledger_id === id || (f.ledger_id === undefined && f.fingerprint === fp))).map(f => ({ r, f })));
     const alone = o.open.filter(c => (typeof c === 'string' ? c : c.fingerprint) === fp).length === 1;
     const t = trailers.find(x => x.finding === id || (alone && x.finding === fp));
-    if (!t || !raised.length || raised.some(x => x.f.gate !== undefined)) return [];
+    if (!t || !raised.length || raised.some(x => x.f.gate !== undefined) || securityFingerprints(t.finding).length) return [];
     const after = Math.max(...raised.map(x => rowTime(x.r)));
+    const inRange = (from: unknown, fix: string) => from === undefined || (typeof from === 'string' && (b => !!b && !ancestor(cwd, fix, b))(git(cwd, ['rev-parse', '--verify', '--quiet', `${from}^{commit}`])?.trim()));
     const review = o.rows.find(r => r?.skill === 'review' && r.via === 'ship' && r.completed === true && r.scope !== 'fix-range' && r.scope !== 'scoped' && rowTime(r) > after
-      && (r.review_binding?.state === 'verified' || r.review_binding?.state === 'incomplete') && typeof r.tree === 'string' && r.review_binding.start_wtree === r.tree && r.review_binding.end_wtree === r.tree
+      && r.converged === true && r.review_binding?.state === 'verified' && inRange(r.range_base, t.commit) && typeof r.tree === 'string' && r.review_binding.start_wtree === r.tree && r.review_binding.end_wtree === r.tree
       && SHA.test(String(r.commit_full)) && treeOf(cwd, r.commit_full) === r.tree && ancestor(cwd, t.commit, r.commit_full) && ancestor(cwd, r.commit_full, o.head)
       && r.status !== 'issues_found' && r.status !== 'issues_open' && Number(r.findings_open ?? 0) === 0 && !findingsOf(r).some(f => f.action === 'open'));
     return review ? [{ id, commit: t.commit, review: review.commit_full as string }] : [];

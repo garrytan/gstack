@@ -267,9 +267,12 @@ shared by two blockers closes neither. Anything less closes nothing, and write
 says why on a `FIX_CHECK_CLEAR:` line. The receipt records `cleared_by_grant`,
 and the Agent notes section gets one `Closed by grant …` line. A finding whose
 fix commit carries its `Review-Finding:` trailer also closes once a later full
-round, bound to its committed tree and holding that commit, left nothing open
-at all, by its status, its findings file or an inline finding
-(`cleared_by_trailer`, #4597). finish counts the same
+round that finished and converged, bound to its committed tree and with that
+commit inside its range, left nothing open at all, by its status, its findings
+file or an inline finding (`cleared_by_trailer`, #4597). A security finding's
+raw `path:line:category` fingerprint never closes by grant or trailer, so no
+closure line puts its location in the PR body, and a fix-check row whose
+dispatch ledger can't be read closes nothing. finish counts the same
 stamped row, anchored on the grant's stop rather than the newest reviewed tree
 (#4612).
 
