@@ -7,7 +7,7 @@
  *
  * The allowlist and the manifest list come from the base branch's .gstack/ship-policy.json (review_vendored), never
  * from the head; the manifests themselves are read at HEAD. By default it checks the entries this branch changes
- * (files added or modified since the merge base, and entries whose pin the manifest diff changes); --all checks every
+ * (files added, modified or deleted since the merge base, and entries whose pin the manifest diff changes); --all checks every
  * entry. --offline answers from the cache an earlier run filled, without the network. A repo makes it a required CI
  * check: exit 1 means a manifest says something that is not true. Logic: lib/review-vendored.ts.
  */
@@ -77,7 +77,9 @@ for (const [p, n] of seen) if (n > 1) problems.push(`${p} is pinned by more than
 
 let selected = entries;
 if (!argv.includes('--all')) {
-  const changed = new Set((git(['diff', '--name-only', '-z', '--no-renames', '--diff-filter=AMT', mergeBase, head]) ?? '').split('\0').filter(Boolean));
+  const diff = git(['diff', '--name-only', '-z', '--no-renames', '--diff-filter=ADMT', mergeBase, head]);
+  if (diff === null) { process.stderr.write(`${CTX}: git could not list the files this branch changes; fix: rerun once, then check the checkout (git status)\n`); process.exit(EXIT.refused); }
+  const changed = new Set(diff.split('\0').filter(Boolean));
   selected = entries.filter(e => changed.has(e.path) || before.get(e.path) !== `${e.upstream}@${e.commit}:${e.upstream_path}`);
 }
 const res = problems.length ? null : resolveVendored({ root, rev: head, policy, entries: selected, fetch: !argv.includes('--offline'), cacheRoot: vendoredCacheRoot(resolveStateRoot()) });

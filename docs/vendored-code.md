@@ -102,8 +102,8 @@ Every failure fails closed: the file is simply not vendored.
 gstack-vendored-verify --base <branch> [--all] [--offline] [--json]
 ```
 
-By default it checks the entries a branch changes: files added or modified
-since the merge base, and entries whose pin the manifest diff changes. `--all`
+By default it checks the entries a branch changes: files added, modified or
+deleted since the merge base, and entries whose pin the manifest diff changes. `--all`
 checks every entry. Output is one `VENDORED_PIN:` line per pin (with the branch
 or tag that holds it), one line per failure with its reason code and fix, and a
 summary:

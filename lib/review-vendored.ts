@@ -163,7 +163,15 @@ function withLock<T>(dir: string, fn: () => T): T {
   try { return fn(); } finally { fs.rmSync(lock, { force: true }); }
 }
 
-interface PinCache { reachable_from: string | null; checked_at: number; tree: Record<string, [string, string] | null>; error?: string }
+interface PinCache { reachable_from: string | null; default_branch?: string; checked_at: number; tree: Record<string, [string, string] | null>; error?: string }
+
+/** Whether a cached ref the commit sits on is one the current policy trusts: a tag, the default branch, or a branch the base names. */
+function trustedHolder(ref: string, def: string | undefined, up: VendoredUpstream): boolean {
+  if (ref.startsWith('tags/')) return true;
+  if (!ref.startsWith('heads/')) return false;
+  const branch = ref.slice('heads/'.length);
+  return branch === def || up.branches.some(g => new RegExp(`^${g.split('*').map(s => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(branch));
+}
 const key = (url: string) => createHash('sha256').update(url).digest('hex').slice(0, 24);
 const pinFile = (dir: string, commit: string) => path.join(dir, 'pins', `${commit}.json`);
 function readPin(dir: string, commit: string): PinCache | null { try { return JSON.parse(fs.readFileSync(pinFile(dir, commit), 'utf8')) as PinCache; } catch { return null; } }
@@ -198,19 +206,19 @@ function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string
     if (!f.ok) { fail(`could not fetch its branches and tags (${f.err.split('\n').pop()})`); return; }
     for (const [commit, paths] of pins) {
       const has = git(refs, ['cat-file', '-e', `${commit}^{commit}`], genv).ok;
-      const holder = has ? git(refs, ['for-each-ref', '--count=1', '--format=%(refname)', '--contains', commit, 'refs/vendored/'], genv).out.trim() : '';
-      const reachable_from = holder ? holder.replace(/^refs\/vendored\//, '') : null;
-      if (!reachable_from) { writePin(dir, commit, { reachable_from: null, checked_at: Date.now(), tree: {} }); continue; }
+      const holders = has ? git(refs, ['for-each-ref', '--format=%(refname)', '--contains', commit, 'refs/vendored/'], genv).out.split('\n').map(r => r.trim().replace(/^refs\/vendored\//, '')) : [];
+      const reachable_from = holders.find(r => r && trustedHolder(r, def, up)) ?? null;
+      if (!reachable_from) { writePin(dir, commit, { reachable_from: null, default_branch: def, checked_at: Date.now(), tree: {} }); continue; }
       const tf = git(trees, [...flags, 'fetch', '--quiet', '--no-tags', '--depth=1', '--filter=blob:none', url, commit], genv, t);
-      if (!tf.ok) { writePin(dir, commit, { reachable_from, checked_at: Date.now(), tree: {}, error: `could not fetch the commit's trees (${tf.err.split('\n').pop()})` }); continue; }
+      if (!tf.ok) { writePin(dir, commit, { reachable_from, default_branch: def, checked_at: Date.now(), tree: {}, error: `could not fetch the commit's trees (${tf.err.split('\n').pop()})` }); continue; }
       const ls = git(trees, ['ls-tree', '-r', '-z', '--full-tree', commit], genv);
-      if (!ls.ok) { writePin(dir, commit, { reachable_from, checked_at: Date.now(), tree: {}, error: 'could not list the commit\'s tree' }); continue; }
+      if (!ls.ok) { writePin(dir, commit, { reachable_from, default_branch: def, checked_at: Date.now(), tree: {}, error: 'could not list the commit\'s tree' }); continue; }
       const all = new Map<string, [string, string]>();
       for (const rec of ls.out.split('\0')) { const m = /^(\d{6}) blob ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(rec); if (m) all.set(m[3]!, [m[1]!, m[2]!]); }
       const prev = readPin(dir, commit);
       const tree: Record<string, [string, string] | null> = { ...(prev?.reachable_from ? prev.tree : {}) };
       for (const p of paths) tree[p] = all.get(p) ?? null;
-      writePin(dir, commit, { reachable_from, checked_at: Date.now(), tree });
+      writePin(dir, commit, { reachable_from, default_branch: def, checked_at: Date.now(), tree });
     }
   });
 }
@@ -256,6 +264,7 @@ export function resolveVendored(i: ResolveInput): { entries: EntryResult[]; pins
     if (!pin || !(e.upstream_path in pin.tree) && !pin.error && pin.reachable_from) return { ...e, verdict: 'fetch-failed', detail: 'not in the cache; run gstack-vendored-verify' };
     if (pin.error) return { ...e, verdict: 'fetch-failed', detail: pin.error };
     if (!pin.reachable_from) return { ...e, verdict: 'unreachable' };
+    if (!trustedHolder(pin.reachable_from, pin.default_branch, allowed.get(e.upstream)!)) return { ...e, verdict: 'unreachable', detail: `the cached ref ${pin.reachable_from} is not a tag, the default branch or a branch the base names` };
     const up = pin.tree[e.upstream_path];
     if (!up) return { ...e, verdict: 'absent-upstream' };
     if (local[0] !== '100644' || up[0] !== '100644') return { ...e, verdict: 'mode', detail: `head ${local[0]}, upstream ${up[0]}` };

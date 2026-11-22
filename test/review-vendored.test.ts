@@ -138,6 +138,32 @@ describe('gstack-vendored-verify', () => {
     expect(outOf(r)).toContain('reachable_from=heads/release/2');
     expect(r.status).toBe(0);
   });
+  test('a branch glob the base drops stops admitting its commits on a warm cache, online and offline', () => {
+    const c = consumer({ policy: policy([{ url: UP, branches: ['release/*'] }]) });
+    commit(c.repo, { 'vendor/lib/tests/a.py': A + '# rel\n', 'vendor/MANIFEST.json': manifest([{ commit: c.up.release, files: ['tests/a.py'] }]) }, 'pin');
+    expect(c.verify().status).toBe(0);
+    c.repo.git('checkout', '-q', 'main');
+    commit(c.repo, { '.gstack/ship-policy.json': policy() }, 'narrow');
+    c.repo.git('push', '-q', 'origin', 'main');
+    c.repo.git('checkout', '-q', 'feat');
+    for (const args of [['--base', 'main', '--all', '--offline'], ['--base', 'main', '--all']]) {
+      const r = c.verify(args);
+      expect(outOf(r)).toContain('(VENDORED_UNREACHABLE)');
+      expect(r.status).toBe(1);
+    }
+  });
+  test('deleting a vendored file the base already holds fails the default scope', () => {
+    const c = consumer();
+    c.repo.git('checkout', '-q', 'main');
+    c.repo.git('merge', '-q', '--ff-only', 'feat');
+    c.repo.git('push', '-q', 'origin', 'main');
+    c.repo.git('checkout', '-q', 'feat');
+    c.repo.git('rm', '-q', 'vendor/lib/tests/a.py');
+    c.repo.git('commit', '-q', '-m', 'rm');
+    const r = c.verify();
+    expect(outOf(r)).toContain('(VENDORED_ABSENT_LOCAL)');
+    expect(r.status).toBe(1);
+  });
   test('a force-pushed pin and a deleted upstream fail closed', () => {
     const c = consumer();
     commit(c.repo, { 'vendor/lib/tests/b.py': B2, 'vendor/MANIFEST.json': manifest([{ commit: c.up.c2, files: ['tests/a.py', 'tests/b.py'] }]) }, 'repin');
