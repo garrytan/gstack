@@ -1,4 +1,4 @@
 {
-  "bytes": 276,
-  "why": "Decision 3.5 asks the plan again after a granted fix-check for R51's read-only final review, GST-3260 PR 3 Part C"
+  "bytes": 415,
+  "why": "Decision 3.5 asks the plan again after a granted fix-check for R51's read-only final review, and a post-grant NEXT: stop is never convergence, GST-3260 PR 3"
 }

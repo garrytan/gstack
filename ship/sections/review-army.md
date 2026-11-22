@@ -860,7 +860,8 @@ Other scopes apply decisions 2–4 in order.
    --callers <f>`, plus the outside voice only if the plan lists it. Log item 6's
    row as `"skill":"review-fix-check"` with `--finish <token>`; not a pass. A
    CRITICAL goes to decision 2. After a granted fix-check, ask the plan again (`--last fix-check`): its
-   `NEXT: full` is one read-only full review of the final head (decision 3, then the plan's `NEXT:` stands). Otherwise decision 4.
+   `NEXT: full` is one read-only full review of the final head (decision 3, then the plan's `NEXT:` stands), `NEXT: stop` is
+   never convergence: when its reason says the fix range could not be read, commit the fix and ask again, else decision 2. `done` is decision 4.
 4. **No edits in this pass:** Resolve the required-probe gate below. Only after it
    clears may you continue to Step 10. A pass whose only findings were deferred or
    noted applied no edits and continues here: the loop converges below the floor.
