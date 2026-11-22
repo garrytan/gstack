@@ -40,9 +40,9 @@ value t = 2.291 (10 cases).
 - **Leaving out the exposure-flagged runs changes one case.** Nine of 30 F runs were flagged for exposure: most looked
   at `origin/main`'s version of the planted file, and the rest saw only file names or summaries that mention this plan
   (below). Repeating the bars without them leaves 9 cases (all three of case 7's F runs drop out). Cost
-  and real problems still pass, but case 9 becomes C 3 of 3 against F's one remaining run, which missed: by the
-  script's per-case mean, a structural loss. The plan's own definition needs F to miss in 3 runs, so this is a
-  looser reading on one run, and it is reported, not decided on.
+  and real problems still pass, but case 9 becomes C 3 of 3 against F's one remaining run, which missed. The
+  script's per-case mean counts that as a structural loss, but the frozen rule needs F to miss in all 3 runs, so
+  with one F run left the case is not assessable and there is no preregistered failure; it is reported, not decided on.
 - **The no-gstack arm came close on planted bugs at a fraction of the cost, and led on real problems.** N minus F
   (the better /ship arm) was -0.20 on planted bugs (-0.40 to +0.004) and +0.17 on real problems (-0.19 to +0.53),
   at $0.83 a run. Its harness differs (below), so cost compares in size only.
@@ -63,7 +63,7 @@ value t = 2.291 (10 cases).
 | Bar (F minus C) | Owner's ruling (made after seeing data) | Literal line 193 (as frozen) | Without the 9 exposure-flagged F runs (9 cases, t = 2.336) |
 |---|---|---|---|
 | Cost a run | +$0.07 (-$1.42 to +$1.57), pass | same, pass | +$0.01 (-$1.62 to +$1.64), pass |
-| Planted-bug catch rate | +0.03 (-0.18 to +0.24), pass | same, pass | -0.04 (-0.39 to +0.32), fails on case 9 |
+| Planted-bug catch rate | +0.03 (-0.18 to +0.24), pass | same, pass | -0.04 (-0.39 to +0.32), not assessable: one F run left (a miss); no preregistered failure |
 | Real-problem catch rate | -0.003 (-0.21 to +0.20), pass | same, pass | -0.04 (-0.25 to +0.17), pass |
 | Reader fidelity | 30 of 30, pass | 29 of 30, fails | pass under the ruling |
 | Decision | conductor goes | conductor stays, one FIX-METHOD cycle | not a decision row |
