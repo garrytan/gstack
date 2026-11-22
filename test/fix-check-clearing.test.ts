@@ -9,9 +9,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { bindFixCheckRow, clearByGrant, clearByTrailer, grantSpent, hunksDigest } from '../lib/fix-check-clearing';
+import { bindFixCheckRow, clearByGrant, clearByTrailer, grantSpent } from '../lib/fix-check-clearing';
+import { hunksDigest } from '../lib/review-evidence';
 import { grantMarker, placeRunEntry, stopMarker } from '../lib/pr-review-history';
-import { nextStep } from '../lib/review-depth';
 import { readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { extractReceipt, receiptRuns } from '../lib/ship-receipt';
 import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
@@ -149,12 +149,9 @@ describe('a granted, clean fix-check closes exactly its grant\'s findings at wri
 });
 
 describe('harness-evals#504: a fix-check grant answering a stop after a gate-class edit plans its fix-check on the plain route', () => {
-  // Value: protects=the grant-answered stop after a fix-check plans the one fix-check it buys, with no second planner path or other
-  //   readers; fails_when=nextStep stops because the last step was a fix-check that touched a gate-class path; seam=nextStep
-  test('an unspent grant after a fix-check plans the fix-check; a spent one still stops', () => {
-    const after = { fullPasses: 0, last: 'fix-check', fixChecks: 1, priorFull: 2, touchedGate: true, grantedStop: 'a-2', rangeRuntimeLines: 4 } as const;
-    expect(nextStep({ ...after, grantUnspent: true } as any).step).toBe('fix-check');
-    expect(nextStep({ ...after } as any).step).toBe('stop');
+  // Value: protects=a grant stays unspent until a fix-check carries it or starts after it, so it buys exactly one fix-check;
+  //   fails_when=a fix-check that ran before the grant spends it, or one that carries it leaves it unspent; seam=grantSpent
+  test('a grant is spent by the fix-check that carries it or starts after it, never by an earlier one', () => {
     const g = { approval: 'a-2', at: '2026-11-21T01:00:00.000Z' };
     expect(grantSpent([{ skill: 'review-fix-check', review_binding: { started_at: '2026-11-21T00:59:00.000Z' } }], g)).toBe(false);
     expect(grantSpent([{ skill: 'review-fix-check', review_binding: { started_at: '2026-11-21T01:01:00.000Z' } }], g)).toBe(true);

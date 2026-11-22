@@ -406,8 +406,6 @@ export interface History {
   roundGrant?: string;
   /** A fix-check round grant that answers the stop record at --stop (GST-2968): the stopped review's fix round, one scoped fix-check of the PR's own change since the stop's head, in this run or a new one. */
   grantedStop?: string;
-  /** After a fix-check in this run, no fix-check has spent grantedStop yet (lib/fix-check-clearing.ts grantSpent): it answers the stop that fix-check raised, so it still buys its one fix-check (harness-evals#504). */
-  grantUnspent?: boolean;
 }
 export interface NextStep { step: Step; reason: string }
 
@@ -427,7 +425,7 @@ export interface NextStep { step: Step; reason: string }
  * loop, a grant the CLI bound to the last fix-check's own stop head (`chained`) adds one more the same way (GST-1681).
  */
 export function nextStep(h: History, depth?: Depth): NextStep {
-  if (h.grantedStop && (h.last !== 'fix-check' || h.grantUnspent)) return h.rangeRuntimeLines == null
+  if (h.grantedStop && h.last !== 'fix-check') return h.rangeRuntimeLines == null
     ? { step: 'stop', reason: `fix-check grant ${h.grantedStop} answers the stop, but there is no fix to read since its head: commit the fix (a base merge, an empty or reverted change is none), then ask again` }
     : { step: 'fix-check', reason: `fix-check grant ${h.grantedStop} buys the stopped review's fix round: one scoped fix-check of the PR's own change since the stop's head, never a new full review and never a second fix-check` };
   const n = prCapped(h, h.lean ? leanStep(h, depth) : loopStep(h, depth));

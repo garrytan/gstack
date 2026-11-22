@@ -4,7 +4,6 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFi
 import { join, resolve } from 'node:path';
 import { deriveReviewStatus, isCriticalFinding, isOpenByAction, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
-import { readFixCheckHunks } from './fix-check-clearing';
 import { readRunRecord } from './ship-run-record';
 
 const DIFF_REVIEWS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
@@ -479,4 +478,32 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string, 
     return { status: 'UNVERIFIED', reason: 'review has unresolved findings or did not finish clean' };
   }
   return { status: 'CURRENT', reason: merged ? `completed clean pass; ${merged}` : 'completed clean pass on unchanged content' };
+}
+
+/** The hunks a fix-check reader was given: the sha256 of the file's bytes and every path its diff headers name. */
+export function hunksDigest(text: string): { sha256: string; paths: string[] } {
+  const paths = new Set<string>();
+  for (const m of text.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)) { paths.add(m[1]!); paths.add(m[2]!); }
+  return { sha256: createHash('sha256').update(text).digest('hex'), paths: [...paths].sort() };
+}
+
+const hunksFile = (cwd: string) => {
+  const r = spawnSync('git', ['rev-parse', '--git-path', 'gstack-fix-check-hunks'], { cwd, encoding: 'utf8', timeout: 60_000 });
+  return r.status === 0 && r.stdout.trim() ? resolve(cwd, r.stdout.trim()) : '';
+};
+
+/** gstack-review-plan --fix-check-prompt and the pass program's fix-check render record the hunks they rendered from; a failed write only leaves the row without hunks, so it closes nothing. */
+export function recordFixCheckHunks(cwd: string, text: string, ledger?: string): void {
+  try {
+    const file = hunksFile(cwd);
+    if (file) writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...hunksDigest(text), ...(ledger ? { ledger: resolve(ledger) } : {}) }) + '\n');
+  } catch { /* the row carries no hunks and closes nothing */ }
+}
+
+/** The hunks record gstack-review-log stamps on a granted fix-check row: the newest render at or after the row's start. */
+export function readFixCheckHunks(cwd: string, since: string): { sha256: string; paths: string[]; ledger?: string } | undefined {
+  try {
+    const o = JSON.parse(readFileSync(hunksFile(cwd), 'utf8'));
+    return Date.parse(o.at) >= Date.parse(since) && typeof o.sha256 === 'string' && Array.isArray(o.paths) ? { sha256: o.sha256, paths: o.paths, ...(typeof o.ledger === 'string' ? { ledger: o.ledger } : {}) } : undefined;
+  } catch { return undefined; }
 }

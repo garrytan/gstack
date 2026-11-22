@@ -10,7 +10,6 @@
  * lists which blockers are open.
  */
 import { createHash } from 'node:crypto';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { grantedStop } from './pr-review-history';
 import { ownLinesSame, type ReviewRoundGrant } from './review-round-grant';
@@ -36,31 +35,6 @@ const treeOf = (cwd: string, c: string) => git(cwd, ['rev-parse', '--verify', '-
 const findingsOf = (r: Row): Row[] => (Array.isArray(r?.findings) ? r.findings.filter((f: unknown) => !!f && typeof f === 'object') : []);
 const locusOf = (f: Row) => (typeof f.path === 'string' && Number.isInteger(f.line) ? `${f.path.replace(/^\.\//, '')}:${f.line}` : /^(.+?):(\d+):/.exec(String(f.fingerprint ?? ''))?.slice(1, 3).join(':') ?? null);
 const nameOf = (b: OpenBlocker) => (typeof b === 'string' ? b : b.id);
-
-/** The hunks a fix-check reader was given: the sha256 of the file's bytes and every path its diff headers name. */
-export function hunksDigest(text: string): { sha256: string; paths: string[] } {
-  const paths = new Set<string>();
-  for (const m of text.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)) { paths.add(m[1]!); paths.add(m[2]!); }
-  return { sha256: createHash('sha256').update(text).digest('hex'), paths: [...paths].sort() };
-}
-
-const hunksFile = (cwd: string) => { const p = git(cwd, ['rev-parse', '--git-path', 'gstack-fix-check-hunks'])?.trim(); return p ? path.resolve(cwd, p) : ''; };
-
-/** gstack-review-plan --fix-check-prompt and the pass program's fix-check render record the hunks they rendered from; a failed write only leaves the row without hunks, so it closes nothing. */
-export function recordFixCheckHunks(cwd: string, text: string, ledger?: string): void {
-  try {
-    const file = hunksFile(cwd);
-    if (file) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...hunksDigest(text), ...(ledger ? { ledger: path.resolve(ledger) } : {}) }) + '\n');
-  } catch { /* the row carries no hunks and closes nothing */ }
-}
-
-/** The hunks record gstack-review-log stamps on a granted fix-check row: the newest render at or after the row's start. */
-export function readFixCheckHunks(cwd: string, since: string): { sha256: string; paths: string[]; ledger?: string } | undefined {
-  try {
-    const o = JSON.parse(fs.readFileSync(hunksFile(cwd), 'utf8'));
-    return Date.parse(o.at) >= Date.parse(since) && typeof o.sha256 === 'string' && Array.isArray(o.paths) ? { sha256: o.sha256, paths: o.paths, ...(typeof o.ledger === 'string' ? { ledger: o.ledger } : {}) } : undefined;
-  } catch { return undefined; }
-}
 
 /** A fix-check grant buys one fix-check: it is spent once a row carries it, or once any fix-check started after it was recorded. */
 export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'approval' | 'at'>) =>

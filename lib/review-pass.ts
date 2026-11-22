@@ -18,7 +18,7 @@ import { AgentModelError, resolveAgentModel } from './agent-model';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, sliceDiff, sliceNote, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
-import { recordFixCheckHunks } from './fix-check-clearing';
+import { recordFixCheckHunks } from './review-evidence';
 import { policySelection, selectFor } from './review-selection';
 import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
