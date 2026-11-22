@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import { REVIEW_VENDORED_KEY_VERSION, finish } from '../lib/ship-policy';
-import { parseManifest, pathProblem, vendoredErrors } from '../lib/review-vendored';
+import { parseManifest, pathProblem, vendoredCacheRoot, vendoredErrors, vendoredPolicy, vendoredSelection } from '../lib/review-vendored';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 
 setDefaultTimeout(60_000);
@@ -267,6 +267,53 @@ describe('branch globs, missing branches, gitlinks and --json', () => {
     const m = missing.verify();
     expect(outOf(m)).toContain('reachable_from=heads/release/2');
     expect(m.status).toBe(0);
+  });
+  // Value: protects=a branch the upstream deletes stops vouching for its commits: the cached ref goes, online and then
+  //   offline; fails_when=a stale cached branch keeps a commit reachable; why_new=/ship review of #4665 (test gap
+  //   lib/review-vendored.ts:207 for the update-ref -d cleanup)
+  test('a named branch the upstream deletes drops its cached ref, online and offline', () => {
+    const c = consumer({ policy: policy([{ url: UP, branches: ['release/2'] }]) });
+    commit(c.repo, { 'vendor/lib/tests/a.py': A + '# rel\n', 'vendor/MANIFEST.json': manifest([{ commit: c.up.release, files: ['tests/a.py'] }]) }, 'pin');
+    expect(outOf(c.verify())).toContain('reachable_from=heads/release/2');
+    run(c.up.work, ['push', '-q', c.up.bare, ':refs/heads/release/2'], c.upEnv);
+    for (const args of [['--base', 'main'], ['--base', 'main', '--offline']]) {
+      const r = c.verify(args);
+      expect(outOf(r)).toContain('(VENDORED_UNREACHABLE)');
+      expect(r.status).toBe(1);
+    }
+  });
+  // Value: protects=a fetch that fails after a good one fails this run but leaves the good cached pins, so a later offline
+  //   check still answers; fails_when=the failure overwrites the cache; why_new=/ship review of #4665 (deferred finding
+  //   lib/review-vendored.ts:201)
+  test('a failed fetch fails its own run and keeps the good cached pins', () => {
+    const c = consumer();
+    expect(c.verify().status).toBe(0);
+    fs.renameSync(c.up.bare, `${c.up.bare}.away`);
+    const down = c.verify();
+    expect(outOf(down)).toContain('(VENDORED_FETCH_FAILED)');
+    expect(down.status).toBe(1);
+    const offline = c.verify(['--base', 'main', '--offline']);
+    expect(outOf(offline)).toMatch(/checked=2 verified=2 failed=0/);
+    expect(offline.status).toBe(0);
+  });
+  // Value: protects=verify also caches the merge base's pin for a re-pinned file, so the review plan answers offline on a
+  //   clean machine and keeps treating the file as vendored; fails_when=the old pin stays cold and the offline selection
+  //   keeps the file; why_new=GST-3298 PR 3 (a modified file counts only when its base copy verified)
+  test('verify caches the merge base pins a re-pin needs for an offline selection', () => {
+    const c = consumer();
+    c.repo.git('checkout', '-q', 'main');
+    c.repo.git('merge', '-q', '--ff-only', 'feat');
+    c.repo.git('push', '-q', 'origin', 'main');
+    c.repo.git('checkout', '-q', 'feat');
+    commit(c.repo, { 'vendor/lib/tests/b.py': B2, 'vendor/MANIFEST.json': manifest([{ commit: c.up.c2, files: ['tests/a.py', 'tests/b.py'] }]) }, 'repin');
+    const cold = path.join(c.repo.root, 'cold');
+    const coldEnv = { GSTACK_STATE_ROOT: cold, GSTACK_HOME: cold, GSTACK_STATE_DIR: cold };
+    const r = c.verify(['--base', 'main'], coldEnv);
+    expect(outOf(r)).toContain('VENDORED_BASE: checked=1 verified=1');
+    expect(r.status).toBe(0);
+    const mergeBase = c.repo.git('merge-base', 'origin/main', 'HEAD').trim();
+    const sel = vendoredSelection({ root: c.repo.work, policy: vendoredPolicy(JSON.parse(policy()))!, head: c.repo.git('rev-parse', 'HEAD').trim(), mergeBase, changed: new Set(['vendor/lib/tests/b.py']), fetch: false, cacheRoot: vendoredCacheRoot(cold) });
+    expect('error' in sel ? sel.error : sel.verified).toEqual(['vendor/lib/tests/b.py']);
   });
   test('an upstream gitlink is VENDORED_MODE, and --json keeps the pin count beside the pin rows', () => {
     const c = consumer();

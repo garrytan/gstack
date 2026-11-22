@@ -521,8 +521,9 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
       const why = new Map<string, number>();
       for (const f of kept) why.set(reasons.get(f)!, (why.get(reasons.get(f)!) ?? 0) + 1);
       const top = [...why].sort((a, b) => b[1] - a[1]).map(([r, n]) => `${r}:${n}`).join(',');
-      const unverified = vsel ? ('error' in vsel ? kept.length : vsel.failed.filter(e => kept.includes(e.path)).length) : 0;
-      const vfix = unverified ? `${unverified} of them are vendored files that did not verify (gstack-review-plan lists them as REVIEW_VENDORED_KEPT); run gstack-vendored-verify --base ${base} and fix what it names, then rerun once; ` : '';
+      const unverified = vsel && !('error' in vsel) ? vsel.failed.filter(e => kept.includes(e.path)).length : 0;
+      const vfix = vsel && 'error' in vsel ? `the vendored check could not run (${vsel.error}), so no matched file counts as vendored; run gstack-vendored-verify --base ${base} and fix what it names, then rerun once; `
+        : unverified ? `${unverified} of them are manifest entries that do not count as vendored (they did not verify, or the merge base has them as our own code); run gstack-vendored-verify --base ${base} and fix what it names, then rerun once; ` : '';
       return { state: 'refused', code: 'REVIEW_EXCLUDE_KEEP_TOO_LARGE', lines: [`${i.context}: review_exclude_paths pattern ${p} on ${source} keeps ${kept.length} matched files in review (${top}), and the command readers run to read them would need ${bytes} argument bytes (more than ${KEEP_ARG_MAX_BYTES}), so the pattern cannot be applied and is not dropped either; fix: ${vfix}when those files are published data, add a review_content_patterns entry for them beside the pattern on ${base} as its own PR (docs/ship-policy.md#review-content-patterns), else narrow the pattern or split the PR; nothing was planned (REVIEW_EXCLUDE_KEEP_TOO_LARGE)`] };
     }
     applied.push(p);
@@ -589,7 +590,7 @@ export function excludeLines(x: Exclusion, base: string): string[] {
 
 /** The one line every brief gets under an active exclusion; it names the selection digest the receipt binds (verify's REVIEW_EXCLUDE_RECORD). */
 export function disclosureLine(r: Pick<ExcludeRecord, 'source' | 'excluded' | 'excluded_bytes' | 'applied' | 'kept' | 'digest' | 'vendored'>): string {
-  return `Excluded by base policy ${r.source} (selection ${r.digest}): ${r.excluded} files, ${r.excluded_bytes} bytes on this branch matching ${r.applied.join(' ') || 'no applied pattern'}. They are not in your diff; do not report on their absence. Kept despite a match: ${r.kept} files (listed in the plan).${r.vendored ? ` ${r.vendored} of the excluded files are vendored upstream files gstack verified byte for byte against the pins the base allowlists; the manifest that pins them is in your diff.` : ''}`;
+  return `Excluded by base policy ${r.source} (selection ${r.digest}): ${r.excluded} files, ${r.excluded_bytes} bytes on this branch matching ${r.applied.join(' ') || 'no applied pattern'}. They are not in your diff; do not report on their absence. Kept despite a match: ${r.kept} files (listed in the plan).${r.vendored ? ` ${r.vendored} of the excluded files are vendored upstream files gstack verified byte for byte against the pins the base allowlists, each one new on this branch or already vendored at the merge base; the plan's REVIEW_VENDORED_PIN lines name the pins.` : ''}`;
 }
 /** The selection digest a disclosure line names, or undefined. */
 export const disclosureDigest = (line: string | undefined) => line?.match(/^Excluded by base policy \S+ \(selection ([0-9a-f]{64})\)/)?.[1];

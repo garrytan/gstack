@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { disclosureLine } from '../lib/review-exclude';
+import { vendoredCacheRoot, vendoredPolicy, vendoredSelection } from '../lib/review-vendored';
 import { receiptReviewAtHead } from '../lib/ship-receipt-depth';
 import { REVIEW_VENDORED_KEY_VERSION } from '../lib/ship-policy';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
@@ -149,6 +150,46 @@ describe('review_exclude_paths with review_vendored', () => {
     expect(x.vendored_selection.verified).toEqual([]);
   });
 
+  // Value: protects=a branch that replaces our own file, or a locally patched vendored file, with verified upstream bytes
+  //   keeps that file in review as code, so readers see our lines leave; a file new on the branch, or vendored at the merge
+  //   base too (the re-pin test above), still leaves the diff; fails_when=a modified file is checked at the head only;
+  //   why_new=/ship review of #4665 (outside-voice finding lib/review-vendored.ts:319), GST-3298 PR 3
+  test('a branch that swaps our own file or a local patch for upstream bytes keeps it in review', () => {
+    const ours = fixture();
+    ours.repo.git('checkout', '-q', 'main');
+    commit(ours.repo, local({ 'tests/a.py': 'def test_a():\n    assert check_signature()\n' }), 'our own test');
+    ours.repo.git('push', '-q', 'origin', 'main');
+    ours.repo.git('checkout', '-q', '-B', 'feat');
+    commit(ours.repo, { ...local({ 'tests/a.py': A, 'tests/c.py': C }), 'VENDORED.json': manifest(ours.up.c2, ['tests/a.py', 'tests/c.py']) }, 'vendor lib over our test');
+    expect(ours.plan(false).out).toContain('REVIEW_VENDORED_KEPT: mismatched up/lib/tests/a.py (the merge base has this file but its manifests do not pin it');
+    const x = JSON.parse(ours.plan(true).out).review_exclude;
+    expect({ kept: x.kept_files, verified: x.vendored_selection.verified }).toEqual({ kept: [{ path: 'up/lib/tests/a.py', reason: 'code' }], verified: ['up/lib/tests/c.py'] });
+    const patched = fixture();
+    patched.repo.git('checkout', '-q', 'main');
+    commit(patched.repo, { ...local({ 'tests/b.py': B1 + 'assert local_patch()\n' }), 'VENDORED.json': manifest(patched.up.c1, ['tests/b.py']) }, 'vendor lib with a local patch');
+    patched.repo.git('push', '-q', 'origin', 'main');
+    patched.repo.git('checkout', '-q', '-B', 'feat');
+    commit(patched.repo, local({ 'tests/b.py': B1 }), 'drop the local patch');
+    expect(patched.plan(false).out).toContain("REVIEW_VENDORED_KEPT: mismatched up/lib/tests/b.py (its merge-base copy is not the upstream's file (mismatched");
+    expect(keptOf(patched.plan(true).out)).toEqual([{ path: 'up/lib/tests/b.py', reason: 'code' }]);
+  });
+
+  // Value: protects=a working-tree edit to a verified vendored file keeps it in review on a live-tree plan; fails_when=the
+  //   committed blob's verdict covers uncommitted bytes; why_new=/ship review of #4665 (test gap lib/review-vendored.ts:330)
+  test('a working-tree edit to a verified vendored file keeps it in review', () => {
+    const f = fixture();
+    commit(f.repo, { ...local({ 'tests/a.py': A, 'tests/b.py': B1 }), 'VENDORED.json': manifest(f.up.c1, ['tests/a.py', 'tests/b.py']) }, 'vendor lib');
+    fs.writeFileSync(path.join(f.repo.work, 'up/lib/tests/b.py'), B1 + 'assert edited()\n');
+    const mergeBase = f.repo.git('merge-base', 'origin/main', 'HEAD').trim();
+    const sel = vendoredSelection({
+      root: f.repo.work, policy: vendoredPolicy(JSON.parse(policy()))!, mergeBase, changed: new Set(['up/lib/tests/a.py', 'up/lib/tests/b.py', 'VENDORED.json']), fetch: true,
+      cacheRoot: vendoredCacheRoot(f.repo.env.GSTACK_STATE_ROOT), env: { ...process.env, ...f.repo.env, GSTACK_VENDORED_FETCH_ROOT: f.up.fetchRoot },
+    });
+    if ('error' in sel) throw new Error(sel.error);
+    expect(sel.verified).toEqual(['up/lib/tests/a.py']);
+    expect(sel.failed.map(e => [e.path, e.verdict, e.detail])).toEqual([['up/lib/tests/b.py', 'mismatched', 'changed in the working tree']]);
+  });
+
   // Value: protects=a manifest under an applied pattern turns the vendored check off, so the files it pins stay in review
   //   whole and a hidden re-pin cannot hide them too; fails_when=files verify against a manifest readers cannot see;
   //   why_new=/ship review of #4665 (red-team finding lib/review-exclude.ts:483)
@@ -169,6 +210,7 @@ describe('review_exclude_paths with review_vendored', () => {
     expect(x.kept_files).toEqual([{ path: 'up/lib/tests/data.json', reason: 'named-by-code' }]);
     expect(x.vendored).toBe(1);
     expect(disclosureLine(x)).toContain(' 1 of the excluded files are vendored upstream files');
+    expect(disclosureLine(x)).not.toContain('is in your diff');
   });
 
   // Value: protects=a repo without review_vendored plans exactly as before: the same files kept as code, no vendored line and
@@ -184,8 +226,9 @@ describe('review_exclude_paths with review_vendored', () => {
     expect(x.vendored_selection).toBeUndefined();
   });
 
-  // Value: protects=too many unverified vendored files refuse with a fix that names REVIEW_VENDORED_KEPT and the verify
-  //   command instead of the review_content_patterns fix; fails_when=the old fix is printed; why_new=GST-3298 plan F1
+  // Value: protects=too many unverified vendored files refuse with a fix that names the verify command, never lines a
+  //   refused plan does not print, and a vendored check that could not run says so instead of counting every kept file as
+  //   vendored; fails_when=the old fix is printed; why_new=GST-3298 plan F1, /ship review of #4665 (lib/review-exclude.ts:524)
   test('a keep-too-large refusal over unverified vendored files names the verify command', () => {
     const f = fixture();
     const many: Record<string, string> = {};
@@ -194,6 +237,12 @@ describe('review_exclude_paths with review_vendored', () => {
     commit(f.repo, { ...local({ ...many, 'tests/a.py': A }), 'VENDORED.json': manifest(f.up.c1, [...names, 'tests/a.py']) }, 'vendor lib');
     const r = f.plan(false);
     expect(r.out + r.err).toContain('REVIEW_EXCLUDE_KEEP_TOO_LARGE');
-    expect(r.out + r.err).toContain('330 of them are vendored files that did not verify (gstack-review-plan lists them as REVIEW_VENDORED_KEPT); run gstack-vendored-verify --base main');
+    expect(r.out + r.err).toContain('330 of them are manifest entries that do not count as vendored (they did not verify, or the merge base has them as our own code); run gstack-vendored-verify --base main');
+    expect(r.out + r.err).not.toContain('REVIEW_VENDORED_KEPT');
+    const hidden = fixture(true, 'up/VENDORED.json');
+    commit(hidden.repo, { ...local(many), 'up/VENDORED.json': manifest(hidden.up.c1, names) }, 'vendor lib');
+    const h = hidden.plan(false);
+    expect(h.out + h.err).toContain('the vendored check could not run (up/VENDORED.json matches review_exclude_paths');
+    expect(h.out + h.err).not.toContain('of them are manifest entries');
   });
 });
