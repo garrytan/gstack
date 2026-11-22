@@ -412,7 +412,7 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
         if (!entries.length) continue;
         const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, `index-${n++}`) };
         if (!git(i.root, ['update-index', '-z', '--index-info'], entries.join('\0') + '\0', env).ok) return null;
-        const hits = git(i.root, ['grep', ...flags, '-I', '-F', '-l', '-z', '-f', list], undefined, env);
+        const hits = git(i.root, ['grep', ...flags, '-I', '-F', '-l', '-z', '--no-color', '-f', list], undefined, env);
         if (hits.status !== 0 && hits.status !== 1) return null;
         const files = hits.out.split('\0').filter(Boolean);
         const bodies = new Map<string, string>();
