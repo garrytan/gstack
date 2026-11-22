@@ -332,7 +332,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // the Conductor rule, the preamble signal, the hook, and the detection helper.
 
   // Native question capture and interactive workflow probes.
-  'auq-format-gate':                           [ 'ETHOS.md', 'plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble-hoist.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts', 'test/helpers/llm-judge.ts', 'test/helpers/auq-substance-panel.ts', 'test/skill-e2e-ask-user-question-format-compliance.test.ts',
+  'auq-format-gate':                           [ 'ETHOS.md', 'plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'scripts/resolvers/preamble-hoist.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts', 'test/helpers/llm-judge.ts', 'test/skill-e2e-ask-user-question-format-compliance.test.ts',
      
     'test/helpers/agent-sdk-runner.ts', 'test/helpers/sdk-system-prompt.ts', 
     'test/helpers/auq-native-capture.ts', 'test/helpers/hermetic-env.ts',
