@@ -133,7 +133,9 @@ auto-commit or push unexpected child commits.
    result is such a correction: end the remaining attempt's prompt with its
    `RETRY_NOTE:` text verbatim.
    Repeat Prepare using current inputs and a fresh id/snapshot, run the remaining
-   attempt, then validate it through Parent processing.
+   attempt, then validate it through Parent processing. When the stopped audit saved no post
+   snapshot, the re-audit's post snapshot adds `--carry-stopped <the stopped audit's Prepare snapshot>`
+   so receipt write resets the stopped audit's edits too.
 3. Otherwise STOP before commit/publication and do not launch another child.
    AskUserQuestion: stop for repair (recommended), or ship with the specific named
    documentation risk. Only an actual user exception counts, never a default,

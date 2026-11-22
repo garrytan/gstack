@@ -38,7 +38,7 @@ import { branchSides } from './stamp-only';
 import { classifyFiles } from './tree-receipt';
 import { mergeChangelogs } from './changelog-check';
 import { bindReceipt, type ReceiptBindingCode } from './ship-receipt';
-import { carriedAudits, docsExceptionLine, parseReceiptDocs, type CarriedAudit } from './ship-receipt-docs';
+import { carriedAudits, docsExceptionLine, parseReceiptDocs, sameRun, type CarriedAudit } from './ship-receipt-docs';
 
 export type ReceiptDepth = NonNullable<ShipReceipt['review_depth']>;
 export type ReviewLoopException = NonNullable<ShipReceipt['review_loop_exception']>;
@@ -371,7 +371,7 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
   if (typeof post === 'string') return no(post);
   const pre = docsPre === undefined ? null : snapshot(docsPre);
   if (typeof pre === 'string') return no(`--docs-pre ${docsPre} ${pre}`);
-  if (pre && (pre.head !== post.head || pre.audit_id !== post.audit_id || pre.run_id !== post.run_id)) return no(`--docs-pre ${docsPre} is not this audit's Prepare snapshot (its HEAD, audit_id or run_id differs)`);
+  if (pre && (pre.head !== post.head || pre.audit_id !== post.audit_id || !sameRun(pre.run_id, post.run_id))) return no(`--docs-pre ${docsPre} is not this audit's Prepare snapshot (its HEAD, audit_id or run_id differs)`);
   const earlier = carriedAudits(post);
   if (typeof earlier === 'string') return no(earlier);
   if (earlier.length && !pre) return no(`it carries audit ${earlier.map(e => e.audit_id).join(',')}, so write needs --docs-pre <its Prepare snapshot>`);
