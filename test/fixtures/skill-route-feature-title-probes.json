@@ -1,0 +1,244 @@
+{
+  "description": "Fixed probe set for the feature-title guard (GSTA-794 follow-up to #4674). Frozen before any guard code was written. label=bug: the bug-fix skill must be named first. label=feature: the bug-fix skill must not be named. wrapped=true: the prompt is placed inside the B1 task wrapper from skill-route-synthetic-prompts.json. Synthetic text only.",
+  "frozen": "2026-11-22",
+  "probes": [
+    {
+      "id": "f01",
+      "label": "feature",
+      "wrapped": true,
+      "origin": "geva-558",
+      "prompt": "[Feature]: support a user-defined network in the compose deployment\n\nToday the compose file always creates its own network, and joining an existing one fails with \"network not found\". Please let users name a network to join."
+    },
+    {
+      "id": "f02",
+      "label": "feature",
+      "wrapped": true,
+      "origin": "geva-558",
+      "prompt": "Support `Optional[T]` syntax in the field filler\n\nThe filler raises TypeError when a field is annotated `Optional[int]`. It should accept it like the `Union[int, None]` spelling."
+    },
+    {
+      "id": "f03",
+      "label": "feature",
+      "wrapped": true,
+      "origin": "geva-558",
+      "prompt": "feature: Group CLI options into categories\n\nThe help output lists 40 options in one block, and users miss the --retry flag, which leads to failed uploads. Group them into sections."
+    },
+    {
+      "id": "f04",
+      "label": "feature",
+      "wrapped": true,
+      "origin": "geva-558",
+      "prompt": "Enhancement: richer typed handling for the AI.* scalar functions\n\nThese functions come back untyped, so later casts raise an error. Type their results."
+    },
+    {
+      "id": "f05",
+      "label": "feature",
+      "wrapped": true,
+      "origin": "geva-558",
+      "prompt": "Allow us to pass a JSON file to complicated parameters\n\nPassing a nested dict on the command line is error-prone and often fails with a parse error. Accept a path to a JSON file instead."
+    },
+    {
+      "id": "f06",
+      "label": "feature",
+      "wrapped": true,
+      "origin": "geva-558",
+      "prompt": "# Introduce a PROJECT_ROOT setting to replace the cloud-mode path checks\n\nThe current checks throw an exception for any path outside the cloud root, which is wrong for local installs. Replace them with one setting."
+    },
+    {
+      "id": "f07",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "new",
+      "prompt": "Add a --dry-run flag to the deploy command\n\nRight now a typo in the config only shows up as an error after the upload starts. A dry run would catch it first."
+    },
+    {
+      "id": "f08",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "new",
+      "prompt": "Implement retries for the webhook sender\n\nWhen the receiver is down the send fails once and the event is lost. Retry three times with backoff."
+    },
+    {
+      "id": "f09",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "new",
+      "prompt": "Expose the parser's error positions in the API\n\nToday a parse error only says \"invalid input\". Return the line and column too."
+    },
+    {
+      "id": "f10",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "new",
+      "prompt": "Provide a way to cancel a running export\n\nLong exports can't be stopped and time out after an hour with an error."
+    },
+    {
+      "id": "f11",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "new",
+      "prompt": "New: dark mode for the settings page\n\nUsers report eye strain; the page crashes nobody's browser but it is very bright."
+    },
+    {
+      "id": "f12",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "finding-4",
+      "prompt": "feat(cli): group options\n\nThe help display fails on narrow screens."
+    },
+    {
+      "id": "f13",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "new",
+      "prompt": "Adding support for Postgres 18\n\nConnecting to 18 currently fails with an unsupported-version error."
+    },
+    {
+      "id": "f14",
+      "label": "feature",
+      "wrapped": true,
+      "origin": "new",
+      "prompt": "Introduce a cache for the auth token so users no longer have to log in every time\n\nEach restart throws them back to the login screen."
+    },
+    {
+      "id": "b01",
+      "label": "bug",
+      "wrapped": true,
+      "origin": "geva-558-control",
+      "prompt": "Support for TOML configs is broken since 2.0\n\nLoading any .toml file raises KeyError."
+    },
+    {
+      "id": "b02",
+      "label": "bug",
+      "wrapped": true,
+      "origin": "geva-558-control",
+      "prompt": "Add a check for empty input; parse() crashes on it\n\nSee the traceback."
+    },
+    {
+      "id": "b03",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "finding-apostrophe",
+      "prompt": "Add-to-cart button doesn’t work on Safari"
+    },
+    {
+      "id": "b04",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "finding-hyphen",
+      "prompt": "Add-to-cart button on Safari\n\nClicking it throws TypeError."
+    },
+    {
+      "id": "b05",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "finding-two-weak",
+      "prompt": "New checkout drops orders it should keep.\n\nIt crashes after payment."
+    },
+    {
+      "id": "b06",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "finding-template",
+      "prompt": "Add to cart button does nothing on Safari\n\nExpected behavior: it adds the item.\nActual behavior: nothing happens."
+    },
+    {
+      "id": "b07",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "regression-3",
+      "prompt": "New `ValueError` on launch"
+    },
+    {
+      "id": "b08",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "regression-2",
+      "prompt": "The uploader crashes\n\n<steps>\nAdd a file\n</steps>"
+    },
+    {
+      "id": "b09",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "finding-noun-title",
+      "prompt": "New users cannot sign up\n\nThe form returns a 500 error since yesterday's deploy."
+    },
+    {
+      "id": "b10",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "new",
+      "prompt": "Allow list ignores the last entry\n\nThe final hostname in ALLOWED_HOSTS is never matched, so requests from it are rejected."
+    },
+    {
+      "id": "b11",
+      "label": "bug",
+      "wrapped": true,
+      "origin": "new",
+      "prompt": "Support page link returns 404\n\nThe footer link to /support is broken on every page."
+    },
+    {
+      "id": "b12",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "new",
+      "prompt": "Implementing the fix from #120 broke uploads\n\nSince that change, every upload fails with a timeout."
+    },
+    {
+      "id": "b13",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "round-1",
+      "prompt": "parse() crashes on empty input\n\nNew users hit this on their first run.\n\nPlease fix it."
+    },
+    {
+      "id": "b14",
+      "label": "bug",
+      "wrapped": true,
+      "origin": "round-1",
+      "prompt": "Upload fails with KeyError\n\nSteps to reproduce:\n\nAdd a file named a.toml\n\nRun mycli upload."
+    },
+    {
+      "id": "b15",
+      "label": "bug",
+      "wrapped": true,
+      "origin": "geva-558-control",
+      "prompt": "sandglass: adding a day across a DST change gives 23:00\n\nThe result is incorrect for every zone with daylight saving time."
+    },
+    {
+      "id": "c01",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "regression-1",
+      "prompt": "The site crashes during the smoke test."
+    },
+    {
+      "id": "c02",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "regression-1",
+      "prompt": "Opening a PR review page throws TypeError: cannot read property 'id' of undefined."
+    },
+    {
+      "id": "c03",
+      "label": "bug",
+      "wrapped": false,
+      "origin": "control",
+      "prompt": "The export returns an empty file. This started with 2.2."
+    },
+    {
+      "id": "c04",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "control",
+      "prompt": "Please make the sidebar collapsible and remember its state."
+    },
+    {
+      "id": "c05",
+      "label": "feature",
+      "wrapped": false,
+      "origin": "control",
+      "prompt": "Write a migration guide for the 3.0 config format."
+    }
+  ]
+}

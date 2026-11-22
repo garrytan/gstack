@@ -385,6 +385,39 @@ describe('installed skills beside gstack (GST-3123)', () => {
     }
   });
 
+  test('a request titled as a feature is not a bug report though its body names an error; a title or template that names a defect still is (GEVA-558)', () => {
+    const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
+    const b1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-synthetic-prompts.json'), 'utf8')) as { prompts: { prompt: string }[] };
+    const wrap = (task: string) => b1.prompts[0].prompt.replace(/<task>[\s\S]*<\/task>/, () => `<task>\n${task}\n</task>`);
+    const probes = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-feature-title-probes.json'), 'utf8')) as { probes: { id: string; label: string; wrapped: boolean; prompt: string }[] };
+    const misses = probes.probes.filter(p => {
+      const d = routePrompt(p.wrapped ? wrap(p.prompt) : p.prompt, [...routed, proveIt]);
+      const names = d.route ? d.routes.map(r => r.skill) : [];
+      return p.label === 'bug' ? names[0] !== 'prove-it' : names.includes('prove-it');
+    }).map(p => p.id);
+    expect(misses).toEqual(['f14']);
+  });
+
+  test('a bug title led by a noun such as "Support page" or "New tab" is still a bug report when its body names an exception; a feature title is not', () => {
+    for (const report of ['Support page shows a blank screen\n\nOpening /support renders nothing and the console shows TypeError.',
+      'New tab opens a blank page\n\nThe console shows TypeError: x is undefined.',
+      'Add button is greyed out on Safari\n\nClicking it logs a ReferenceError.']) expect(bugReport(report)).toBe(true);
+    for (const request of ['Support custom headers\n\nToday a request with a custom header fails with a 400 error.',
+      'Add a retry for uploads\n\nWhen an upload fails we get no error detail.']) expect(bugReport(request)).toBe(false);
+  });
+
+  test('a statement verb after the noun a feature word leads, a fix asked for in the body, or an exception in fenced code outside the tag keeps a bug report one', () => {
+    const fence = '`'.repeat(3);
+    for (const report of ['New users see a blank dashboard\n\nOpening it logs TypeError: x is undefined. Please fix.',
+      'Add to cart button does nothing\n\nClicking it throws an error. It used to work.',
+      'Support tickets page loads forever\n\nThe request hangs and then crashes the worker.',
+      'New install shows blank screen\n\nThe log has a ValueError traceback and it crashes. Run the checks after.',
+      'Expose metrics endpoint returns empty body\n\nThe handler crashes with KeyError.',
+      'New checkout redirects to login\n\nEvery payment fails with TypeError.',
+      'Add retry support\n\nUploads crash with ConnectionResetError; please fix that.',
+      `The app breaks on startup\n\nThe console prints this on startup:\n\n${fence}\nKeyError: user\n${fence}\n\n<steps>\nAdd a file\n</steps>`]) expect([report, bugReport(report)]).toEqual([report, true]);
+  });
+
   test('the installed bug-fix skill leads when it reaches the threshold beside a gstack skill: an agent runs the first one named (GEVA-562)', () => {
     const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
     const d = routePrompt('Write a test that reproduces the timeout in the upload path, then make the tests pass.', [...routed, proveIt]);

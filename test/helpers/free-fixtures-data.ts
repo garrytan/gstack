@@ -256,6 +256,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/skill-contract/**': ['test/skill-contract-codex.test.ts', 'test/skill-contract-stop-hook.test.ts', 'test/skill-contract.test.ts'],
   'test/fixtures/skill-evals/**': ['test/skill-eval-checks.test.ts', 'test/skill-eval-tasks.test.ts'],
   'test/fixtures/skill-md-size-allowlist.json': ['test/skill-md-size-guard.test.ts'],
+  'test/fixtures/skill-route-feature-title-probes.json': ['test/skill-route.test.ts'],
   'test/fixtures/skill-route-plain-prompts.txt': ['test/skill-route.test.ts'],
   'test/fixtures/skill-route-synthetic-first-draft.json': ['test/skill-route.test.ts'],
   'test/fixtures/skill-route-synthetic-prompts.json': ['test/skill-route.test.ts'],
