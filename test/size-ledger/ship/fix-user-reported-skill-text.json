@@ -1,0 +1,4 @@
+{
+  "bytes": 479,
+  "why": "User-reported fixes: the Aside probe reports a closed app (#4366) and /ship checks sections gstack-post kept (#4379); review fix-check (GSTA-803 grant a-f4e436a01811, 2026-11-22): reread the live body before the --replace repost and stop if it changed"
+}

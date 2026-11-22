@@ -65,8 +65,8 @@ surface. Keep it small and predictable:
 
 | Path | Who writes | What it holds |
 |---|---|---|
-| `AGENTS.md` | the controller | standing rules and the owner's decisions, each with date and words ([template](../../captain/templates/AGENTS.md)) |
-| `CREW.md` | the controller | the lanes' contract ([template](../../captain/templates/CREW.md)) |
+| `AGENTS.md` | the controller | the controller's own rules and the owner's decisions, each with date and words ([template](../../captain/templates/AGENTS.md)) |
+| `CREW.md` | the controller | the lanes' contract and the owner words lanes cite ([template](../../captain/templates/CREW.md)) |
 | `DIGEST.md` | the controller | Needs you / New / In progress, rewritten every turn ([template](../../captain/templates/DIGEST.md)) |
 | `NOTES.md` | the controller | the append-only timestamped log the digest is derived from ([template](../../captain/templates/NOTES.md)) |
 | `skills/<name>/SKILL.md` | the controller | crew procedures the lanes load (the runbooks) |
@@ -75,8 +75,10 @@ surface. Keep it small and predictable:
 | `handoffs/` | lanes | datasets and specs the next lane needs; `handoffs/flaky-ledger.md` is the flaky ledger ([template](../../captain/templates/flaky-ledger.md)) |
 | `plans/` | the controller | approved plans, with their Approvals table |
 
-Scope instructions in the drive root (`AGENTS.md`, `CREW.md`) apply to every thread in
-the crew, so a rule written there needs no relaying.
+On Capy, crew threads read `CREW.md` on every turn but never the drive-root `AGENTS.md`,
+which reaches the controller alone ([Capy's Captain docs](https://docs.capy.ai/captains)).
+Put every lane-facing rule, and every owner word a lane must cite, in `CREW.md`'s standing
+approvals with its date and words; a rule kept only in `AGENTS.md` needs relaying.
 
 On Capy, `tools.capy.read` returns a view of a file, not the whole file: roughly the first
 38,000 characters, with each line cut at 2,000. A program that reads a file, changes it

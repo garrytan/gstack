@@ -178,9 +178,10 @@ approved.json files add the specific recent approval context.
 Limit to last 10 sessions. Try/catch JSON parse on each (skip corrupted files).
 
 **Updating taste profile after a design-shotgun session:** When the user picks a
-variant, call `{{BIN_DIR}}/gstack-taste-update approved <approved image path>` (the
+variant, call `{{BIN_DIR}}/gstack-taste-update approved <approved image path> --reason "<why>"` (the
 `APPROVED_IMAGE` printed when approved.json is saved). When they
-explicitly reject a variant, call `{{BIN_DIR}}/gstack-taste-update rejected <variant-path>`.
+explicitly reject a variant, call `{{BIN_DIR}}/gstack-taste-update rejected <variant-path> --reason "<why>"`.
+`<why>` uses `fonts: <a>; colors: <b>; layouts: <c>; aesthetics: <d>` but names only the dimensions the user's feedback speaks to, never all four by default; without it nothing is learned.
 The CLI handles schema migration from approved.json, decay, and conflict flagging.
 
 ## Step 3: Generate Variants

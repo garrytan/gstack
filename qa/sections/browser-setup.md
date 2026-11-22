@@ -39,7 +39,8 @@ else
     125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
     0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
        else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
-    *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+    *) case "$_o" in *"isn't running"*) echo "ASIDE_NOT_RUNNING: app not running" ;;
+       *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;; esac ;;
   esac
   unset _o
 fi

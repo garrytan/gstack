@@ -461,7 +461,8 @@ echo "Follow with: cd $SPAWN_PATH && claude --resume"
 ```
 
 Update archive frontmatter with `spec_worktree_path: $SPAWN_PATH` and
-`spec_executed: true` (atomic re-write).
+`spec_executed: true` (atomic re-write). When the worktree was created, also set
+`spec_branch: $SPAWN_BRANCH`: /ship matches the archive by the branch it ships from.
 
 **Stash restore safety (when B path was chosen):** Do NOT auto-restore inline
 — the spawned agent may take hours. Instead print: "Stash preserved as

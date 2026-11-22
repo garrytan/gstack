@@ -1731,7 +1731,7 @@ describe('Codex skill', () => {
     // Do NOT "restore" the boundary by putting a prompt argument back on a
     // scoped `codex review` call: that combination fails to parse, and
     // dropping the scope flag to make it parse silently reviews the wrong diff.
-    const boundaryLine = /do not read or execute any files under ~\/\.claude\/, ~\/\.agents\/, \.claude\/skills\/, or agents\//i;
+    const boundaryLine = /do not read or execute any files under ~\/\.claude\/, ~\/\.agents\/, \.claude\/skills\/, (or agents\/|\.agents\/, or any agents\/openai\.yaml\.)/i;
     for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
       // ship's AND review's codex/adversarial boundary lines moved into sections/adversarial.md.
       const content = rel === 'ship/SKILL.md' ? readShipUnion()
