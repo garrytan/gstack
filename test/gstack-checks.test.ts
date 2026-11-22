@@ -135,6 +135,15 @@ describe('gstack-checks on a fixture repo', () => {
     expect(s.checks(['detect']).out).toContain('TRUST trusted');
   });
 
+  test('a folder whose .git file points at a trusted repository, without being its worktree, still asks', () => {
+    const s = setup();
+    expect(s.checks(['trust']).status).toBe(0);
+    const forged = path.join(s.repo.root, 'forged');
+    fs.cpSync(s.repo.work, forged, { recursive: true, filter: src => path.basename(src) !== '.git' });
+    fs.writeFileSync(path.join(forged, '.git'), `gitdir: ${path.join(s.repo.work, '.git')}\n`);
+    expect(runBin(s.repo, 'gstack-checks', ['detect', '--base', 'main'], { SELECTION_MARK: s.mark }, forged).out).toContain('TRUST untrusted');
+  });
+
   test('consent covers the checks and the selection manifest commands', () => {
     const s = setup();
     commit(s.repo, { 'lib/util.js': 'exports.add = (a, b) => b + a;\n' });

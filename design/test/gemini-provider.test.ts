@@ -24,7 +24,7 @@ import { listReceipts } from "../../lib/egress-receipt";
 
 const TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
 const GEMINI_KEY = "AIzaFixtureNotARealKey0000000000000000";
-const GEMINI_AQ_KEY = "AQ.AbFixtureNotARealKey000000000000000";
+const GEMINI_AQ_KEY = "AQ.AbExampleFixtureNotARealKey00000000";
 const ENV_KEYS = ["HOME", "GSTACK_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL", "GEMINI_API_KEY", "GSTACK_DESIGN_PROVIDER", DESIGN_MODEL_ENV, DESIGN_IMAGE_MODEL_ENV];
 
 /** Google's documented generateContent answer: candidates[0].content.parts with an inlineData image. */

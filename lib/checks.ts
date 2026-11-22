@@ -214,11 +214,18 @@ function trustRows(store: string): Array<[string, string]> {
   return (read(store) ?? '').split('\n').filter(Boolean).map(l => l.split('\t') as [string, string]).filter(r => r.length === 2);
 }
 
-/** Trust belongs to the repository, so every worktree of it shares one row (#4407); rows from before that are keyed by the checkout folder. */
+/** Trust belongs to the repository, so every registered worktree of it shares one row (#4407); any other folder, and rows from before that, are keyed by the checkout folder. */
 function trustKeys(root: string): string[] {
-  const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8', timeout: 10_000 });
   const folder = realRoot(root);
-  return common.status === 0 && common.stdout.trim() ? [realRoot(common.stdout.trim()), folder] : [folder];
+  const env = { ...process.env };
+  for (const name of ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE']) delete env[name];
+  const git = (args: string[]) => spawnSync('git', args, { cwd: root, env, encoding: 'utf8', timeout: 10_000 });
+  const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const dir = common.status === 0 ? common.stdout.trim() : '';
+  if (!path.isAbsolute(dir) || dir.includes('\n')) return [folder];
+  const list = git(['--git-dir', dir, 'worktree', 'list', '--porcelain']);
+  const registered = list.status === 0 && list.stdout.split('\n').some(l => l.startsWith('worktree ') && realRoot(l.slice('worktree '.length)) === folder);
+  return registered ? [realRoot(dir), folder] : [folder];
 }
 
 export function isTrusted(root: string, set: string, env: NodeJS.ProcessEnv = process.env): boolean {

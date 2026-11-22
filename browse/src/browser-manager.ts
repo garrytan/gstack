@@ -1918,6 +1918,7 @@ export class BrowserManager {
    */
   async restoreState(state: BrowserState): Promise<void> {
     if (!this.context) throw new Error('Browser not launched');
+    const startup = new Set(this.context.pages());
 
     // Restore cookies
     if (state.cookies.length > 0) {
@@ -1999,7 +2000,7 @@ export class BrowserManager {
     // A new persistent context (the headed handoff window) opens a blank tab of
     // its own that no saved page maps to; close it, and only it (#4323).
     const tracked = new Set(this.pages.values());
-    for (const stray of this.context.pages()) {
+    for (const stray of startup) {
       if (!tracked.has(stray) && stray.url() === 'about:blank') await stray.close().catch(() => {});
     }
     this.activeTabId = activeId ?? [...this.pages.keys()][0];

@@ -1359,7 +1359,7 @@ function hasFlag(args: string[], flag: string): boolean {
 }
 
 export interface GlobalFlags {
-  /** Cleaned argv with --proxy/--headed stripped out and a leading --session moved after the command. */
+  /** Cleaned argv with --proxy/--headed stripped out and a leading --session moved right after the command. */
   args: string[];
   /** Resolved proxy URL (with creds embedded) or null for direct. */
   proxyUrl: string | null;
@@ -1422,7 +1422,7 @@ export function extractGlobalFlags(rawArgs: string[], env: NodeJS.ProcessEnv, pl
     if (arg === '--headed') { headed = true; continue; }
     out.push(arg);
   }
-  out.push(...leadingSession);
+  out.splice(1, 0, ...leadingSession);
 
   // Resolve --proxy, BROWSE_PROXY_URL or the standard proxy variables, with
   // creds embedded (server reads BROWSE_PROXY_URL from env, which passes to
@@ -2219,7 +2219,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
   // alive, so a piped flow exited 0 with nothing sent to the daemon (#3039).
   // No flow (a terminal, empty input, an unreadable stdin) is a usage error
   // before ensureServer(): it never boots a daemon.
-  if (command === 'chain' && commandArgs.length === 0) {
+  if (command === 'chain' && extractSession(commandArgs).args.length === 0) {
     const flow = readChainFlow(Boolean(process.stdin.isTTY), () => fs.readFileSync(0, 'utf8'));
     if (!flow.ok) {
       console.error(flow.error);
