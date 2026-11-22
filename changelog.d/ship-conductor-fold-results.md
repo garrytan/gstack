@@ -1,0 +1,1 @@
+Published the results of the /ship conductor trial: run in the pull request's own thread, /ship cost the same and caught the same bugs as with its separate conductor subagent, but the verdict depends on one scoring ruling, so the conductor stays until the owner decides (docs/evals/ship-conductor-fold-results.md).
