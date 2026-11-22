@@ -6,7 +6,9 @@
 #
 # Only git commit's own arguments are masked: the scanner splits the command
 # at unquoted ; & | ( ) and newlines, and masks a message flag only in a
-# segment whose first word is git and that has a commit word after it. The &
+# segment whose first word is git and that has a commit word after it. The
+# quoted --title/--body (-t/-b) of gh issue or gh pr create, comment and edit
+# are masked the same way, in a segment that starts with those three words. The &
 # of a redirection (2>&1, &>) does not split. Any pipe after a masked message
 # prints the command unchanged, because git prints the message on stdout.
 # Quotes, backslashes and comments follow bash: a backslash escapes the next
@@ -75,11 +77,19 @@ function flag(s, i,    rest, m) {
   if (match(rest, /^(--message|-am|-m)[ \t]+/)) return RLENGTH
   return 0
 }
+# ghflag S I — length of the gh title or body flag (with its trailing blanks) at S[I], or 0
+function ghflag(s, i,    rest) {
+  rest = substr(s, i)
+  if (rest ~ /^--title=/) return 8
+  if (rest ~ /^--body=/) return 7
+  if (match(rest, /^(--title|--body|-t|-b)[ \t]+/)) return RLENGTH
+  return 0
+}
 { cmd = (NR > 1) ? cmd "\n" $0 : $0 }
 END {
   s = cmd
   n = length(s); sq = 0; dq = 0; bs = 0; i = 1
-  atword = 1; words = 0; git = 0; commit = 0; masked = 0; piped = 0; unsure = 0
+  atword = 1; words = 0; git = 0; gh = 0; commit = 0; masked = 0; piped = 0; unsure = 0
   while (i <= n) {
     c = substr(s, i, 1)
     if (bs) { result = result c; bs = 0; i++; continue }
@@ -99,7 +109,7 @@ END {
     if (c == "&" && (substr(s, i - 1, 1) ~ /[<>]/ || substr(s, i + 1, 1) == ">")) { atword = 0; result = result c; i++; continue }
     if (c ~ /[;&|()\n]/) {
       if (c == "|" && masked && substr(s, i + 1, 1) != "|" && substr(s, i - 1, 1) != "|") piped = 1
-      atword = 1; words = 0; git = 0; commit = 0
+      atword = 1; words = 0; git = 0; gh = 0; commit = 0
       result = result c; i++; continue
     }
     if (c == " " || c == "\t") { atword = 1; result = result c; i++; continue }
@@ -107,8 +117,11 @@ END {
       atword = 0; words++
       rest = substr(s, i)
       if (words == 1 && rest ~ /^git([ \t\n;&|()]|$)/) git = 1
+      else if (words == 1 && rest ~ /^gh([ \t\n;&|()]|$)/) gh = 1
       else if (git && !commit && rest ~ /^commit([ \t\n;&|()]|$)/) commit = 1
-      else if (commit && (len = flag(s, i)) > 0) {
+      else if (gh == 1 && words == 2 && rest ~ /^(issue|pr)([ \t\n;&|()]|$)/) gh = 2
+      else if (gh == 2 && words == 3 && rest ~ /^(create|comment|edit)([ \t\n;&|()]|$)/) gh = 3
+      else if ((commit && (len = flag(s, i)) > 0) || (gh == 3 && (len = ghflag(s, i)) > 0)) {
         result = result substr(s, i, len); i += len
         j = handle_msg(s, n, i)
         if (j > i) masked = 1

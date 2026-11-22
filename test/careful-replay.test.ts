@@ -342,6 +342,64 @@ const OUTSIDE_CASES: Array<[string, string, Decision, Tree]> = [
   ['a relative delete after a cd into a system folder (twin: /var/www is not a system folder)', 'cd /var/www && rm -f index.html', 'allow', 'clean'],
 ];
 
+// #4604 review: four gaps a reader reached, each closed without allowing anything main asks about or denies.
+const REVIEW_CASES: Array<[string, string, Decision, Tree]> = [
+  ['a short group with its own -n is a dry run, as main reads it', 'git push -fn4 origin main', 'allow', 'clean'],
+  ['a short group with its own -n is a dry run, as main reads it', 'git push -4fn origin main', 'allow', 'clean'],
+  ['a short group with its own -n is a dry run (neighbour: -n in another group, as main reads it)', 'git push -n4 -f origin main', 'deny', 'clean'],
+  ['a short group with its own -n is a dry run (neighbour: a separate -f)', 'git push -fn4 -f origin main', 'deny', 'clean'],
+  ['a short group with its own -n is a dry run (neighbour: the group is a push-option value)', 'git push -o -fn4 origin main', 'deny', 'clean'],
+  ['a cd that climbs with .. into a system folder', 'cd ../../../../../../../../etc && rm -f hosts', 'ask', 'clean'],
+  ['a cd that climbs with .. into /dev', 'cd ../../../../../../../../dev && rm -f sda', 'ask', 'clean'],
+  ['a cd that climbs with .. into a system folder (twin: the parent folder)', 'cd .. && rm -f stale.txt', 'allow', 'clean'],
+  ['a cd that climbs with .. into a system folder (twin: scratch)', 'cd ../../../../../../../../tmp/w && rm -f x', 'allow', 'clean'],
+  ['a push-option value is not the remote', 'git push -f -o ci.skip origin', 'deny', 'main'],
+  ['a push-option value is not the remote (neighbour: as main reads it, the value may be the remote)', 'git push -f -o x main', 'deny', 'clean'],
+  ['a push-option value is not the remote (control: another branch checked out)', 'git push -f -o ci.skip origin', 'ask', 'clean'],
+  ['a push-option value is not the remote (control: a dry run)', 'git push -fn -o ci.skip origin', 'allow', 'main'],
+  ['a device node removed under /dev', 'rm -f /dev/sg0', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/zram0', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/ram0', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/mtd0', 'ask', 'clean'],
+  ['a device node removed under /dev', 'rm -f /dev/ubi0', 'ask', 'clean'],
+  ['a device node removed under /dev (twin: shared memory)', 'rm -f /dev/shm/sg0', 'allow', 'clean'],
+];
+
+// #4628 and #4601: a quoted spelling gets the decision main gives its unquoted or backslashed twin, which main
+// allows. Negative controls: nothing else becomes allowed, and text that runs (`$( )`, bash -c, a later statement)
+// is still read.
+const SPELLING_CASES: Array<[string, string, Decision, Tree]> = [
+  ['a quoted build folder is the same delete as unquoted', 'rm -rf "/home/me/app/dist"', 'allow', 'clean'],
+  ['a quoted build folder is the same delete as unquoted', "rm -rf '/home/me/app/dist'", 'allow', 'clean'],
+  ['a quoted build folder is the same delete as unquoted', 'rm -rf "/home/me/app/node_modules" "build"', 'allow', 'clean'],
+  ['a quoted build folder is the same delete as unquoted (control: unquoted)', 'rm -rf /home/me/app/dist', 'allow', 'clean'],
+  ['a quoted build folder (negative: not a build folder)', 'rm -rf "/home/me/app/src"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a variable)', 'rm -rf "$HOME/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a quoted ~ is not home)', 'rm -rf "~/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a quoted glob)', 'rm -rf "/home/me/d*st"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a space main never allows)', 'rm -rf "/home/me/Github Projects/app/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a trailing slash main never allows)', 'rm -rf "/home/me/app/dist/"', 'ask', 'clean'],
+  ['a quoted build folder (negative: ..)', 'rm -rf "/home/me/../me/app/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a command substitution)', 'rm -rf "`pwd`/dist"', 'ask', 'clean'],
+  ['a quoted build folder (negative: text after the quote)', 'rm -rf "/home/me/app/dist"x', 'ask', 'clean'],
+  ['a quoted build folder (negative: a second target)', 'rm -rf "/home/me/app/dist" "/home/me/app/src"', 'ask', 'clean'],
+  ['a quoted build folder (negative: a system folder beside it)', 'rm -rf "/home/me/app/dist" /etc', 'deny', 'clean'],
+  ['a quoted build folder (negative: a statement inside the quotes)', 'rm -rf "dist;rm -rf ~"', 'deny', 'clean'],
+  ['a quoted gh title is text', 'gh issue create -R garrytan/gstack --title "careful: force-push check fires on a plain git push when a later command in the same line has a +token or -f (e.g. date +%F)" --body-file report.md', 'allow', 'clean'],
+  ['a quoted gh title is text', "gh issue create --title 'git push -f origin main' --body x", 'allow', 'clean'],
+  ['a quoted gh body is text', 'gh pr create --title "x" --body "rm -rf /"', 'allow', 'clean'],
+  ['a quoted gh body is text', 'gh pr comment 12 --body "git push -f origin main"', 'allow', 'clean'],
+  ['a quoted gh title (negative: a command substitution runs)', 'gh issue create --title "$(git push -f origin main)"', 'deny', 'clean'],
+  ['a quoted gh title (negative: a later statement)', 'gh issue create --title "x" && git push -f origin main', 'deny', 'clean'],
+  ['a quoted gh title (negative: a later statement)', 'gh issue create --title "rm -rf ~/" --body x; rm -rf ~/', 'deny', 'clean'],
+  ['a quoted gh title (negative: another gh subcommand)', 'gh issue list --search "git push -f origin main"', 'deny', 'clean'],
+  ['a quoted gh title (negative: a word that is not the title)', "gh issue create --title x 'git push -f origin main'", 'deny', 'clean'],
+  ['a quoted gh title (negative: piped on)', 'gh issue create --title "git push -f origin main" | cat', 'deny', 'clean'],
+  ['a quoted gh title (negative: gh is not the command)', 'sudo gh issue create --title "git push -f origin main"', 'deny', 'clean'],
+  ['a quoted gh title (negative: echo)', 'echo "git push -f origin main"', 'deny', 'clean'],
+  ['a quoted gh title (negative: bash -c runs it)', 'bash -c "git push -f origin main"', 'deny', 'clean'],
+];
+
 let base = '';
 const trees = {} as Record<Tree, string>;
 
@@ -441,6 +499,14 @@ describe('each new rule, with negative controls', () => {
   });
 
   test.each(OUTSIDE_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(REVIEW_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
+  test.each(SPELLING_CASES)('%s: %s -> %s (%s tree)', (_item, command, expected, tree) => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 
