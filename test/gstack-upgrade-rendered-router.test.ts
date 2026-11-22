@@ -155,6 +155,17 @@ describe.skipIf(process.platform === 'win32')('#4704: gstack-upgrade and the rou
     expect(f.router()).toBe(edited);
   });
 
+  test('a mode change on the rendered router still refuses', () => {
+    const f = disabledFixture();
+    fs.chmodSync(path.join(f.root, 'SKILL.md'), 0o755);
+    const head = f.git(['rev-parse', 'HEAD']);
+    const r = f.upgrade();
+    expect(r.status, r.stdout + r.stderr).toBe(3);
+    expect(r.stderr).toContain('tracked files changed: SKILL.md');
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(head);
+    expect(fs.statSync(path.join(f.root, 'SKILL.md')).mode & 0o111).not.toBe(0);
+  });
+
   test('an edit to SKILL.md with no disabled_skills set still refuses', () => {
     const f = fixture();
     fs.writeFileSync(path.join(f.root, 'SKILL.md'), f.committed + '\nmy own routing note\n');
