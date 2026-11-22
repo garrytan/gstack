@@ -1,11 +1,11 @@
 # Does /ship need its conductor subagent? Results (GST-3003)
 
 We learned that Claude Opus 5.5 can run gstack's /ship procedure itself, in the pull request's own thread, with no
-separate conductor subagent in between: over 10 cases and 30 paired runs it cost the same and caught the same planted
-bugs and real problems, within what this run could see. **The verdict depends on one scoring ruling made after seeing
-data**: under it, every preregistered bar passes and the conductor goes; under the plan's literal wording, one run
-misses the reader-fidelity bar (29 of 30) and the conductor stays. You should treat this as a cut candidate with both
-readings, not a clean result.
+separate conductor subagent in between: over 10 cases and 30 paired runs of the review and fix phases, this run found
+no clear difference in cost, planted bugs caught or real problems found. **The verdict depends on one scoring ruling
+made after seeing data**: under it, every preregistered bar passes and the conductor goes; under the plan's literal
+wording, one run misses the reader-fidelity bar (29 of 30) and the conductor stays. You should treat this as a cut
+candidate with both readings, not a clean result.
 
 We also learned that a plain review prompt with no gstack caught 16 of 30 planted bugs against /ship's 21 and 22 of
 30, at about a fourteenth of the cost. The paired interval of that gap only just reaches zero, so the plan sends
