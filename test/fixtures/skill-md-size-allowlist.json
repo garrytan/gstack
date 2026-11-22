@@ -1,5 +1,5 @@
 {
-  "_comment": "Generated SKILL.md files over the limit, pinned at their exact character count (#3199). test/skill-md-size-guard.test.ts fails when a pinned skill grows past its pin or shrinks below it: lower the pin when a skill shrinks and delete it once the skill is within the limit. Raising a pin is an owner decision. The shared-preamble hoist (GSTA-96) moved every tier 2+ skill's shared preamble into sections/preamble.md; the pins below are what remains.",
+  "_comment": "Generated SKILL.md files over the limit, pinned at their exact character count (#3199). test/skill-md-size-guard.test.ts fails when a pinned skill grows past its pin or shrinks below it: lower the pin when a skill shrinks and delete it once the skill is within the limit. Raising a pin is an owner decision. The shared-preamble hoist (GSTA-96) moved every tier 2+ skill's shared preamble into sections/preamble.md; the pins below are what remains. GSTA-803 (2026-11-22, Captain GStack Minder ruling D1): 30 pins raised to their measured sizes for the user-reported fixes #4366 (the Aside probe reports a closed app) and #3924 (the codex boundary names agents/openai.yaml instead of every agents/ folder).",
   "limit": 100000,
   "pins": {
     "agy/gstack-autoplan": 109142,
