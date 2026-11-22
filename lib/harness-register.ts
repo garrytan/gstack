@@ -19,7 +19,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { unregisteredSkills } from '../scripts/discover-skills';
+import { RENAMED_SKILLS, unregisteredSkills } from '../scripts/discover-skills';
 import { bunIsolationArgs } from './bun-isolation';
 import { runBashSync } from './script-invocation';
 import { readConfigKey } from './state-root';
@@ -236,7 +236,7 @@ function skillDirs(root: string, triggersByName = new Map<string, string[]>()): 
 /** The skills a target's payload carries: the host render (made for this checkout as the install root) or the checkout's committed Claude render. */
 export function sourceSkills(target: Target, checkout: string, scratch: string, env: Env = process.env): SkillEntry[] {
   const disabled = (readConfigKey('disabled_skills', env) ?? '').replace(/["']/g, '').split(/[\s,]+/)
-    .map(n => n.replace(/^\//, '')).filter(n => n && n !== 'gstack' && n !== 'gstack-upgrade').map(n => n.replace(/^gstack-/, ''));
+    .map(n => n.replace(/^\//, '')).filter(n => n && n !== 'gstack' && n !== 'gstack-upgrade').map(n => n.replace(/^gstack-/, '')).map(n => RENAMED_SKILLS[n] ?? n);
   const off = [...unregisteredSkills(), ...disabled];
   const registered = (s: SkillEntry) => !off.includes(s.name.replace(/^gstack-/, ''));
   if (target.render === 'claude') return skillDirs(checkout).filter(s => s.name !== 'gstack' && registered(s));

@@ -2,9 +2,8 @@
 name: build-check
 preamble-tier: 1
 version: 0.1.0
-description: "Use when coding: run the checks and tests /ship picks until green. Use for: verify my change, run the checks, make the tests pass. (gstack)"
+description: "Use when coding: run the checks and tests /ship picks until green. Use for: run the checks, make the tests pass, make it green. (gstack)"
 triggers:
-  - verify my change
   - run the checks
   - make the tests pass
   - make it green

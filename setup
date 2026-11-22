@@ -618,7 +618,7 @@ EOF
     echo "Upgrade summary:"
   fi
   gstack_install_registry_render < "$_RF_SUMMARY"
-  _rf_disabled="$(gstack_disabled_normalize "$("$SOURCE_GSTACK_DIR/bin/gstack-config" get disabled_skills 2>/dev/null || true)")"
+  _rf_disabled="$(gstack_disabled_config "$("$SOURCE_GSTACK_DIR/bin/gstack-config" get disabled_skills 2>/dev/null || true)")"
   if [ "$_rf_disabled" != " " ]; then
     echo "  disabled skills (not registered on any host):$_rf_disabled"
   fi
@@ -940,7 +940,7 @@ _record_skill_copies() {
 # marker) means we created the entry and may delete or refresh it whole; WEAK
 # (byte-identity with our source, or the two-line generated banner on a real
 # file) covers only that SKILL.md — never the directory — and a differing
-# weakly-proven file is moved to $GSTACK_STATE_ROOT/backups/skills/<ts>/
+# weakly-proven file is moved to $GSTACK_STATE_ROOT/backups/skills/<ts>.<random>/
 # before we install over it. An entry is OURS
 # when: it is a symlink resolving into the gstack payload / render dir (or any
 # path with a `gstack` segment, the convention cleanup and gstack-uninstall
@@ -1020,13 +1020,18 @@ _claude_entry_owned_strongly() {
   return 1
 }
 # Weakly-proven real files we would otherwise overwrite are moved here (mv, so
-# the path is free for the link); the final summary prints one line.
-_SKILL_BACKUP_ROOT="$GSTACK_STATE_ROOT/backups/skills/$(date +%Y%m%dT%H%M%S)"
+# the path is free for the link); the final summary prints one line. The folder
+# is made on first use with mktemp, so two runs in the same second never share it.
+_SKILL_BACKUP_ROOT=""
 _BACKED_UP_SKILL_MDS=()
 _backup_skill_md() {
   # Returns non-zero when the file could NOT be moved: the caller must then
   # leave the entry untouched (a failed backup is never a license to overwrite).
   local file="$1" name="$2"
+  if [ -z "$_SKILL_BACKUP_ROOT" ]; then
+    mkdir -p "$GSTACK_STATE_ROOT/backups/skills" 2>/dev/null || return 1
+    _SKILL_BACKUP_ROOT="$(mktemp -d "$GSTACK_STATE_ROOT/backups/skills/$(date +%Y%m%dT%H%M%S).XXXXXX" 2>/dev/null)" || return 1
+  fi
   mkdir -p "$_SKILL_BACKUP_ROOT/$name" 2>/dev/null || return 1
   mv -f "$file" "$_SKILL_BACKUP_ROOT/$name/SKILL.md" 2>/dev/null || return 1
   _BACKED_UP_SKILL_MDS+=("$name")
@@ -1476,7 +1481,7 @@ fi
 # it keep working. Missing or empty = every skill enabled (#1206). Linkers test
 # membership inline with "${_DISABLED_SKILLS:- }", so a linker extracted on its
 # own (tests) behaves as "nothing disabled".
-_USER_DISABLED_SKILLS="$(gstack_disabled_normalize "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
+_USER_DISABLED_SKILLS="$(gstack_disabled_config "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
 # Retired skills, and the crew skills off a Capy machine
 # (GSTACK_UNREGISTERED_SKILLS), take the same no-entry path on every host; only
 # the user's own list is reported and passed to the router.

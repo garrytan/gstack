@@ -1047,8 +1047,10 @@ $_gstack_legacy_root"
         done
       done
       _clean=""
+      _renamed="$( [ -f "$(dirname "$0")/gstack-install-registry.sh" ] && . "$(dirname "$0")/gstack-install-registry.sh" 2>/dev/null && printf '%s' "${GSTACK_RENAMED_SKILLS:-}" || true)"
       for _x in $(printf '%s' "$VALUE" | tr ',' ' ' | tr -d "\"'"); do
         _x="${_x#/}"
+        for _r in $_renamed; do [ "${_x#gstack-}" = "${_r%%:*}" ] && _x="${_r#*:}"; done
         case "$_x" in
           gstack|gstack-upgrade)
             echo "Error: $_x cannot be disabled (it is how gstack upgrades and routes). Existing value left unchanged." >&2

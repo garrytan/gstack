@@ -17,7 +17,7 @@ import { runGeneration } from '../scripts/gen-skill-docs';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const REGISTRY = path.join(ROOT, 'bin', 'gstack-install-registry.sh');
-const BINS = ['gstack-config', 'gstack-relink', 'gstack-patch-names', 'gstack-skill-name.sh', 'gstack-state-root.sh', 'gstack-install-registry.sh'];
+const BINS = ['gstack-config', 'gstack-lock.sh', 'gstack-relink', 'gstack-patch-names', 'gstack-skill-name.sh', 'gstack-state-root.sh', 'gstack-install-registry.sh'];
 const PLAN_ENG = 'plan-eng-review'; // pregate-literal: GST-2726 took plan-eng-review off GSTACK_RETIRED_SKILLS; investigate stays retired
 
 test('setup and gstack-relink retire the same skills as the generator', () => {
@@ -31,12 +31,12 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
   let tmp: string;
   let install: string;
   let skills: string;
-  const relink = () => spawnSync('bash', [path.join(install, 'bin', 'gstack-relink')], {
+  const relink = (extra: NodeJS.ProcessEnv = {}) => spawnSync('bash', [path.join(install, 'bin', 'gstack-relink')], {
     encoding: 'utf8',
     timeout: 60_000,
     env: {
       ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '',
-      GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '',
+      GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '', ...extra,
     },
   });
 
@@ -87,6 +87,55 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
     const root = path.join(tmp, 'state', 'backups', 'skills');
     const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'investigate', 'SKILL.md')).filter(f => fs.existsSync(f)); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     expect(backups.map(f => fs.readFileSync(f, 'utf8'))).toEqual([edited]);
+  });
+
+  test('two relinks in the same second keep both backups (#4593)', () => {
+    const shim = path.join(tmp, 'shim');
+    fs.mkdirSync(shim);
+    fs.writeFileSync(path.join(shim, 'date'), '#!/bin/sh\necho 20261122T120000\n');
+    fs.chmodSync(path.join(shim, 'date'), 0o755);
+    const sameSecond = { PATH: `${shim}${path.delimiter}${process.env.PATH}` };
+    const edits = ['FIRST EDIT', 'SECOND EDIT'].map(e => `---\nname: investigate\ndescription: test\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\n${e}\n`);
+    for (const edited of edits) {
+      fs.mkdirSync(path.join(skills, 'investigate'), { recursive: true });
+      fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), edited);
+      const r = relink(sameSecond);
+      expect(r.status, r.stderr).toBe(0);
+    }
+    const root = path.join(tmp, 'state', 'backups', 'skills');
+    const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'investigate', 'SKILL.md')).filter(f => fs.existsSync(f));
+    expect(backups.map(f => fs.readFileSync(f, 'utf8')).sort()).toEqual([...edits].sort());
+  });
+
+  test('a disabled_skills entry of verify still turns off build-check (#4593)', () => {
+    fs.mkdirSync(path.join(install, 'build-check'));
+    fs.writeFileSync(path.join(install, 'build-check', 'SKILL.md'), '---\nname: build-check\ndescription: test\n---\n# build-check\n');
+    fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'state', 'config.yaml'), 'disabled_skills: verify\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.existsSync(path.join(skills, 'build-check', 'SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+  });
+
+  test('gstack-config set disabled_skills verify stores build-check (#4593)', () => {
+    fs.mkdirSync(path.join(install, 'build-check'));
+    fs.writeFileSync(path.join(install, 'build-check', 'SKILL.md'), '---\nname: build-check\ndescription: test\n---\n# build-check\n');
+    const r = spawnSync('bash', [path.join(install, 'bin', 'gstack-config'), 'set', 'disabled_skills', 'verify,ship'], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      env: { ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '', GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '1' },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(tmp, 'state', 'config.yaml'), 'utf8')).toMatch(/^disabled_skills: build-check,ship$/m);
+  });
+
+  test('the retired verify name is not mapped: build-check stays on when nothing disables it', () => {
+    fs.mkdirSync(path.join(install, 'build-check'));
+    fs.writeFileSync(path.join(install, 'build-check', 'SKILL.md'), '---\nname: build-check\ndescription: test\n---\n# build-check\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.existsSync(path.join(skills, 'build-check', 'SKILL.md'))).toBe(true);
   });
 
   test("a marked gstack-investigate directory keeps the user's files and backs up its real SKILL.md", () => {

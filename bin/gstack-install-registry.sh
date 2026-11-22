@@ -354,6 +354,23 @@ gstack_disabled_normalize() {
 # (test/retired-skills.test.ts).
 GSTACK_RETIRED_SKILLS="investigate verify"
 
+# GSTACK_RENAMED_SKILLS — old:new skill names. A user's disabled_skills entry
+# under an old name still turns off the skill's new name (#4593). Same map as
+# RENAMED_SKILLS in scripts/discover-skills.ts.
+GSTACK_RENAMED_SKILLS="verify:build-check"
+
+# gstack_disabled_config VALUE — gstack_disabled_normalize for the user's own
+# disabled_skills value, with each renamed skill mapped to its new name. Only
+# the config value is mapped: the retired list keeps its old names.
+gstack_disabled_config() {
+  local out=" " n r
+  for n in $(gstack_disabled_normalize "$1"); do
+    for r in $GSTACK_RENAMED_SKILLS; do [ "$n" = "${r%%:*}" ] && n="${r#*:}"; done
+    case "$out" in *" $n "*) ;; *) out="$out$n " ;; esac
+  done
+  printf '%s' "$out"
+}
+
 # GSTACK_CREW_SKILLS — the gstack-on-Capy skills (crew/README.md). Only a Capy
 # machine registers them; anywhere else they get no entry on any host and an
 # existing gstack-owned entry is removed, like a retired skill. Same list as

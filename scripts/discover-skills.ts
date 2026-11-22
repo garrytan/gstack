@@ -21,6 +21,13 @@ const SKIP = new Set(['node_modules', '.git', 'dist']);
 export const RETIRED_SKILLS = ['investigate', 'verify'];
 
 /**
+ * Old skill name → new name. A user's disabled_skills entry under the old name
+ * still turns off the renamed skill (#4593). Same map as GSTACK_RENAMED_SKILLS
+ * in bin/gstack-install-registry.sh.
+ */
+export const RENAMED_SKILLS: Readonly<Record<string, string>> = { verify: 'build-check' };
+
+/**
  * Review skills /autoplan reads as a phase methodology from its own directory
  * on external hosts: each renders a second time beside gstack-autoplan/SKILL.md
  * as <name>.md, so /autoplan's phase does not depend on the standalone skill

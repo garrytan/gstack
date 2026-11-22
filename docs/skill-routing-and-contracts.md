@@ -63,12 +63,12 @@ The hook replaces the `## Skill routing` section gstack used to offer for your p
 
 `gstack-skill-route --explain` shows what the hook would do, with the switch on or off. It never injects anything.
 
-    $ gstack-skill-route --explain "run the checks and verify my change"
+    $ gstack-skill-route --explain "run the checks and make it green"
     switch: skill_routing on (default)
     threshold: 0.66
     skills: 63 scanned in /home/you/.claude/skills
     candidates:
-      1.00  /build-check  "verify my change" (2 words, gstack)
+      1.00  /build-check  "run the checks" (2 words, gstack)
       0.50  /review  "review my changes" (1 words, gstack)
     route: /build-check
     hint: gstack skill routing (UserPromptSubmit hook; ...
