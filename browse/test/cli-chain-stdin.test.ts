@@ -19,7 +19,7 @@ const CLI = path.resolve(import.meta.dir, '../src/cli.ts');
 describe('#3039: chain reads its flow from piped stdin', () => {
   let scratch: string;
   let daemon: ReturnType<typeof Bun.serve>;
-  let received: Array<{ command: string; args: string[] }>;
+  let received: Array<{ command: string; args: string[]; session?: string }>;
   let hits: string[];
 
   beforeEach(() => {
@@ -48,7 +48,7 @@ describe('#3039: chain reads its flow from piped stdin', () => {
     fs.rmSync(scratch, { recursive: true, force: true });
   });
 
-  async function runChain(stdin: string | 'ignore', opts: { daemon?: boolean } = {}) {
+  async function runChain(stdin: string | 'ignore', opts: { daemon?: boolean; args?: string[] } = {}) {
     const stateFile = path.join(scratch, 'browse.json');
     if (opts.daemon !== false) {
       fs.writeFileSync(stateFile, JSON.stringify({ pid: process.pid, port: daemon.port, token: 'chain-stdin-test', mode: 'launched' }));
@@ -60,7 +60,7 @@ describe('#3039: chain reads its flow from piped stdin', () => {
     // Browser dependencies unavailable: a daemon boot attempt could not succeed.
     Object.assign(env, { HOME: scratch, GSTACK_HOME: path.join(scratch, '.gstack'), BROWSE_STATE_FILE: stateFile,
       PLAYWRIGHT_BROWSERS_PATH: path.join(scratch, 'no-browsers') });
-    const cli = Bun.spawn([process.execPath, CLI, 'chain'], {
+    const cli = Bun.spawn([process.execPath, CLI, ...(opts.args ?? ['chain'])], {
       cwd: scratch, env, stdin: stdin === 'ignore' ? 'ignore' : new TextEncoder().encode(stdin), stdout: 'pipe', stderr: 'pipe',
     });
     const timer = setTimeout(() => cli.kill('SIGKILL'), 30_000);
@@ -74,6 +74,13 @@ describe('#3039: chain reads its flow from piped stdin', () => {
     const r = await runChain(`${flow}\n`);
     expect(received).toEqual([{ command: 'chain', args: [flow] }]);
     expect(r.out).toContain('chain ran');
+    expect(r.code).toBe(0);
+  }, 45_000);
+
+  test('a --session before chain still reads the flow from stdin', async () => {
+    const flow = '[["js","1+1"]]';
+    const r = await runChain(`${flow}\n`, { args: ['--session', 'inventory', 'chain'] });
+    expect(received).toEqual([{ command: 'chain', args: [flow], session: 'inventory' }]);
     expect(r.code).toBe(0);
   }, 45_000);
 

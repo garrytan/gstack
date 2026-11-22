@@ -638,7 +638,10 @@ names it, so you can switch away or close it without `--force-restart`.
 known agent harness (Claude Code, Codex and others) gets a session named after
 that agent process; its first command opens the session's own tab and later
 commands stay there without moving the shared active tab. Name one with
-`--session <name>` or `BROWSE_SESSION=<name>`; `BROWSE_SESSION=` turns it off.
+`--session <name>` (before or after the command) or `BROWSE_SESSION=<name>`;
+`BROWSE_SESSION=` turns it off. Windows has no automatic session (the harness
+lookup reads `/proc` or `ps`), so give each parallel agent its own
+`BROWSE_SESSION` there.
 `--tab-id` and `BROWSE_TAB` win over a session and no longer move the active
 tab either. Sessions isolate tabs, not cookies or storage, and only the local
 root token can name one.

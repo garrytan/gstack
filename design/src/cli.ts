@@ -92,7 +92,8 @@ function printUsage(): void {
   console.log("Setup: $D setup [--provider openai|gemini] [--key-stdin]");
 }
 
-const KEY_PREFIX: Record<ProviderName, string> = { openai: "sk-", gemini: "AIza" };
+const KEY_PREFIXES: Record<ProviderName, string[]> = { openai: ["sk-"], gemini: ["AIza", "AQ."] };
+const hasKeyPrefix = (key: string, provider: ProviderName) => KEY_PREFIXES[provider].some((prefix) => key.startsWith(prefix));
 const KEY_PAGE: Record<ProviderName, string> = { openai: "https://platform.openai.com/api-keys", gemini: "https://aistudio.google.com/apikey" };
 
 async function readStdinKey(): Promise<string> {
@@ -128,13 +129,13 @@ async function runSetup(flags: Record<string, string | boolean>): Promise<void> 
     if (!flags["key-stdin"]) {
       console.log(provider
         ? `Enter your ${provider === "gemini" ? "Gemini" : "OpenAI"} API key (get one at ${KEY_PAGE[provider]}).`
-        : `No API key found. Enter an OpenAI key (sk-…, ${KEY_PAGE.openai}) or a free Gemini key (AIza…, ${KEY_PAGE.gemini}).`);
+        : `No API key found. Enter an OpenAI key (sk-…, ${KEY_PAGE.openai}) or a free Gemini key (AIza… or AQ.…, ${KEY_PAGE.gemini}).`);
       process.stdout.write("API key: ");
     }
     const key = await readStdinKey();
-    provider ??= key.startsWith(KEY_PREFIX.gemini) ? "gemini" : "openai";
-    if (!key || !key.startsWith(KEY_PREFIX[provider])) {
-      console.error(`Invalid key. A${provider === "openai" ? "n OpenAI" : " Gemini"} key starts with '${KEY_PREFIX[provider]}'.`);
+    provider ??= hasKeyPrefix(key, "gemini") ? "gemini" : "openai";
+    if (!key || !hasKeyPrefix(key, provider)) {
+      console.error(`Invalid key. A${provider === "openai" ? "n OpenAI" : " Gemini"} key starts with ${KEY_PREFIXES[provider].map((p) => `'${p}'`).join(" or ")}.`);
       process.exit(1);
     }
     saveApiKey(key, provider);

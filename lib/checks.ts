@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { slugFromEnvironment } from './bin-context';
+import { spawnSync } from './spawn-sync';
 import { resolveStateRoot } from './state-root';
 import { gbrainConfigDir } from './gbrain-exec';
 import { wtreeFingerprint } from './script-invocation';
@@ -213,17 +214,32 @@ function trustRows(store: string): Array<[string, string]> {
   return (read(store) ?? '').split('\n').filter(Boolean).map(l => l.split('\t') as [string, string]).filter(r => r.length === 2);
 }
 
+/** Trust belongs to the repository, so every registered worktree of it shares one row (#4407); any other folder, and rows from before that, are keyed by the checkout folder. */
+function trustKeys(root: string): string[] {
+  const folder = realRoot(root);
+  const env = { ...process.env };
+  for (const name of ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE']) delete env[name];
+  const git = (args: string[]) => spawnSync('git', args, { cwd: root, env, encoding: 'utf8', timeout: 10_000 });
+  const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const dir = common.status === 0 ? common.stdout.trim() : '';
+  if (!path.isAbsolute(dir) || dir.includes('\n')) return [folder];
+  const list = git(['--git-dir', dir, 'worktree', 'list', '--porcelain']);
+  const registered = list.status === 0 && list.stdout.split('\n').some(l => l.startsWith('worktree ') && realRoot(l.slice('worktree '.length)) === folder);
+  return registered ? [realRoot(dir), folder] : [folder];
+}
+
 export function isTrusted(root: string, set: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const key = realRoot(root);
-  return trustRows(trustStore(env)).some(([p, h]) => p === key && h === set);
+  const keys = trustKeys(root);
+  return trustRows(trustStore(env)).some(([p, h]) => keys.includes(p) && h === set);
 }
 
 /** Record root -> command-set hash (0600, atomic, one row per repo) and log the grant beside the verify-gate grants. */
 export function recordTrust(root: string, set: string, checks: readonly Check[], config: Pick<PregateConfig, 'runner' | 'selection'>, env: NodeJS.ProcessEnv = process.env): void {
   const store = trustStore(env);
-  const key = realRoot(root);
+  const keys = trustKeys(root);
+  const key = keys[0];
   fs.mkdirSync(path.dirname(store), { recursive: true });
-  const rows = trustRows(store).filter(([p]) => p !== key).concat([[key, set]]);
+  const rows = trustRows(store).filter(([p]) => !keys.includes(p)).concat([[key, set]]);
   const tmp = `${store}.tmp.${process.pid}`;
   fs.writeFileSync(tmp, rows.map(r => r.join('\t')).join('\n') + '\n', { mode: 0o600 });
   fs.renameSync(tmp, store);

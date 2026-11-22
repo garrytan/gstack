@@ -1734,8 +1734,8 @@ export const PATTERNS: RedactPattern[] = [
     id: "google.api_key",
     tier: "MEDIUM",
     category: "secret",
-    description: "Google API key (AIza…; sometimes a public client key)",
-    regex: /\b(AIza[0-9A-Za-z\-_]{35})\b/,
+    description: "Google API key (AIza… or AQ.…; sometimes a public client key)",
+    regex: /\b(AIza[0-9A-Za-z\-_]{35}|AQ\.[0-9A-Za-z\-_]{20,})\b/,
   },
   {
     id: "jwt",
