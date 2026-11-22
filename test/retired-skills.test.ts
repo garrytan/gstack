@@ -24,7 +24,7 @@ test('setup and gstack-relink retire the same skills as the generator', () => {
   const r = spawnSync('bash', ['-c', '. "$1" && printf %s "$GSTACK_RETIRED_SKILLS"', '_', REGISTRY], { encoding: 'utf8', timeout: 10_000 });
   expect(r.status, r.stderr).toBe(0);
   expect(r.stdout.split(/\s+/).filter(Boolean)).toEqual(RETIRED_SKILLS);
-  expect(RETIRED_SKILLS.join(' ')).toBe('investigate');
+  expect(RETIRED_SKILLS.join(' ')).toBe('investigate verify');
 });
 
 describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () => {
@@ -56,36 +56,36 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
   afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   test('the dangling investigate and gstack-investigate entries are removed', () => {
-    fs.mkdirSync(path.join(skills, 'investigate'));
-    fs.symlinkSync(path.join(install, 'investigate', 'SKILL.md'), path.join(skills, 'investigate', 'SKILL.md'));
-    fs.symlinkSync(path.join(install, 'investigate'), path.join(skills, 'gstack-investigate'));
+    fs.mkdirSync(path.join(skills, 'investigate')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    fs.symlinkSync(path.join(install, 'investigate', 'SKILL.md'), path.join(skills, 'investigate', 'SKILL.md')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    fs.symlinkSync(path.join(install, 'investigate'), path.join(skills, 'gstack-investigate')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
-    expect(fs.lstatSync(path.join(skills, 'investigate'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(fs.lstatSync(path.join(skills, 'investigate'), { throwIfNoEntry: false })).toBeUndefined(); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     expect(fs.lstatSync(path.join(skills, 'gstack-investigate'), { throwIfNoEntry: false })).toBeUndefined();
     expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
   });
 
   test("a user's own investigate skill is left alone", () => {
-    fs.mkdirSync(path.join(skills, 'investigate'));
+    fs.mkdirSync(path.join(skills, 'investigate')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     const own = '---\nname: investigate\ndescription: mine\n---\nmy own debugger\n';
-    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), own);
+    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), own); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
-    expect(fs.readFileSync(path.join(skills, 'investigate', 'SKILL.md'), 'utf8')).toBe(own);
+    expect(fs.readFileSync(path.join(skills, 'investigate', 'SKILL.md'), 'utf8')).toBe(own); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
   });
 
   test('an edited gstack-generated investigate copy moves to the backup root instead of being deleted', () => {
-    fs.mkdirSync(path.join(skills, 'investigate'));
+    fs.mkdirSync(path.join(skills, 'investigate')); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     const edited = '---\nname: investigate\ndescription: test\n---\n<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->\n<!-- Regenerate: bun run gen:skill-docs -->\nMY LOCAL EDITS\n';
-    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), edited);
-    fs.writeFileSync(path.join(skills, 'investigate', 'notes.md'), 'mine\n');
+    fs.writeFileSync(path.join(skills, 'investigate', 'SKILL.md'), edited); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    fs.writeFileSync(path.join(skills, 'investigate', 'notes.md'), 'mine\n'); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
-    expect(fs.existsSync(path.join(skills, 'investigate', 'SKILL.md'))).toBe(false);
-    expect(fs.readFileSync(path.join(skills, 'investigate', 'notes.md'), 'utf8')).toBe('mine\n');
+    expect(fs.existsSync(path.join(skills, 'investigate', 'SKILL.md'))).toBe(false); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
+    expect(fs.readFileSync(path.join(skills, 'investigate', 'notes.md'), 'utf8')).toBe('mine\n'); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     const root = path.join(tmp, 'state', 'backups', 'skills');
-    const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'investigate', 'SKILL.md')).filter(f => fs.existsSync(f));
+    const backups = fs.readdirSync(root).map(stamp => path.join(root, stamp, 'investigate', 'SKILL.md')).filter(f => fs.existsSync(f)); // pregate-literal: GSTACK_RETIRED_SKILLS="investigate" retired list only gained verify; investigate stays retired
     expect(backups.map(f => fs.readFileSync(f, 'utf8'))).toEqual([edited]);
   });
 
@@ -310,3 +310,70 @@ test('every host renders /plan-eng-review; external hosts also keep the same met
     fs.rmSync(out, { recursive: true, force: true });
   }
 }, 300_000);
+
+// Value: protects=an upgrade gives Claude Code its built-in /verify back by removing gstack's old verify entry, and only gstack's;
+//   fails_when=relink leaves the renamed skill's verify or gstack-verify link behind, or deletes a user's own verify skill;
+//   why_new=/verify became /build-check (#4593); seam=the real gstack-relink on a fixture install; no_claim=Claude Code's own lookup
+describe('gstack-relink after /verify became /build-check (#4593)', () => {
+  let tmp: string;
+  let install: string;
+  let skills: string;
+  const relink = () => spawnSync('bash', [path.join(install, 'bin', 'gstack-relink')], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    env: {
+      ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '',
+      GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '',
+    },
+  });
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-verify-renamed-'));
+    install = path.join(tmp, 'gstack');
+    skills = path.join(tmp, 'skills');
+    fs.mkdirSync(path.join(install, 'bin'), { recursive: true });
+    for (const b of BINS) {
+      fs.copyFileSync(path.join(ROOT, 'bin', b), path.join(install, 'bin', b));
+      fs.chmodSync(path.join(install, 'bin', b), 0o755);
+    }
+    fs.mkdirSync(path.join(install, 'build-check'));
+    fs.writeFileSync(path.join(install, 'build-check', 'SKILL.md'), '---\nname: build-check\ndescription: test\n---\n# build-check\n');
+    fs.mkdirSync(skills, { recursive: true });
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  test("gstack's old verify and gstack-verify entries are removed and /build-check is linked", () => {
+    fs.mkdirSync(path.join(skills, 'verify'));
+    fs.symlinkSync(path.join(install, 'verify', 'SKILL.md'), path.join(skills, 'verify', 'SKILL.md'));
+    fs.writeFileSync(path.join(skills, 'verify', '.gstack-owned'), install + '\n');
+    fs.symlinkSync(path.join(install, 'verify'), path.join(skills, 'gstack-verify'));
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.lstatSync(path.join(skills, 'verify'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(fs.lstatSync(path.join(skills, 'gstack-verify'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(fs.readFileSync(path.join(skills, 'build-check', 'SKILL.md'), 'utf8')).toContain('name: build-check');
+  });
+
+  test("a user's own verify skill is left alone", () => {
+    fs.mkdirSync(path.join(skills, 'verify'));
+    const own = '---\nname: verify\ndescription: mine\n---\nmy own end-to-end check\n';
+    fs.writeFileSync(path.join(skills, 'verify', 'SKILL.md'), own);
+    fs.writeFileSync(path.join(skills, 'verify', 'notes.md'), 'mine\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(skills, 'verify', 'SKILL.md'), 'utf8')).toBe(own);
+    expect(fs.readFileSync(path.join(skills, 'verify', 'notes.md'), 'utf8')).toBe('mine\n');
+  });
+  test("a marked verify entry keeps the user's own files even when an old render of verify is still cached", () => {
+    const render = path.join(tmp, 'state', 'render', 'claude', 'verify');
+    fs.mkdirSync(render, { recursive: true });
+    fs.writeFileSync(path.join(render, 'SKILL.md'), '---\nname: verify\ndescription: old render\n---\n');
+    fs.mkdirSync(path.join(skills, 'verify'));
+    fs.symlinkSync(path.join(render, 'SKILL.md'), path.join(skills, 'verify', 'SKILL.md'));
+    fs.writeFileSync(path.join(skills, 'verify', '.gstack-owned'), install + '\n');
+    fs.writeFileSync(path.join(skills, 'verify', 'runbook.md'), 'mine\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readdirSync(path.join(skills, 'verify'))).toEqual(['runbook.md']);
+  });
+});

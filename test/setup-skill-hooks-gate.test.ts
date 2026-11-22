@@ -186,7 +186,7 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
     fs.cpSync(path.join(ROOT, 'hosts', 'claude', 'hooks'), path.join(copy, 'hosts', 'claude', 'hooks'), { recursive: true });
     for (const f of ['gstack-config', 'gstack-lock.sh', 'gstack-state-root.sh', 'gstack-skill-route']) fs.cpSync(path.join(ROOT, 'bin', f), path.join(copy, 'bin', f));
     fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(copy, 'node_modules'));
-    skills = skillsDir(['verify']);
+    skills = skillsDir(['build-check']);
     work = tmpDir('gstack-switch-default-work-');
   });
   afterAll(() => { for (const d of [copy, skills, work]) fs.rmSync(d, { recursive: true, force: true }); });
@@ -215,7 +215,7 @@ describe('SWITCH_DEFAULT is the one default (a flip PR changes one line)', () =>
       JSON.stringify({ session_id: 'sess-d', transcript_path: file, cwd: work, hook_event_name: 'Stop', stop_hook_active: false }),
       hookEnv(state, skills));
   };
-  const routes = (r: { stdout: string }) => r.stdout !== '' && JSON.parse(r.stdout).hookSpecificOutput.additionalContext.includes('/verify');
+  const routes = (r: { stdout: string }) => r.stdout !== '' && JSON.parse(r.stdout).hookSpecificOutput.additionalContext.includes('/build-check');
   const blocks = (r: { stdout: string }) => r.stdout !== '' && JSON.parse(r.stdout).decision === 'block';
   /** Every reader at root agrees that the switches default to want. */
   function expectReaders(root: string, want: Record<keyof typeof GATES, 'on' | 'off'>): void {

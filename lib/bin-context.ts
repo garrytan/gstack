@@ -422,7 +422,7 @@ export function slugFromEnvironment(
   if (envSlug && envSlug !== "." && envSlug !== "..") return envSlug;
 
   // 0m. project marker (#2649) — its own cache entry; the repo's entry below is never touched.
-  //     Scope "repository" (pregate policy and scratch, approvals, /verify) ignores
+  //     Scope "repository" (pregate policy and scratch, approvals, /build-check) ignores
   //     every marker, so a branch that commits one can't move those records
   //     (twin of gstack-slug --get REPO_SLUG).
   const markerRoot = opts.scope === "repository" ? "" : projectMarkerRoot(cwd);

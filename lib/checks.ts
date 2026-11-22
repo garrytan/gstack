@@ -1,21 +1,20 @@
 /**
- * gstack-checks: the inner build-and-verify loop behind /verify (GST-116).
+ * gstack-checks: the inner build-and-verify loop behind /build-check (GST-116).
  *
  * detect: the repo's non-test checks (a CLAUDE.md gstack:verify: line, else its
  * Health Stack section, else manifests). Read-only.
  * run: those checks plus the tests pregate's own selector picks, run locally
  * under pregate's supervision. Tests come from lib/pregate only: there is no
- * second selector, so a /verify selection is the pregate selection. It never
+ * second selector, so a /build-check selection is the pregate selection. It never
  * writes .gstack/tmp/pregate.json or clears an obligation.
  * Consent: run executes nothing until the exact command set (checks, the pregate
  * runner and every selection manifest command) is trusted for this repo, or the
  * caller passes --allow-repo-commands.
  * status: reads the last run's ledger; READY_FOR_SHIP only when every check
  * passed at the current tree and command set. It runs nothing.
- * quick: the pass /verify runs when the agent calls it right before a commit
+ * quick: the pass `/build-check quick` runs, for example right before a commit
  * (GST-3150). Same checks and selection as run, but it never asks for consent:
- * an untrusted command set, a missing policy source or the verify_before_commit
- * switch ends it with one `VERIFY skipped: <reason>` line, and a not-run result
+ * an untrusted command set or a missing policy source ends it with one `VERIFY skipped: <reason>` line, and a not-run result
  * (ENV, UNMAPPED, TOO_BROAD) is named, never a red. A TIMEOUT is a red: a check
  * that never finished proved nothing. The checks share one deadline, and the
  * test stage starts with what is left (its runner can still run past it).
@@ -142,7 +141,7 @@ export interface HealthDimensions { checks: Array<{ dimension: string; command: 
 /**
  * /health Step 1, in the directory /health runs from: a Health Stack section row for row (test rows kept; a section with no
  * rows still turns auto-detection off), else /health's own presence rules,
- * which may use a tool found on PATH (unlike /verify's declared-only manifestChecks). Reads files and PATH; runs nothing.
+ * which may use a tool found on PATH (unlike /build-check's declared-only manifestChecks). Reads files and PATH; runs nothing.
  * test/health-detect-no-loss.test.ts holds these rules to the shell block they replaced.
  */
 export function healthDimensions(root: string, env: NodeJS.ProcessEnv = process.env): HealthDimensions {
@@ -260,7 +259,7 @@ export function readLedger(file: string): Ledger | null {
   try { return JSON.parse(text) as Ledger; } catch { return null; }
 }
 
-/** A pregate lanes result as a /verify verdict. Only a pass (or a pass whose platform lanes are owed remotely) is green. */
+/** A pregate lanes result as a /build-check verdict. Only a pass (or a pass whose platform lanes are owed remotely) is green. */
 export function testVerdict(r: CheckResult): Pick<Outcome, 'verdict' | 'detail' | 'notCovered'> {
   const detail = r.detail ?? '';
   const notCovered = (r.remote ?? []).filter(o => !o.receipt).map(o => o.lane).sort();
@@ -278,7 +277,7 @@ export interface RunOptions { root: string; only?: string[]; timeoutMs: number; 
 export interface Loaded { ctx: PregateContext; checks: Check[]; set: string }
 const basisOf = (ctx: PregateContext) => sha256(JSON.stringify([ctx.baseRef, ctx.baseSha, ctx.configLabel, ctx.configDigest ?? '']));
 
-/** The pregate context /verify runs under: the base policy, tests local whatever the core count, no remote gate, quiet progress. */
+/** The pregate context /build-check runs under: the base policy, tests local whatever the core count, no remote gate, quiet progress. */
 export function load(root: string, base: string | undefined, timeoutMs: number, env: NodeJS.ProcessEnv = process.env): Loaded | { refused: string } {
   const b = resolveBaseBranch(root, base);
   const loaded = buildContext({ repoRoot: root, base: b, policyFrom: 'base', allowRepoCommands: true, timeoutMs, cores: Number.MAX_SAFE_INTEGER, testBackend: 'local', remote: null, userConfigPath: defaultUserConfigPath(root), env, progress: () => {} });

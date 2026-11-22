@@ -1,5 +1,5 @@
 ---
-name: verify
+name: build-check
 preamble-tier: 1
 version: 0.1.0
 description: "Use when coding: run the checks and tests /ship picks until green. Use for: verify my change, run the checks, make the tests pass. (gstack)"
@@ -22,13 +22,11 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-## Right before a commit: the quick pass
+## Quick pass: `/build-check quick`
 
-Use only this section when you started /verify yourself because you are about
-to run `git commit` (Claude Code asks for /verify before every commit), and the
-user has not typed /verify or asked you to verify or run the checks in this
-conversation. The arguments `quick` or `pre-commit` mean the same. When the
-user typed /verify, skip this section and run the full skill below.
+Use only this section when the arguments are `quick` or `pre-commit`, for
+example when you were asked to run `/build-check quick` before a commit.
+Otherwise skip it and run the full skill below.
 
 Skip the preamble and everything after this section: edit nothing, add no
 tests, ask nothing. Run one command with a Bash timeout of 10 minutes:
@@ -38,18 +36,18 @@ tests, ask nothing. Run one command with a Bash timeout of 10 minutes:
 ```
 
 It ends with one line. `VERIFY PASS: …` or `VERIFY skipped: <reason>`: go on
-with the commit, and mention /verify only by quoting that line. `VERIFY FAIL:
+with the commit and quote that line. `VERIFY FAIL:
 …` (exit 1): don't commit over it; quote the line and the failing output to
 the user and ask whether to fix it first or commit anyway.
 
 ## Preamble (run first)
 
-!`~/.claude/skills/gstack/bin/gstack-skill-load start --skill "verify" --model "claude"`
+!`~/.claude/skills/gstack/bin/gstack-skill-load start --skill "build-check" --model "claude"`
 
 If the line above is not the start output, run this once; otherwise it already ran:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-skill-start --skill "verify" --model "claude"
+~/.claude/skills/gstack/bin/gstack-skill-start --skill "build-check" --model "claude"
 ```
 
 Read the echoed `KEY: value` STATUS lines — they drive every preamble rule
@@ -164,7 +162,7 @@ queue (don't also run gstack-brain-sync).
 **PLAN MODE EXCEPTION — ALWAYS RUN:** writes telemetry to `$GSTACK_STATE_ROOT/analytics/`.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-skill-end --skill "verify" --outcome OUTCOME \
+~/.claude/skills/gstack/bin/gstack-skill-end --skill "build-check" --outcome OUTCOME \
   --session-id "SESSION_ID" --tel-start "TEL_START" --used-browse USED_BROWSE \
   --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" \
   --exit-reason EXIT_REASON --invoked INVOKED --model-family MODEL_FAMILY --checks CHECKS 2>/dev/null || true
@@ -181,7 +179,7 @@ claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No co
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-# /verify — build, check, fix, repeat
+# /build-check — build, check, fix, repeat
 
 Use this while building, before /ship. It runs checks and fixes code. It never
 reviews, bumps a version, pushes, or opens a PR: that is /ship. A changelog entry
@@ -198,7 +196,7 @@ C="$HOME/.claude/skills/gstack/bin/gstack-checks"; "$C" detect
 `detect` reads files only. It lists each check with its source, the pregate
 test selection, and `TRUST trusted|untrusted`. `CHECKS: none` means the repo declares no check,
 pregate policy or test file: there is nothing to run, so say so and stop. Never invent a
-command the repo does not declare. Report "No checks declared; /verify ran nothing": `run`
+command the repo does not declare. Report "No checks declared; /build-check ran nothing": `run`
 exits 3 and `status` stays `NOT_READY`, so this never reaches `READY_FOR_SHIP`. A command you
 run yourself is your own result, not a gstack check. Offer once to declare one with a
 `gstack:verify: <command>` line in the repo's CLAUDE.md.

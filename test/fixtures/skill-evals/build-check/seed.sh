@@ -1,5 +1,5 @@
 #!/bin/sh
-# Seeds a /verify eval work dir: a tiny Bun library ("tally") on main, pushed to a local bare remote at
+# Seeds a /build-check eval work dir: a tiny Bun library ("tally") on main, pushed to a local bare remote at
 # ./.remote.git, and the branch feat/stats checked out with the variant's change committed on it.
 # Its checks are what the repo declares: package.json scripts build (bun build), lint (scripts/lint.ts)
 # and test (bun test), plus a .gstack/pregate.json so gstack-checks selects tests the way /ship's

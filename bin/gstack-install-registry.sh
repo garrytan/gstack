@@ -349,9 +349,10 @@ gstack_disabled_normalize() {
 # GSTACK_RETIRED_SKILLS — skills gstack keeps off every host whatever
 # disabled_skills says; an existing gstack-owned entry is removed like a
 # disabled one. investigate's source is gone (GST-1717), and its old entries
-# are still removed. Same list as RETIRED_SKILLS in scripts/discover-skills.ts
+# are still removed. verify is now build-check (#4593): its old gstack-owned
+# entry would hide Claude Code's built-in /verify. Same list as RETIRED_SKILLS in scripts/discover-skills.ts
 # (test/retired-skills.test.ts).
-GSTACK_RETIRED_SKILLS="investigate"
+GSTACK_RETIRED_SKILLS="investigate verify"
 
 # GSTACK_CREW_SKILLS — the gstack-on-Capy skills (crew/README.md). Only a Capy
 # machine registers them; anywhere else they get no entry on any host and an

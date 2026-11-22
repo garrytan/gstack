@@ -27,6 +27,15 @@
       "plan": "none",
       "seed": "GEVA-2, 2026-11-02: browse: untested (never measured)"
     },
+    "build-check": {
+      "status": "untested",
+      "grandfathered": true,
+      "plan": "none",
+      "seed": "not in GEVA-2's table (2026-11-02); never measured",
+      "aliases": [
+        "verify"
+      ]
+    },
     "canary": {
       "status": "untested",
       "grandfathered": true,
@@ -487,12 +496,6 @@
       "reason": "new skill (GST-1279): its detector is tested offline against real thread readings; whether the skill's actions and prevent defaults cut spend is not measured yet",
       "owner": "GStack Minder (GSTA-36)",
       "measure_by": "2026-11-24"
-    },
-    "verify": {
-      "status": "untested",
-      "grandfathered": true,
-      "plan": "none",
-      "seed": "not in GEVA-2's table (2026-11-02); never measured"
     },
     "write-skill": {
       "status": "untested",
