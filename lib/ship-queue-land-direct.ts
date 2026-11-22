@@ -75,6 +75,8 @@ export function verifyPin(ctx: QueueContext, o: { pr: string; pin: string; accep
 }
 
 const isSha = (s: string | undefined) => /^[0-9a-f]{40,64}$/.test(s ?? '');
+/** The hold a direct land sets while land.merged_checks run detached, outside its process group: a land that stops there needs a person. */
+const CHECKS_HOLD = 'land.merged_checks were running when it stopped, so a check may still run and the checkout\'s git directory was never compared';
 
 function view(ctx: QueueContext, pr: string): DirectPr | QueueFailure {
   const r = ctx.gh(['pr', 'view', pr, '--json', 'state,baseRefName,headRefName,headRefOid,isCrossRepository,body,title,mergeable,mergeStateStatus,mergeCommit']);
@@ -272,7 +274,9 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
         if (ci) lines.push(`DRY-RUN: land.merged_ci not dispatched; a real land runs ${ci.workflow} on the pin merged onto ${tip.slice(0, 12)} and waits for it`);
       } else if (checks.length && !o.allowRepoCommands) return fail(lines, { code: 'REPO_COMMANDS_NOT_ALLOWED', message: `${moved}, so land must run land.merged_checks on the pin merged onto it; they are repo commands (the merged tree's package.json decides what they run), so nothing ran and nothing merged`, fix: `rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} --allow-repo-commands` });
       else {
+        if (checks.length) held?.hold(CHECKS_HOLD);
         const built = checks.length ? runMergedChecks(root, tip, o.pin, checks) : mergedCommit(root, tip, o.pin);
+        if (checks.length && !changedCheckouts.has(root)) held?.hold(null);
         if (!built.ok) return refuse(built);
         if (checks.length) lines.push(`MERGED_CHECKS: pass tree=${built.tree} base=${tip} pin=${o.pin.slice(0, 12)} checks: ${checks.join('; ')}`);
         if (ci) {
@@ -311,12 +315,13 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     }
     if (!isSha(merge) && m.ok) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr merge accepted #${o.pr}, but GitHub does not show it merged yet; nothing is verified`, fix: `rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} in a minute; once GitHub shows the merge it goes straight to the tree check` });
     if (!isSha(merge)) return fail(lines, { code: 'QUEUE_NOT_READY', message: `gh pr merge refused: ${(m.err ?? m.out).trim().slice(0, 200) || 'the PR is not merged'}`, fix: `read the refusal; rerun land --pr ${o.pr} --pin ${o.pin} once it is fixed` });
+    if (checks.length && o.allowRepoCommands) held?.hold(CHECKS_HOLD);
     return verifyMerge(ctx, root, o.pr, o.pin, merge!, lines, run, now(), release ? mergeBase : undefined, { checks, on: tip, allow: o.allowRepoCommands });
   };
   let out: StepOutput;
   let released = true;
   try { out = locked(); } finally {
-    if (held && changedCheckouts.has(root)) held.keepHeld(`land.merged_checks changed this checkout's git directory while landing #${o.pr}`);
+    if (held && changedCheckouts.has(root)) held.hold(`land.merged_checks changed this checkout's git directory while landing #${o.pr}`);
     if (held) released = !changedCheckouts.has(root) && held.release();
   }
   if (changedCheckouts.has(root)) return { ...out, lines: [...out.lines, unlock] };

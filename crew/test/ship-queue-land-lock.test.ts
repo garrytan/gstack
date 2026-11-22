@@ -10,9 +10,10 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../../lib/headless-artifacts';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import * as os from 'node:os';
-import { acquireLandLock, DIRECT_LOCK_TTL_MS, LAND_LOCK_REF, readLock, thisProcess, writeLock, type LandLock, type LockOwner, type LockProcess } from '../lib/ship-queue-land-lock';
+import { acquireLandLock, DIRECT_LOCK_TTL_MS, judgeOwner, LAND_LOCK_REF, readLock, thisProcess, writeLock, type LandLock, type LockOwner, type LockProcess } from '../lib/ship-queue-land-lock';
+import { bunIsolationArgs } from '../../lib/bun-isolation';
 import { BASE_POLICY, cleanup, makeFixtureRepo, type FixtureRepo } from '../../test/helpers/restamp-fixture';
 import { flakyGit } from '../../test/helpers/flaky-git';
 import { coordinatorClone } from '../../test/helpers/ship-queue-fixture';
@@ -330,11 +331,59 @@ describe.skipIf(process.platform !== 'linux')('a direct land\'s lock cannot go s
       writeLock(repo.work, readLock(repo.work).sha, { released: true, by: 'test', at: new Date(T0).toISOString() });
       const tampered = takeDirect(repo.work, '4672', { proc: holder, marks });
       if (!('held' in tampered)) throw new Error('lock not taken');
-      tampered.held.keepHeld('land.merged_checks changed this checkout\'s git directory while landing #4672');
+      tampered.held.hold('land.merged_checks changed this checkout\'s git directory while landing #4672');
       const refused = failureOf(takeDirect(repo.work, '4673', { proc: { ...self, mark: 'r' }, marks, now: at(500) }));
       expect(refused!.message).toContain('its land left it held on purpose: land.merged_checks changed');
       expect(refused!.fix).toContain(`gstack-ship-queue land --pr 4672 --pin ${'2'.repeat(40)}`);
     });
+  }, 60_000);
+
+  test('a hold set while land.merged_checks run keeps a dead land\'s lock refused; cleared, the lock is taken over', async () => {
+    const self = thisProcess()!;
+    const repo = bareRepo();
+    const marks = newMarks();
+    const dead = await group('sleep 30');
+    const proc = procOf(dead.pid, self);
+    dead.kill();
+    await dead.exited;
+    withRepoEnv(repo, () => {
+      const got = takeDirect(repo.work, '4670', { proc, marks });
+      if (!('held' in got)) throw new Error('lock not taken');
+      got.held.hold('land.merged_checks were running when it stopped');
+      const refused = failureOf(takeDirect(repo.work, '4671', { proc: { ...self, mark: 'h1' }, marks, now: at(1) }));
+      expect(refused!.message).toContain('its land left it held on purpose: land.merged_checks were running when it stopped');
+      got.held.hold(null);
+      expect(failureOf(takeDirect(repo.work, '4671', { proc: { ...self, mark: 'h2' }, marks, now: at(1) }))).toBeNull();
+    });
+  }, 60_000);
+
+  test('a mark file proves a restart only for this machine and a different boot: another pid namespace or another machine\'s mark is unknown', () => {
+    const self = thisProcess()!;
+    const marks = newMarks();
+    const lock = (proc: LockProcess): LandLock => ({ pr: '4670', holder: 'cox.local:9', started_at: new Date(T0).toISOString(), phase: 'merging', journal: pin('4'), proc });
+    const otherNs: LockProcess = { ...self, pidns: 'pid:[1]', pid: 9, pgid: 9, start: 1, mark: 'ns' };
+    fs.writeFileSync(path.join(marks, 'ns.json'), JSON.stringify({ machine: 'irrelevant', boot: self.boot }));
+    expect(judgeOwner(lock(otherNs), self, marks).state).toBe('unknown');
+    const otherMachine: LockProcess = { ...self, boot: 'their-boot', pid: 9, pgid: 9, start: 1, mark: 'theirs' };
+    fs.writeFileSync(path.join(marks, 'theirs.json'), JSON.stringify({ machine: 'another-host/another-id', boot: 'their-boot' }));
+    expect(judgeOwner(lock(otherMachine), self, marks).state).toBe('unknown');
+  });
+
+  test('a rerun in the dead holder\'s own process group is not refused because of its own siblings (a | cat beside it)', () => {
+    const dir = newMarks();
+    const judge = path.join(dir, 'judge.ts');
+    fs.writeFileSync(judge, `import * as fs from 'node:fs';
+import { judgeOwner, thisProcess } from ${JSON.stringify(path.resolve(import.meta.dir, '../lib/ship-queue-land-lock.ts'))};
+const self = thisProcess()!;
+const stat = fs.readFileSync(process.argv[2]!, 'utf8');
+const f = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+const proc = { ...self, pid: Number(stat.split(' ')[0]), pgid: Number(f[2]), start: Number(f[19]), mark: 'none' };
+console.log(judgeOwner({ pr: '1', holder: 'h', started_at: '', phase: 'merging', journal: 'land-pin:1', proc }, self, process.argv[3]!).state);
+`);
+    const bun = [process.execPath, ...bunIsolationArgs()].map(a => `'${a}'`).join(' ');
+    const script = `sleep 0.5 & cat /proc/$!/stat > '${dir}/holder.stat'; wait; ${bun} '${judge}' '${dir}/holder.stat' '${dir}' | cat`;
+    const r = spawnSync('setsid', ['sh', '-c', script], { encoding: 'utf8', timeout: 30_000 });
+    expect(r.stdout.trim(), r.stderr).toBe('gone');
   }, 60_000);
 
   test('a stalled takeover never replaces a newer owner\'s lock, and a taken-over land can neither move nor release the lock it lost', async () => {
