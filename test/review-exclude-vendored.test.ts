@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { disclosureLine } from '../lib/review-exclude';
 import { receiptReviewAtHead } from '../lib/ship-receipt-depth';
 import { REVIEW_VENDORED_KEY_VERSION } from '../lib/ship-policy';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
@@ -25,6 +26,7 @@ const B1 = 'def test_b():\n    assert "x".upper() == "X"\n';
 const B2 = B1 + '\ndef test_c():\n    assert [] == []\n';
 const C = 'def test_d():\n    assert {} == {}\n';
 const U = 'VALUE = 1\n';
+const D = 'import json\nDATA = json.load(open("up/lib/tests/data.json"))\n';
 const SKIP = 'import pytest\n\n@pytest.mark.skip(reason="needs network")\ndef test_net():\n    assert False\n';
 const KEY = ['OPENAI_API_KEY=sk', 'proj', 'Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh3iJk6lMn9o'].join('-');
 const ENV = { GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z' };
@@ -45,7 +47,7 @@ function upstream(repo: FixtureRepo) {
   run(work, ['init', '-q', '-b', 'main'], repo.env);
   const put = (rel: string, text: string | null) => { const f = path.join(work, rel); if (text === null) { fs.rmSync(f); return; } fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); };
   const snap = (msg: string) => { run(work, ['add', '-A'], repo.env); run(work, ['commit', '-q', '-m', msg], repo.env); return run(work, ['rev-parse', 'HEAD'], repo.env); };
-  put('tests/a.py', A); put('tests/b.py', B1); put('lib/util.py', U); put('tests/test_skip.py', SKIP); put('tests/keys.env', KEY + '\n'); put('AGENTS.md', '# agents\n'); put('README.md', 'lib\n');
+  put('tests/a.py', A); put('tests/b.py', B1); put('lib/util.py', U); put('tests/d.py', D); put('tests/test_skip.py', SKIP); put('tests/keys.env', KEY + '\n'); put('AGENTS.md', '# agents\n'); put('README.md', 'lib\n');
   const c1 = snap('c1');
   run(work, ['tag', 'v1'], repo.env);
   put('tests/b.py', B2); put('tests/c.py', C); put('lib/util.py', null);
@@ -144,7 +146,7 @@ describe('review_exclude_paths with review_vendored', () => {
     commit(f.repo, { ...local({ 'lib/util.py': 'import os\nos.system("true")\n' }), 'VENDORED.json': manifest(f.up.c1, ['tests/b.py']) }, 'drop util from the manifest');
     const x = JSON.parse(f.plan(true).out).review_exclude;
     expect(x.kept_files).toEqual([{ path: 'up/lib/lib/util.py', reason: 'code' }]);
-    expect(x.vendored.verified).toEqual([]);
+    expect(x.vendored_selection.verified).toEqual([]);
   });
 
   // Value: protects=a manifest under an applied pattern turns the vendored check off, so the files it pins stay in review
@@ -157,6 +159,18 @@ describe('review_exclude_paths with review_vendored', () => {
     expect(keptOf(f.plan(true).out)).toEqual([{ path: 'up/lib/tests/a.py', reason: 'code' }]);
   });
 
+  // Value: protects=a verified vendored file still keeps the non-vendored file it names by full path (named-by-code), as on
+  //   main, and the plan JSON keeps the numeric vendored count the brief's disclosure line prints; fails_when=a vendored
+  //   file stops counting as a consumer, or the count is overwritten; why_new=/ship review of #4665 (s11/outside-voice#1)
+  test('a verified vendored file keeps the non-vendored data file it names', () => {
+    const f = fixture();
+    commit(f.repo, { ...local({ 'tests/d.py': D, 'tests/data.json': '{"x": 1}\n' }), 'VENDORED.json': manifest(f.up.c1, ['tests/d.py']) }, 'vendor lib');
+    const x = JSON.parse(f.plan(true).out).review_exclude;
+    expect(x.kept_files).toEqual([{ path: 'up/lib/tests/data.json', reason: 'named-by-code' }]);
+    expect(x.vendored).toBe(1);
+    expect(disclosureLine(x)).toContain(' 1 of the excluded files are vendored upstream files');
+  });
+
   // Value: protects=a repo without review_vendored plans exactly as before: the same files kept as code, no vendored line and
   //   no vendored field; fails_when=the key's absence changes a selection; why_new=GST-3298 no-loss (CREW rule 15)
   test('without review_vendored nothing changes', () => {
@@ -167,6 +181,7 @@ describe('review_exclude_paths with review_vendored', () => {
     const x = JSON.parse(f.plan(true).out).review_exclude;
     expect(x.kept_files).toEqual([{ path: 'up/lib/tests/a.py', reason: 'code' }]);
     expect(x.vendored).toBeUndefined();
+    expect(x.vendored_selection).toBeUndefined();
   });
 
   // Value: protects=too many unverified vendored files refuse with a fix that names REVIEW_VENDORED_KEPT and the verify

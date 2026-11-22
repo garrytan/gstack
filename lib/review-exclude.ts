@@ -376,11 +376,15 @@ function pathReason(i: Scope, p: string, m: Matched, binary: ReadonlySet<string>
 
 /**
  * A file whose full-path reference keeps excluded content: a code or test file (not docs, data, a .log or binary) outside the
- * would-be-excluded set, or a declared file that stays in review (kept in this range, or an executable or link at `mode`).
+ * would-be-excluded set, or a declared file that stays in review (kept in this range, or an executable or link at `mode`). A
+ * verified vendored file counts as the code it is, excluded or not, so the files it names keep the selection they had before.
  */
-const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: string) =>
-  !candidates.has(f) && !f.startsWith('.gstack/tmp/') && (contentKind(i, f, new Set()) === null
-    || (!!i.declared?.has(f) && (!!i.keptDeclared?.has(f) || mode === '100755' || mode === '120000')));
+const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: string) => {
+  if (f.startsWith('.gstack/tmp/')) return false;
+  const kind = contentKind(i, f, new Set());
+  if (kind === 'vendored' && !declaredData(i, f)) return true;
+  return !candidates.has(f) && (kind === null || (!!i.declared?.has(f) && (!!i.keptDeclared?.has(f) || mode === '100755' || mode === '120000')));
+};
 
 /**
  * An uncapped search for fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
