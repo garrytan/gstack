@@ -694,7 +694,9 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     // R105 and R109, each the owner's standing rule).
     // 5,050 for point 7's two clauses that a green fake or dry run isn't done and that a check must see the change and count
     // what its name says (the second batch of crew rules, G4 and G10, each reached by three crews on their own).
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(5050);
+    // 5,300 for point 16's queue drain (R119, Garry's rule of 2026-11-22: every Captain that lands PRs runs a standing process
+    // that stops finished PRs piling up; the procedure is crew/docs/captain.md's Drain the queue).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(5300);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });

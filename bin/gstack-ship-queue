@@ -19,6 +19,7 @@
  *   gstack-ship-queue land --pr <n> [--dry-run] [--no-wait] [--break-lock [--break-train-lock]]   (the merge step; lib/ship-queue-land.ts)
  *   gstack-ship-queue land --pr <n> --repair                    (after QUEUE_LAND_DRIFT: open the outside merge's release PR)
  *   gstack-ship-queue land --census
+ *   gstack-ship-queue count [--authors <login,...>]   (R119: finished PRs waiting to land, one gh call; lib/ship-queue-count.ts)
  *   gstack-ship-queue train build|status|verdict|bisect|rebuild|watch|prune ...   (merge trains; train --help)
  *   gstack-ship-queue wave plan|build|status|settle ...   (wave PRs: 3-6 same-area PRs in one train slot; wave --help)
  *
@@ -86,6 +87,10 @@ const HELP = `gstack-ship-queue — the shared merge queue's protocol steps (doc
   land --pr <n> --repair                   after QUEUE_LAND_DRIFT: open the PR that gives the merge outside land its own
                                            release; /ship and land it, which releases the lock
   land --census                            what land would do with every open PR (read-only)
+  count [--authors <login,...>]            finished PRs waiting to land, from one gh call: QUEUE_COUNT (count, how many waited 24h
+                                           or more, the oldest wait), a FINISHED line each, and DRAIN when more than 6 wait or one
+                                           has waited 24h (docs/captain.md#drain-the-queue); finished = by an author (default
+                                           garrytan,capy-ai,garrytan-agents), on the base, not a draft or conflicting, green at its head
   train build|status|verdict|bisect|rebuild|watch|prune ...
                                            merge trains, when the base policy declares a train block (train --help;
                                            docs/ship-policy.md#run-a-merge-train); ready then takes --screen|--no-screen
@@ -217,6 +222,7 @@ async function main(argv: string[]): Promise<number> {
     if (loaded && !('message' in loaded) && loaded.policy.merge === 'direct') return finish(`train ${args[0]}`, { ok: false, lines: [], run: 'none', failure: { code: 'QUEUE_NOT_READY', message: 'the base policy sets merge: direct, so trains are off', fix: 'land each READY PR with gstack-ship-queue land --pr <n> --pin <sha> (docs/ship-policy.md#land-direct)' } });
     return train.trainMain(ctx, args);
   }
+  if (cmd === 'count') return finish('count', (await import('../lib/ship-queue-count')).queueCount(ctx, { authors: flag(args, '--authors')?.split(',').map(s => s.trim()).filter(Boolean) }));
   if (cmd === 'wave') return (await import('../crew/lib/ship-queue-wave')).waveMain(ctx, args);
   if (cmd === 'verify' && flag(args, '--post-merge') !== undefined) return (await import('../crew/lib/ship-queue-train-cli')).postMergeMain(ctx, args);
   if (cmd === 'land') {

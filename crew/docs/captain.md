@@ -555,6 +555,54 @@ the same product diff; any other rebase is a full /ship
 ([ship-policy.md](../../docs/ship-policy.md#receipt-carry)). A controller never asks a lane to
 rebase a reviewed branch.
 
+## Drain the queue
+
+A finished PR that sits unmerged goes stale: main moves under it, conflicts appear, and
+its lane sits idle. On 2026-11-22 gbrain had 22 waiting and gstack 21, gstack's held for
+hours by a stale land lock. Garry's rule R119, that day: "I feel like we are perpetually
+running into this problem. Solve this problem now but also make sure the processes are in
+place to always do it in this project and elsewhere in capy captains as needed". So every
+Captain that lands PRs counts its queue at every wake and drains it before it piles up.
+
+**Count at every sweep and standing wake.** Run `gstack-ship-queue count` in each repository
+you land, from its checkout. It makes one gh call and prints one `QUEUE_COUNT:` line (how
+many PRs are finished, how many have waited 24 hours or more, and the oldest wait), then a
+`FINISHED:` line per PR, oldest first. A PR is finished when one of ours opened it
+(garrytan, capy-ai or garrytan-agents; `--authors a,b` for another repo's), it targets the
+base, it isn't a draft, GitHub doesn't report it conflicting, and the checks on its newest
+commit are green. Its wait counts from that commit.
+
+**A `DRAIN:` line means drain this turn.** count prints it when more than 6 PRs are
+finished, or when one has waited 24 hours or more. Drain before you start anything new:
+
+1. Land every PR that has a verified READY ([direct land](#direct-land-merge-direct)).
+2. Sort the rest into the two lanes below.
+3. Send each idle owner its next step in one line: /ship at the head, `ready`, merge main
+   and resolve, or "goes in bundle N". A PR whose thread is gone gets a new owner
+   ([no orphaned work](#no-orphaned-work)).
+
+**Lane 1: a low-risk PR lands alone, on its own green head.** No re-merge and no re-test
+when main moves, once the repository has passed one timed
+[revert drill](../../docs/ship-policy.md#revert-drill). If main then goes red, revert the
+culprit within 30 minutes. Low-risk means it touches none of: migrations, dependencies, CI,
+security, user data, money, or a default that flips. Until its drill passes, a repository
+keeps re-testing a stale base (`land.merged_checks`, `land.merged_ci`).
+
+**Lane 2: risky PRs land in a bundle of 3 to 6.** Pick PRs from one area. One integrator
+lane merges their branches into one bundle branch from main and opens one PR naming each
+one; that PR gets one /ship (one review), one full CI and one landing. A PR whose part fails
+drops out and goes back to its owner, and the rest land. Close each bundled PR as landed in
+the bundle. A bundle lives only until it lands: never a standing merge branch, which one bad
+PR poisons.
+
+**A cheap-tier green is never landing evidence.** Land only when every required check
+passes at the exact head (CREW.md `REQUIRED_CHECKS`), the same as any land.
+
+**A stale land lock no longer stops the queue.** `land --pin` takes over a lock whose land
+has exited or expired, and logs it
+([the land lock can't go stale](../../docs/ship-policy.md#land-lock)). A
+`QUEUE_LAND_LOCKED` that says a land is still running means wait for it.
+
 ## Direct land (`merge: direct`)
 
 When the base policy sets `"merge": "direct"`, there are no trains, slot calls or stamp
@@ -596,7 +644,7 @@ What to do with each refusal (nothing was merged unless the code says so):
 | `QUEUE_LAND_CHECKS` | Captain, then lane | pending: `gstack-pr-wait <n> --until green` and rerun; red: back to the lane (rule 16 rerun for a flaky case); missing: dispatch the workflow on the branch |
 | `QUEUE_LAND_MERGED_CHECKS` | Captain, then lane | the message says the checks changed files land's git or gh calls read: hold, nothing goes back to the lane yet; restore each named path from a trusted copy, release the lock with `land --pr <n> --pin <sha>` (no `--allow-repo-commands`), and find out why the checks wrote there. Otherwise a `land.merged_checks` command failed, or the `land.merged_ci` run was red, on the pin merged onto main: one rerun of land for a flaky case (rule 16), else back to the lane, which merges main (rule 19), fixes it, /ship, `ready`, new READY ([troubleshooting](../../docs/troubleshooting.md#queue-land-merged-checks)) |
 | `QUEUE_LAND_NOT_CLEAN` | lane, or Captain | `CONFLICTING`, or the pin conflicts with main's tip on a stale base: the lane merges main (rule 19), /ship, `ready`; `UNKNOWN`: rerun in a minute |
-| `QUEUE_TRAIN_FROZEN` / `QUEUE_LAND_LOCKED` | Captain | finish the repair or the holder first |
+| `QUEUE_TRAIN_FROZEN` / `QUEUE_LAND_LOCKED` | Captain | finish the repair or the holder first. land takes over a lock whose land exited or expired by itself; a lock it refuses says why: a land still running (wait, or stop the process it names if stuck), another machine's land (rerun after the expiry it prints, or `--break-lock` once you know that land stopped), or a deliberate hold (release it as the `LOCK:` line says) |
 | `QUEUE_TRAIN_UNTRUSTED` | Captain | a fork head; rewrite on a crew branch |
 | `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent, or main moved after land's check and `land.merged_checks` failed or is absent on the landed tree: revert the stray change or fix forward, report it |
 | `RELEASE_STAMP_INVALID` | Captain | the `release/<version>` head is more than its stamp: close it, `gstack-release-stamp open` again |

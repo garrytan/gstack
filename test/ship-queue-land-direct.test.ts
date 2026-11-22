@@ -21,7 +21,7 @@ import { bumpVersion } from '../crew/lib/version-gate-train';
 import { openRelease } from '../lib/release-stamp';
 import type { MergedRun } from '../lib/land-merged-checks';
 import { bunIsolationArgs } from '../lib/bun-isolation';
-import { readLock, writeLock } from '../crew/lib/ship-queue-land-lock';
+import { readLock, thisProcess, writeLock, LAND_LOCK_REF } from '../crew/lib/ship-queue-land-lock';
 import { flakyGit } from './helpers/flaky-git';
 import { runBackstop } from '../crew/scripts/train-backstop';
 import { readTrainNotes } from '../crew/scripts/release-cut';
@@ -549,6 +549,24 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
     expect(readLock(fx.repo.work).state).toBe('released');
     const dry = land(fx, '89', other, ['--dry-run']);
     expect(dry.out).toContain('DRY-RUN: nothing verified');
+  }, 120_000);
+
+  test.skipIf(process.platform !== 'linux')('the land lock: another PR\'s lock whose land process has exited is taken over without --break-lock, logged, and the land merges; the lock it writes names its process and expiry', () => {
+    const fx = setup();
+    const self = thisProcess()!;
+    const exited = spawnSync('setsid', ['sh', '-c', 'cat /proc/$$/stat'], { encoding: 'utf8', timeout: 10_000 });
+    const f = exited.stdout.slice(exited.stdout.lastIndexOf(')') + 2).split(' ');
+    const pid = Number(exited.stdout.split(' ')[0]);
+    const at = new Date().toISOString();
+    expect(writeLock(fx.repo.work, readLock(fx.repo.work).sha, { pr: '90', holder: `gone:${pid}`, started_at: at, phase_at: at, phase: 'merging', journal: 'land-pin:' + '1'.repeat(40), proc: { ...self, pid, pgid: Number(f[2]), start: Number(f[19]), mark: 'gone' } }).ok).toBe(true);
+    const pin = openPr(fx, '89');
+    const r = land(fx, '89', pin);
+    expect(r.status, r.err).toBe(EXIT.ok);
+    expect(r.out).toContain(`LOCK_TAKEOVER: #90's land lock (holder gone:${pid}, phase merging, since ${at}): its land (process ${pid}) and every process it started have exited`);
+    expect(fx.read().prs['89'].state).toBe('MERGED');
+    expect(readLock(fx.repo.work).state).toBe('released');
+    const took = fx.repo.git('log', '--format=%H %s', LAND_LOCK_REF).split('\n').find(l => l.includes('(took over #90'))!.split(' ')[0]!;
+    expect(JSON.parse(fx.repo.git('show', `${took}:lock.json`))).toMatchObject({ pr: '89', proc: { boot: self.boot }, took_over: { pr: '90', holder: `gone:${pid}` }, expires_at: expect.any(String) });
   }, 120_000);
 
   describe('GST-1344: a lock push GitHub applied but answered with an HTTP 502', () => {

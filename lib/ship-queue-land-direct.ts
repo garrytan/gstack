@@ -26,7 +26,7 @@ import { versionAtRef } from './restamp';
 import type { ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
 import { git, queueHooksOff, type QueueFailure } from '../crew/lib/ship-queue-gate';
-import { acquireLandLock, lockLabel, ownsLock, readLock, type HeldLandLock, type LandLock } from '../crew/lib/ship-queue-land-lock';
+import { acquireLandLock, DIRECT_LOCK_TTL_MS, lockLabel, ownsLock, readLock, type HeldLandLock, type LandLock } from '../crew/lib/ship-queue-land-lock';
 import * as os from 'node:os';
 import { activeFreeze, loadReady, persist, rebuildFromNotes, repoIdentity, type FreezeRecord } from '../crew/lib/ship-queue-train-record';
 import { bindShippedReceipt } from './ship-receipt-depth';
@@ -176,7 +176,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const journal = `land-pin:${o.pin}`;
   const unlock = `LOCK: warn land.merged_checks changed the checkout's git directory, so land pushed no lock release and the land lock stays held; once every path it names is restored from a trusted copy, release the lock without running the checks: gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} (without --allow-repo-commands)`;
   const takeLock = () => acquireLandLock({
-    root, remote, holder: `${os.hostname()}:${process.pid}`, owner: { pr: o.pr }, journal, now, phase: () => 'merging', breakLock: o.breakLock,
+    root, remote, holder: `${os.hostname()}:${process.pid}`, owner: { pr: o.pr }, journal, now, phase: () => 'merging', breakLock: o.breakLock, processScoped: { ttlMs: DIRECT_LOCK_TTL_MS },
     takeover: (held: LandLock) => !held.train && held.pr === o.pr && held.journal.startsWith('land-pin:') ? `LOCK: taking over #${o.pr}'s land lock that an earlier land --pin run left (${held.journal}, since ${held.started_at})` : null,
   });
   if (info.state === 'MERGED' && info.headRefOid === o.pin && isSha(info.mergeCommit?.oid)) {
@@ -315,7 +315,10 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   };
   let out: StepOutput;
   let released = true;
-  try { out = locked(); } finally { if (held) released = !changedCheckouts.has(root) && held.release(); }
+  try { out = locked(); } finally {
+    if (held && changedCheckouts.has(root)) held.keepHeld(`land.merged_checks changed this checkout's git directory while landing #${o.pr}`);
+    if (held) released = !changedCheckouts.has(root) && held.release();
+  }
   if (changedCheckouts.has(root)) return { ...out, lines: [...out.lines, unlock] };
   return released ? out : { ...out, lines: [...out.lines, `LOCK: warn the land lock release push failed, so the lock stays held; rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} to resume and release it`] };
 }

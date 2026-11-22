@@ -10,7 +10,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../../lib/headless-artifacts';
-import { acquireLandLock, LAND_LOCK_REF, readLock, writeLock, type LandLock, type LockOwner } from '../lib/ship-queue-land-lock';
+import { spawn } from 'node:child_process';
+import * as os from 'node:os';
+import { acquireLandLock, DIRECT_LOCK_TTL_MS, LAND_LOCK_REF, readLock, thisProcess, writeLock, type LandLock, type LockOwner, type LockProcess } from '../lib/ship-queue-land-lock';
 import { BASE_POLICY, cleanup, makeFixtureRepo, type FixtureRepo } from '../../test/helpers/restamp-fixture';
 import { flakyGit } from '../../test/helpers/flaky-git';
 import { coordinatorClone } from '../../test/helpers/ship-queue-fixture';
@@ -210,6 +212,161 @@ describe('the lock module', () => {
       const plain = take(root, standalone('3'), { breakLock: true, now: at(1) });
       expect(plain.lines).toContain(`LOCK_HOLDER: #5 holder=test:1 phase=waiting since=${new Date(T0).toISOString()}`);
       expect(plain.lines).toContain("LOCK: broke #5's lock (test:1, phase waiting)");
+    });
+  }, 60_000);
+});
+
+/** A real process as a lock records it: its group and kernel start time, with this machine's boot id and pid namespace. */
+function procOf(pid: number, self: LockProcess, boot = self.boot): LockProcess {
+  const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+  const f = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+  return { boot, pidns: self.pidns, pid, pgid: Number(f[2]), start: Number(f[19]), mark: `mark-${pid}-${Date.now()}` };
+}
+/** A detached shell running script; resolves once /proc shows it leading its own process group. */
+async function group(script: string) {
+  const child = spawn('sh', ['-c', script], { detached: true, stdio: 'ignore' });
+  const exited = new Promise<void>(resolve => child.on('exit', () => resolve()));
+  const leads = () => { try { const s = fs.readFileSync(`/proc/${child.pid}/stat`, 'utf8'); return Number(s.slice(s.lastIndexOf(')') + 2).split(' ')[2]) === child.pid; } catch { return false; } };
+  while (!leads()) await Bun.sleep(5);
+  return { pid: child.pid!, exited, kill: () => { try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* gone */ } } };
+}
+
+describe.skipIf(process.platform !== 'linux')('a direct land\'s lock cannot go stale (process-scoped locks)', () => {
+  const pin = (n: string) => `land-pin:${n.repeat(40)}`;
+  const marksDirs: string[] = [];
+  afterEach(() => { while (marksDirs.length) fs.rmSync(marksDirs.pop()!, { recursive: true, force: true }); });
+  const newMarks = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-marks-')); marksDirs.push(d); return d; };
+  const takeDirect = (root: string, pr: string, o: { proc: LockProcess | null; marks: string; now?: () => Date; breakLock?: boolean; journal?: string }) => acquireLandLock({
+    root, holder: `cox.local:${o.proc?.pid ?? 1}`, owner: { pr }, journal: o.journal ?? pin(pr.slice(-1)), now: o.now ?? at(0), phase: () => 'merging', breakLock: o.breakLock,
+    processScoped: { ttlMs: DIRECT_LOCK_TTL_MS, proc: o.proc, marks: o.marks },
+  });
+
+  test('a lock whose land process has exited is taken over without --break-lock, and the takeover is logged in the output and in the new lock', async () => {
+    const self = thisProcess()!;
+    const repo = bareRepo();
+    const marks = newMarks();
+    const dead = await group('sleep 30');
+    const proc = procOf(dead.pid, self);
+    dead.kill();
+    await dead.exited;
+    withRepoEnv(repo, () => {
+      expect(failureOf(takeDirect(repo.work, '4670', { proc, marks }))).toBeNull();
+      expect(readLock(repo.work)).toMatchObject({ state: 'held', lock: { pr: '4670', proc: { pid: dead.pid }, expires_at: new Date(T0 + DIRECT_LOCK_TTL_MS).toISOString() } });
+      const judged = readLock(repo.work).sha;
+      const next = takeDirect(repo.work, '4671', { proc: { ...self, mark: 'next' }, marks, now: at(1) });
+      expect(failureOf(next)).toBeNull();
+      expect(next.lines.join('\n')).toMatch(new RegExp(`^LOCK_TAKEOVER: #4670's land lock \\(holder cox.local:${dead.pid}, phase merging, since .*\\): its land \\(process ${dead.pid}\\) and every process it started have exited$`, 'm'));
+      const now = readLock(repo.work);
+      expect(now).toMatchObject({ state: 'held', lock: { pr: '4671', took_over: { pr: '4670', sha: judged, holder: `cox.local:${dead.pid}` } } });
+      expect(repo.git('log', '-1', '--format=%s', LAND_LOCK_REF)).toContain('(took over #4670: its land');
+    });
+  }, 60_000);
+
+  test('a lock whose land is still running is refused, --break-lock included, even when the land\'s first process exited and left a child running', async () => {
+    const self = thisProcess()!;
+    const repo = bareRepo();
+    const marks = newMarks();
+    const live = await group('sleep 60');
+    const parent = await group('sleep 60 & sleep 0.5; exit 0');
+    try {
+      const parentProc = procOf(parent.pid, self);
+      await parent.exited;
+      withRepoEnv(repo, () => {
+        expect(failureOf(takeDirect(repo.work, '4670', { proc: procOf(live.pid, self), marks }))).toBeNull();
+        for (const breakLock of [false, true]) {
+          const refused = failureOf(takeDirect(repo.work, '4671', { proc: { ...self, mark: 'b' }, marks, now: at(500), breakLock }));
+          expect(refused).toMatchObject({ code: 'QUEUE_LAND_LOCKED' });
+          expect(refused!.message).toContain(`#4670's land is still running: process ${live.pid} of its land`);
+          expect(refused!.fix).toContain(`stop process ${live.pid}`);
+        }
+        live.kill();
+        writeLock(repo.work, readLock(repo.work).sha, { released: true, by: 'test', at: new Date(T0).toISOString() });
+        expect(failureOf(takeDirect(repo.work, '4672', { proc: parentProc, marks }))).toBeNull();
+        const orphaned = failureOf(takeDirect(repo.work, '4673', { proc: { ...self, mark: 'c' }, marks, now: at(1) }));
+        expect(orphaned!.message).toMatch(/#4672's land is still running: process \d+ of its land/);
+        expect(orphaned!.message).not.toContain(`process ${parent.pid} of`);
+      });
+    } finally { live.kill(); parent.kill(); }
+  }, 60_000);
+
+  test('a lock from another machine is refused until it expires, naming the expiry and the fix, then taken over; one this machine wrote before it restarted is taken over at once', () => {
+    const self = thisProcess()!;
+    const repo = bareRepo();
+    const marks = newMarks();
+    withRepoEnv(repo, () => {
+      const elsewhere: LockProcess = { ...self, boot: 'another-boot', pid: 1640, pgid: 1640, start: 1, mark: 'elsewhere' };
+      expect(failureOf(takeDirect(repo.work, '4670', { proc: elsewhere, marks: newMarks() }))).toBeNull();
+      const early = failureOf(takeDirect(repo.work, '4671', { proc: { ...self, mark: 'x' }, marks, now: at(89) }));
+      expect(early).toMatchObject({ code: 'QUEUE_LAND_LOCKED' });
+      expect(early!.message).toContain('its land ran on another machine, so this one cannot check whether it still runs');
+      expect(early!.fix).toContain(`the lock expires at ${new Date(T0 + DIRECT_LOCK_TTL_MS).toISOString()} (in 1 min)`);
+      expect(early!.fix).toContain('--break-lock');
+      const expired = takeDirect(repo.work, '4671', { proc: { ...self, mark: 'y' }, marks, now: at(90) });
+      expect(failureOf(expired)).toBeNull();
+      expect(expired.lines.join('\n')).toContain(`LOCK_TAKEOVER: #4670's land lock (holder cox.local:1640, phase merging, since ${new Date(T0).toISOString()}): it expired at ${new Date(T0 + DIRECT_LOCK_TTL_MS).toISOString()}`);
+
+      const before: LockProcess = { ...self, boot: 'before-restart', pid: 1639, pgid: 1639, start: 1, mark: 'restarted' };
+      writeLock(repo.work, readLock(repo.work).sha, { released: true, by: 'test', at: new Date(T0).toISOString() });
+      expect(failureOf(takeDirect(repo.work, '4672', { proc: before, marks }))).toBeNull();
+      expect(fs.existsSync(path.join(marks, 'restarted.json'))).toBe(true);
+      const rebooted = takeDirect(repo.work, '4673', { proc: { ...self, mark: 'z' }, marks, now: at(1) });
+      expect(failureOf(rebooted)).toBeNull();
+      expect(rebooted.lines.join('\n')).toContain('this machine wrote it before it last restarted, so its land is gone');
+      expect(fs.existsSync(path.join(marks, 'restarted.json'))).toBe(false);
+    });
+  }, 60_000);
+
+  test('a lock from an older gstack (no process, no expiry) expires 90 minutes after its last phase; a deliberate hold refuses even after it expires', () => {
+    const self = thisProcess()!;
+    const repo = bareRepo();
+    const marks = newMarks();
+    withRepoEnv(repo, () => {
+      const old: LandLock = { pr: '4670', holder: 'cox.local:74326', started_at: new Date(T0).toISOString(), phase_at: new Date(T0).toISOString(), phase: 'merging', journal: pin('4') };
+      writeLock(repo.work, readLock(repo.work).sha, old);
+      expect(failureOf(takeDirect(repo.work, '4671', { proc: { ...self, mark: 'p' }, marks, now: at(30) }))!.message).toContain('it records no land process (an older gstack wrote it)');
+      expect(failureOf(takeDirect(repo.work, '4671', { proc: { ...self, mark: 'q' }, marks, now: at(91) }))).toBeNull();
+
+      const holder: LockProcess = { ...self, boot: 'held-boot', pid: 77, pgid: 77, start: 1, mark: 'held' };
+      writeLock(repo.work, readLock(repo.work).sha, { released: true, by: 'test', at: new Date(T0).toISOString() });
+      const tampered = takeDirect(repo.work, '4672', { proc: holder, marks });
+      if (!('held' in tampered)) throw new Error('lock not taken');
+      tampered.held.keepHeld('land.merged_checks changed this checkout\'s git directory while landing #4672');
+      const refused = failureOf(takeDirect(repo.work, '4673', { proc: { ...self, mark: 'r' }, marks, now: at(500) }));
+      expect(refused!.message).toContain('its land left it held on purpose: land.merged_checks changed');
+      expect(refused!.fix).toContain(`gstack-ship-queue land --pr 4672 --pin ${'2'.repeat(40)}`);
+    });
+  }, 60_000);
+
+  test('a stalled takeover never replaces a newer owner\'s lock, and a taken-over land can neither move nor release the lock it lost', async () => {
+    const self = thisProcess()!;
+    const repo = bareRepo();
+    const other = coordinatorClone(repo);
+    const marks = newMarks();
+    const dead = await group('sleep 30');
+    const deadProc = procOf(dead.pid, self);
+    dead.kill();
+    await dead.exited;
+    withRepoEnv(repo, () => {
+      const lost = takeDirect(repo.work, '4670', { proc: deadProc, marks });
+      if (!('held' in lost)) throw new Error('lock not taken');
+      let fresh = '';
+      const stalled = takeDirect(repo.work, '4671', {
+        proc: { ...self, mark: 'stalled' }, marks,
+        now: () => {
+          if (!fresh) {
+            const seen = readLock(other);
+            const w = writeLock(other, seen.sha, { pr: '4672', holder: 'fresh:1', started_at: new Date(T0).toISOString(), phase: 'merging', journal: pin('7'), proc: { ...self, mark: 'fresh' }, expires_at: new Date(T0 + DIRECT_LOCK_TTL_MS).toISOString() });
+            expect(w.ok).toBe(true);
+            fresh = w.sha;
+          }
+          return new Date(T0 + 60_000);
+        },
+      });
+      expect(failureOf(stalled)).toMatchObject({ code: 'QUEUE_LAND_LOCKED', message: 'the land lock moved under this run (another lander took it)' });
+      expect(repo.git('--git-dir', repo.origin, 'rev-parse', LAND_LOCK_REF)).toBe(fresh);
+      expect(lost.held.set('merging')).toMatchObject({ code: 'QUEUE_LAND_LOCKED' });
+      expect(lost.held.release()).toBe(false);
+      expect(readLock(repo.work)).toMatchObject({ state: 'held', lock: { pr: '4672', holder: 'fresh:1' } });
     });
   }, 60_000);
 });

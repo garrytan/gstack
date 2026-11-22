@@ -2998,7 +2998,7 @@ release-file rows):
 | VERSION, the `package.json` version, the CHANGELOG and `.gstack/version-path` are unchanged since the merge base | [`QUEUE_LAND_STAMPED`](troubleshooting.md#queue-land-stamped) |
 | every check at the pin is green with none pending, and each `changelog_fragments.required_checks` entry passed there | [`QUEUE_LAND_CHECKS`](troubleshooting.md#queue-land-checks) |
 | GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
-| land takes the land lock (`land-pin:<pin>` journal, phase `merging`) and re-fetches `origin/main`; it takes over a lock an earlier `land --pin` run of the same PR left, and `--break-lock` breaks another lander's stale lock under the usual rules | `QUEUE_LAND_LOCKED`, `QUEUE_NOT_READY` |
+| land takes the land lock (`land-pin:<pin>` journal, phase `merging`) and re-fetches `origin/main`; it takes over a lock an earlier `land --pin` run of the same PR left, and another lander's lock whose land exited or expired ([the land lock can't go stale](#land-lock)); `--break-lock` breaks a stale lock of unknown state under the usual rules, never a running land's | `QUEUE_LAND_LOCKED`, `QUEUE_NOT_READY` |
 | when the base moved past the pin's merge base and the base policy lists `land.merged_checks`: `--allow-repo-commands` was passed, the pin merges onto the tip without a conflict, and every command passes on that merged tree | [`REPO_COMMANDS_NOT_ALLOWED`](troubleshooting.md#repo-commands-not-allowed), [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean), [`QUEUE_LAND_MERGED_CHECKS`](troubleshooting.md#queue-land-merged-checks) |
 | when the base moved past the pin's merge base and the base policy sets `land.merged_ci`: the workflow's run on the merged commit is green, and `lib/run-evidence.ts` accepts it under the named run profile with the merged tree as its tested tree | [`QUEUE_LAND_MERGED_CHECKS`](troubleshooting.md#queue-land-merged-checks) (a red run), `QUEUE_NOT_READY` |
 
@@ -3109,6 +3109,60 @@ no lock, runs every other check, prints `DRY-RUN: land.merged_checks not run`
 in place of the merged checks, and merges nothing; on a PR that already
 merged it verifies nothing. Under `merge: direct`, `train build` refuses and
 names this command.
+
+<a id="land-lock"></a>
+#### The land lock can't go stale
+
+`land --pin` holds `refs/notes/gstack-land` only while it runs. When that run dies
+(its machine restarts, or the shell that started it is killed), nothing releases the
+lock, and every other land refuses with `QUEUE_LAND_LOCKED`. On 2026-11-22 that kept
+about 15 green gstack PRs waiting for hours behind #4670. So each lock a direct land
+writes records the process holding it (boot id, pid namespace, pid, process group,
+start time and a random mark) and an `expires_at` 90 minutes after its last phase,
+which is longer than any normal land (`land.merged_checks`, up to 45 minutes of
+`land.merged_ci`, then the merge). The run also keeps a mark file under
+`$GSTACK_STATE_ROOT/ship-queue/land-owners/` until it releases. The next land judges
+the lock before anything else:
+
+| The holder is | How land knows | What land does |
+|---|---|---|
+| running | a process in the holder's process group that started at or after it is alive on this machine (the holder, or a child it started, even one orphaned when the holder died) | refuses, even with `--break-lock`, naming the process to stop if it is stuck |
+| gone | that group has no such process left, or this machine's mark file shows it wrote the lock before it last restarted | takes it over, no flag needed |
+| unknown, expired | it ran on another machine, or an older gstack wrote it without a process, and `expires_at` (or its last phase plus 90 minutes) has passed | takes it over, no flag needed |
+| unknown, not expired | as above, before the expiry | refuses with the expiry time and the fix: rerun after it, or pass `--break-lock` once you know that land stopped (the usual `--break-lock` rules apply) |
+| held on purpose | its mark file here records a deliberate hold (`land.merged_checks` changed the checkout's git directory) | refuses on this machine even after the expiry; release it with that PR's own `land --pr <n> --pin <sha>`, as its `LOCK:` line said |
+
+Every takeover prints `LOCK_TAKEOVER: <lock> (holder, phase, since): <why>` and writes
+`took_over` (the PR, the holder, the lock commit it replaced, why and when) into the
+new lock, whose commit subject ends `(took over #<n>: <why>)`, so
+`git log refs/notes/gstack-land` is the takeover log. The takeover is written under an
+exact lease on the lock commit it judged: if another lander moved the lock meanwhile,
+the takeover fails instead of replacing the newer lock, and a land whose lock was taken
+over can no longer move or release it, because a retry adopts only a lock that carries
+its own mark (two machines can share a hostname and a pid). Telling whether a holder
+runs needs Linux's `/proc`; elsewhere only the expiry applies. Locks from the
+stamp-at-merge `land` and from `train land` keep the rules in
+[the per-PR merge step](#gstack-ship-queue-land-the-per-pr-merge-step).
+
+<a id="revert-drill"></a>
+#### The revert drill: proof a repository can undo a bad land fast
+
+A low-risk PR may land on its own green head without being re-tested when main moves
+([the drain lanes](../crew/docs/captain.md#drain-the-queue)) only in a repository that
+has shown it can undo a bad land quickly: if main goes red, its culprit is reverted
+within 30 minutes. The drill proves that once, with a clock:
+
+1. Open a harmless one-line docs PR (a sentence nothing depends on), /ship it, and land
+   it the normal way: `gstack-ship-queue land --pr <n> --pin <head>`.
+2. Make its revert on a fresh branch from main (`git revert --no-edit <merge sha>`),
+   open the PR, /ship it and send it READY. Start the clock at that READY.
+3. Land the revert with `land --pin`, then wait for main's push checks at its merge
+   commit with `gstack-ship-queue verify --post-merge <merge sha>` until it prints
+   `POST_MERGE: green`. Stop the clock.
+4. Report both PRs, both merge commits, the READY time, the green time and the minutes
+   between to the Captain, which records the drill in its notes. Under 30 minutes opens
+   the low-risk lane. Over 30 minutes, the repository keeps re-testing every land until
+   the slow step is fixed and a new drill passes.
 
 <a id="direct-freeze"></a>
 #### The freeze under `merge: direct`: `land --pin --repair`
