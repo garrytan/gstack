@@ -36,7 +36,7 @@ describe('test-changes.yml pull_request_target safety', () => {
 
   test('checks out the base repo only, full history, without persisting the token', () => {
     expect(content.split('\n').filter((l) => /^\s*ref:/.test(l))).toEqual([]);
-    expect(content).toMatch(/fetch-depth: 0/);
+    expect(content).toMatch(/fetch-depth: 0\n\s+filter: blob:none/);
     expect(content).toMatch(/persist-credentials: false/);
   });
 
