@@ -2009,6 +2009,17 @@ those, each with its scope and its reason:
   without a path reports it too, and the pre-push hook scans Dart and Python
   files without one, so a Dart `const token = "<key>";` gets an `env.kv.rust`
   warning there.
+- File names git quotes (GST-3528): pregate and the pre-push hook read each
+  file's name from the diff's `+++ ` header the way git writes it, so the
+  rules that depend on a file's type also read a file whose name holds a
+  non-ASCII letter, a quote or a backslash (git writes `+++ "b/src/cl\303\251.rs"`)
+  or a space (git ends the name with a tab). Before, such a file reached the
+  scanner with no type, so a Rust key in `src/clé.rs` or `src/my file.rs`
+  passed, and the hook listed the first as an unknown file. Such a file is
+  also still scanned the way it was before (as `added.txt` in pregate, with
+  no path in the hook), so it never reports less than before. A name too long
+  to write once decoded is scanned as `added` plus its extension, and a name
+  holding a control character is printed quoted.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with

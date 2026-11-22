@@ -125,6 +125,27 @@ describe("pre-push hook gating", () => {
   });
 });
 
+// Value: protects=pushed files git quotes or tab-ends in the diff header keep their names; fails_when=the hook reports them as an unknown file or a tab-ended name; why_new=GST-3528 had no test; seam=hook on a real repo; no_claim=path-scoped exemptions beyond the file name
+describe("a file git quotes or tab-ends in the diff header keeps its name (GST-3528)", () => {
+  test("a Rust key in src/clé.rs and src/my file.rs is reported under each file's name", () => {
+    const secret = ["sk-live-FAKE-", "Qx9vL2mZ", "p8Rt4Kw7", "Yn3Bh2Jd"].join("");
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commitFiles({ "src/clé.rs": 'fn c() {\n    let token = "' + secret + '";\n}\n', "src/my file.rs": 'fn d() {\n    let token = "' + secret + '";\n}\n' }, "add keys");
+    const { stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(stderr).toContain("env.kv.rust  src/clé.rs:2");
+    expect(stderr).toContain("env.kv.rust  src/my file.rs:2");
+    expect(stderr).not.toContain("(unknown file)");
+  });
+
+  test("a quoted .ts file still gets the no-path warning main gave it", () => {
+    const secret = ["sk-live-FAKE-", "Qx9vL2mZ", "p8Rt4Kw7", "Yn3Bh2Jd"].join("");
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commitFiles({ "src/clé.ts": 'const token = "' + secret + '";\n' }, "add key");
+    const { stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(stderr).toContain("env.kv.rust  src/clé.ts:1");
+  });
+});
+
 // #2856: a 4-part release version is shaped like a public IPv4 address.
 // Assembled at runtime so this file's own pushed diff carries no IP-shaped
 // literal for the repo's pre-push scan to warn about.
