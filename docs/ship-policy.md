@@ -81,7 +81,7 @@ branch that changes the policy.
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
 | `merge` | `train` \| `direct` | `train` | `direct` lands each READY PR at its own green head with [`land --pr <n> --pin <sha>`](#land-direct): no train and no stamp commit, and `train build` refuses. A PR then leaves VERSION, the `package.json` version and the CHANGELOG at its merge base, and the release sets them. Needs `changelog_fragments`, and the stamping `land --pr <n>` refuses under it. `train` keeps merge trains. Read from the base revision only. Needs `min_gstack_version`. |
-| `land` | `{ merged_checks?, docs_only_skip?, merge_commit_paths? }` or `null` | `null` | Under `merge: direct`, the shell commands (1 to 16, one line of at most 512 characters each, 15 minutes each) [`land --pin`](#land-direct) runs on the pin merged onto the base tip when the base moved past the pin's merge base; it lands only when every one exits 0. They are repo commands, so land runs them only with `--allow-repo-commands`, never under `--dry-run`. `null` lands a stale base untested with a `STALE_BASE: warn` line. `docs_only_skip` lists `merged_checks` commands to skip for a docs-only pin ([pregate.md](pregate.md#docs-only)) and needs `min_gstack_version` at its own release (`LAND_DOCS_ONLY_SKIP_KEY_VERSION`), because older releases refuse it. `merge_commit_paths` (1 to 64 git glob pathspecs, no `..`) makes every land form keep a merge commit, with the plain subject and body, for a PR that changes a matching path, such as an eval results PR whose run records point to its own commits; with it, `merged_checks` may be left out, and it needs `min_gstack_version` at its own release (`LAND_MERGE_COMMIT_PATHS_KEY_VERSION`). Any other key under `land` is a warning, ignored. Read from the base revision only. Needs `min_gstack_version`. |
+| `land` | `{ merged_checks?, docs_only_skip?, merge_commit_paths?, merged_ci? }` or `null` | `null` | Under `merge: direct`, the shell commands (1 to 16, one line of at most 512 characters each, 15 minutes each) [`land --pin`](#land-direct) runs on the pin merged onto the base tip when the base moved past the pin's merge base; it lands only when every one exits 0. They are repo commands, so land runs them only with `--allow-repo-commands`, never under `--dry-run`. `null` lands a stale base untested with a `STALE_BASE: warn` line. `docs_only_skip` lists `merged_checks` commands to skip for a docs-only pin ([pregate.md](pregate.md#docs-only)) and needs `min_gstack_version` at its own release (`LAND_DOCS_ONLY_SKIP_KEY_VERSION`), because older releases refuse it. `merge_commit_paths` (1 to 64 git glob pathspecs, no `..`) makes every land form keep a merge commit, with the plain subject and body, for a PR that changes a matching path, such as an eval results PR whose run records point to its own commits; with it, `merged_checks` may be left out, and it needs `min_gstack_version` at its own release (`LAND_MERGE_COMMIT_PATHS_KEY_VERSION`). `merged_ci` (`{ workflow, profile }`) dispatches that workflow on the merged commit after any `merged_checks` pass and lands only when its run passes the named run profile of `.gstack/pregate.json` ([land --pin](#land-direct)); with it, `merged_checks` may be left out, and an older gstack ignores it with a warning. Any other key under `land` is a warning, ignored. Read from the base revision only. Needs `min_gstack_version`. |
 | `docs_only` | `{ allow, deny?, tests? }` or `null` | `null` | Human-docs paths beyond `README.md`, `docs/**.md` and `changelog.d/*.md` for the [docs-only class](pregate.md#repo-docs-paths) (`{ "allow": ["wiki/board/**.md"] }`). `allow` (1 to 16) takes narrow Markdown globs: each ends in `.md`, starts with a literal directory or file name, and passes through no hidden, code, test or agent directory; `**`, `*`, `*.md` and patterns naming agent files are `POLICY_INVALID` with an example of a narrow one. `deny` (up to 64 globs) removes paths, built-in ones included. `tests` (up to 16 test files) are the repository's checks for those directories: the docs lane runs them, and a non-prose file that reads an allowed directory refuses the class unless it is tied to one; a listed test missing from the branch refuses it too. The built-in deny list always wins. Any other key under `docs_only` is a warning, and the classifier then ignores `allow`. Read from the base revision only; a pull request that edits this file is never docs-only. Needs `min_gstack_version`. |
 | `release_gate` | `{ cadence_hours, gate_workflow, branch, stable_ref, check_name, on_red, bisect_spend_cap_usd }` or `null` | `null` | One full paid gate on main every `cadence_hours` (8 to 168) instead of the per-push main backstop, feeding the stable release; see [release_gate](#release-gate). Every field is required: `on_red` is `hold-release`, `bisect_spend_cap_usd` 0 to 500 (0 skips the bisect). `null` keeps the per-push backstop. Needs `min_gstack_version`. |
 | `bookkeeping` | glob list | `[]` | <a id="bookkeeping"></a>Root-anchored globs of bookkeeping tables a verify or ratchet step rewrites (size baselines, serial lists, limits), each ending in `.tsv`, `.csv` or `.txt` and never under `.gstack/` or `.github/` (`["scripts/*-baseline.tsv"]`). A matching file changed at most 20 lines after review binds, first touched or not, takes finish's [one scoped reader](review-policy.md#bounded-post-review-edits) instead of Steps 5–11.5; the reader still reads every changed row. Read from the base revision only. Needs `min_gstack_version`. |
@@ -2965,14 +2965,15 @@ release-file rows):
 | GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
 | land takes the land lock (`land-pin:<pin>` journal, phase `merging`) and re-fetches `origin/main`; it takes over a lock an earlier `land --pin` run of the same PR left, and `--break-lock` breaks another lander's stale lock under the usual rules | `QUEUE_LAND_LOCKED`, `QUEUE_NOT_READY` |
 | when the base moved past the pin's merge base and the base policy lists `land.merged_checks`: `--allow-repo-commands` was passed, the pin merges onto the tip without a conflict, and every command passes on that merged tree | [`REPO_COMMANDS_NOT_ALLOWED`](troubleshooting.md#repo-commands-not-allowed), [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean), [`QUEUE_LAND_MERGED_CHECKS`](troubleshooting.md#queue-land-merged-checks) |
+| when the base moved past the pin's merge base and the base policy sets `land.merged_ci`: the workflow's run on the merged commit is green, and `lib/run-evidence.ts` accepts it under the named run profile with the merged tree as its tested tree | [`QUEUE_LAND_MERGED_CHECKS`](troubleshooting.md#queue-land-merged-checks) (a red run), `QUEUE_NOT_READY` |
 
 Release outputs (the agents digest) are checked by the Version Gate, which must
 be green at the pin: it accepts an output only when it equals what the release
 tool generates at the merge base's VERSION. A green PR merged onto newer
 commits can still break main (#3886 pushed ship/DRIVER.md past its size cap
 that way). So when the base moved, land builds the pin merged onto the tip of
-`origin/main` in a throwaway worktree (the checkout's `node_modules` linked
-in), runs each `land.merged_checks` command there in order, and prints
+`origin/main` in a fresh clone outside the checkout, with its own `.git` and a
+copy of the checkout's `node_modules`, runs each `land.merged_checks` command there in order, and prints
 `MERGED_CHECKS: pass tree=<tree> base=<tip> pin=<pin> checks: …`. The
 commands are repo commands: the merged tree's `package.json` decides what
 `bun run` does, so the PR controls them. Land runs them only with
@@ -2992,12 +2993,35 @@ land's starting environment to a same-user process. A check that moves HEAD
 off the merged commit fails. Land re-reads the base policy after the locked
 fetch, so a `land.merged_checks` that main gained meanwhile applies. When the
 merged tree's lockfile or `package.json` dependencies differ from the
-checkout's, the linked `node_modules` can't vouch for it: land refuses with
-`QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships. It doesn't sandbox
-the filesystem: a command can still write the checkout's `.git` (the worktree
-shares it) and the linked `node_modules`, and read anything the user can (other
-processes' environments, credential files), so pass the flag only for a base
-policy and PRs you trust to run. A list such
+checkout's, the copied `node_modules` can't vouch for it: land refuses with
+`QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships.
+What a check writes in the clone (its `.git`, hooks, config or `node_modules`)
+stays there, and land deletes the clone afterward. A check still runs as
+land's user, so it can write outside the clone by absolute path, to files
+land's later git and gh calls read with land's full environment. So before the
+checks land pins the absolute paths of `git` and `gh` (`lib/tool-path.ts`) and puts
+their directories first on its own `PATH`, so a `git` a check drops earlier on
+`PATH` never runs, and it records the config and hooks of the checkout's git
+directories, the `commondir` and `gitdir` files and the checkout's `.git` that say
+where git finds them, every config file git loads in the checkout (includes
+and the global file among them, plus the global and XDG files when absent),
+gh's `config.yml` and `hosts.yml`, the pinned `git` and `gh` files, and every hop of
+a symlink among them. When a check changed or added any of them, land
+restores nothing: it refuses with `QUEUE_LAND_MERGED_CHECKS` naming each path,
+makes no further git or gh call and leaves the land lock held. Inspect each
+named path and restore it from a trusted copy (delete a hook the checks
+added), then release the lock without running the checks with
+`gstack-ship-queue land --pr <n> --pin <sha>` (no `--allow-repo-commands`: it
+refuses with `REPO_COMMANDS_NOT_ALLOWED` and releases the lock). Land's own git
+calls in the clone run with the checks' environment, and no git call
+`gstack-ship-queue land` makes runs a hook or fsmonitor. That includes the managed
+pre-push guard: land pushes only the lock and notes it writes and, under
+`land.merged_ci`, the merged commit of commits that were already pushed, and a
+hook run after the checks is the opening this closes. It doesn't otherwise
+sandbox the filesystem: a command can still write the checkout's other files
+and read anything the user can (other processes' environments, credential
+files), so pass the flag only for a base policy and PRs you trust to
+run. A list such
 as typecheck plus the size ratchets takes about two minutes, against a main
 merge, a CI round and a new receipt per PR. gstack's own policy runs
 typecheck, the generated-docs freshness check, and the size and budget guards
@@ -3008,7 +3032,25 @@ plus the core files of `test:quick` through the strict free runner on
 doesn't run `test:quick` itself, because its browser tests find no Chromium
 under the throwaway `HOME`. Without the key, land prints
 `STALE_BASE: warn … no land.merged_checks configured` and merges the stale
-base untested, as it did before the key. Then land runs `gh pr merge
+base untested, as it did before the key.
+
+When the base policy sets `land.merged_ci` (`{ workflow, profile }`), land then runs CI
+on the same merged tree: it pushes the merged commit to the scratch branch
+`gstack-land/<n>`, dispatches the workflow there, waits up to 45 minutes, and
+prints `MERGED_CI: pass <workflow> run <url> on the merged tree <tree> (profile
+<profile>)` only when `lib/run-evidence.ts` accepts the run under that run profile
+of the base's `.gstack/pregate.json`, with the merged commit as its head and the
+merged tree as its tested tree. A red run refuses with
+`QUEUE_LAND_MERGED_CHECKS`; a run that can't be pushed, dispatched, finished in
+time or proved refuses with `QUEUE_NOT_READY`; the branch is deleted either way.
+The run is on CI runners, so it needs no `--allow-repo-commands`, and
+`--dry-run` dispatches nothing. gstack's own policy dispatches `free-tests.yml`
+under `ci-reuse/free-tests`, so the whole free suite has run on a stale-base tree
+before it lands (about 5 minutes); its `merged_checks` still run first and fail
+fast. A rerun after the merge checks the landed tree with `merged_checks` only,
+and main's own push run tests it in CI.
+
+Then land runs `gh pr merge
 --squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),
 reads the merge commit, and checks that its tree is the pin merged onto the
 merge commit's parent. The land lock keeps other gstack landers off main
@@ -3309,6 +3351,46 @@ PR whose check is red or missing. A PR opened before the workflow existed has no
 run until its title or body is edited or a commit is pushed; do one of those
 before landing it. The workflow reads the PR body from the event file, not an
 environment variable, so a very long body still reaches the checker.
+
+<a id="test-changes"></a>
+## Test changes: what a pull request does to its own tests (flag only)
+
+`.github/workflows/test-changes.yml` adds a **Test changes** check to every pull
+request in this repository. It is a two-week, flag-only trial (GST-3386): it is not
+a required check, and a flag never turns it red. A run that fails because the scan
+itself broke does show red, and `gstack-ship-queue land` refuses a pull request with
+any failed check at its head, so rerun that job from the Actions page before landing.
+
+It reports three things in the check's summary:
+
+- hunks that `bin/gstack-gate-diff` tags as removing or skipping a test (RH-1),
+  adding a suppression (RH-13), bypassing a gate (RH-14) or relaxing a gate value
+  (RH-15), by path and hunk id;
+- the number of test declarations the pull request adds and removes;
+- edits to the files that run or define this repository's own checks: any
+  workflow, `.gstack/`, `package.json`, the lockfile, `bunfig.toml`, the free-suite
+  shard runner and engine, `scripts/ci-tree-reuse.ts`, `lib/run-evidence.ts` and
+  `test/land-merged-checks.txt`.
+
+The workflow runs on `pull_request_target`, so main's copy of the workflow, of
+`scripts/test-changes-report.ts` and of the gate scan reports on the pull request,
+and the pull request can't edit the checker. It checks out main only, fetches the
+pull request's commits as git objects, and reads them with
+`gstack-gate-diff <base> --head <sha>`, which diffs merge-base to that commit without
+touching the working tree. The report names paths, tags and hunk ids, never the
+pull request's line content. A flag never turns the check red. The check fails only
+when the scan itself fails, so a broken run is never read as a quiet pull request.
+
+Each flag wants a reason in the pull request or a reviewer's ruling. The flags
+don't replace /review's and /ship's gate findings, which still need an owner ruling
+([gate dispositions](#gate-dispositions)).
+
+Replayed over the 303 landings on main from 2026-11-07 to 2026-11-21
+(`gstack-gate-diff --commit` on each landing), 24 (8%) carried at
+least one of the four tags and 50 (17%) edited a listed check file, about 12 and
+25 a week. The trial counts how many flags had a reason. A rule that would make
+`gstack-ship-queue land` refuse a pull request that edits its own checks without an
+owner ruling is out of scope until the trial reports.
 
 ## Approval classes
 

@@ -23,6 +23,7 @@
  */
 import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process';
 import { spawnSync } from './spawn-sync';
+import { pathWithGit, toolPath } from './tool-path';
 import type { GhResult, GhRunner } from './ci-gate';
 
 export const MIN_POLL_MS = 60_000;
@@ -113,7 +114,8 @@ export const syncLimitEnv: LimitEnv = {
 export function ghSpawnSync(args: string[], options: SpawnSyncOptionsWithStringEncoding): SpawnSyncReturns<string> {
   let last: SpawnSyncReturns<string> | undefined;
   const run = withRateLimit(a => {
-    const r = spawnSync('gh', a, options);
+    const env = options.env ?? process.env;
+    const r = spawnSync(toolPath('gh', env.PATH), a, { ...options, env: { ...env, PATH: pathWithGit(env.PATH) } });
     if (a === args) last = r;
     return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', ...(r.error ? { error: String(r.error.message) } : {}) };
   }, syncLimitEnv);
