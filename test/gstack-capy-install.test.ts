@@ -436,10 +436,6 @@ describe('gstack-capy-install', () => {
     expect(admits('ship')?.detail).toBe('the install verdict certified for=document-release, which does not cover codex that ship needs');
   });
 
-  // GST-1233 (TRUT-26): the union above needs the same Bun and an ok run, so a child whose shell
-  // resolves another Bun, or whose install fails, still replaced the shared verdict and /ship's
-  // finish pregate reported INSTALL_UNVERIFIED. Each workflow keeps its own verdict as well.
-
   test('--root clones when the directory is absent and refuses a non-gstack directory', () => {
     const f = fixture();
     const clone = path.join(f.base, 'clone');
