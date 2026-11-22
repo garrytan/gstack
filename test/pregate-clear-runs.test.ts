@@ -78,7 +78,7 @@ function runOfWorkflow(repo: FixtureRepo, head: string, workflow: string, state:
   const c = check(repo, []);
   const run = (id: number): ApiRun => {
     if (id !== 300) throw new Error('HTTP 404');
-    return { id, run_attempt: 1, ...state, event: 'pull_request', head_sha: head, path: `.github/workflows/${workflow}`, repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
+    return { id, run_attempt: 1, ...state, event: 'workflow_dispatch', head_sha: head, path: `.github/workflows/${workflow}`, repository: { full_name: 'fx/fx' }, head_repository: { full_name: 'fx/fx' } };
   };
   return { ...c, deps: { ...c.deps, run, jobs: () => jobs } };
 }
@@ -231,7 +231,7 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
 
   test('a reusable-workflow lane (workflow_call only) clears from a run of a caller whose job uses ./.github/workflows/<lane workflow>; an unrelated workflow still refuses, and no fix line dispatches a workflow without workflow_dispatch (GST-971)', async () => {
     const repo = fixture();
-    const head = repo.git('rev-parse', 'HEAD');
+    let head = repo.git('rev-parse', 'HEAD');
     const base = await pregateAt(repo);
     const wf = (name: string, text: string) => { fs.mkdirSync(path.join(repo.work, '.github/workflows'), { recursive: true }); fs.writeFileSync(path.join(repo.work, '.github/workflows', name), text); };
     wf('r.yml', 'name: Reusable\non:\n  workflow_call:\n    inputs:\n      scope:\n        type: string\njobs:\n  job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo reusable\n');
@@ -241,7 +241,7 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     const file: PregateFile = { ...base, requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'r.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
     const url = 'https://github.com/fx/fx/actions/runs/300';
     const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}; fix: ${d.fix}` : `cleared ${d.receipt}`);
-    const at = (): PregateFile => { repo.git('add', '-A', '.github'); return { ...file, tree: repo.git('write-tree') }; };
+    const at = (): PregateFile => { repo.git('add', '-A', '.github'); repo.git('commit', '-q', '--allow-empty', '-m', 'workflows'); head = repo.git('rev-parse', 'HEAD'); return { ...file, head, tree: repo.git('rev-parse', 'HEAD^{tree}') }; };
     expect(msg(clearDecision(at(), PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
     expect(msg(clearDecision(at(), PLATFORM, { runUrl: `${url}/job/9`, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
     expect(msg(clearDecision(at(), PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', undefined, [{ name: 'native (linux) / job', conclusion: 'success' }]) }, repo.work))).toBe(`cleared ${url}/attempts/1`);
@@ -257,9 +257,40 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     expect(msg(clearDecision(at(), PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
   }, 120_000);
 
+  // Value: protects=a workflow_call-only lane clears from a caller run only when that run tested pregate.json's exact head and tree (GST-3554); fails_when=a green caller run of another commit, a pull_request merge or a tree pregate.json did not record clears the lane
+  test('a caller run of a reusable-workflow lane clears only when it tested pregate.json\'s head and tree; another commit, a pull_request merge or another tree refuses (GST-3554)', async () => {
+    const repo = fixture();
+    const before = repo.git('rev-parse', 'HEAD');
+    const base = await pregateAt(repo);
+    const dir = path.join(repo.work, '.github/workflows');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'r.yml'), 'name: Reusable\non:\n  workflow_call:\njobs:\n  job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo r\n');
+    fs.writeFileSync(path.join(dir, 'c.yml'), 'name: Caller\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  native:\n    uses: ./.github/workflows/r.yml\n');
+    repo.git('add', '-A', '.github');
+    repo.git('commit', '-q', '-m', 'workflows');
+    const head = repo.git('rev-parse', 'HEAD');
+    const tree = repo.git('rev-parse', 'HEAD^{tree}');
+    const PLATFORM = 'r.yml/job';
+    const file: PregateFile = { ...base, head, tree, requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'r.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
+    const url = 'https://github.com/fx/fx/actions/runs/300';
+    const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}; fix: ${d.fix}` : `cleared ${d.receipt}`);
+    const refused = (why: string, fix: string) => `PREGATE_RECEIPT_INVALID: REUSE: refused reason=${why}; ${PLATFORM} stays uncleared; fix: ${fix}`;
+    const fresh = `gh workflow run c.yml --ref <branch> at ${head.slice(0, 12)}, then gstack-pregate clear --remote ${PLATFORM} --run-url <that run's URL>`;
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, before, 'c.yml') }, repo.work))).toBe(refused(`head_mismatch — run 300 attempt 1 of c.yml ran at ${before.slice(0, 12)}, not pregate.json's head ${head.slice(0, 12)}, and a caller run clears r.yml only at that exact head`, fresh));
+    const pr = runOfWorkflow(repo, head, 'c.yml');
+    const prRun = pr.deps.run;
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: { ...pr, deps: { ...pr.deps, run: id => ({ ...prRun(id), event: 'pull_request' }) } } }, repo.work))).toBe(refused('merge_tested — run 300 attempt 1 of c.yml is a pull_request run, which tested GitHub\'s merge of the head with its base, not the head itself', fresh));
+    fs.writeFileSync(path.join(repo.work, 'lib/uncommitted.js'), 'exports.x = 1;\n');
+    repo.git('add', '-A');
+    const dirty = repo.git('write-tree');
+    expect(msg(clearDecision({ ...file, tree: dirty }, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(refused(`tree_mismatch — run 300 attempt 1 of c.yml tested tree ${tree.slice(0, 12)} at its head, not pregate.json's tree ${dirty.slice(0, 12)}`, `commit what pregate.json recorded, rerun gstack-pregate, then ${fresh}`));
+    expect(msg(clearDecision({ ...file, head: undefined }, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(refused(`head_mismatch — run 300 attempt 1 of c.yml ran at ${head.slice(0, 12)}, not pregate.json's head (none recorded), and a caller run clears r.yml only at that exact head`, `rerun gstack-pregate at the head, then gh workflow run c.yml --ref <branch> at the head, then gstack-pregate clear --remote ${PLATFORM} --run-url <that run's URL>`));
+  }, 120_000);
+
   test('a caller run counts only through a successful <calling job> / <lane job> job; names with comments or expressions match; callers are read at pregate.json\'s tree, not the working tree; a flow-mapping on: with workflow_dispatch counts (GST-971 fix-check)', async () => {
     const repo = fixture();
-    const head = repo.git('rev-parse', 'HEAD');
+    let head = repo.git('rev-parse', 'HEAD');
     const base = await pregateAt(repo);
     const PLATFORM = 'r.yml/job';
     const lane: PregateFile = { ...base, requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'r.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
@@ -270,7 +301,9 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
       'c.yml': 'name: Caller\non: { pull_request: {}, workflow_dispatch: {} }\njobs:\n  native:\n    name: Native (${{ inputs.scope }}) # calls r.yml\n    uses: ./.github/workflows/r.yml\n',
     });
     repo.git('add', '-A', '.github');
-    const file: PregateFile = { ...lane, tree: repo.git('write-tree') };
+    repo.git('commit', '-q', '-m', 'workflows');
+    head = repo.git('rev-parse', 'HEAD');
+    const file: PregateFile = { ...lane, head, tree: repo.git('rev-parse', 'HEAD^{tree}') };
     const url = 'https://github.com/fx/fx/actions/runs/300';
     const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}; fix: ${d.fix}` : `cleared ${d.receipt}`);
     const caller = (jobs: ApiJob[], state?: Pick<ApiRun, 'status' | 'conclusion'>) => msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml', state, jobs) }, repo.work));

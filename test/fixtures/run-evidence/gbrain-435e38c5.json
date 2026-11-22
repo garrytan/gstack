@@ -1,0 +1,298 @@
+{
+  "source": "garrytan/gbrain #10021 at 435e38c5, read with gh api on 2026-11-22 (GST-3554); trimmed to the fields verifyRun reads",
+  "head": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+  "tree": "a23834cdcc7849b7f02927a6cbb17e0fc2ab1d03",
+  "profiles": {
+    "macos-validation.yml/macos-26": {
+      "workflow": "macos-validation.yml",
+      "events": [
+        "workflow_dispatch"
+      ],
+      "jobs": [
+        "macOS 26 validation"
+      ],
+      "artifact": "macos-26-tree",
+      "os": "macOS"
+    },
+    "native-locks.yml/native": {
+      "workflow": "test.yml",
+      "events": [
+        "workflow_dispatch",
+        "push"
+      ],
+      "jobs": [
+        "full-suite",
+        "native-locks / linux-x64-glibc / Bun 1.4.4",
+        "native-locks / linux-arm64-glibc / Bun 1.4.4",
+        "native-locks / darwin-arm64 / Bun 1.4.4",
+        "native-locks / darwin-x64 / Bun 1.4.4",
+        "native-locks / win32-x64 / Bun 1.4.4",
+        "native-locks / win32-arm64 / Bun 1.4.4"
+      ],
+      "artifact": "full-suite-tree"
+    }
+  },
+  "macos": {
+    "runs_for_head": [
+      {
+        "id": 45041640526,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "skipped",
+        "event": "pull_request",
+        "head_sha": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+        "head_branch": "fix/skill-resolver-symlinked-skills",
+        "path": ".github/workflows/macos-validation.yml",
+        "created_at": "2026-11-22T16:03:04Z",
+        "run_started_at": "2026-11-22T16:03:04Z",
+        "updated_at": "2026-11-22T16:03:05Z",
+        "repository": {
+          "full_name": "garrytan/gbrain"
+        },
+        "head_repository": {
+          "full_name": "garrytan/gbrain"
+        }
+      },
+      {
+        "id": 45041640171,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "head_sha": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+        "head_branch": "fix/skill-resolver-symlinked-skills",
+        "path": ".github/workflows/macos-validation.yml",
+        "created_at": "2026-11-22T16:03:04Z",
+        "run_started_at": "2026-11-22T16:03:04Z",
+        "updated_at": "2026-11-22T16:46:07Z",
+        "repository": {
+          "full_name": "garrytan/gbrain"
+        },
+        "head_repository": {
+          "full_name": "garrytan/gbrain"
+        }
+      },
+      {
+        "id": 44987920051,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "skipped",
+        "event": "pull_request",
+        "head_sha": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+        "head_branch": "fix/skill-resolver-symlinked-skills",
+        "path": ".github/workflows/macos-validation.yml",
+        "created_at": "2026-11-22T05:06:09Z",
+        "run_started_at": "2026-11-22T05:06:09Z",
+        "updated_at": "2026-11-22T05:06:10Z",
+        "repository": {
+          "full_name": "garrytan/gbrain"
+        },
+        "head_repository": {
+          "full_name": "garrytan/gbrain"
+        }
+      }
+    ],
+    "dispatch": {
+      "id": 45041640171,
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "success",
+      "event": "workflow_dispatch",
+      "head_sha": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+      "head_branch": "fix/skill-resolver-symlinked-skills",
+      "path": ".github/workflows/macos-validation.yml",
+      "created_at": "2026-11-22T16:03:04Z",
+      "run_started_at": "2026-11-22T16:03:04Z",
+      "updated_at": "2026-11-22T16:46:07Z",
+      "repository": {
+        "full_name": "garrytan/gbrain"
+      },
+      "head_repository": {
+        "full_name": "garrytan/gbrain"
+      }
+    },
+    "jobs": [
+      {
+        "name": "macOS 26 typecheck",
+        "conclusion": "success",
+        "started_at": "2026-11-22T16:25:31Z",
+        "completed_at": "2026-11-22T16:34:43Z"
+      },
+      {
+        "name": "macOS 26 validation",
+        "conclusion": "success",
+        "started_at": "2026-11-22T16:34:46Z",
+        "completed_at": "2026-11-22T16:46:07Z"
+      }
+    ],
+    "artifact": {
+      "tree": "a23834cdcc7849b7f02927a6cbb17e0fc2ab1d03",
+      "sha": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+      "workflow": "macOS 26 validation",
+      "event": "workflow_dispatch",
+      "run_id": 45041640171,
+      "run_attempt": 1,
+      "os": "macOS",
+      "files": [
+        "test/connector-physical-root-device.test.ts",
+        "test/persistence-physical-root-device.test.ts"
+      ]
+    }
+  },
+  "test": {
+    "runs_for_head": [
+      {
+        "id": 45041701289,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "head_sha": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+        "head_branch": "fix/skill-resolver-symlinked-skills",
+        "path": ".github/workflows/test.yml",
+        "created_at": "2026-11-22T16:03:42Z",
+        "run_started_at": "2026-11-22T16:03:42Z",
+        "updated_at": "2026-11-22T16:47:33Z",
+        "repository": {
+          "full_name": "garrytan/gbrain"
+        },
+        "head_repository": {
+          "full_name": "garrytan/gbrain"
+        }
+      },
+      {
+        "id": 44987920129,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "event": "pull_request",
+        "head_sha": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+        "head_branch": "fix/skill-resolver-symlinked-skills",
+        "path": ".github/workflows/test.yml",
+        "created_at": "2026-11-22T05:06:09Z",
+        "run_started_at": "2026-11-22T05:06:09Z",
+        "updated_at": "2026-11-22T05:11:49Z",
+        "repository": {
+          "full_name": "garrytan/gbrain"
+        },
+        "head_repository": {
+          "full_name": "garrytan/gbrain"
+        }
+      }
+    ],
+    "jobs": [
+      {
+        "completed_at": "2026-11-22T16:05:59Z",
+        "conclusion": "success",
+        "name": "native-locks / Windows PowerShell console probe / windows-2022 / Bun 1.4.4",
+        "started_at": "2026-11-22T16:05:12Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:06:32Z",
+        "conclusion": "success",
+        "name": "native-locks / Windows PowerShell console probe / windows-11-arm / Bun 1.4.4",
+        "started_at": "2026-11-22T16:05:16Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:06:25Z",
+        "conclusion": "success",
+        "name": "native-locks / OpenClaw 2026.9.4 native context-engine startup",
+        "started_at": "2026-11-22T16:05:09Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:05:55Z",
+        "conclusion": "success",
+        "name": "native-locks / linux-x64-musl / Bun 1.4.4",
+        "started_at": "2026-11-22T16:05:09Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:05:35Z",
+        "conclusion": "success",
+        "name": "native-locks / linux-arm64-musl / Bun 1.4.4",
+        "started_at": "2026-11-22T16:04:51Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:06:38Z",
+        "conclusion": "success",
+        "name": "native-locks / Windows ACL API probe / windows-2022 / Bun 1.4.4",
+        "started_at": "2026-11-22T16:05:45Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:07:41Z",
+        "conclusion": "success",
+        "name": "native-locks / Windows ACL API probe / windows-11-arm / Bun 1.4.4",
+        "started_at": "2026-11-22T16:05:12Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:14:50Z",
+        "conclusion": "success",
+        "name": "native-locks / win32-arm64 / Bun 1.4.4",
+        "started_at": "2026-11-22T16:06:07Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:46:54Z",
+        "conclusion": "success",
+        "name": "native-locks / darwin-arm64 / Bun 1.4.4",
+        "started_at": "2026-11-22T16:43:40Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:06:58Z",
+        "conclusion": "success",
+        "name": "native-locks / linux-x64-glibc / Bun 1.4.4",
+        "started_at": "2026-11-22T16:05:09Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:06:55Z",
+        "conclusion": "success",
+        "name": "native-locks / linux-arm64-glibc / Bun 1.4.4",
+        "started_at": "2026-11-22T16:04:51Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:13:46Z",
+        "conclusion": "success",
+        "name": "native-locks / win32-x64 / Bun 1.4.4",
+        "started_at": "2026-11-22T16:07:05Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:12:02Z",
+        "conclusion": "success",
+        "name": "native-locks / darwin-x64 / Bun 1.4.4",
+        "started_at": "2026-11-22T16:06:48Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:04:19Z",
+        "conclusion": "skipped",
+        "name": "reused-full-suite",
+        "started_at": "2026-11-22T16:04:19Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:47:10Z",
+        "conclusion": "success",
+        "name": "native-locks / darwin-x64 heartbeat finalize",
+        "started_at": "2026-11-22T16:46:57Z"
+      },
+      {
+        "completed_at": "2026-11-22T16:47:33Z",
+        "conclusion": "success",
+        "name": "full-suite",
+        "started_at": "2026-11-22T16:47:20Z"
+      }
+    ],
+    "artifact": {
+      "tree": "a23834cdcc7849b7f02927a6cbb17e0fc2ab1d03",
+      "sha": "435e38c5c2eae4508a0cb0daeb3933efef07a12f",
+      "workflow": "Test",
+      "event": "workflow_dispatch",
+      "run_id": 45041701289,
+      "run_attempt": 1,
+      "profile": "full",
+      "os": "Linux",
+      "files": [
+        "evals/functional-area-resolver/harness-runner.test.ts",
+        "test/abort-check.test.ts",
+        "test/accepted-pending-status.test.ts"
+      ],
+      "tests": 74955
+    }
+  }
+}
