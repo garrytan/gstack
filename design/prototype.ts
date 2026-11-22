@@ -9,6 +9,7 @@
 import fs from "fs";
 import path from "path";
 import { openaiUrl } from "./src/auth";
+import { designModel, imageToolModel } from "./src/models";
 import { receiptedFetch } from "./src/receipted-fetch";
 
 const API_KEY = process.env.OPENAI_API_KEY;
@@ -53,10 +54,11 @@ async function generateMockup(brief: { name: string; prompt: string }) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model: designModel("image"),
       input: brief.prompt,
       tools: [{
         type: "image_generation",
+        model: imageToolModel(),
         size: "1536x1024",
         quality: "high"
       }],
