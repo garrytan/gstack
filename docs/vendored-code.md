@@ -183,6 +183,7 @@ vendored files make a pattern keep too many files, the refusal names them as
 `REVIEW_VENDORED_KEPT` and points at `gstack-vendored-verify`.
 
 How much this saves depends on the gate tags. On harness-evals#504 (1,056
-upstream test files), 877 files and 4.47 MB leave review, but 166 gate-tagged
-upstream test files (5.85 MB, mostly skip markers) stay whole, so that PR
-stays over the 2 MB reader limit.
+upstream test files), 877 files and 4.47 MB leave review, but 161 gate-tagged
+upstream test files (5.83 MB, mostly skip markers) stay whole, so that PR
+stays over the 2 MB reader limit; 5 gate-tagged `pyproject.toml` files are
+shown as excerpts.
