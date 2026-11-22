@@ -9,19 +9,23 @@
  * their own command and do not take this lock.
  *
  * The lock is a pid file in the repository's git common dir, published with a
- * hard link so it is never seen half-written. Every hold is one git call with a
- * 60 s timeout, so a lock whose holder is dead, or one older than STALE_MS (a
- * killed holder's pid can be reused after a restart), is taken over: it is
- * renamed aside and removed only if it is still the file that was judged stale.
+ * hard link so it is never seen half-written, and its mtime is set when it is
+ * taken. Every hold is one git call with a 60 s timeout, so a lock whose holder
+ * is dead, whose pid is this process's own, or that is older than STALE_MS (a
+ * killed holder's pid can be reused after a restart) is stale. Only one waiter
+ * at a time may remove a stale lock (the takeover directory), and it removes the
+ * lock only if the file there is still the one it judged stale and still stale.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from './spawn-sync';
 
 const STALE_MS = 120_000;
+const TAKEOVER_STALE_MS = 10_000;
 const LOCK_NAME = 'gstack-worktree.lock';
 
 type GitResult = { ok: boolean; out: string; err: string; status: number | null };
+type Held = { ino: number; mtimeMs: number; pid: number };
 
 function git(cwd: string, args: string[]): GitResult {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000 });
@@ -33,29 +37,54 @@ function holderAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === 'EPERM'; }
 }
 
+function readHeld(lock: string): Held | null {
+  try {
+    const fd = fs.openSync(lock, 'r');
+    try { const st = fs.fstatSync(fd); return { ino: st.ino, mtimeMs: st.mtimeMs, pid: Number(fs.readFileSync(fd, 'utf8')) }; } finally { fs.closeSync(fd); }
+  } catch { return null; }
+}
+
+const isStale = (h: Held) => h.pid === process.pid || !holderAlive(h.pid) || Date.now() - h.mtimeMs >= STALE_MS;
+const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+
+function takeOverStale(lock: string, judged: Held): void {
+  const gate = `${lock}.takeover`;
+  try { fs.mkdirSync(gate); } catch (e: any) {
+    if (e?.code !== 'EEXIST') throw e;
+    try { if (Date.now() - fs.statSync(gate).mtimeMs >= TAKEOVER_STALE_MS) fs.rmSync(gate, { recursive: true, force: true }); } catch { /* gone */ }
+    pause();
+    return;
+  }
+  try {
+    const now = readHeld(lock);
+    if (now && now.ino === judged.ino && isStale(now)) fs.rmSync(lock, { force: true });
+  } finally { fs.rmSync(gate, { recursive: true, force: true }); }
+}
+
 export function withWorktreeLock<T>(repoRoot: string, fn: () => T): T {
   const common = git(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   if (!common.ok) return fn();
   const lock = path.join(common.out, LOCK_NAME);
   const staged = `${lock}.${process.pid}`;
   fs.writeFileSync(staged, String(process.pid));
+  let mine: number;
   try {
     for (;;) {
-      try { fs.linkSync(staged, lock); break; } catch (e: any) { if (e?.code !== 'EEXIST') throw e; }
-      let held: { ino: number; mtimeMs: number; pid: number };
-      try {
-        const fd = fs.openSync(lock, 'r');
-        try { const st = fs.fstatSync(fd); held = { ino: st.ino, mtimeMs: st.mtimeMs, pid: Number(fs.readFileSync(fd, 'utf8')) }; } finally { fs.closeSync(fd); }
-      } catch { continue; }
-      if (holderAlive(held.pid) && Date.now() - held.mtimeMs < STALE_MS) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); continue; }
-      const aside = `${lock}.stale.${process.pid}`;
-      try { fs.renameSync(lock, aside); } catch { continue; }
-      if (fs.statSync(aside).ino !== held.ino) { try { fs.linkSync(aside, lock); } catch { /* a newer holder already took it */ } }
-      fs.rmSync(aside, { force: true });
+      try { fs.linkSync(staged, lock); } catch (e: any) {
+        if (e?.code !== 'EEXIST') throw e;
+        const held = readHeld(lock);
+        if (!held) continue;
+        if (isStale(held)) takeOverStale(lock, held); else pause();
+        continue;
+      }
+      const now = new Date();
+      fs.utimesSync(lock, now, now);
+      mine = fs.statSync(lock).ino;
+      break;
     }
   } finally { fs.rmSync(staged, { force: true }); }
   try { return fn(); } finally {
-    try { if (fs.readFileSync(lock, 'utf8') === String(process.pid)) fs.rmSync(lock, { force: true }); } catch { /* already gone */ }
+    try { if (fs.statSync(lock).ino === mine) fs.rmSync(lock, { force: true }); } catch { /* already gone */ }
   }
 }
 

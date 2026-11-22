@@ -101,6 +101,35 @@ for (let i = 0; i < 3; i++) withWorktreeLock(${JSON.stringify(root)}, () => { co
   for (let i = 1; i < holds.length; i++) expect(holds[i]![0]).toBeGreaterThanOrEqual(holds[i - 1]![1]);
 }, 60_000);
 
+test('a lock is dated when it is taken, so time spent waiting never makes a live holder look stale', async () => {
+  const { root, lock } = repo();
+  const live = holder();
+  fs.writeFileSync(lock, String(live.pid));
+  const out = path.join(root, 'acquired.json');
+  const script = `import fs from 'node:fs'; import { withWorktreeLock } from ${JSON.stringify(LIB)};
+withWorktreeLock(${JSON.stringify(root)}, () => fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify({ now: Date.now(), mtimeMs: fs.statSync(${JSON.stringify(lock)}).mtimeMs })));`;
+  const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'ignore', 'pipe'] });
+  children.push(child);
+  const done = exited(child);
+  await Bun.sleep(1500);
+  live.kill('SIGKILL');
+  const r = await done;
+  expect(r, r.err).toMatchObject({ code: 0 });
+  const { now, mtimeMs } = JSON.parse(fs.readFileSync(out, 'utf8')) as { now: number; mtimeMs: number };
+  expect(now - mtimeMs).toBeLessThan(1000);
+}, 30_000);
+
+test('a lock naming this process\'s own pid is a leftover from a recycled pid and is taken over at once', () => {
+  const { root, lock } = repo();
+  fs.writeFileSync(lock, String(process.pid));
+  const { addWorktree } = require(LIB) as typeof import('../lib/git-worktree-lock');
+  const started = Date.now();
+  const r = addWorktree(root, path.join(root, 'wt'), 'HEAD');
+  expect(r.ok, r.err).toBe(true);
+  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(fs.existsSync(lock)).toBe(false);
+});
+
 test('concurrent adds of worktrees that share one basename all succeed', async () => {
   const { root } = repo();
   const procs = Array.from({ length: 6 }, (_, p) => adder(root, Array.from({ length: 8 }, (_, i) => path.join(root, `p${p}-${i}`, 'worktree'))));
