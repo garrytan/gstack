@@ -2039,10 +2039,11 @@ written in the last 6 hours, or `review run <token> (<file>)` for a review
 start under 120 minutes old that `gstack-review-log --finish` has not
 consumed. A run that provably ended stops deferring at once
 (`gstack-ship-run live` prints `RUN_HOLD_RELEASED:` for each, GST-3546): the
-harness it ran under has exited or the machine restarted, or its checkout's
-/ship run record stopped, finished or was abandoned. A run whose record is
-still open on Capy's shared harness keeps deferring until it ends; end a run
-that stopped working with `gstack-ship-run abandon`.
+harness it ran under has exited or the machine restarted, or its own run
+record in its checkout (opened after its ledger) finished or was abandoned. A
+stopped run keeps deferring, since it may still claim its fix-check grant and
+resume, and so does an open run on Capy's shared harness; end a run that
+stopped working with `gstack-ship-run abandon`.
 
 **Fix.** Wait for those sessions to finish (`bin/gstack-lease list` shows
 every lease with its age and `alive|idle|dead|stale`; a holder is named as
@@ -7984,8 +7985,8 @@ A run whose owner process is provably gone (preflight records the harness it
 ran under; that process exited or the machine restarted) is taken at any age,
 and no longer holds gstack upgrades either (`gstack-ship-run live`, GST-3546).
 On Capy every session runs under one shared harness, so there the 60 minutes
-still apply to an open run; a run that stopped, finished or was abandoned
-releases the upgrade hold at once.
+still apply to an open or stopped run; once abandoned or finished it releases
+the upgrade hold at once.
 
 **Fix.** Run `gstack-ship-run status`. It prints the run, its state, its
 `beat_age` and the exact abandon command. Wait until the earliest abandon time

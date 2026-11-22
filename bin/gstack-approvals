@@ -33,13 +33,15 @@ import { isGstackActor, isGstackActorName, openShipRun, OWNER_REF, RULED_NOTE_SC
 import { resultLine } from '../lib/result-codes';
 import { parsePlanLine, publicPlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
-import { FINDING_ID, REVIEW_ROUND_GRANT_SCOPE, reviewRoundGrantRow, ROUND_GRANT_KINDS, STOP_RUN, type RoundGrantKind } from '../lib/review-round-grant';
+import { FINDING_ID, LEGACY_GRANT, OTHER_GRANT_ROW, REVIEW_ROUND_GRANT_SCOPE, reviewRoundGrantRow, ROUND_GRANT_KINDS, STOP_RUN, type RoundGrantKind } from '../lib/review-round-grant';
 import { GATE_DISPOSITION_SCOPE, GATE_SOURCE, gateDispositionRow, gateDispositions, gateDispositionText, ONE_LINE, recordGateDisposition, validGateId } from '../lib/gate-dispositions';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
 
   add     --ask <text> --words <exact words> --by <who> --scope <what it covers>
           [--pending <text>] [--outcome approved|rejected|pending|standing] [--date YYYY-MM-DD] [--source <ref>]
+          [--owner-ref <thread code>:<message id or timestamp>]: a row naming review_loop_grant <head> is a fix-check grant,
+          refused inside this checkout's open /ship run unless it relays the lane's or Captain's message with --owner-ref
   import  --autoplan <run dir> [--by <whose words, e.g. Garry>] [--stack <b1,b2,...>]
           --stack writes the same rows to every branch of a stack; each branch is checked first, and one unknown branch writes none
   rule    --finding <fingerprint> --head <the stop head the owner ruled at> --reason <why it ships as a note, one line>
@@ -249,7 +251,12 @@ function main(argv: string[]): number {
       if (GATE_DISPOSITION_SCOPE.test(flags['--scope'] ?? '') || (flags['--source'] ?? '').trim() === GATE_SOURCE) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a gate_disposition scope is recorded with gstack-approvals gate' });
       if (TEST_LANE_EXCEPTION_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a test_lane_exception scope is recorded with gstack-approvals lane-exception' });
       if (REVIEW_ROUND_GRANT_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a review_round_grant scope is recorded with gstack-approvals round-grant' });
-      const built = buildRow({ ask: flags['--ask'] ?? '', words: flags['--words'] ?? '', by: flags['--by'] ?? '', scope: flags['--scope'] ?? '', pending: flags['--pending'], outcome: flags['--outcome'], date: flags['--date'], source: flags['--source'] }, loc.branch);
+      const ownerRef = flags['--owner-ref']?.trim();
+      const grant = LEGACY_GRANT.test(`${flags['--ask'] ?? ''} ${flags['--scope'] ?? ''}`) && !OTHER_GRANT_ROW.test(flags['--scope'] ?? '');
+      if (ownerRef !== undefined && (!grant || !OWNER_REF.test(ownerRef) || !(flags['--words'] ?? '').trim())) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: '--owner-ref on add relays a review_loop_grant: <thread code>:<message id or timestamp>, with --words <their exact words>' });
+      const open = grant ? openShipRun(process.cwd()) : undefined;
+      if (open && ownerRef === undefined) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: `${open.line}: a review_loop_grant row is a fix-check grant (GST-3546), the lane's or its Captain's, never the run's own; relay it with --owner-ref <thread code>:<message id or timestamp> --words <their exact words>, or record it after the run ends` });
+      const built = buildRow({ ask: flags['--ask'] ?? '', words: flags['--words'] ?? '', by: flags['--by'] ?? '', scope: flags['--scope'] ?? '', pending: flags['--pending'], outcome: flags['--outcome'], date: flags['--date'], source: ownerRef !== undefined ? ruledNoteSource({ ownerRef }) : flags['--source'] }, loc.branch);
       if ('code' in built) return fail(cmd, built);
       rows = [built];
     } else {

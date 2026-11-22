@@ -305,10 +305,15 @@ the same grant, whichever row records it:
   <the grant's head> HEAD` themselves (`FIX_CHECK_HUNKS:` says when a `--hunks`
   file differed and was not used), so the hunks record always covers the whole
   fix range.
-- **A grant spends only on a counted fix-check.** A row that doesn't count
-  (`converged:false`, open findings, or a claimed row `bindFixCheckRow` refuses)
-  leaves the grant unspent: the same run logs a correct row and write uses the
-  newest one that binds. The grant still buys one counted fix-check.
+- **A grant spends only on a counted fix-check.** A malformed row
+  (`converged:false`, or a claimed row whose hunks or tree don't bind) leaves the
+  grant unspent: the same run logs a correct row. A counted read that found
+  issues spends it like a clean one, so a grant still buys one fix round, and
+  write reads the first counted row only.
+- **Only the lane or its Captain grants.** An owner's `review_loop_grant` row
+  recorded with `gstack-approvals add` inside this checkout's open /ship run is
+  refused unless it relays their message with `--owner-ref` and `--words`, as
+  `round-grant` already required.
 - **Long reasons fit.** A `--reason` longer than the approval record's
   300-character ask is cut there with an ellipsis; `--words` (the reason by
   default) keeps every word.

@@ -38,13 +38,13 @@ const findingsOf = (r: Row): Row[] => (Array.isArray(r?.findings) ? r.findings.f
 const nameOf = (b: OpenBlocker) => (typeof b === 'string' ? b : b.id);
 
 /**
- * A fix-check row that counts (GST-3546): a row stamped from a claim counts only when `bind` (bindFixCheckRow) accepts it, and any
- * other only as a completed, converged read that left nothing open. A malformed or uncounted row (converged:false, hunks that leave
- * out part of the fix range) counts for nothing, so the run logs a correct row on the same grant.
+ * A fix-check row that counts (GST-3546): a row stamped from a claim counts when `bind` (bindFixCheckRow with `open: true`) accepts
+ * it, and any other as a completed, converged read, whatever it found. A malformed row (converged:false, hunks that leave out part
+ * of the fix range) counts for nothing, so the run logs a correct row on the same grant; a counted read that found issues spends
+ * the grant like a clean one, so a grant still buys one fix round.
  */
 export const countedFixCheck = (r: Row, bind?: (row: Row) => boolean) => r?.skill === 'review-fix-check'
-  && (r.fix_check_base !== undefined && bind ? bind(r)
-    : r.completed === true && r.converged === true && r.status !== 'issues_found' && r.status !== 'issues_open' && !findingsOf(r).some(f => f.action === 'open'));
+  && (r.fix_check_base !== undefined && bind ? bind(r) : r.completed === true && r.converged === true);
 
 /** A fix-check grant buys one counted fix-check: it is spent once a counted row carries it, or once a counted fix-check started after it was recorded. */
 export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'approval' | 'at'>, bind?: (row: Row) => boolean) =>
@@ -56,9 +56,9 @@ export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'appr
  * range_base that disagrees; a completed, converged read bound to its commit's own tree, which contains the base; nothing open in it
  * (rule e: its status, an inline finding with action open at any severity, findings_open from a findings file, an id its dispatch
  * ledger collected that the row does not dispose); and the hunks its reader was given are git diff <base> <commit> over their paths,
- * which cover every path that diff changes.
+ * which cover every path that diff changes. `open: true` skips the nothing-open check: whether the row counts as the grant's read at all.
  */
-export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRoundGrant[]): RowBinding {
+export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRoundGrant[], o: { open?: boolean } = {}): RowBinding {
   const no = (why: string): RowBinding => ({ ok: false, why });
   const base = typeof row.fix_check_base === 'string' ? row.fix_check_base.toLowerCase() : '';
   const commit = typeof row.commit_full === 'string' ? row.commit_full.toLowerCase() : '';
@@ -70,7 +70,7 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
   if (row.range_base !== undefined && git(cwd, ['rev-parse', '--verify', '--quiet', `${row.range_base}^{commit}`])?.trim() !== base) return no(`its range_base ${String(row.range_base).slice(0, 12)} disagrees with the logger's fix_check_base ${s12(base)}`);
   if (row.completed !== true || row.converged !== true || b?.state !== 'verified' || typeof row.tree !== 'string' || b.start_wtree !== row.tree || b.end_wtree !== row.tree) return no('it is not a completed, converged read bound to one committed tree');
   if (!SHA.test(commit) || treeOf(cwd, commit) !== row.tree || !ancestor(cwd, base, commit)) return no(`its commit ${s12(commit) || 'missing'} does not hold the tree it read or does not contain the stop ${s12(base)}`);
-  if (row.status === 'issues_found' || row.status === 'issues_open' || Number(row.findings_open ?? 0) > 0 || findings.some(f => f.action === 'open')) return no('it left a finding open');
+  if (!o.open && (row.status === 'issues_found' || row.status === 'issues_open' || Number(row.findings_open ?? 0) > 0 || findings.some(f => f.action === 'open'))) return no('it left a finding open');
   if (!h || typeof h.sha256 !== 'string' || !Array.isArray(h.paths) || !h.paths.length) return no('it carries no record of the hunks its reader was given');
   const diff = git(cwd, ['diff', base, commit, '--', ...h.paths]);
   if (diff === null || createHash('sha256').update(diff).digest('hex') !== h.sha256) return no(`the hunks its reader was given are not git diff ${s12(base)} ${s12(commit)}`);
@@ -88,9 +88,11 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
 }
 
 /**
- * Rules a to f with amendments D and E: (a) grantedStop accepts the newest stop record's fix-check grant for this PR and run;
- * (b) the PR body's first claim of the grant is this run's; (c) exactly one review-fix-check row carries the grant, stamped with
- * this run, and it binds (bindFixCheckRow) at the stop's head and tree from the body, never the newest review row, on the receipt
+ * Rules a to f with amendments D and E: (a) grantedStop accepts the newest stop record's fix-check grant for this PR and run, or
+ * (GST-3546) a fix-check grant that names no stop answers its own head once this run claimed it; (b) the PR body's first claim of
+ * the grant is this run's; (c) every review-fix-check row carrying the grant is stamped with this run, the first that counts
+ * (bindFixCheckRow with open: true; a malformed row before it spends nothing) is the grant's one read, and it binds clean at
+ * the stop's head and tree from the body, never the newest review row, on the receipt
  * head or a head that only merges the base into it; (d) the stop, the claim and the row's start are recorded in that order;
  * (e) inside the binding; (f) each grant id closes the one open blocker whose id it is, a fingerprint only for a blocker without a
  * ledger id that no other blocker shares, never a gate finding, and only an id the fix list its reader was given named; an id
@@ -109,10 +111,10 @@ export function clearByGrant(cwd: string, o: { pr: number; run: string; head: st
   const stamped = [...new Map(o.rows.filter(r => r?.skill === 'review-fix-check' && r.grant === g.approval).map(r => [reviewRowKey(r), r] as const)).values()];
   const foreign = stamped.find(r => r.run !== o.run);
   if (!stamped.length || foreign) return none(`grant ${g.approval} buys fix-check rows stamped with run ${o.run}, and the review log holds ${foreign ? `run ${foreign.run}'s` : 'none'}`);
-  const tries = stamped.map(r => ({ r, b: bindFixCheckRow(cwd, r, o.grants) }));
-  const counted = tries.filter(t => t.b.ok).at(-1);
-  if (!counted) return none(`the granted fix-check: ${(tries.at(-1)!.b as { why: string }).why}`);
-  const row = counted.r, bound = counted.b as Extract<RowBinding, { ok: true }>;
+  const counted = stamped.find(r => bindFixCheckRow(cwd, r, o.grants, { open: true }).ok);
+  const read = bindFixCheckRow(cwd, counted ?? stamped.at(-1)!, o.grants);
+  if (!read.ok) return none(`the granted fix-check${counted ? ', the one counted read the grant bought,' : ''}: ${read.why}`);
+  const row = counted!, bound = read;
   if (bound.base !== stop.head || treeOf(cwd, stop.head) !== stop.tree) return none(`the granted fix-check read from ${s12(bound.base)}, not the ${unstopped ? 'head its grant names' : "stop record's head"} ${s12(stop.head)} and its tree`);
   if (bound.commit !== o.head && !(ancestor(cwd, bound.commit, o.head) && ownLinesSame(cwd, o.baseRef, bound.commit, o.head))) return none(`the granted fix-check read ${s12(bound.commit)}, and ${s12(o.head)} is neither it nor a head that only merges the base into it`);
   const started = row.review_binding?.started_at;

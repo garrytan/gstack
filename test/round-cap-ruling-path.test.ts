@@ -94,8 +94,10 @@ describe('one grant kind: planner, claim and receipt accept either row (GST-3546
   //   seam=gstack-ship-receipt claim and write
   test('#4712: a review_loop_grant row claims, and its clean fix-check closes the blocker at write', () => {
     const c = atCap([open(ID, FP)]);
-    const add = c.run('gstack-approvals', ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${c.S})`, '--words', 'do it', '--by', CAPTAIN, '--scope', 'this /ship invocation', '--json']);
-    const id = JSON.parse(ok(add)).added[0] as string;
+    const args = ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${c.S})`, '--words', 'do it', '--by', CAPTAIN, '--scope', 'this /ship invocation', '--json'];
+    const self = c.run('gstack-approvals', args);
+    expect([self.status, self.stderr]).toEqual([2, expect.stringContaining('never the run\'s own')]);
+    const id = JSON.parse(ok(c.run('gstack-approvals', [...args, '--owner-ref', 'GSTA-36:2026-11-22T12:00:00Z']))).added[0] as string;
     fixCheck(c, { grant: id, run: 'r2', fixList: 'fix ' + ID + '\n', files: { 'src/x.ts': 'export const x = 3;\n' } });
     const row = rows(c).filter(r => r.skill === 'review-fix-check').at(-1)!;
     expect(row).toMatchObject({ fix_check_base: c.S, grant: id, pr: 7 });
@@ -160,6 +162,21 @@ describe('a grant spends only on a counted fix-check (gskills#24, gskills#25)', 
     expect(w.stderr).toContain(`closed=${ID}`);
   });
 
+  // Value: protects=R51's one fix round: a counted read that found issues spends the grant, so a later clean row on it closes
+  //   nothing; fails_when=a second fix-check under one grant clears the blockers; seam=grantSpent, clearByGrant
+  test('a counted read that found issues spends the grant; a later clean row closes nothing', () => {
+    const c = atCap([open(ID, FP)]);
+    const id = grantId(ok(c.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', c.S, '--kind', 'fix-check', '--reason', 'fix it', '--by', CAPTAIN, '--owner-ref', 'GSTA-36:2026-11-22T12:00:00Z', '--words', 'fix it'])));
+    const found = { status: 'issues_found', issues_found: 1, critical: 0, informational: 1, findings: [{ fingerprint: 'src/x.ts:1:style', severity: 'INFORMATIONAL', action: 'open' }] };
+    fixCheck(c, { grant: id, run: 'r2', fixList: 'fix ' + ID + '\n', files: { 'src/x.ts': 'export const x = 3;\n' }, row: found });
+    const g = grantsOf(c).find(x => x.approval === id)!;
+    expect(grantSpent(rows(c), g, r => bindFixCheckRow(c.f.work, r, grantsOf(c), { open: true }).ok)).toBe(true);
+    fixCheck(c, { grant: id, run: 'r2', fixList: 'fix ' + ID + '\n', claim: false });
+    const w = write(c, 'r2');
+    expect(w.status).toBe(3);
+    expect(w.stderr).toContain('the one counted read the grant bought');
+  });
+
   // Value: protects=gskills#25: the claimed reader's packet is git diff <claimed head> HEAD, built by gstack, so a hand-built
   //   partial --hunks file cannot reach it; fails_when=the row records the partial paths; seam=gstack-review-plan --fix-check-prompt
   test('a partial --hunks file is replaced by the full diff since the claimed head', () => {
@@ -216,23 +233,31 @@ describe('an ended or dead /ship run stops holding gstack upgrades (gskills#25)'
   const stateRoot = () => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ship-live-'))); tmps.push(d); return d; };
   const ledger = (sr: string, run: string, extra: Record<string, unknown>) => {
     fs.mkdirSync(path.join(sr, 'ship-runs', run), { recursive: true });
-    fs.writeFileSync(path.join(sr, 'ship-runs', run, 'budget.json'), JSON.stringify({ kind: 'gstack-ship-budget', run, ...extra }));
+    fs.writeFileSync(path.join(sr, 'ship-runs', run, 'budget.json'), JSON.stringify({ kind: 'gstack-ship-budget', run, created_at: new Date(Date.now() - 60_000).toISOString(), ...extra }));
   };
   const sleeper = () => { const k = spawn('sleep', ['300'], { stdio: 'ignore' }); kids.push(k); return k.pid!; };
   const ownerOf = (pid: number): RunOwner => { const o = thisRunOwner(pid)!; expect(o).not.toBeNull(); return o; };
   const deadOwner = (): RunOwner => { const k = spawnSync('sleep', ['0'], { timeout: 10_000 }); const { shared: _shared, ...here } = ownerOf(process.pid); return { ...here, pid: k.pid!, comm: 'claude' }; };
 
-  // Value: protects=an ended run (its harness gone, or its checkout's run record stopped) no longer holds upgrades, while a live
-  //   or unprovable one still does; fails_when=a dead run holds, or a run on a shared harness is released; seam=liveRun
-  test('dead owner and ended record release; a live owner, a shared harness and an open or missing record hold', () => {
+  // Value: protects=an ended run (its harness gone, or its own checkout run record finished or abandoned) no longer holds upgrades,
+  //   while a live, stopped (it may still claim its grant) or unprovable one still does; fails_when=a dead run holds, a stopped run or
+  //   an earlier run's finished record releases, or a run on a shared harness is released; seam=liveRun
+  test('dead owner and this run\'s finished record release; a live owner, a stopped run, an older record and a shared harness hold', () => {
     if (process.platform !== 'linux') return;
     const sr = stateRoot();
     ledger(sr, 'dead', { owner: deadOwner() });
     expect(liveRun(sr)).toMatchObject({ ended: [expect.stringContaining('/ship run dead: its owner process')] });
     expect(liveRun(sr).live).toBeUndefined();
     const c = atCap([]);
-    fs.writeFileSync(path.resolve(c.f.work, c.f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim()), JSON.stringify({ v: 1, run: 'r2', state: 'stopped', head: c.S, started_at: new Date().toISOString(), beat_at: new Date().toISOString() }) + '\n');
-    ledger(sr, 'stopped', { checkout: c.f.work, owner: { ...ownerOf(process.pid), shared: true } });
+    const recordFile = path.resolve(c.f.work, c.f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
+    const record = (state: string, started: number) => fs.writeFileSync(recordFile, JSON.stringify({ v: 1, run: 'r2', state, head: c.S, started_at: new Date(started).toISOString(), beat_at: new Date().toISOString() }) + '\n');
+    const shared = { ...ownerOf(process.pid), shared: true };
+    record('stopped', Date.now());
+    ledger(sr, 'mine', { checkout: c.f.work, owner: shared });
+    expect(liveRun(sr).live).toContain('/ship run mine');
+    record('finished', Date.now() - 3_600_000);
+    expect(liveRun(sr).live).toContain('/ship run mine');
+    record('finished', Date.now());
     expect(liveRun(sr).live).toBeUndefined();
     ledger(sr, 'alive', { owner: ownerOf(sleeper()) });
     expect(liveRun(sr).live).toContain('/ship run alive');

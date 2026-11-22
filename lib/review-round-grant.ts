@@ -26,8 +26,9 @@ export interface ReviewRoundGrant { kind: RoundGrantKind; head: string; pr: numb
 export const STOP_RUN = /^[\w.:-]{1,120}$/;
 export const FINDING_ID = /^[\w.:/#@-]{1,200}$/;
 const SCOPE = /^review_round_grant ([0-9a-f]{40}) pr=([1-9]\d*) kind=(extra-round|fix-check)(?: stop=(\S+) findings=(\S+))?$/;
-const LEGACY = /\breview_loop_grant\s+([0-9a-f]{7,40})\b/;
-const OTHER_ROW = /^\s*(ruled_note|gate_disposition|review_loop_exception|test_lane_exception|review_round_grant)\b/;
+export const LEGACY_GRANT = /\breview_loop_grant\s+([0-9a-f]{7,40})\b/;
+/** Scopes recorded by their own commands, whose text may mention a grant without being one. */
+export const OTHER_GRANT_ROW = /^\s*(ruled_note|gate_disposition|review_loop_exception|test_lane_exception|review_round_grant)\b/;
 const ASK = /^review_round_grant (extra-round|fix-check) at ([0-9a-f]{40}) for pr ([1-9]\d*): (\S(?:.*\S)?)$/;
 export const REVIEW_ROUND_GRANT_SCOPE = /^\s*review_round_grant\b/;
 
@@ -45,8 +46,8 @@ export function reviewRoundGrants(rows: readonly ApprovalRow[], resolve?: (sha: 
   for (const r of rows) {
     if (r.outcome !== 'approved' || isGstackActorName(r.by)) continue;
     const s = SCOPE.exec(r.scope), a = ASK.exec(r.ask);
-    if (!s && !REVIEW_ROUND_GRANT_SCOPE.test(r.scope) && !OTHER_ROW.test(r.scope)) {
-      const l = LEGACY.exec(`${r.ask} ${r.scope}`);
+    if (!s && !OTHER_GRANT_ROW.test(r.scope)) {
+      const l = LEGACY_GRANT.exec(`${r.ask} ${r.scope}`);
       const head = l ? (l[1]!.length === 40 ? l[1]! : resolve?.(l[1]!)) : undefined;
       if (head) out.push({ kind: 'fix-check', head: head.toLowerCase(), pr: 0, by: r.by, reason: r.ask, at: r.recorded_at, approval: r.id, findings: [], legacy: true });
       continue;

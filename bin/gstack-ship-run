@@ -33,7 +33,7 @@ const HELP = `gstack-ship-run — this checkout's /ship run record (docs/ship-po
   live [--state-root <dir>]
               RUN_LIVE: <kind> run <id> (<file>) (exit 0) for the first /ship or review run on this machine that still holds
               gstack upgrades, or RUN_LIVE: none (exit 0 either way); RUN_HOLD_RELEASED: lines name runs that no longer hold because
-              their owner process is gone or their checkout's run record ended (lib/ship-run-live.ts)
+              their owner process is gone or their own run record finished or was abandoned (lib/ship-run-live.ts)
 
 ${exitTableHelp()}`;
 

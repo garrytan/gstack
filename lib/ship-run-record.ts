@@ -59,7 +59,8 @@ export function thisRunOwner(from = process.ppid): RunOwner | null {
   for (let hops = 0; hops < 8; hops++) {
     const p = procOf(pid);
     if (!p) return null;
-    if (!WRAPPERS.has(p.comm) || p.ppid <= 1) {
+    if (WRAPPERS.has(p.comm) && p.ppid <= 1) return null;
+    if (!WRAPPERS.has(p.comm)) {
       const boot = readTrim('/proc/sys/kernel/random/boot_id');
       return boot ? { machine: thisMachine(), boot, pid, start: p.start, comm: p.comm, ...(SHARED_HARNESSES.has(p.comm) ? { shared: true as const } : {}) } : null;
     }

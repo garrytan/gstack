@@ -212,8 +212,8 @@ eval_live() {
 # under 120 minutes old that gstack-review-log --finish has not consumed. The
 # age bounds keep an abandoned run from holding the upgrade back for good, and
 # gstack-ship-run live (lib/ship-run-live.ts) drops a run that provably ended
-# sooner: its owner process is gone, or its checkout's /ship run record
-# stopped, finished or was abandoned (GST-3546). Without a working Bun the
+# sooner: its owner process is gone, or its own /ship run record finished or
+# was abandoned; a stopped run may still resume, so it holds (GST-3546). Without a working Bun the
 # file-age reading below stands.
 open_run() {
   local sr f live

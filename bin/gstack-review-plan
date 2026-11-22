@@ -179,7 +179,7 @@ function main(): number {
   process.chdir(root);
   let inLoopLink = false;
   let recorded: ReturnType<typeof readReviewRoundGrants> | undefined;
-  const bindRow = (row: Record<string, any>) => bindFixCheckRow(root, row, recorded ??= readReviewRoundGrants(root)).ok;
+  const bindRow = (row: Record<string, any>) => bindFixCheckRow(root, row, recorded ??= readReviewRoundGrants(root), { open: true }).ok;
   if (grant) {
     const loc = locate({ cwd: root, env: process.env });
     const row = ('file' in loc ? readRecord(loc).rows : []).find(r => r.id === grant && r.outcome === 'approved' && (`${r.ask} ${r.scope}`.includes('review_loop_grant') || reviewRoundGrants([r]).some(x => x.kind === 'fix-check')));
