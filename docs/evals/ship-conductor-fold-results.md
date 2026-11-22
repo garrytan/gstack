@@ -21,12 +21,12 @@ value t = 2.291 (10 cases).
   reviewer itself; none handed /ship to a subagent. Under the ruling below, every reviewer the printed review plan
   named and /ship reached was started and collected in 30 of 30 runs (hand-scored, and confirmed run by run by a
   second-model checker).
-- **It cost the same.** F minus C was +$0.07 a run (-$1.42 to +$1.57), against a planned detectable difference of
+- **No clear difference in cost.** F minus C was +$0.07 a run (-$1.42 to +$1.57), against a planned detectable difference of
   about $7. Mean cost was $11.47 for C and $11.54 for F.
-- **It caught the same.** Planted bugs: F minus C +0.03 (-0.18 to +0.24), 22 of 30 for F against 21 of 30 for C.
+- **No clear difference in what it caught.** Planted bugs: F minus C +0.03 (-0.18 to +0.24), 22 of 30 for F against 21 of 30 for C.
   Real problems found by the judge: F minus C -0.003 (-0.21 to +0.20). No case was a structural loss (C catching in
   all three runs and F in none) on either measure.
-- **It took no longer.** Wall time F minus C was -1.9 minutes (-8.1 to +4.4), and `calls=` +0.35 (-2.8 to +3.5),
+- **No clear difference in time.** Wall time F minus C was -1.9 minutes (-8.1 to +4.4), and `calls=` +0.35 (-2.8 to +3.5),
   both diagnostics with no bar.
 
 ## What didn't
@@ -46,9 +46,11 @@ value t = 2.291 (10 cases).
 - **The no-gstack arm came close on planted bugs at a fraction of the cost, and led on real problems.** N minus F
   (the better /ship arm) was -0.20 on planted bugs (-0.40 to +0.004) and +0.17 on real problems (-0.19 to +0.53),
   at $0.83 a run. Its harness differs (below), so cost compares in size only.
-- **Almost no run reached the end of /ship.** Only 9 of 60 C and F runs printed a receipt. The rest stopped at
-  /ship's own two-round review cap (Steps 9 to 11) or at finish's remote-gate refusal on a non-main base (Step 16),
-  where the brief ends the run. So this compares the review and fix phases, not the release steps after them.
+- **Almost no run reached the end of /ship.** Only 9 of 60 C and F runs printed a receipt (4 C, 5 F). Of the other
+  51, 35 stopped during review (Steps 9 to 11), 33 of them at /ship's own two-round cap; 8 at finish's remote-gate
+  refusal on a non-main base (Step 16), where the brief ends the run; 6 at the same refusal one step later, at accept
+  (Step 17); 1 when the receipt write refused (Step 19); and 1 at a paid-eval spend question before review began.
+  So this compares the review and fix phases, not the release steps after them.
 
 ## Results
 
@@ -89,98 +91,99 @@ require; their reviews ran and are counted.
 <details><summary>Every trial</summary>
 
 Trial names are arm, case and run (C4t2 is the conductor arm's second run on case 4). Cost is cost.dollars for C and
-F and the SDK's reported total for N. "Exposure flag" marks the runs in the sensitivity row above; N4's are the
+F and the SDK's reported total for N. "Where the run ended" is read by hand from each run's own report. "Exposure flag" marks the runs in the
+sensitivity row above; N4's are the
 harness failure.
 
 | Trial | Planted bug caught | Cost | Where the run ended | Exposure flag |
 |---|---|---|---|---|
-| C1t1 | no | $12.00 | stopped at Step 11 | no |
+| C1t1 | no | $12.00 | review round cap (Steps 9 to 11) | no |
 | C1t2 | no | $17.90 | receipt | no |
-| C1t3 | yes | $13.45 | stopped at Step 17 | no |
-| F1t1 | no | $10.46 | stopped at Step 11 | no |
-| F1t2 | yes | $14.06 | stopped at Step 16 | no |
-| F1t3 | yes | $20.53 | stopped at Step 17 | no |
+| C1t3 | yes | $13.45 | remote-gate refusal at accept, Step 17 | no |
+| F1t1 | no | $10.46 | review round cap (Steps 9 to 11) | no |
+| F1t2 | yes | $14.06 | remote-gate refusal, Step 16 | no |
+| F1t3 | yes | $20.53 | remote-gate refusal at accept, Step 17 | no |
 | N1t1 | no | $1.17 | one SDK review run | no |
 | N1t2 | yes | $2.15 | one SDK review run | no |
 | N1t3 | no | $2.04 | one SDK review run | no |
-| C2t1 | yes | $12.81 | stopped at Step 11 | no |
-| C2t2 | no | $10.97 | stopped at Step 11 | no |
-| C2t3 | no | $22.33 | stopped at Step 16 | no |
-| F2t1 | yes | $11.43 | stopped at Step 11 | yes |
-| F2t2 | yes | $13.52 | stopped at Step 11 | no |
-| F2t3 | yes | $12.67 | stopped at Step 16 | no |
+| C2t1 | yes | $12.81 | review round cap (Steps 9 to 11) | no |
+| C2t2 | no | $10.97 | review round cap (Steps 9 to 11) | no |
+| C2t3 | no | $22.33 | remote-gate refusal at accept, Step 17 | no |
+| F2t1 | yes | $11.43 | review round cap (Steps 9 to 11) | yes |
+| F2t2 | yes | $13.52 | review round cap (Steps 9 to 11) | no |
+| F2t3 | yes | $12.67 | review round cap (Steps 9 to 11) | no |
 | N2t1 | yes | $2.17 | one SDK review run | no |
 | N2t2 | no | $0.85 | one SDK review run | no |
 | N2t3 | no | $2.23 | one SDK review run | no |
-| C3t1 | yes | $15.83 | stopped at Step 16 | no |
-| C3t2 | yes | $11.40 | stopped at Step 11 | no |
-| C3t3 | yes | $12.22 | stopped at Step 9 | no |
-| F3t1 | yes | $12.50 | stopped at Step 9 | no |
-| F3t2 | yes | $13.12 | stopped at Step 9 | no |
-| F3t3 | yes | $11.22 | stopped at Step 16 | no |
+| C3t1 | yes | $15.83 | remote-gate refusal, Step 16 | no |
+| C3t2 | yes | $11.40 | review round cap (Steps 9 to 11) | no |
+| C3t3 | yes | $12.22 | review round cap (Steps 9 to 11) | no |
+| F3t1 | yes | $12.50 | review round cap (Steps 9 to 11) | no |
+| F3t2 | yes | $13.12 | review round cap (Steps 9 to 11) | no |
+| F3t3 | yes | $11.22 | review round cap (Steps 9 to 11) | no |
 | N3t1 | yes | $1.09 | one SDK review run | no |
 | N3t2 | yes | $0.56 | one SDK review run | no |
 | N3t3 | yes | $0.58 | one SDK review run | no |
-| C4t1 | no | $10.49 | stopped at Step 11 | no |
-| C4t2 | yes | $10.90 | stopped at Step 11 | no |
-| C4t3 | no | $3.72 | stopped at Step 9.1 | no |
-| F4t1 | no | $11.80 | stopped at Step 11 | no |
-| F4t2 | no | $10.28 | stopped at Step 11 | no |
-| F4t3 | no | $11.04 | stopped at Step 9 | no |
+| C4t1 | no | $10.49 | review round cap (Steps 9 to 11) | no |
+| C4t2 | yes | $10.90 | review round cap (Steps 9 to 11) | no |
+| C4t3 | no | $3.72 | review, Step 9.1 (asked to delete a build artifact) | no |
+| F4t1 | no | $11.80 | review round cap (Steps 9 to 11) | no |
+| F4t2 | no | $10.28 | review round cap (Steps 9 to 11) | no |
+| F4t3 | no | $11.04 | review round cap (Steps 9 to 11) | no |
 | N4t1 | no | $0.97 | one SDK review run (runner disk full during bun install) | harness |
 | N4t2 | no | $0.74 | one SDK review run (runner disk full during bun install) | harness |
 | N4t3 | no | $0.96 | one SDK review run (runner disk full during bun install) | harness |
-| C5t1 | yes | $10.94 | stopped at Step 11 | no |
-| C5t2 | yes | $12.07 | stopped at Step 17 | no |
-| C5t3 | yes | $12.46 | stopped at Step 16 | no |
-| F5t1 | yes | $13.97 | stopped at Step 19 | yes |
-| F5t2 | yes | $11.67 | stopped at Step 16 | no |
-| F5t3 | yes | $13.06 | stopped at Step 16 | no |
+| C5t1 | yes | $10.94 | review round cap (Steps 9 to 11) | no |
+| C5t2 | yes | $12.07 | remote-gate refusal at accept, Step 17 | no |
+| C5t3 | yes | $12.46 | remote-gate refusal, Step 16 | no |
+| F5t1 | yes | $13.97 | receipt write refused, Step 19 | yes |
+| F5t2 | yes | $11.67 | remote-gate refusal, Step 16 | no |
+| F5t3 | yes | $13.06 | remote-gate refusal at accept, Step 17 | no |
 | N5t1 | yes | $0.52 | one SDK review run | no |
 | N5t2 | yes | $0.47 | one SDK review run | no |
 | N5t3 | yes | $0.65 | one SDK review run | no |
-| C6t1 | yes | $8.62 | stopped at Step 11 | no |
-| C6t2 | yes | $9.45 | stopped at Step 11 | no |
-| C6t3 | yes | $9.85 | stopped at Step 9 | no |
+| C6t1 | yes | $8.62 | review round cap (Steps 9 to 11) | no |
+| C6t2 | yes | $9.45 | review round cap (Steps 9 to 11) | no |
+| C6t3 | yes | $9.85 | review round cap (Steps 9 to 11) | no |
 | F6t1 | yes | $13.06 | receipt | no |
-| F6t2 | yes | $10.03 | stopped at Step 11 | no |
-| F6t3 | yes | $10.06 | stopped at Step 11 | no |
+| F6t2 | yes | $10.03 | review round cap (Steps 9 to 11) | no |
+| F6t3 | yes | $10.06 | review round cap (Steps 9 to 11) | no |
 | N6t1 | yes | $0.83 | one SDK review run | no |
 | N6t2 | yes | $0.57 | one SDK review run | no |
 | N6t3 | no | $0.74 | one SDK review run | no |
 | C7t1 | yes | $13.16 | receipt | no |
 | C7t2 | yes | $14.10 | receipt | no |
-| C7t3 | yes | $11.45 | stopped at Step 16 | no |
+| C7t3 | yes | $11.45 | remote-gate refusal, Step 16 | no |
 | F7t1 | yes | $13.97 | receipt | yes |
 | F7t2 | yes | $15.12 | receipt | yes |
-| F7t3 | yes | $8.63 | stopped at Step 9.4 | yes |
+| F7t3 | yes | $8.63 | review round cap (Steps 9 to 11) | yes |
 | N7t1 | no | $0.64 | one SDK review run | no |
 | N7t2 | yes | $0.55 | one SDK review run | no |
 | N7t3 | no | $0.81 | one SDK review run | no |
-| C8t1 | no | $8.69 | stopped (step not recorded) | no |
-| C8t2 | no | $13.38 | stopped at Step 16 | no |
-| C8t3 | no | $11.99 | stopped at Step 16 | no |
-| F8t1 | no | $11.76 | stopped at Step 17 | no |
-| F8t2 | no | $9.12 | stopped at Step 11 | no |
-| F8t3 | no | $1.96 | stopped at Step 16 | no |
+| C8t1 | no | $8.69 | review round cap (Steps 9 to 11) | no |
+| C8t2 | no | $13.38 | remote-gate refusal, Step 16 | no |
+| C8t3 | no | $11.99 | remote-gate refusal, Step 16 | no |
+| F8t1 | no | $11.76 | remote-gate refusal at accept, Step 17 | no |
+| F8t2 | no | $9.12 | review round cap (Steps 9 to 11) | no |
+| F8t3 | no | $1.96 | paid-eval spend question, Step 6 | no |
 | N8t1 | no | $0.41 | one SDK review run | no |
 | N8t2 | no | $0.47 | one SDK review run | no |
 | N8t3 | no | $0.41 | one SDK review run | no |
 | C9t1 | yes | $10.81 | receipt | no |
-| C9t2 | yes | $6.76 | stopped (step not recorded) | no |
-| C9t3 | yes | $8.83 | stopped at Step 16 | no |
-| F9t1 | yes | $8.50 | stopped at Step 11 | yes |
+| C9t2 | yes | $6.76 | review round cap (Steps 9 to 11) | no |
+| C9t3 | yes | $8.83 | review round cap (Steps 9 to 11) | no |
+| F9t1 | yes | $8.50 | review round cap (Steps 9 to 11) | yes |
 | F9t2 | no | $10.81 | receipt | no |
 | F9t3 | yes | $12.75 | receipt | yes |
 | N9t1 | no | $0.54 | one SDK review run | no |
 | N9t2 | yes | $0.41 | one SDK review run | no |
 | N9t3 | yes | $0.43 | one SDK review run | no |
-| C10t1 | yes | $11.29 | stopped at Step 16 | no |
-| C10t2 | yes | $8.91 | stopped at Step 9 | no |
-| C10t3 | yes | $7.30 | stopped at Step 9.4 | no |
-| F10t1 | yes | $10.68 | stopped at Step 9 | yes |
-| F10t2 | yes | $9.88 | stopped at Step 9.4 | yes |
-| F10t3 | yes | $8.58 | stopped at Step 11 | no |
+| C10t1 | yes | $11.29 | remote-gate refusal, Step 16 | no |
+| C10t2 | yes | $8.91 | review round cap (Steps 9 to 11) | no |
+| C10t3 | yes | $7.30 | review, Step 9.4 (required-probe gate) | no |
+| F10t1 | yes | $10.68 | review round cap (Steps 9 to 11) | yes |
+| F10t2 | yes | $9.88 | review round cap (Steps 9 to 11) | yes |
+| F10t3 | yes | $8.58 | review round cap (Steps 9 to 11) | no |
 | N10t1 | yes | $0.36 | one SDK review run | no |
 | N10t2 | yes | $0.29 | one SDK review run | no |
 | N10t3 | yes | $0.34 | one SDK review run | no |
@@ -195,7 +198,7 @@ removes one agent layer at no measured loss. The one "Why null?" cycle:
 - **Did the runs use the part under test?** Yes. Every C thread handed /ship to one subagent, per its brief; every F
   thread ran /ship itself, which the hand fidelity read checked run by run.
 - **Do the tasks fit?** Partly. The cases cover /ship's review and fix phases well, but 51 of 60 runs stopped before
-  the receipt, so the release steps after Step 16 were barely exercised by either arm.
+  the receipt, 36 of them before finish, so the release steps were barely exercised by either arm.
 - **Enough samples and headroom?** The cost interval (about plus or minus $1.50) is far tighter than the planned $7.
   The catch-rate intervals (about plus or minus 0.2) are within the planned 35 points. Differences smaller than that
   could not be seen. Planted-bug catch rates were 70 to 73 percent, so there was headroom.
