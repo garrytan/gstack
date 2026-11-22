@@ -146,6 +146,14 @@ describe('waitForRun', () => {
     expect((await o([run(4, { conclusion: 'failure' }), skipped])).state).toBe('red');
     expect(await o([skipped])).toMatchObject({ state: 'red', run: { id: 5 } });
   });
+
+  // Value: protects=the wait agrees with verifyRun on a neutral run too (GST-3554); fails_when=a newer neutral run is read as the commit's result
+  test('a newer neutral run is passed over like a skipped one; a newer failed run is still red', async () => {
+    const o = (runs: ApiRun[]) => waitForRun(source(runs).deps, { workflow: 'free-tests.yml', events: PROFILE.events, head: HEAD, timeoutMs: 60_000, intervalMs: 20_000, ...clockAt() });
+    const neutral = run(5, { event: 'pull_request', conclusion: 'neutral', created_at: run(4).created_at });
+    expect(await o([run(4), neutral])).toMatchObject({ state: 'green', run: { id: 4 } });
+    expect(await o([run(4), run(5, { event: 'pull_request', conclusion: 'failure', created_at: run(4).created_at })])).toMatchObject({ state: 'red', run: { id: 5 } });
+  });
 });
 
 describe('ship_lanes_from config and the ci_carried receipt field', () => {

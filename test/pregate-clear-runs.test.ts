@@ -257,6 +257,28 @@ describe.skipIf(process.platform === 'win32')('clear --run: Actions runs as remo
     expect(msg(clearDecision(at(), PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
   }, 120_000);
 
+  // Value: protects=a workflow_call-only lane clears from a caller run only at pregate.json's exact head (GST-3554); fails_when=a green caller run of an older or other commit clears the lane
+  test('a caller run of a reusable-workflow lane clears only at pregate.json\'s head; the same green caller run at any other commit refuses (GST-3554)', async () => {
+    const repo = fixture();
+    const head = repo.git('rev-parse', 'HEAD');
+    const before = repo.git('rev-parse', 'HEAD~1');
+    const base = await pregateAt(repo);
+    expect(base.head).toBe(head);
+    const dir = path.join(repo.work, '.github/workflows');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'r.yml'), 'name: Reusable\non:\n  workflow_call:\njobs:\n  job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo r\n');
+    fs.writeFileSync(path.join(dir, 'c.yml'), 'name: Caller\non:\n  workflow_dispatch:\njobs:\n  native:\n    uses: ./.github/workflows/r.yml\n');
+    repo.git('add', '-A', '.github');
+    const PLATFORM = 'r.yml/job';
+    const file: PregateFile = { ...base, tree: repo.git('write-tree'), requires_remote: [...base.requires_remote!, { lane: PLATFORM, platform: 'windows', workflow: 'r.yml', job: 'job', tests: ['test/a.test.ts'], receipt: null }] };
+    const url = 'https://github.com/fx/fx/actions/runs/300';
+    const msg = (d: ReturnType<typeof clearDecision>) => ('refused' in d ? `${d.refused}: ${d.message}; fix: ${d.fix}` : `cleared ${d.receipt}`);
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toBe(`cleared ${url}/attempts/1`);
+    const away = `PREGATE_RECEIPT_INVALID: REUSE: refused reason=head_mismatch — run 300 attempt 1 of c.yml ran at ${before.slice(0, 12)}, not pregate.json's head ${head.slice(0, 12)}, and a caller run clears r.yml only at that exact head; ${PLATFORM} stays uncleared; fix: gh workflow run c.yml --ref <branch> at ${head.slice(0, 12)}, then gstack-pregate clear --remote ${PLATFORM} --run-url <that run's URL>`;
+    expect(msg(clearDecision(file, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, before, 'c.yml') }, repo.work))).toBe(away);
+    expect(msg(clearDecision({ ...file, head: undefined }, PLATFORM, { runUrl: url, evidence: runOfWorkflow(repo, head, 'c.yml') }, repo.work))).toMatch(/^PREGATE_RECEIPT_INVALID: REUSE: refused reason=head_mismatch — run 300 attempt 1 of c\.yml ran at [0-9a-f]{12}, not pregate\.json's head \(none recorded\)/);
+  }, 120_000);
+
   test('a caller run counts only through a successful <calling job> / <lane job> job; names with comments or expressions match; callers are read at pregate.json\'s tree, not the working tree; a flow-mapping on: with workflow_dispatch counts (GST-971 fix-check)', async () => {
     const repo = fixture();
     const head = repo.git('rev-parse', 'HEAD');

@@ -111,6 +111,59 @@ describe('verifyRun', () => {
     expect(reason(world({ others: [skipped({ event: 'workflow_dispatch', status: 'in_progress', conclusion: null })] }))).toBe('newer_run_vetoes');
   });
 
+  // Value: protects=gbrain #10021's real runs at 435e38c5 (GST-3554): the dispatch run clears though a pull_request run that skipped itself, or concluded neutral, was created in the same second and is listed first; fails_when=a skipped or neutral run vetoes, or a newer failed, cancelled, timed-out or running run stops vetoing;
+  //   why_new=GST-3514 covered skipped with a synthetic run; this binds the API's real order and timestamps, and neutral; seam=verifyRun's newer-run filter; no_claim=GitHub's API shape (ghRunDeps)
+  describe('the real gbrain runs at 435e38c5 (GST-3554)', () => {
+    const fx = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/run-evidence/gbrain-435e38c5.json'), 'utf8'));
+    const AT = new Date('2026-11-22T17:30:00Z');
+    const lane = (key: 'macos' | 'test', over: { runs?: (runs: ApiRun[]) => ApiRun[]; jobs?: (jobs: ApiJob[]) => ApiJob[]; head?: string } = {}) => {
+      const runs: ApiRun[] = (over.runs ?? (r => r))(structuredClone(fx[key].runs_for_head));
+      const d: RunDeps = {
+        run: id => { const r = runs.find(x => x.id === id); if (!r) throw new Error('HTTP 404'); return r; },
+        runsForHead: (_wf, sha) => runs.filter(r => r.head_sha === sha),
+        jobs: () => (over.jobs ?? (j => j))(structuredClone(fx[key].jobs)),
+        artifact: () => structuredClone(fx[key].artifact),
+        commitTree: sha => (sha === fx.head ? fx.tree : null),
+      };
+      return d;
+    };
+    const MAC = 'macos-validation.yml/macos-26';
+    const NATIVE = 'native-locks.yml/native';
+    const verdict = (name: string, d: RunDeps, runRef: string, vetoHeads: string[] = [fx.head]) => {
+      const v = verifyRun(d, { repo: REPO, runRef, profileName: name, profile: fx.profiles[name], vetoHeads, now: AT });
+      return v.ok ? 'ok' : `${v.reason}: ${v.detail}`;
+    };
+    const skippedRun = 45041640526;
+    const as = (conclusion: string | null, status = 'completed') => (runs: ApiRun[]) => runs.map(r => (r.id === skippedRun ? { ...r, status, conclusion } : r));
+
+    test('the macOS dispatch run 45041640171 clears though the skipped pull_request run 45041640526, created the same second, is listed first', () => {
+      expect(fx.macos.runs_for_head.map((r: ApiRun) => `${r.id} ${r.event} ${r.conclusion} ${r.created_at}`)).toEqual([
+        '45041640526 pull_request skipped 2026-11-22T16:03:04Z', '45041640171 workflow_dispatch success 2026-11-22T16:03:04Z', '44987920051 pull_request skipped 2026-11-22T05:06:09Z',
+      ]);
+      expect(verdict(MAC, lane('macos'), '45041640171')).toBe('ok');
+    });
+
+    test('a newer neutral run does not veto either; a newer failed, cancelled, timed-out or unfinished run still does', () => {
+      expect(verdict(MAC, lane('macos', { runs: as('neutral') }), '45041640171')).toBe('ok');
+      for (const conclusion of ['failure', 'cancelled', 'timed_out', 'startup_failure', 'action_required'])
+        expect(verdict(MAC, lane('macos', { runs: as(conclusion) }), '45041640171')).toBe(`newer_run_vetoes: newer run 45041640526 of macos-validation.yml on 435e38c5c2ea is ${conclusion}`);
+      expect(verdict(MAC, lane('macos', { runs: as(null, 'in_progress') }), '45041640171')).toBe('newer_run_vetoes: newer run 45041640526 of macos-validation.yml on 435e38c5c2ea is in_progress');
+    });
+
+    test('the workflow_call-only native-locks lane clears from the Test dispatch run 45041701289 that called it, through its called job names, and from no other run', () => {
+      expect(verdict(NATIVE, lane('test'), '45041701289')).toBe('ok');
+      const drop = (name: string) => (jobs: ApiJob[]) => jobs.filter(j => j.name !== name);
+      const red = (name: string) => (jobs: ApiJob[]) => jobs.map(j => (j.name === name ? { ...j, conclusion: 'failure' } : j));
+      expect(verdict(NATIVE, lane('test', { jobs: drop('native-locks / win32-arm64 / Bun 1.4.4') }), '45041701289')).toBe('job_missing: run 45041701289 attempt 1 has no job named native-locks / win32-arm64 / Bun 1.4.4');
+      expect(verdict(NATIVE, lane('test', { jobs: red('native-locks / darwin-x64 / Bun 1.4.4') }), '45041701289')).toBe('job_not_success: run 45041701289 attempt 1\'s native-locks / darwin-x64 / Bun 1.4.4 job concluded failure');
+      const OTHER = 'c'.repeat(40);
+      const elsewhere: RunDeps = { ...lane('test', { runs: runs => runs.map(r => ({ ...r, head_sha: OTHER })) }), artifact: () => ({ ...structuredClone(fx.test.artifact), sha: OTHER, tree: 'd'.repeat(40) }), commitTree: sha => (sha === OTHER ? 'd'.repeat(40) : sha === fx.head ? fx.tree : null) };
+      expect(verdict(NATIVE, lane('test', { runs: runs => runs.map(r => ({ ...r, head_sha: OTHER })) }), '45041701289')).toBe(`artifact_mismatch: run 45041701289 attempt 1's full-suite-tree records sha ${fx.head} (expected ${OTHER})`);
+      expect(verifyFromRun({ repo: REPO, deps: elsewhere, profiles: fx.profiles, now: AT }, '45041701289', [NATIVE], fx.tree, fx.head)).toEqual({ ok: false, reason: 'tree_mismatch', detail: `run 45041701289 tested tree dddddddddddd, not this tree ${fx.tree.slice(0, 12)}` });
+      expect(verdict(NATIVE, lane('macos'), '45041640171')).toMatch(/^workflow_mismatch: /);
+    });
+  });
+
   test('a newer failure on another head the consumer names (same tree, the lane\'s own head) vetoes too', () => {
     const w = world();
     const other = 'e'.repeat(40);
