@@ -1,20 +1,24 @@
 /**
- * gstack's own `git worktree add` and removal run one at a time per
- * repository. While git adds a worktree it reads every sibling's commondir,
- * and a concurrent add leaves its own commondir empty for an instant, so the
- * other add dies with "failed to read .git/worktrees/<name>/commondir:
- * Success". Two gate-ahead preparations for one PR are concurrent by design
- * and hit this on CI (test/gstack-ship-queue.test.ts, Trunk e3ed3abf).
+ * gstack-restamp's and the gate-ahead queue's `git worktree add` and removal run
+ * one at a time per repository. While git adds a worktree it reads every
+ * sibling's commondir, and a concurrent add leaves its own commondir empty for
+ * an instant, so the other add dies with "failed to read
+ * .git/worktrees/<name>/commondir: Success". Two gate-ahead preparations for one
+ * PR are concurrent by design and hit this on CI (test/gstack-ship-queue.test.ts,
+ * Trunk e3ed3abf). Other worktree callers in crew/lib run one at a time inside
+ * their own command and do not take this lock.
  *
  * The lock is a pid file in the repository's git common dir, published with a
- * hard link so it is never seen half-written; a dead holder's lock is taken
- * over, and a live one is waited on for at most WAIT_MS.
+ * hard link so it is never seen half-written. Every hold is one git call with a
+ * 60 s timeout, so a lock whose holder is dead, or one older than STALE_MS (a
+ * killed holder's pid can be reused after a restart), is taken over: it is
+ * renamed aside and removed only if it is still the file that was judged stale.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from './spawn-sync';
 
-const WAIT_MS = 120_000;
+const STALE_MS = 120_000;
 const LOCK_NAME = 'gstack-worktree.lock';
 
 type GitResult = { ok: boolean; out: string; err: string; status: number | null };
@@ -35,15 +39,19 @@ export function withWorktreeLock<T>(repoRoot: string, fn: () => T): T {
   const lock = path.join(common.out, LOCK_NAME);
   const staged = `${lock}.${process.pid}`;
   fs.writeFileSync(staged, String(process.pid));
-  const deadline = Date.now() + WAIT_MS;
   try {
     for (;;) {
       try { fs.linkSync(staged, lock); break; } catch (e: any) { if (e?.code !== 'EEXIST') throw e; }
-      let holder = 0;
-      try { holder = Number(fs.readFileSync(lock, 'utf8')); } catch { continue; }
-      if (!holderAlive(holder)) { fs.rmSync(lock, { force: true }); continue; }
-      if (Date.now() >= deadline) throw new Error(`another gstack worktree command (pid ${holder}) has held ${lock} for ${WAIT_MS / 1000} s`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+      let held: { ino: number; mtimeMs: number; pid: number };
+      try {
+        const fd = fs.openSync(lock, 'r');
+        try { const st = fs.fstatSync(fd); held = { ino: st.ino, mtimeMs: st.mtimeMs, pid: Number(fs.readFileSync(fd, 'utf8')) }; } finally { fs.closeSync(fd); }
+      } catch { continue; }
+      if (holderAlive(held.pid) && Date.now() - held.mtimeMs < STALE_MS) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); continue; }
+      const aside = `${lock}.stale.${process.pid}`;
+      try { fs.renameSync(lock, aside); } catch { continue; }
+      if (fs.statSync(aside).ino !== held.ino) { try { fs.linkSync(aside, lock); } catch { /* a newer holder already took it */ } }
+      fs.rmSync(aside, { force: true });
     }
   } finally { fs.rmSync(staged, { force: true }); }
   try { return fn(); } finally {
