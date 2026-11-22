@@ -4,7 +4,8 @@
  * fix-check grant naming it, a run claims the grant, and gstack-review-log stamps that run's review-fix-check row from the claim
  * (fix_check_base, run, grant, pr) with the digest of the hunks its reader was given. finish's fixChecked counts such a row through
  * bindFixCheckRow, anchored on the grant's stop rather than the newest reviewed tree (#4612); gstack-ship-receipt write closes
- * exactly the open blockers the grant names through clearByGrant. Anything less closes nothing and says why on one line. Every input is a record gstack's
+ * exactly the open blockers the grant names through clearByGrant, and a fix whose Review-Finding trailer a later full round read
+ * clean through clearByTrailer (#4597). Anything less closes nothing and says why on one line. Every input is a record gstack's
  * tools wrote (the PR body's stop and claim entries, the approval record, the review log); the agent's --review-loop file only
  * lists which blockers are open.
  */
@@ -13,7 +14,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { grantedStop } from './pr-review-history';
 import { ownLinesSame, type ReviewRoundGrant } from './review-round-grant';
-import { ledgerPass, reviewRowKey, rowTime } from './review-scope';
+import { ledgerPass, parseFixTrailers, reviewRowKey, rowTime } from './review-scope';
 import { receiptRuns } from './ship-receipt';
 import { spawnSync } from './spawn-sync';
 
@@ -22,6 +23,7 @@ type Row = Record<string, any>;
 export type OpenBlocker = string | { id: string; fingerprint: string };
 export type RowBinding = { ok: true; grant: ReviewRoundGrant; base: string; commit: string } | { ok: false; why: string };
 export interface GrantClearing { ids: string[]; approval?: string; run?: string; why?: string }
+export interface TrailerClearing { id: string; commit: string; review: string }
 
 const SHA = /^[0-9a-f]{40}$/;
 const s12 = (s: string) => s.slice(0, 12);
@@ -32,6 +34,7 @@ const git = (cwd: string, args: string[]) => {
 const ancestor = (cwd: string, a: string, d: string) => a === d || git(cwd, ['merge-base', '--is-ancestor', a, d]) !== null;
 const treeOf = (cwd: string, c: string) => git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{tree}`])?.trim();
 const findingsOf = (r: Row): Row[] => (Array.isArray(r?.findings) ? r.findings.filter((f: unknown) => !!f && typeof f === 'object') : []);
+const locusOf = (f: Row) => (typeof f.path === 'string' && Number.isInteger(f.line) ? `${f.path.replace(/^\.\//, '')}:${f.line}` : /^(.+?):(\d+):/.exec(String(f.fingerprint ?? ''))?.slice(1, 3).join(':') ?? null);
 const nameOf = (b: OpenBlocker) => (typeof b === 'string' ? b : b.id);
 
 /** The hunks a fix-check reader was given: the sha256 of the file's bytes and every path its diff headers name. */
@@ -125,4 +128,27 @@ export function clearByGrant(cwd: string, o: { pr: number; run: string; head: st
   const ids = g.findings!.filter(name => o.open.filter(b => nameOf(b) === name).length === 1 && !o.open.some(b => typeof b !== 'string' && b.fingerprint === name) && !gated.has(name));
   const unnamed = g.findings!.filter(name => !ids.includes(name));
   return { ids, approval: g.approval, run: o.run, ...(unnamed.length ? { why: `grant ${g.approval} names ${unnamed.join(', ')}, which no open blocker carries alone` } : {}) };
+}
+
+/**
+ * The #4597 route: an open blocker closes when a branch commit carries its Review-Finding trailer (its exact ledger id, or its
+ * fingerprint when no other open blocker shares it) and a later complete full review, bound to its own committed tree on this
+ * branch and holding that commit in its range, reports no open finding at that id or locus. Gate findings never close this way.
+ */
+export function clearByTrailer(cwd: string, o: { head: string; baseRef: string; rows: readonly Row[]; open: readonly OpenBlocker[] }): TrailerClearing[] {
+  const log = git(cwd, ['log', '--no-merges', '--format=%H%x00%(trailers:key=Review-Finding,valueonly,separator=%x1f)%x1e', `${o.baseRef}..${o.head}`]);
+  const trailers = (log ?? '').split('\x1e').flatMap(rec => { const [sha, values] = rec.trim().split('\0'); return sha && values ? parseFixTrailers(sha, values.split('\x1f').map(v => v.trim()).filter(Boolean)) : []; });
+  return o.open.flatMap(b => {
+    const id = nameOf(b), fp = typeof b === 'string' ? b : b.fingerprint;
+    const raised = o.rows.flatMap(r => findingsOf(r).filter(f => f.action === 'open' && (f.ledger_id === id || (f.ledger_id === undefined && f.fingerprint === fp))).map(f => ({ r, f })));
+    const alone = o.open.filter(c => (typeof c === 'string' ? c : c.fingerprint) === fp).length === 1;
+    const t = trailers.find(x => x.finding === id || (alone && x.finding === fp));
+    if (!t || !raised.length || raised.some(x => x.f.gate !== undefined)) return [];
+    const after = Math.max(...raised.map(x => rowTime(x.r))), at = locusOf(raised.at(-1)!.f);
+    const review = o.rows.find(r => r?.skill === 'review' && r.via === 'ship' && r.completed === true && r.scope !== 'fix-range' && r.scope !== 'scoped' && rowTime(r) > after
+      && (r.review_binding?.state === 'verified' || r.review_binding?.state === 'incomplete') && typeof r.tree === 'string' && r.review_binding.start_wtree === r.tree && r.review_binding.end_wtree === r.tree
+      && SHA.test(String(r.commit_full)) && treeOf(cwd, r.commit_full) === r.tree && ancestor(cwd, t.commit, r.commit_full) && ancestor(cwd, r.commit_full, o.head)
+      && !findingsOf(r).some(f => f.action === 'open' && (f.ledger_id === id || (!!at && locusOf(f) === at))));
+    return review ? [{ id, commit: t.commit, review: review.commit_full as string }] : [];
+  });
 }

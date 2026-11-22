@@ -261,7 +261,10 @@ any severity; and the stop, the claim and the row's start were recorded in that
 order. Each grant id closes the one open blocker carrying that id; a fingerprint
 shared by two blockers closes neither. Anything less closes nothing, and write
 says why on a `FIX_CHECK_CLEAR:` line. The receipt records `cleared_by_grant`,
-and the Agent notes section gets one `Closed by grant …` line. finish counts the same
+and the Agent notes section gets one `Closed by grant …` line. A finding whose
+fix commit carries its `Review-Finding:` trailer also closes once a later full
+round, bound to its committed tree and holding that commit, reports nothing
+open at its id or line (`cleared_by_trailer`, #4597). finish counts the same
 stamped row, anchored on the grant's stop rather than the newest reviewed tree
 (#4612).
 

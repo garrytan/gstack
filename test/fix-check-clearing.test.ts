@@ -1,7 +1,7 @@
 /**
  * GST-3260 PR 2: a granted fix-check that read the fix clean closes exactly the findings its grant names, with no owner ruling.
  * Before, a clean fix-check under a fix-check grant left RECEIPT_BLOCKER_OPEN (gstack #4537, harness-evals #508, #4585, #4567),
- * and finish anchored a granted fix-check on
+ * a Review-Finding trailer whose fix a later full round read clean stayed open (#4597), and finish anchored a granted fix-check on
  * the newest reviewed tree instead of the stop the grant names (#4612). The closed #4546 tried this and its second-model trail
  * reads found the gaps each negative case below pins (captain drive reports/GSTA-665.md). Fixtures are synthetic; the replays
  * follow each case's shape, not its bytes.
@@ -9,7 +9,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { bindFixCheckRow, clearByGrant, grantSpent, hunksDigest } from '../lib/fix-check-clearing';
+import { bindFixCheckRow, clearByGrant, clearByTrailer, grantSpent, hunksDigest } from '../lib/fix-check-clearing';
 import { grantMarker, placeRunEntry, stopMarker } from '../lib/pr-review-history';
 import { nextStep } from '../lib/review-depth';
 import { readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
@@ -124,6 +124,28 @@ describe('a granted, clean fix-check closes exactly its grant\'s findings at wri
     const { w } = summaryThenWrite(g);
     expect(w.status, w.stderr).toBe(0);
   });
+
+  // Value: protects=#4597, a fix whose Review-Finding trailer a later full round read clean closes; fails_when=write refuses
+  //   RECEIPT_BLOCKER_OPEN because the round-2 row left the finding out; seam=gstack-ship-receipt write
+  test('#4597: a trailer plus a later clean full round closes the voice finding', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    fxs.push(f);
+    const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
+    const g = { f, run, body: path.join(f.root, 'body.md'), since: new Date(Date.now() - 1000).toISOString(), fixRun: 'r1' } as Granted;
+    fs.writeFileSync(g.body, 'Fixes a thing.\n');
+    logRow(g, 'review', { pass: 1, ...CLEAN });
+    logRow(g, 'adversarial-review', { status: 'issues_found', source: 'outside-voice', phase: 'adversarial', gate: 'informational', completed: true, findings: [blocker] });
+    f.write({ 'src/x.ts': 'export const x = 3;\n' });
+    f.git('add', '-A'); f.git('commit', '-qm', 'fix the outside voice blocker', '--trailer', 'Review-Finding: ' + ID + ' reader=outside-voice');
+    const before = summaryThenWrite(g);
+    expect(before.w.status).toBe(3);
+    logRow(g, 'review', { pass: 2, ...CLEAN });
+    const { loop, w } = summaryThenWrite(g);
+    expect(loop.open).toEqual([{ id: ID, fingerprint: FP }]);
+    expect(w.status, w.stderr).toBe(0);
+    expect(w.stderr).toContain('TRAILER_CLEAR: ' + ID + ' (fixed by ' + headOf(f).slice(0, 12));
+    expect(extractReceipt(fs.readFileSync(g.body, 'utf8')).receipt?.cleared_by_trailer).toEqual([{ id: ID, commit: headOf(f), review: headOf(f) }]);
+  });
 });
 
 describe('harness-evals#504: a fix-check grant answering a stop after a gate-class edit plans its fix-check on the plain route', () => {
@@ -234,7 +256,8 @@ describe('clearing refuses every gap GSTA-665\'s trail reads found in #4546 (lib
     expect(clear({ body: late }).why).toContain('not recorded in that order');
     expect(clear({ rows: [...base.rows, { skill: 'review', via: 'ship', findings: [{ ledger_id: ID, gate: 'RH1', action: 'open' }] }] }).ids).toEqual([]);
   });
-  test('stop and claim markers carry when they were recorded', () => {
+  test('no trailer, or a trailer with no later full round, closes nothing by trailer', () => {
+    expect(clearByTrailer(g.f.work, { head: g.F, baseRef: 'origin/main', rows: base.rows, open: base.open })).toEqual([]);
     expect(grantMarker({ head: g.S, run: 'x', grant: 'a' }).at).toMatch(/^\d{4}-/);
   });
 });

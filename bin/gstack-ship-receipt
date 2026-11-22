@@ -69,7 +69,7 @@ import { securityFingerprints } from '../lib/security-findings';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
 import { abandonMarker, grantedStop, grantMarker, historyLine, placeRunEntry, prReviewHistory, receiptedRun, reviewRoute, runStub, stopFrom, stopMarker } from '../lib/pr-review-history';
 import { changeRunRecord } from '../lib/ship-run-record';
-import { clearByGrant } from '../lib/fix-check-clearing';
+import { clearByGrant, clearByTrailer } from '../lib/fix-check-clearing';
 import { splitAgentNotes, withAgentNotes } from '../lib/agent-notes';
 import { grantFor, publicRoundGrant, readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { readMechanicalLines } from '../lib/ship-mechanical';
@@ -388,8 +388,10 @@ function cmdWrite(rest: string[], json: boolean): number {
     const grants = ruledOpen.length ? readReviewRoundGrants(repoRoot).filter(g => g.kind === 'fix-check' && g.pr === pr) : [];
     const live = grants.length && !receiptRuns(bodyText).length && flag(rest, '--pr') ? readBody(['--pr', flag(rest, '--pr')!, ...(flag(rest, '--repo') ? ['--repo', flag(rest, '--repo')!] : [])]) : undefined;
     const byGrant = !grants.length ? undefined : !run ? { ids: [], why: 'write names no --run, so no run spent the grant' } : clearByGrant(repoRoot, { pr, run, head: at, baseRef, body: live?.ok ? live.body : bodyText, grants, rows, open: blockers });
+    const byTrailer = ruledOpen.length ? clearByTrailer(repoRoot, { head: at, baseRef, rows, open: blockers }) : [];
     if (byGrant) process.stderr.write(`FIX_CHECK_CLEAR: ${byGrant.ids.length ? `grant=${byGrant.approval} run=${byGrant.run} closed=${byGrant.ids.join(',')}` : 'none'}${byGrant.why ? ` (${byGrant.why})` : ''}\n`);
-    const open = ruledOpen.filter(id => !byGrant?.ids.includes(id));
+    for (const t of byTrailer) process.stderr.write(`TRAILER_CLEAR: ${t.id} (fixed by ${t.commit.slice(0, 12)}, read clean by the full review at ${t.review.slice(0, 12)})\n`);
+    const open = ruledOpen.filter(id => !byGrant?.ids.includes(id) && !byTrailer.some(t => t.id === id));
     if (open.length) { process.stderr.write(resultLineWithDocs('gstack-ship-receipt write', 'RECEIPT_BLOCKER_OPEN', `${open.join(', ')}; nothing written`) + '\n'); return EXIT.refused; }
     input = {
       schema_version: 1, pr: flag(rest, '--pr') !== undefined ? Number(flag(rest, '--pr')) : undefined, head,
@@ -403,7 +405,7 @@ function cmdWrite(rest: string[], json: boolean): number {
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
       review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...product,
-      gstack_version: installedGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, review_round_grants: roundGrantsFor(repoRoot, flag(rest, '--pr'))?.map(g => publicRoundGrant(g, ruledNotes)), cleared_by_grant: byGrant?.ids.length ? { approval: byGrant.approval!, run: byGrant.run!, ids: byGrant.ids } : undefined, ruled_notes: ruledNotes.length ? ruledNotes.map(publicRuledNote) : undefined, gate_dispositions: gateDispositions.map(publicGateDisposition), mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
+      gstack_version: installedGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, review_round_grants: roundGrantsFor(repoRoot, flag(rest, '--pr'))?.map(g => publicRoundGrant(g, ruledNotes)), cleared_by_grant: byGrant?.ids.length ? { approval: byGrant.approval!, run: byGrant.run!, ids: byGrant.ids } : undefined, cleared_by_trailer: byTrailer.length ? byTrailer : undefined, ruled_notes: ruledNotes.length ? ruledNotes.map(publicRuledNote) : undefined, gate_dispositions: gateDispositions.map(publicGateDisposition), mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
       design: review.frontend ? { mode: 'static', reason: 'no preview declared' } : undefined,
       base_red: pause ? receiptBaseRed(pause) : undefined,
       review_exclude: receiptExclude(review.exclude),
@@ -434,7 +436,8 @@ function cmdWrite(rest: string[], json: boolean): number {
   const block = renderReceiptBlock(receipt);
   const out = flag(rest, '--out');
   if (out) fs.writeFileSync(out, block);
-  const closed = receipt.cleared_by_grant ? [`Closed by grant ${receipt.cleared_by_grant.approval}: ${receipt.cleared_by_grant.ids.join(', ')} (the granted fix-check of run ${receipt.cleared_by_grant.run} read the fix clean)`] : [];
+  const closed = [...(receipt.cleared_by_grant ? [`Closed by grant ${receipt.cleared_by_grant.approval}: ${receipt.cleared_by_grant.ids.join(', ')} (the granted fix-check of run ${receipt.cleared_by_grant.run} read the fix clean)`] : []),
+    ...(receipt.cleared_by_trailer ?? []).map(t => `Closed by fix ${t.commit.slice(0, 12)}: ${t.id} (a later full review at ${t.review.slice(0, 12)} read it clean)`)];
   if (body) {
     const text = fs.existsSync(body) ? fs.readFileSync(body, 'utf8') : '';
     const notes = splitAgentNotes(text).notes ?? '';
