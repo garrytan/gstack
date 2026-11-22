@@ -152,6 +152,34 @@ describe('a granted, clean fix-check closes exactly its grant\'s findings at wri
     expect(byTrailer(pass2)).toHaveLength(1);
     expect(byTrailer({ ...pass2, status: 'issues_found', findings_open: 1, findings_file: '/tmp/f.jsonl', status_source: 'derived' })).toEqual([]);
     expect(byTrailer({ ...pass2, findings: [{ fingerprint: 'src/x.ts:9:style', severity: 'INFORMATIONAL', action: 'open' }] })).toEqual([]);
+    // Value: protects=only a finished, converged full round that read the fix closes by trailer (#4664 trail read, flag 2);
+    //   fails_when=a completed round that made its own fixes (converged false, bound incomplete), or whose range starts at or after
+    //   the fix commit, closes the trailer's finding; seam=clearByTrailer
+    expect(byTrailer({ ...pass2, converged: false, review_binding: { ...pass2.review_binding, state: 'incomplete' } })).toEqual([]);
+    expect(byTrailer({ ...pass2, range_base: headOf(f) })).toEqual([]);
+    // Value: protects=a pass 1, which logs range_base null, reads the whole PR and still closes a committed fix by trailer (#4696
+    //   ship-4696c, p1/outside-voice#4); fails_when=null reads as a range that leaves the fix out; seam=clearByTrailer
+    expect(byTrailer({ ...pass2, range_base: null })).toHaveLength(1);
+  });
+  // Value: protects=a security-class fingerprint never closes by trailer, so no closure line puts its location in the public body
+  //   (#4664 trail read, flag 3); fails_when=a blocker with no ledger id closes by its raw path:line:security fingerprint;
+  //   why_new=the #4597 replay uses a ledger id; seam=clearByTrailer; no_claim=closure by ledger id, which carries no location
+  test('a trailer naming a security fingerprint closes nothing, while the same trailer on a plain fingerprint closes', () => {
+    const byFingerprint = (fp: string) => {
+      const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+      fxs.push(f);
+      const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
+      const g = { run } as Granted;
+      logRow(g, 'review', { pass: 1, ...CLEAN });
+      logRow(g, 'adversarial-review', { status: 'issues_found', source: 'outside-voice', phase: 'adversarial', gate: 'informational', completed: true, findings: [{ fingerprint: fp, severity: 'CRITICAL', action: 'open', blocking: true, raised_by: 'outside-voice' }] });
+      f.write({ 'src/x.ts': 'export const x = 3;\n' });
+      f.git('add', '-A'); f.git('commit', '-qm', 'fix the blocker', '--trailer', 'Review-Finding: ' + fp + ' reader=outside-voice');
+      logRow(g, 'review', { pass: 2, ...CLEAN });
+      return clearByTrailer(f.work, { head: headOf(f), baseRef: 'origin/main', rows: rowsOf(g as Granted), open: [fp] });
+    };
+    expect(byFingerprint('src/x.ts:1:style').map(t => t.id)).toEqual(['src/x.ts:1:style']);
+    expect(byFingerprint('src/x.ts:1:security')).toEqual([]);
+    expect(byFingerprint('src/x.ts::security')).toEqual([]);
   });
 });
 
@@ -270,6 +298,19 @@ describe('clearing refuses every gap GSTA-665\'s trail reads found in #4546 (lib
     const late = placeRunEntry(base.body.replace(/\{"head":"[0-9a-f]{40}","run":"ro","mark":"stop"[^\n]*\n/, ''), stopMarker({ head: stop.head, tree: stop.tree!, run: 'ro', at: '2099-01-01T00:00:00.000Z' }));
     expect(clear({ body: late }).why).toContain('not recorded in that order');
     expect(clear({ rows: [...base.rows, { skill: 'review', via: 'ship', findings: [{ ledger_id: ID, gate: 'RH1', action: 'open' }] }] }).ids).toEqual([]);
+  });
+  // Value: protects=a grant naming a security-class fingerprint closes nothing by grant either, line or no line (#4664 trail read,
+  //   flag 3; #4696 ship-4696c p1/specialist-batched#1); fails_when=a raw security fingerprint the fix list names closes; seam=clearByGrant
+  test('a grant naming a security fingerprint closes nothing, while the same grant on a plain fingerprint closes', () => {
+    const named = (fp: string) => clear({ grants: base.grants.map(x => ({ ...x, findings: [fp] })), open: [fp], rows: withRow({ ...fixRow(), hunks: { ...fixRow().hunks, fix_list: [fp] } }) }).ids;
+    expect(named('src/x.ts:1:style')).toEqual(['src/x.ts:1:style']);
+    expect(named('src/x.ts:1:security')).toEqual([]);
+    expect(named('src/x.ts::security')).toEqual([]);
+  });
+  // Value: protects=a fix-check row whose dispatch ledger can't be read closes nothing (#4664 trail read, flag 1); fails_when=a
+  //   missing ledger reads as empty, so the check that the row disposes every id the reader raised passes; seam=bindFixCheckRow
+  test('a fix-check row naming a dispatch ledger that is missing closes nothing', () => {
+    expect(clear({ rows: withRow({ ...fixRow(), hunks: { ...fixRow().hunks, ledger: path.join(g.f.root, 'gone', 'fc', 'ledger.jsonl') } }) })).toMatchObject({ ids: [], why: expect.stringContaining('unreadable') });
   });
   // Value: protects=a clean fix-check closes only the grant ids its fix list named; fails_when=a grant id the reader was never
   //   asked about closes; seam=gstack-review-plan --fix-check-prompt, clearByGrant
