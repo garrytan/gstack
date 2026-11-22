@@ -66,8 +66,10 @@ function fixture() {
   git(['clone', '-q', '--single-branch', '--depth', '1', `file://${bare}`, root], host.base);
   fs.symlinkSync(path.join(REPO, 'scripts'), path.join(root, 'scripts'));
   write(path.join(seed, 'VERSION'), '1.0.1\n');
+  write(path.join(seed, 'NEW-IN-B.md'), 'added in B\n');
   write(path.join(seed, 'SKILL.md'), committed.replace('\n## Route first\n', '\n## Route first\n\n<!-- release B -->\n'));
-  git(['commit', '-qam', 'B'], seed);
+  git(['add', '-A'], seed);
+  git(['commit', '-qm', 'B'], seed);
   const b = git(['rev-parse', 'HEAD'], seed);
   git(['push', '-q', bare, 'main'], seed);
   const routerEnv = { ...env, GSTACK_INSTALL_DIR: root, GSTACK_SKILLS_DIR: skills };
@@ -77,6 +79,7 @@ function fixture() {
     router: () => fs.readFileSync(path.join(root, 'SKILL.md'), 'utf8'),
     config: (key: string, op: string, value: string, extra: Record<string, string> = {}) =>
       spawnSync('bash', [path.join(root, 'bin/gstack-config'), key, op, value], { cwd: host.home, encoding: 'utf8', env: { ...routerEnv, ...extra }, timeout: 60_000 }),
+    relink: () => spawnSync('bash', [path.join(root, 'bin/gstack-relink')], { cwd: host.home, encoding: 'utf8', env: routerEnv, timeout: 60_000 }),
     upgrade: (args: string[] = []) => spawnSync('bash', [path.join(root, 'bin/gstack-upgrade'), ...args], { cwd: host.home, encoding: 'utf8', env, timeout: 120_000 }),
   };
 }
@@ -111,6 +114,33 @@ describe.skipIf(process.platform === 'win32')('#4704: gstack-upgrade and the rou
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
     expect(f.router()).toContain(DISABLED_LINE);
+  });
+
+  test('a router rendered for plan_mode_preamble=off does not block the upgrade and stays rendered', () => {
+    const f = fixture();
+    const set = f.config('set', 'plan_mode_preamble', 'off');
+    expect(set.status, set.stdout + set.stderr).toBe(0);
+    const relink = f.relink();
+    expect(relink.status, relink.stdout + relink.stderr).toBe(0);
+    expect(f.git(['status', '--porcelain', '--untracked-files=no'])).toBe('M SKILL.md');
+    const rendered = f.router();
+    expect(rendered).not.toContain('## Plan Mode Safe Operations');
+    const r = f.upgrade();
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(f.b);
+    expect(f.router()).toBe(rendered);
+  });
+
+  test('a fast-forward that fails after the router was restored renders it again before refusing', () => {
+    const f = disabledFixture();
+    const rendered = f.router();
+    fs.writeFileSync(path.join(f.root, 'NEW-IN-B.md'), 'untracked local file\n');
+    const head = f.git(['rev-parse', 'HEAD']);
+    const r = f.upgrade();
+    expect(r.status, r.stdout + r.stderr).toBe(3);
+    expect(r.stderr).toContain('git merge --ff-only FETCH_HEAD failed');
+    expect(f.git(['rev-parse', 'HEAD'])).toBe(head);
+    expect(f.router()).toBe(rendered);
   });
 
   test('a user edit on top of the rendered router still refuses, and nothing changes', () => {
