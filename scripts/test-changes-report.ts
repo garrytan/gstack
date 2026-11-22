@@ -63,7 +63,7 @@ const summary = /^GATE_SUMMARY: .*unread=(\d+) .*candidate=(\S+) /.exec(first);
 if (!summary) fail(`gate-diff printed no GATE_SUMMARY line: ${first.slice(0, 200)}`);
 const hunks: Hunk[] = rest.filter(Boolean).map((l) => JSON.parse(l));
 
-const range = commit ? [`${commit}^`, commit] : [run('git', ['merge-base', base!, head!]).trim(), head!];
+const range = commit ? [`${commit}^`, commit] : [summary[2].split('..')[0], head!];
 const changed = run('git', ['diff', '--name-only', '-z', '--no-renames', range[0], range[1], '--']).split('\0').filter(Boolean);
 const gateFiles = changed.filter((p) => WATCHED.some((re) => re.test(p)));
 

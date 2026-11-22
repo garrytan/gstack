@@ -99,6 +99,22 @@ describe('test-changes report over a fetched, never checked-out pull request', (
     expect(fs.readFileSync(summary, 'utf8')).toContain('Not read as text, so tests removed in them are not counted: `test/math.test.ts` (binary).');
   });
 
+  test('a branch-name base resolves once: a stale local main adds no upstream check-file edits', () => {
+    const { dir, base } = repo({ 'src/math.ts': 'export const one = 1;\n// z\n' });
+    git(dir, ['checkout', '-q', '-b', 'upstream', base]);
+    write(dir, { '.github/workflows/ci.yml': 'name: ci\non: [push, workflow_dispatch]\n' });
+    git(dir, ['commit', '-q', '-am', 'upstream']);
+    git(dir, ['remote', 'add', 'origin', dir]);
+    git(dir, ['update-ref', 'refs/remotes/origin/main', git(dir, ['rev-parse', 'HEAD'])]);
+    write(dir, { 'src/math.ts': 'export const one = 1;\nexport const three = 3;\n' });
+    git(dir, ['commit', '-q', '-am', 'pr']);
+    const head = git(dir, ['rev-parse', 'HEAD']);
+    git(dir, ['checkout', '-q', 'main']);
+    const r = run(REPORT, dir, ['--base', 'main', '--head', head]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/ gate_files=0 /);
+  });
+
   test('--commit reads one commit the same way', () => {
     const { dir, head } = repo({ 'test/math.test.ts': "import { test } from 'bun:test';\n" });
     const r = run(REPORT, dir, ['--commit', head]);
