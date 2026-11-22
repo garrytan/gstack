@@ -275,7 +275,7 @@ function cmdClear(root: string, rest: string[]): number {
   const recordedBase = baseBranchOf(read.file.base);
   const base = resolveBaseBranch(root, flag(rest, '--base') ?? recordedBase ?? undefined);
   if (flag(rest, '--base') !== undefined && recordedBase && base !== recordedBase) { process.stderr.write(`gstack-pregate clear: receipt refused — REUSE: refused reason=base_mismatch — pregate.json was recorded against origin/${recordedBase}, but run profiles come from origin/${base}; ${lane} stays uncleared; fix: clear without --base, which reads the record's own base origin/${recordedBase}; or rerun gstack-pregate --base ${base}, then clear again ${resultCodeSuffix('PREGATE_RECEIPT_INVALID')}\n`); return EXIT.fail; }
-  const self = baseContainsHead(root, `origin/${base}`);
+  const self = baseContainsHead(root, `origin/${base}`, read.file.head ?? 'HEAD');
   if (self) { process.stderr.write(`${resultLine('gstack-pregate clear', 'BASE_CONTAINS_HEAD', self)}; its policy would be the branch's own, so ${lane} stays uncleared\n`); return EXIT.refused; }
   const checked = runs.length || runUrl || bundleLane ? buildRunCheck(root, lane, rest.includes('--allow-repo-commands'), base) : undefined;
   if (checked && 'error' in checked && (runs.length || checked.profiled)) { process.stderr.write(`gstack-pregate clear: ${checked.error}${checked.profiled ? `; ${lane} may have a run profile on the base branch, so it clears only with a verified --run` : ''}\n`); return EXIT.fail; }

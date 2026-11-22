@@ -108,7 +108,7 @@ describe.skipIf(process.platform === 'win32')('a pregate.json answers only for i
   // Value: protects=clear never reads a base's policy (and its repo commands) when that base already contains the head;
   //   fails_when=clear takes the stacked base's policy after the base merged the branch, as a pregate run would refuse;
   //   why_new=GST-3493 scope from #4689's trail read; seam=the gstack-pregate bin's clear verb with a gh shim
-  test('clear refuses BASE_CONTAINS_HEAD once the stacked base already holds the head, leaving the record uncleared', async () => {
+  test('clear refuses BASE_CONTAINS_HEAD once the stacked base already holds the recorded head, on a branch or detached', async () => {
     const repo = stackedFixture();
     const { file } = await stackedPregate(repo);
     const out = path.join(repo.work, '.gstack/tmp/pregate.json');
@@ -119,6 +119,9 @@ describe.skipIf(process.platform === 'win32')('a pregate.json answers only for i
     const r = runBin(repo, 'gstack-pregate', ['clear', '--remote', LANE, '--run', '200', '--allow-repo-commands'], ghShim(repo));
     expect([r.status, r.err]).toEqual([EXIT.refused, expect.stringContaining('(BASE_CONTAINS_HEAD')]);
     expect(r.err).toContain('origin/stack (');
+    repo.git('checkout', '-q', '--detach');
+    const detached = runBin(repo, 'gstack-pregate', ['clear', '--remote', LANE, '--run', '200', '--allow-repo-commands'], ghShim(repo));
+    expect([detached.status, detached.err]).toEqual([EXIT.refused, expect.stringContaining('(BASE_CONTAINS_HEAD')]);
     expect(JSON.parse(fs.readFileSync(out, 'utf8')).requires_remote[0].receipt).toBeNull();
   }, 120_000);
 });
