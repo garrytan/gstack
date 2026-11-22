@@ -439,6 +439,19 @@ describe('gstack-capy-install', () => {
   // GST-1233 (TRUT-26): the union above needs the same Bun and an ok run, so a child whose shell
   // resolves another Bun, or whose install fails, still replaced the shared verdict and /ship's
   // finish pregate reported INSTALL_UNVERIFIED. Each workflow keeps its own verdict as well.
+  test('--for ship then --for document-release with another Bun or a failed run: ship stays admitted', () => {
+    const f = fixture();
+    const env = { HOME: f.home, GSTACK_HOME: path.join(f.home, '.gstack-state') };
+    const admits = (skill: string) => verdictProblem(skill, f.root, env, '', '1.4.2', f.home);
+    expect(run(f, ['--for', 'ship'], { STUB_REQUIRED: 'claude codex patch runtime pins' }).status).toBe(0);
+    expect(admits('ship')).toBeNull();
+    const childBin = path.join(f.base, 'child-bin');
+    script(path.join(childBin, 'bun'), ['[ "$1" = --version ] && { echo 1.4.2; exit 0; }', 'exit 0']);
+    expect(run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime', PATH: `${childBin}${path.delimiter}${f.env.PATH}` }).status).toBe(0);
+    expect(admits('ship')).toBeNull();
+    expect(run(f, ['--for', 'document-release'], { STUB_REQUIRED: 'claude runtime', STUB_DOCTOR_FAIL: '1' }).status).not.toBe(0);
+    expect(admits('ship')).toBeNull();
+  });
 
   test('--root clones when the directory is absent and refuses a non-gstack directory', () => {
     const f = fixture();
