@@ -39,7 +39,7 @@ describe('a fixed blocker no longer holds a ruled fix-check row open (GST-3501)'
   //   action check lets an unruled deferred or open blocker clear with the rest; seam=holdsOpen; no_claim=gate findings
   test('an unruled deferred blocker still holds the row open, and an open or skipped blocker still needs a ruling', () => {
     expect(reviewFreshness(fixCheckRow(GBRA_732), TREE, new Set(['src/cli/main.ts:2864:telemetry-coverage']))?.status).toBe('UNVERIFIED');
-    expect(holdsOpen(finding('a.ts:1:x', 'fixed'))).toBe(false);
+    for (const action of ['fixed', 'auto-fixed']) expect(holdsOpen(finding('a.ts:1:x', action))).toBe(false);
     for (const action of ['open', 'deferred', 'noted', 'skipped']) expect(holdsOpen(finding('a.ts:1:x', action))).toBe(true);
   });
 });
