@@ -4,9 +4,10 @@ name: Test changes
 # (docs/ship-policy.md#test-changes): tests removed or skipped, suppressions,
 # gate bypasses and relaxed gate values that bin/gstack-gate-diff tags, the net
 # count of added and removed test declarations, and edits to the files that run
-# or define this repository's own checks. It never blocks: flags exit 0. It
+# or define this repository's own checks. Flags never fail it: they exit 0. It
 # fails only when the checker itself fails, so a broken run is never read as a
-# quiet pull request. Not a required check.
+# quiet pull request; like any failed check, that holds gstack-ship-queue land
+# until the job is rerun. Not a required check.
 #
 # WHY pull_request_target: it runs the base repository's copy of this workflow,
 # of scripts/test-changes-report.ts and of bin/gstack-gate-diff, so a pull

@@ -3314,8 +3314,10 @@ environment variable, so a very long body still reaches the checker.
 ## Test changes: what a pull request does to its own tests (flag only)
 
 `.github/workflows/test-changes.yml` adds a **Test changes** check to every pull
-request in this repository. It is a two-week, flag-only trial (GST-3386): it never
-blocks a merge and is not a required check.
+request in this repository. It is a two-week, flag-only trial (GST-3386): it is not
+a required check, and a flag never turns it red. A run that fails because the scan
+itself broke does show red, and `gstack-ship-queue land` refuses a pull request with
+any failed check at its head, so rerun that job from the Actions page before landing.
 
 It reports three things in the check's summary:
 

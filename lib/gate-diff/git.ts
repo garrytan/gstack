@@ -311,12 +311,14 @@ function decode(buf: Buffer): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(buf);
 }
 
-/** merge-base → working tree (tracked changes, staged and unstaged, with rename detection). */
+/** fromSha → toSha from commit objects alone, never the working tree (with rename detection). */
 export function diffRange(fromSha: string, toSha: string, cwd: string): FileDiff[] {
   const r = runGit([...DIFF_FLAGS, fromSha, toSha, '--'], cwd);
   if (r.status !== 0) throw new Error(`git diff failed: ${r.stderr.trim() || `exit ${r.status}`}`);
   return parseUnifiedDiff(decode(r.stdout));
 }
+
+/** merge-base → working tree (tracked changes, staged and unstaged, with rename detection). */
 export function diffWorkingTree(mergeBaseSha: string, cwd: string): FileDiff[] {
   const r = runGit([...DIFF_FLAGS, mergeBaseSha, '--'], cwd);
   if (r.status !== 0) throw new Error(`git diff failed: ${r.stderr.trim() || `exit ${r.status}`}`);
