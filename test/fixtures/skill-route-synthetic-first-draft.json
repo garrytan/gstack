@@ -1,0 +1,383 @@
+{
+  "about": "Synthetic stand-ins for the B1 in-sample prompts and the GST-3123 bug reports, written for gstack's router tests (GST-3402). Every project, issue and id here is made up; no text comes from a real repository or eval task. The wrapper around each task is B1's prompt wrapper. label says whether the task reports a defect (bug) or asks for new behavior (feature); why gives the reason in a few words. qa_overlap holds long bug reports that share words with /qa's triggers.",
+  "prompts": [
+    {
+      "id": "synthetic-bug-01",
+      "label": "bug",
+      "why": "worker dies mid-run with an error",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ntidepool: worker exits halfway through a long job queue\n\nWhen I enqueue more than about 2,000 jobs, the worker processes roughly half of them and then exits with an error. Nothing is written to the dead-letter queue, so the remaining jobs are silently lost.\n\n```\nTraceback (most recent call last):\n  File \"tidepool/worker.py\", line 214, in run\n    batch = self._lease(limit)\n  File \"tidepool/store.py\", line 88, in _lease\n    raise LeaseConflictError(job_id)\ntidepool.errors.LeaseConflictError: job 1043 already leased\n```\n\ntidepool 3.4.1, Python 3.12, Redis backend.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-02",
+      "label": "bug",
+      "why": "parse error on valid SQL",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\npondsql rejects a valid window clause\n\npondsql.parse fails on a query that PostgreSQL and SQLite both accept:\n\n```sql\nSELECT id, sum(total) OVER (PARTITION BY region ORDER BY day ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM sales;\n```\n\nIt raises ParseError: unexpected token ROWS at line 1. The grammar seems to stop after ORDER BY inside OVER. Expected behavior: the query parses into a Window node with a frame clause.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-03",
+      "label": "bug",
+      "why": "TLS verification silently disabled",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nfernroute client skips certificate checks when a proxy is set\n\nIf HTTPS_PROXY is set, the fernroute HTTP client builds its connection pool with verify=False, so any certificate is accepted, including self-signed ones from a different host. Without the proxy variable verification works as documented.\n\nThis is a security problem: a man-in-the-middle proxy can read and change every request. Verification should stay on regardless of the proxy setting, and only an explicit verify=False from the caller should turn it off.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-04",
+      "label": "bug",
+      "why": "inline math rendered twice",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nquillmark nests inline math output\n\nInput:\n\n```markdown\nThe area is $\\pi r^2$ for a circle.\n```\n\nOutput contains the math span twice, the second one nested inside the first:\n\n```html\n<span class=\"math\"><span class=\"math\">\\pi r^2</span></span>\n```\n\nThis started with 0.19; 0.18 rendered a single span. Looks like the inline rule and the new KaTeX hook both match the same delimiters.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-05",
+      "label": "bug",
+      "why": "unary minus raises on column expressions",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nskyframe: negating a column expression raises TypeError\n\n```python\nimport skyframe as sf\ndf = sf.DataFrame({\"a\": [1, 2, 3]})\ndf.select(-sf.col(\"a\"))\n```\n\nRaises TypeError: bad operand type for unary -: 'Expr'. Binary operators on sf.col work fine, so I assume __neg__ and __pos__ were simply never added to Expr. Abs also fails the same way.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-06",
+      "label": "bug",
+      "why": "joining components fails on a type mismatch",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nripplegraph: connect() fails when node ids are numpy integers\n\ng.connect(a, b) works with plain ints but fails when the ids come from a numpy array (numpy.int64). The error says the node does not exist even though g.nodes contains it, because the lookup dict was keyed by int and numpy.int64 hashes the same but the code does an isinstance(x, int) check first.\n\nSteps to reproduce: build a graph from np.arange(10), then call g.connect(ids[0], ids[1]).\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-07",
+      "label": "bug",
+      "why": "cache decorator breaks with nested scopes",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nbrightcache: @memoize fails inside a closure\n\nUsing @memoize on a function defined inside another function fails to cache anything and logs `NameError: free variable 'self' referenced before assignment` on the second call. Module-level functions are fine.\n\nI think the key builder inspects the function's closure cells and reads one before it is bound. Version 1.8.0.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-08",
+      "label": "bug",
+      "why": "transcription stuck after flush",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nlumen-audio: stream hangs for five seconds after flush()\n\nCalling stream.flush() at the end of an utterance blocks for exactly five seconds before the final transcript arrives. It looks like flush waits for the idle timeout instead of signalling end-of-input to the decoder.\n\nExpected: the final transcript within a few hundred milliseconds of flush. Actual: always 5.0 s, which matches DEFAULT_IDLE_TIMEOUT.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-09",
+      "label": "bug",
+      "why": "move_to_start times out intermittently",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nkestrel-ml: Scheduler.move_to_start sometimes times out\n\nAbout one run in twenty, Scheduler.move_to_start() raises TimeoutError after 30 s even though the queue only has a handful of items. Adding a print before the lock acquisition makes it go away, so I suspect a race between the reorder lock and the heartbeat thread.\n\nThis is flaky in our CI and blocks merges; it would be great to get a fix.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-10",
+      "label": "bug",
+      "why": "wrong distance formula",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\norbitgeo: midpoint uses the great circle where the rhumb line is requested\n\norbitgeo.midpoint(a, b, path=\"rhumb\") returns the great-circle midpoint. For two points on the same parallel (lat 60, lon 0 and lat 60, lon 90) the rhumb midpoint should be (60, 45), but the function returns (67.8, 45), which is the great-circle answer. The path argument is accepted and then ignored.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-11",
+      "label": "bug",
+      "why": "block_size=0 divides by zero",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nvellum-pdf: block_size=0 crashes the compressor\n\nvellum.compress(doc, block_size=0) crashes with ZeroDivisionError in _chunk(). The docs say 0 means \"no blocking\", so it should treat the whole stream as one block instead of dividing by it.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-12",
+      "label": "bug",
+      "why": "filter cannot handle multi-channel signals",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nsandglass: resample() cannot handle signals with more than one channel\n\nresample(signal, rate) works for shape (n,) but for shape (n, 2) it returns garbage: the channels are interleaved into a single row of length 2n. No error is raised, which makes it easy to miss. The function should resample each channel and return shape (m, 2).\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-13",
+      "label": "bug",
+      "why": "config merge drops nested keys",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ncobaltconf: merging two configs loses nested keys\n\n```python\nbase = {\"db\": {\"host\": \"a\", \"port\": 5432}}\noverride = {\"db\": {\"host\": \"b\"}}\ncobaltconf.merge(base, override)\n```\n\nreturns {\"db\": {\"host\": \"b\"}}. The port is gone. A deep merge should keep it: {\"db\": {\"host\": \"b\", \"port\": 5432}}. The README says merge is recursive.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-14",
+      "label": "bug",
+      "why": "memory leak in long-running subscriber",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nwrenlog: memory grows without bound in a subscriber that runs for days\n\nOur log forwarder's resident memory climbs about 40 MB per hour until the container is killed. A heap snapshot shows millions of FormatterCache entries keyed by record id, so the formatter cache never evicts. Restarting the process every night is our current workaround. Looks like a leak introduced when the cache moved from an LRU to a plain dict in 2.2.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-15",
+      "label": "bug",
+      "why": "timezone off by one hour around DST",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nsandglass: adding a day across a DST change gives 23:00\n\n```python\nt = sandglass.datetime(2026, 3, 7, 12, tz=\"America/New_York\")\nt.add(days=1)\n```\n\ngives 2026-03-08T13:00 local time. Adding a calendar day should keep the wall-clock time at 12:00; adding 24 hours is a different operation. The result is incorrect for every zone with daylight saving time.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-16",
+      "label": "bug",
+      "why": "CLI exits 0 on failure",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nharbor-cli: deploy command returns exit code 0 when the upload failed\n\nharbor deploy prints \"upload failed: 403\" and then exits with status 0, so our pipeline thinks the deploy succeeded. Any failed upload should make the command exit non-zero.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-17",
+      "label": "bug",
+      "why": "pagination repeats the last item",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nmossdb: cursor pagination returns the last row of each page again on the next page\n\nWith page_size=50, row 50 shows up as the last item of page 1 and the first item of page 2, and so on, so a full scan double-counts every boundary row. The cursor is built with >= instead of > on the sort key. Expected result: every row exactly once.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-18",
+      "label": "bug",
+      "why": "empty input crashes the tokenizer",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nthimble: rendering an empty template crashes\n\nthimble.render(\"\") raises IndexError: string index out of range from the lexer's peek(). An empty template should render to an empty string.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-19",
+      "label": "bug",
+      "why": "regression in 4.0 sorting",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ntallyho: histogram buckets are sorted as strings since 4.0\n\nAfter upgrading from 3.9 to 4.0, histogram buckets come back in the order 1, 10, 100, 2, 25, 5 instead of numeric order. This is a regression; 3.9 sorted them numerically. Dashboards that read the first bucket as the smallest now show the wrong value.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-20",
+      "label": "bug",
+      "why": "button does nothing on Safari",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nglimmerui: Dropdown does not open on Safari 18\n\nClicking a glimmerui Dropdown on Safari 18 (macOS and iOS) does nothing. It works on Chrome and Firefox. The console shows no errors. The menu element gets the open class but stays at opacity 0, so the transition probably never fires on WebKit.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-21",
+      "label": "bug",
+      "why": "file watcher misses renames",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nrookfs: watch() reports a delete but no create when a file is renamed\n\nRenaming a file inside a watched directory only emits a delete event for the old name; the new name never appears. Editors that save by writing a temp file and renaming it over the original therefore look like they deleted the file. On Linux, inotify sends IN_MOVED_FROM and IN_MOVED_TO, and only the first one is handled.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-22",
+      "label": "bug",
+      "why": "negative amounts rounded the wrong way",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nledgerline: rounding negative amounts to cents goes the wrong way\n\nledgerline.round_cents(-2.345) returns -2.34 but banker's rounding, which the docs promise, gives -2.34 only for -2.345 exactly half; our test case -2.3451 also returns -2.34, which is incorrect: it should be -2.35. Positive values are fine. The implementation calls math.floor on the absolute value and then reapplies the sign in the wrong place.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-23",
+      "label": "bug",
+      "why": "log level ignored from env",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nwrenlog: WRENLOG_LEVEL has no effect\n\nSetting WRENLOG_LEVEL=debug in the environment does not change anything; debug lines never print. Passing level=\"debug\" in code works. The env var is read before the default config is applied and the default then overwrites it, so the environment setting should win, not the default.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-24",
+      "label": "bug",
+      "why": "deadlock when closing pool",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nmossdb: closing the connection pool from a signal handler hangs forever\n\nIf SIGTERM arrives while a query is running, our handler calls pool.close() and the process hangs and never exits. py-spy shows the main thread waiting on the pool lock that the same thread already holds inside execute(). pool.close() should be safe to call from a signal handler, or at least not freeze the process.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-25",
+      "label": "bug",
+      "why": "JSON export escapes unicode twice",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nskyframe: to_json double-escapes non-ASCII text\n\ndf.to_json() writes a literal backslash and the letters u00e9 for the e-acute in \"café\", so the escape is applied twice. Reading the file back gives the wrong string. It only happens when ensure_ascii=True is combined with orient=\"records\".\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-26",
+      "label": "bug",
+      "why": "progress bar shows over 100 percent",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nharbor-cli: upload progress goes past 100%\n\nDuring large uploads the progress bar reaches 100%, keeps going to 140% and then jumps back. The total is computed from the compressed size while bytes sent are counted before compression, so the ratio is inaccurate for any file that compresses.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-27",
+      "label": "bug",
+      "why": "retry loop never backs off",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nfernroute: retries hammer the server with no delay\n\nWith retries=5 and backoff_factor=0.5, all five retries fire within a few milliseconds. The sleep is computed but the result is passed to time.sleep in milliseconds instead of seconds, so the backoff is effectively zero. Our upstream rate limiter bans us when this happens.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-28",
+      "label": "bug",
+      "why": "schema validation accepts invalid dates",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ncobaltconf: a date field accepts 2026-02-30\n\nA field declared as type: date accepts \"2026-02-30\" and \"2026-13-01\" without complaint. It only checks the pattern NNNN-NN-NN. Invalid calendar dates should be rejected with a validation error naming the field.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-29",
+      "label": "bug",
+      "why": "thread-safety crash in metrics registry",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ntallyho: registering counters from two threads crashes with RuntimeError\n\nUnder load, our service occasionally crashes at startup with `RuntimeError: dictionary changed size during iteration` inside Registry.collect(). Two threads register counters while the exporter thread iterates the registry. The registry needs a lock or a snapshot.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-30",
+      "label": "bug",
+      "why": "markdown tables lose alignment",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nquillmark: column alignment in tables is ignored\n\nA table header like | :--- | :---: | ---: renders every column left-aligned. The alignment row is parsed but the align attribute is never written to the th and td elements, so the output does not match the GFM spec.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-31",
+      "label": "bug",
+      "why": "path traversal in static file handler",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nfernroute: static() serves files outside the root with encoded dots\n\nGET /static/%2e%2e/%2e%2e/etc/passwd returns the file. The handler normalizes the path before decoding it, so encoded \"..\" segments survive normalization. Requests must never resolve outside the configured root directory.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-32",
+      "label": "bug",
+      "why": "crash when model directory is read-only",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nkestrel-ml: loading a model from a read-only directory crashes\n\nkestrel.load(\"/models/resnet\") crashes with PermissionError because it tries to write a .lock file next to the weights, even though it only reads. Our containers mount models read-only. Loading should not require write access.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-33",
+      "label": "bug",
+      "why": "incorrect checksum on large files",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nrookfs: checksum() is wrong for files over 4 GB\n\nFor files larger than 4 GB, rookfs.checksum(path) returns a different SHA-256 than sha256sum. The read loop stores the offset in a 32-bit integer, so it wraps and hashes the first 4 GB twice. Files under 4 GB are correct.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-34",
+      "label": "bug",
+      "why": "search highlights the wrong words",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nglimmerui: SearchBox highlights the wrong part of results with accents\n\nWhen results contain accented characters, the highlight is shifted by one character per accent before the match. Searching \"resume\" in \"Résumé builder\" highlights \"ésum\" instead of \"Résum\". The highlighter normalizes the query but computes offsets on the original string.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-35",
+      "label": "bug",
+      "why": "import fails on Python 3.13",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nthimble no longer imports on Python 3.13\n\nimport thimble fails on Python 3.13 with AttributeError: module 'ast' has no attribute 'Str'. ast.Str was removed in 3.12 after being deprecated. thimble's compiler still references it in two places. Works on 3.11.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-36",
+      "label": "bug",
+      "why": "duplicate events after reconnect",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ntidepool: subscribers receive every event twice after a reconnect\n\nWhen the broker connection drops and reconnects, each subscriber callback starts firing twice per event. The reconnect path registers the consumer again without removing the old registration. After a second reconnect it fires three times.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-37",
+      "label": "bug",
+      "why": "off-by-one in date range end",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nsandglass: range(start, end) leaves out the last day\n\nsandglass.range(\"2026-01-01\", \"2026-01-31\", step=\"day\") yields 30 dates, stopping at Jan 30. The docs say the end is inclusive for date ranges. Either the docs are wrong or this is a bug, but the inconsistency with range(..., step=\"month\"), which is inclusive, suggests the day branch should include the end.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-38",
+      "label": "bug",
+      "why": "broken links in generated docs",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nvellum-pdf: table of contents links jump to the wrong page\n\nIn generated PDFs with more than 99 pages, every TOC link after page 99 points to a page ten pages earlier than its heading. The page number formatter pads to two digits when building the link target, so 105 becomes 10 and the anchor lookup falls back to a nearby page.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-39",
+      "label": "bug",
+      "why": "environment variable typo",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nharbor-cli reads HARBOR_TOKN instead of HARBOR_TOKEN\n\nThe CLI never picks up HARBOR_TOKEN from the environment; it prompts for a token every time. In config.py the variable name has a typo: HARBOR_TOKN. Please correct the name and keep the old one working for a release.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-40",
+      "label": "bug",
+      "why": "cancelling a download leaves a partial file",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nrookfs: cancelled copy leaves a truncated file at the destination\n\nWhen a copy is cancelled with Ctrl-C, the destination file is left behind half-written with the final name, and later runs think the copy finished. A cancelled copy should remove the partial file or write to a temp name and rename on success.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-41",
+      "label": "bug",
+      "why": "sort is unstable for equal keys",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nskyframe: sort_values reorders rows with equal keys\n\ndf.sort_values(\"score\", kind=\"stable\") does not keep the original order of rows with the same score when the frame has more than 10,000 rows. For larger frames it switches to a parallel quicksort that ignores kind. Results differ from run to run, which breaks our snapshot tests.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-42",
+      "label": "bug",
+      "why": "websocket closes with code 1006",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nfernroute: websocket connections drop with code 1006 after 60 seconds idle\n\nIdle websocket connections close with code 1006 after exactly 60 seconds even though ping_interval=20 is set. Pings are scheduled but never sent because the ping task is created on a different event loop than the connection. Expected result: an idle connection stays open while pings succeed.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-43",
+      "label": "bug",
+      "why": "YAML anchors not resolved",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ncobaltconf: values from YAML anchors come back as None\n\n```yaml\ndefaults: &defaults\n  retries: 3\nservice:\n  <<: *defaults\n  name: api\n```\n\nconfig.service.retries is None. PyYAML resolves the merge key correctly when loading the same file directly, so cobaltconf's custom loader is dropping it.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-44",
+      "label": "bug",
+      "why": "plot legend mismatched colors",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ntallyho: the legend shows the wrong colors after a series is hidden\n\nAfter hiding one series in the chart, the legend colors shift by one: the third series is drawn in green but its legend swatch is orange. The legend indexes the palette by visible position, while the lines use the original series index. The colors should match.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-45",
+      "label": "bug",
+      "why": "upgrade wipes custom settings",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nglimmerui: upgrading from 2.x to 3.0 resets the user's theme settings\n\nAfter the 3.0 upgrade, every user's saved theme is reset to the default. The settings migration reads the old key \"theme\" but 2.x stored it as \"ui.theme\", so the migration finds nothing and writes defaults over the stored value. This loses user data, so it is urgent.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-bug-46",
+      "label": "bug",
+      "why": "CSV reader drops the last row",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nledgerline: import_csv skips the final transaction when the file has no trailing newline\n\nIf the CSV file does not end with a newline, the last transaction is silently dropped. Many bank exports end without one. The reader only flushes a row when it sees a newline character. Expected: every row imported, newline or not.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-01",
+      "label": "feature",
+      "why": "asks for a configurable retry header",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ntidepool: let callers choose the retry-count header name\n\nOur gateway expects X-Attempt instead of X-Retry-Count. Please add a setting to choose the header name used when tidepool forwards jobs over HTTP, defaulting to the current one.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-02",
+      "label": "feature",
+      "why": "asks for union types in a registration API",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nripplegraph: accept a union of node types in add_index\n\nadd_index currently takes a single node type. We would like to pass several types at once, for example add_index((User, Team), \"name\"), and have one index cover both.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-03",
+      "label": "feature",
+      "why": "adds a new export format",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nskyframe: add to_parquet_dataset for partitioned output\n\nPlease add a to_parquet_dataset(path, partition_by=[...]) method that writes one file per partition value, in the Hive directory layout, so the output can be read by other engines directly.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-04",
+      "label": "feature",
+      "why": "asks for more voice models",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nlumen-audio: support the small and medium multilingual models\n\nThe model registry only lists the English models. Please add the multilingual small and medium checkpoints so that we can transcribe Spanish and German without converting models by hand.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-05",
+      "label": "feature",
+      "why": "asks for a name argument",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nharbor-cli: add a --name option to deploy\n\nEach deploy gets a random name. Please add --name so we can give releases readable names that show up in the dashboard.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-06",
+      "label": "feature",
+      "why": "asks for another include condition",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ncobaltconf: support include_if on the hostname\n\nIncludes can be conditional on the environment name. We would like include_if: {host: \"build-*\"} too, so build machines can pick up extra settings without a separate environment.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-07",
+      "label": "feature",
+      "why": "adds a new plugin skeleton",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nthimble: add a cookiecutter-style template for new filters\n\nWriting a custom filter means copying an existing one and deleting most of it. A thimble new-filter command that creates the module, a test file and the entry point would make this faster.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-08",
+      "label": "feature",
+      "why": "asks for an autofix",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nquillmark lint: offer an autofix for the heading-increment rule\n\nThe heading-increment rule reports skipped levels but cannot change them. An autofix that renumbers the following headings would save a lot of manual edits on large documents.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-09",
+      "label": "feature",
+      "why": "asks for a complex output option",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nkestrel-ml: option to return complex eigenvalues from spectrum()\n\nspectrum() returns only the real parts. Please add return_complex=True so callers that need the imaginary parts do not have to recompute the decomposition.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-10",
+      "label": "feature",
+      "why": "asks to record an extra field",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ntallyho: also record the sample id in exported events\n\nWhen exporting events to the warehouse, please include the sample id alongside the timestamp and value, so we can join exports with the raw samples later.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-11",
+      "label": "feature",
+      "why": "asks for clearer error messages",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ncobaltconf: clearer error handling for unknown keys\n\nWhen a config file has an unknown key, the message only says \"invalid config\". It would help to name the key, the file and the line, and to suggest the closest valid key. This is about adding better error messages, not a crash.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-12",
+      "label": "feature",
+      "why": "asks for lazy imports",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nskyframe: make the top-level import lighter\n\nimport skyframe takes about 1.2 s because it loads the plotting and IO backends up front. Please load those lazily on first use, so scripts that only use the core API start faster.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-13",
+      "label": "feature",
+      "why": "asks an API to accept a generic type",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nmossdb: let set_key accept any hashable key type\n\nset_key only accepts str and bytes. We store tuples as keys in our own wrapper; please let set_key accept any hashable value and document how it is serialized.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-feature-14",
+      "label": "feature",
+      "why": "asks for a dark mode",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nglimmerui: add a dark color scheme\n\nPlease add a dark theme that follows prefers-color-scheme by default and can be forced on or off with a prop on the ThemeProvider.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    }
+  ],
+  "qa_overlap": [
+    {
+      "id": "synthetic-qa-overlap-01",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nglimmerui: Tooltip renders off screen near the right edge of the page\n\nI was going through our site in the browser before a release to find visual problems on each page, and the Tooltip component consistently renders off screen when its anchor is within about 200 px of the right edge of the viewport. The tooltip should flip to the left side, as the docs describe, but it keeps its default right placement and is cut off.\n\nTo reproduce: open the demo page, resize the window to 1024 px wide, and hover the last icon in the toolbar. The tooltip appears with its left edge at the icon and most of its text outside the viewport.\n\nThe placement code measures the tooltip before its content is mounted, so its width is 0 and the overflow check never trips. I can add a regression test for the flip logic once the fix is in. Please fix this bug; it affects every page that uses toolbar tooltips.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-qa-overlap-02",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\ntallyho dashboard: the time picker shows the wrong range after switching pages\n\nSteps to reproduce: open the dashboard site, choose \"last 7 days\" in the time picker, navigate to another page in the dashboard, then come back. The picker label still says \"last 7 days\" but the charts show the last 24 hours, the default range.\n\nExpected behavior: the range survives navigation, as it did in 5.1. Actual behavior: the label and the data disagree, which is how we found a wrong number in a weekly report. We test the site by hand before each release, and this got past us because the label looked right.\n\nThe picker state is stored in the URL, but the page component reads it before the router has parsed the query string. A test that navigates away and back would catch it; I'm happy to write one if you can confirm the approach for the fix.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-qa-overlap-03",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nquillmark: syntax highlighting breaks for every code block after a fenced block with a long info string\n\nOn our docs site, a fenced code block with a long info string, for example a language followed by a title attribute of more than 60 characters, breaks highlighting for every later code block on the same page. They render as plain text.\n\nI found this while doing a QA pass on the site after upgrading, checking each page for rendering problems. The first broken page is the configuration reference; every block after the first titled block is unhighlighted. Pages without titled blocks are fine.\n\nThe info-string parser stops at 60 characters and leaves the rest of the line in the stream, so the lexer state is never reset and later blocks are treated as continuation text. Reproducing it needs only two code blocks in one document. I would appreciate a fix and can add a test that renders the two-block document.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    },
+    {
+      "id": "synthetic-qa-overlap-04",
+      "prompt": "You are working in a Linux container. Complete the task described below. Work on your own until it is done; nobody is available to answer questions. When you are done, stop. The state of the container when you stop is what gets graded.\n\n<task>\nharbor-cli: preview URLs return 404 for paths with uppercase letters\n\nAfter deploying a preview, opening a page whose path has an uppercase letter, such as /Docs/Intro, returns 404 from the preview host, while /docs/intro works. Our production host serves both. I ran into it while I was trying to test the site preview on a phone and find broken pages before we shared the link.\n\n```\n$ curl -I https://preview.example.test/Docs/Intro\nHTTP/2 404\n$ curl -I https://preview.example.test/docs/intro\nHTTP/2 200\n```\n\nThe upload step lowercases every object key, but the routing table keeps the original case, so lookups for mixed-case paths miss. This is a regression from 1.6; please fix the key handling so preview and production agree. I can test any patch against our site.\n\nBackground on our setup, for completeness. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up. We deploy a static site of about 1,400 pages from a monorepo. Each pull request gets a preview, and reviewers click through the changed pages. The site generator emits mixed-case paths for a few legacy sections that we cannot rename without breaking inbound links, so the preview host is the only place this shows up.\n</task>\n\nWhen you finish, end your final message with one line: STATUS: FIXED or STATUS: NOT FIXED.\n"
+    }
+  ]
+}
