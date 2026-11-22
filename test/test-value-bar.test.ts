@@ -245,6 +245,16 @@ describe('template contracts', () => {
     expect(audit).toContain('A) approve this batch B) skip it C) stop');
   });
 
+  test('/test-audit sets BRANCH the way the plan writer does before the seed plan lookup (#4216)', () => {
+    for (const file of ['test-audit/SKILL.md.tmpl', 'test-audit/SKILL.md']) {
+      const content = read(file);
+      const assign = content.indexOf('BRANCH=$(~/.claude/skills/gstack/bin/gstack-slug --get BRANCH');
+      const lookup = content.indexOf('-"$BRANCH"-eng-review-test-plan-');
+      expect(assign, `${file} must set BRANCH with gstack-slug`).toBeGreaterThan(-1);
+      expect(lookup, `${file} must look up the seed plan by BRANCH`).toBeGreaterThan(assign);
+    }
+  });
+
   test('the caller search keeps production resolvers and excludes tests', () => {
     const command = CALLER_SEARCH_COMMAND.replace('<symbol>', 'generateTestValueBar');
     const run = spawnSync('bash', ['-c', command], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 });

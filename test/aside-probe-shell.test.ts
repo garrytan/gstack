@@ -31,6 +31,7 @@ case "$MODE" in
   ready) echo 'ASIDE_READY /private/session' ;;
   version-error) case "\${1}" in --version) echo 'VERSION_DIAGNOSTIC_MARKER'; exit 7;; *) echo 'ASIDE_READY /private/session';; esac ;;
   stopped) echo '[error] Aside app is not running' ;;
+  stopped-exit1) echo 'Failed to request daemon auth challenge: fetch failed' >&2; echo "Aside isn't running on this machine." >&2; exit 1 ;;
   timeout) exit 124 ;;
   hang) exec /bin/sleep 5 ;;
   marker-error) echo 'ASIDE_READY /private/session'; exit 7 ;;
@@ -100,6 +101,7 @@ describe('emitted Aside readiness probe', () => {
       armTest(`${shell}/${arm}: deadline and stopped-app responses have distinct outcomes`, () => {
         expect(run(shell, arm, 'timeout').output).toBe('ASIDE_TIMEOUT: probe deadline exceeded\n');
         expect(run(shell, arm, 'stopped').output).toBe('ASIDE_NOT_RUNNING: no readiness marker\n');
+        expect(run(shell, arm, 'stopped-exit1').output).toBe('ASIDE_NOT_RUNNING: app not running\n');
       });
       armTest(`${shell}/${arm}: readiness requires a successful exit and an exact marker`, () => {
         expect(run(shell, arm, 'marker-error').output).toBe('ASIDE_CLI_ERROR: exit 7; inspect aside --help locally\n');

@@ -3,7 +3,7 @@
  * reviewer out of skill definitions. Real `codex exec -s read-only --json`
  * runs the rendered /review adversarial prompt in a fixture repository whose
  * branch diff points at skill files, with canary files under all four
- * protected roots (~/.claude/, ~/.agents/, .claude/skills/, agents/) in a
+ * protected roots (~/.claude/, ~/.agents/, .claude/skills/, agents/openai.yaml) in a
  * hermetic HOME. A Linux inotify observer records every open/access of a
  * canary; a negative-control prompt that reads one must trip it. Contract:
  * no canary is opened, no executed command names a protected root, and no
