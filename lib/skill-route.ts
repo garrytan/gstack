@@ -277,10 +277,9 @@ const PARAGRAPH_BREAK = /(\n[ \t]*\n)/;
  * A prompt split into its prose and its Markdown code, as CommonMark reads them: fenced code blocks (an unclosed fence
  * runs to the end) and inline code spans (a backtick run closed by the next run of the same length in its paragraph; an
  * unmatched run is prose). A command quoted in backticks names the command; it does not ask for anything, so triggers
- * match the prose only (#4564). Each run looks up its closer once, so a long prompt full of unmatched runs stays linear. An inline
- * span that matches keep stays in the prose as plain text.
+ * match the prose only (#4564). Each run looks up its closer once, so a long prompt full of unmatched runs stays linear.
  */
-export function splitCode(prompt: string, keep?: RegExp): { prose: string; code: string } {
+export function splitCode(prompt: string): { prose: string; code: string } {
   const prose: string[] = [];
   const code: string[] = [];
   let fence = '';
@@ -309,9 +308,8 @@ export function splitCode(prompt: string, keep?: RegExp): { prose: string; code:
       const close = closer[i];
       if (close === undefined) continue;
       const open = runs[i];
-      const inner = part.slice(open.index + open[0].length, runs[close].index);
-      code.push(inner);
-      out += `${part.slice(at, open.index)}${keep?.test(inner) ? inner : ' '}`;
+      code.push(part.slice(open.index + open[0].length, runs[close].index));
+      out += `${part.slice(at, open.index)} `;
       at = runs[close].index + runs[close][0].length;
       i = close;
     }
@@ -364,16 +362,14 @@ function within(seq: string[], want: string[], span: number): boolean {
  * contains. A trigger with one content word scores only on its whole phrase unless that word is specific
  * (SPECIFIC_WORD). A bug report is full of everyday words (find, test, run, site) and defect words, so two
  * rules keep them from adding up to a request: a trigger only partly present needs a specific word other than
- * "bug" among the words it shares, and a trigger with no specific word needs its words within EVERYDAY_SPAN words of
- * each other. "bug" counts as specific only when the prompt is a bug report (bugReport): elsewhere a wrapper's "STATUS:
- * FIXED" and a feature request's "error" far apart would score "fix this bug" (GEVA-558).
+ * "bug" among the words it shares, and a trigger of everyday words only, with no "bug", needs its words within
+ * EVERYDAY_SPAN words of each other.
  */
 export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCandidate[] {
   const scored = promptWindow(splitCode(prompt).prose);
   const seq = tokens(scored);
   const promptSeq = ` ${seq.join(' ')} `;
   const promptSet = new Set(contentTokens(scored));
-  const reported = bugReport(prompt);
   const out: RouteCandidate[] = [];
   for (const skill of skills) {
     let best: RouteCandidate | null = null;
@@ -386,7 +382,7 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
       const phrase = promptSeq.includes(` ${tokens(trigger).join(' ')} `);
       const weakSingle = content.length === 1 && !SPECIFIC_WORD.test(content[0]);
       const thinPartial = matched < content.length && !shared.some(w => w !== 'bug' && SPECIFIC_WORD.test(w));
-      const everyday = !content.some(w => (w === 'bug' && reported) || SPECIFIC_WORD.test(w));
+      const everyday = !content.some(w => w === 'bug' || SPECIFIC_WORD.test(w));
       const scattered = matched === content.length && everyday && !within(seq, content, EVERYDAY_SPAN);
       const score = phrase ? 1 : weakSingle || thinPartial || scattered ? 0 : Math.round((matched / content.length) * 100) / 100;
       const tie = !!best && score === best.score && (matched > best.matched || (matched === best.matched && phrase && !bestPhrase));
@@ -430,36 +426,6 @@ const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/,
   /\b(?:should|must)\b/, /\binstead of\b/,
   /\b(?:los(?:es|t|ing)|gone|ignored|ignores|drops|dropped|dropping|twice|duplicated?|truncated|half-written|wipes|wiped|resets)\b/];
 
-/**
- * A feature request's title: the prose's first line, or the first line inside the prose's first lone opening tag such as <task>
- * when the prose outside that tag names no defect and asks for no fix, standing alone (a blank line, the prompt's edge or a lone
- * tag on each side), whose first word, after any leading #, asks for something new, the way gstack-evals draws its non-fit tasks
- * (wiki/plans/2026-11-21-capy-b1f-description-rewrite-prereg/sets.py). Its body may name an error or a failing case (GEVA-558:
- * 13 of 27 feature-titled tasks routed as bug reports), so it is no bug report unless the title itself names a defect. A line
- * inside a later tag (`The uploader crashes` then <steps>) is no title, and reportSigns keeps exception names in code in it.
- */
-const FEATURE_TITLE = /^(?:\[?feature(?: request)?\]?|feat(?:\([^)]*\))?:|enhancement|add|adds|adding|support|allow|implement|introduce|provide|expose|new)\b/i;
-const LONE_TAG = /^\s*<\/?[A-Za-z][\w-]*>\s*$/;
-function featureTitled(prose: string): boolean {
-  const lines = prose.split('\n');
-  const edge = (l: string | undefined) => l === undefined || !l.trim() || LONE_TAG.test(l);
-  const namesDefect = (text: string) => defectSign(text.toLowerCase()) || words(text).some(w => FIX_WORD.test(w));
-  const titled = (i: number) => {
-    const line = lines[i];
-    if (line === undefined || LONE_TAG.test(line) || !edge(lines[i - 1]) || !edge(lines[i + 1])) return false;
-    const title = line.trim().replace(/^#+\s*/, '');
-    return FEATURE_TITLE.test(title) && !namesDefect(title);
-  };
-  const first = lines.findIndex(l => l.trim());
-  if (first < 0) return false;
-  if (titled(first)) return true;
-  const open = lines.findIndex(l => LONE_TAG.test(l));
-  if (open < 0 || lines[open].trim().startsWith('</')) return false;
-  const close = lines.findIndex((l, i) => i > open && l.trim() === `</${lines[open].trim().slice(1)}`);
-  const outside = [...lines.slice(0, open), ...(close < 0 ? [] : lines.slice(close + 1))].join('\n');
-  return titled(lines.findIndex((l, i) => i > open && l.trim())) && !namesDefect(outside);
-}
-
 /** A strong sign in lowercased prose: a symptom word, an exception name as a word, or a STRONG_SIGN phrase. */
 const defectSign = (text: string) => words(text).some(w => SYMPTOM_STEMS.has(stem(w)) || /^[a-z]{3,}(?:error|exception)$/.test(w))
   || STRONG_SIGN.test(text);
@@ -472,15 +438,13 @@ const EXCEPTION_NAME = /\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b/;
 
 /**
  * What the window (promptWindow) of the prompt's prose (splitCode) reports: a defect (one strong sign or two different weak
- * ones) and whether it asks for a fix (the verb fix), both false under a feature title (featureTitled). Its code counts only
+ * ones) and whether it asks for a fix (the verb fix). Its code counts only
  * for an exception name, since a pasted traceback or a quoted `KeyError` reports one; a flag such as `--fix` or the word
  * broken in a log does not.
  */
 function reportSigns(prompt: string): { defect: boolean; fix: boolean } {
   const { prose, code } = splitCode(prompt);
-  const window = promptWindow(prose);
-  if (featureTitled(promptWindow(splitCode(prompt, EXCEPTION_NAME).prose))) return { defect: false, fix: false };
-  const text = window.toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
+  const text = promptWindow(prose).toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
   return {
     defect: EXCEPTION_NAME.test(promptWindow(code)) || defectSign(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2,
     fix: words(text).some(w => FIX_WORD.test(w)),

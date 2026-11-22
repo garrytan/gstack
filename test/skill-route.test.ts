@@ -370,36 +370,12 @@ describe('installed skills beside gstack (GST-3123)', () => {
     }
   });
 
-  test('a feature-titled request is not a bug report though its body names an error, and a wrapper\'s STATUS: FIXED adds no fix (GEVA-558)', () => {
-    const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
-    const b1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-synthetic-prompts.json'), 'utf8')) as { prompts: { prompt: string }[] };
-    const wrap = (task: string) => b1.prompts[0].prompt.replace(/<task>[\s\S]*<\/task>/, () => `<task>\n${task}\n</task>`);
-    for (const task of [
-      '[Feature]: support a user-defined network in the compose deployment\n\nToday the compose file always creates its own network, and joining an existing one fails with "network not found". Please let users name a network to join.',
-      'Support `Optional[T]` syntax in the field filler\n\nThe filler raises TypeError when a field is annotated `Optional[int]`. It should accept it like the `Union[int, None]` spelling.',
-      'feature: Group CLI options into categories\n\nThe help output lists 40 options in one block, and users miss the --retry flag, which leads to failed uploads. Group them into sections.',
-      'Enhancement: richer typed handling for the AI.* scalar functions\n\nThese functions come back untyped, so later casts raise an error. Type their results.',
-      'Allow us to pass a JSON file to complicated parameters\n\nPassing a nested dict on the command line is error-prone and often fails with a parse error. Accept a path to a JSON file instead.',
-      '# Introduce a PROJECT_ROOT setting to replace the cloud-mode path checks\n\nThe current checks throw an exception for any path outside the cloud root, which is wrong for local installs. Replace them with one setting.',
-    ]) {
-      expect([task.split('\n')[0], bugReport(wrap(task)), routePrompt(wrap(task), [...routed, proveIt]).route?.skill ?? null]).toEqual([task.split('\n')[0], false, null]);
-    }
-    for (const task of ['Support for TOML configs is broken since 2.0\n\nLoading any .toml file raises KeyError.', 'Add a check for empty input; parse() crashes on it\n\nSee the traceback.', 'sandglass: adding a day across a DST change gives 23:00\n\nThe result is incorrect for every zone with daylight saving time.']) {
-      const d = routePrompt(wrap(task), [...routed, proveIt]);
-      expect([task, d.route ? d.routes : []]).toMatchObject([task, [{ skill: 'prove-it' }]]);
-    }
-    expect(bugReport('parse() crashes on empty input\n\nNew users hit this on their first run.\n\nPlease fix it.')).toBe(true);
-    expect(bugReport(wrap('Upload fails with KeyError\n\nSteps to reproduce:\n\nAdd a file named a.toml\n\nRun mycli upload.'))).toBe(true);
-  });
-
-  test('a reported defect reaches /review or /qa only on one of their trigger phrases; a later tag holds no title; an exception name in code stays in the title (GSTA-794)', () => {
+  test('a reported defect reaches /review or /qa only on one of their trigger phrases, in order (GSTA-794)', () => {
     const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
     const named = (text: string) => { const d = routePrompt(text, [...routed, proveIt]); return d.route ? d.routes.map(r => r.skill) : []; };
     for (const text of [
       'The site crashes during the smoke test.',
       "Opening a PR review page throws TypeError: cannot read property 'id' of undefined.",
-      'The uploader crashes\n\n<steps>\nAdd a file\n</steps>',
-      'New `ValueError` on launch',
     ]) expect([text, named(text)]).toEqual([text, ['prove-it']]);
     expect(named('find bugs on my site')).toEqual(['qa']);
     expect(named('Please review this PR for bugs.')).toEqual(['review']);
