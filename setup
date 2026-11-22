@@ -2,6 +2,9 @@
 # gstack setup — build browser binary + register skills with Claude Code / Codex
 set -e
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
+# Native Bun and Git cannot open a /c/x path: keep Git Bash's argument
+# conversion on for everything setup starts, even where a user turned it off (#4386).
+case "${OSTYPE:-}" in msys*|cygwin*) unset MSYS_NO_PATHCONV MSYS2_ARG_CONV_EXCL ;; esac
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
 # Heredoc delivery guard. bash 5.2+ writes a heredoc body <=64KiB through a
@@ -146,7 +149,7 @@ _status_install_checks() {
           '$GSTACK_ROOT/'*) path="$root/${tok#\$GSTACK_ROOT/}" ;;
           '~/'*) path="$HOME/${tok#\~/}" ;;
           /*) path="$tok" ;;
-          ../*) path="$dir/$tok" ;;
+          ../*) path="$dir/$tok"; case "${dir##*/}" in gstack-*) [ -r "$path" ] || path="$dir/../gstack-${tok#../}" ;; esac ;;
           *) continue ;;
         esac
         checked=$((checked + 1))
@@ -1936,18 +1939,20 @@ _deps_migration_finish() {
 # install, which keeps its dev packages at bun.lock's versions.
 # Bun's --production implies a frozen lockfile, so when bun.lock is out of date
 # (a fork or a local edit) refresh it first, then install production-only again.
+# Installs run under umask 022, not setup's 077: Bun extracts into a package cache
+# that every Bun project of this user hardlinks from (#4288).
 install_runtime_deps() {
   local role out rc=0
   role="$(_deps_role)"
   if [ "$role" = "user" ] && _deps_migration_start; then
-    out="$( { bun_cmd install --production --frozen-lockfile || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }; } 2>&1 )" && _deps_verified || rc=$?
+    out="$( { umask 022; bun_cmd install --production --frozen-lockfile || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }; } 2>&1 )" && _deps_verified || rc=$?
     _deps_migration_finish "$rc" "$out" && return 0
   fi
   if [ "$role" = "contributor" ] || _deps_has_dev; then
-    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    ( umask 022; bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install )
     return
   fi
-  bun_cmd install --production --frozen-lockfile 2>/dev/null || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; }
+  ( umask 022; bun_cmd install --production --frozen-lockfile 2>/dev/null || { bun_cmd install --lockfile-only && bun_cmd install --production --frozen-lockfile; } )
 }
 
 cleanup_copied_bun() {
@@ -2506,6 +2511,7 @@ elif ! ensure_playwright_browser; then
     # `bun x`, not `bunx`: a winget Bun ships no bunx (#3131).
     _PW_BUN="$(command -v "$BUN_CMD" 2>/dev/null || printf '%s' "$BUN_CMD")"
     (
+      umask 022
       cd "$SOURCE_GSTACK_DIR"
       if [ -n "$_PLAYWRIGHT_PLATFORM_OVERRIDE" ]; then
         PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="$_PLAYWRIGHT_PLATFORM_OVERRIDE" bun_cmd x playwright install chromium
