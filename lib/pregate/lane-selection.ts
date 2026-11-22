@@ -162,7 +162,7 @@ function namedBy(ctx: PregateContext, file: string): string[] {
     try {
       const policy = JSON.parse(fs.readFileSync(path.join(ctx.repoRoot, n), 'utf8'));
       const deps = policy?.dependencies;
-      return !deps || typeof deps !== 'object' || Array.isArray(deps) || JSON.stringify({ ...policy, dependencies: Object.values(deps) }).includes(stem);
+      return !deps || typeof deps !== 'object' || Array.isArray(deps) || JSON.stringify({ ...policy, dependencies: undefined }).includes(stem);
     } catch { return true; }
   });
 }

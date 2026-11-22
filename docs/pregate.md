@@ -351,8 +351,8 @@ Two stages with separate clocks, both printed:
   such a file has no test (`still named by …, which no test covers`). A removed
   test that a remaining test already selects (through a `dependencies` entry, or a
   test that names its path) runs those files' tests too and fails closed the
-  same way; a `dependencies` key in `.gstack/pregate.json` that maps the removed
-  path is not a file naming it (#3536). A test
+  same way; a `dependencies` entry in `.gstack/pregate.json` that names the
+  removed path, as a key or a listed test, is not a file naming it (#3536). A test
   renamed to another test path then defers to its new name (`old name of
   <new>`). A deleted test, or one renamed to a non-test path, also runs its
   owning suite, the remaining tests that directly exercise the files its
