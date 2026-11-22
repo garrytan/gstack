@@ -385,6 +385,19 @@ describe('installed skills beside gstack (GST-3123)', () => {
     }
   });
 
+  test('a request titled as a feature is not a bug report though its body names an error; a title or template that names a defect still is (GEVA-558)', () => {
+    const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
+    const b1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-synthetic-prompts.json'), 'utf8')) as { prompts: { prompt: string }[] };
+    const wrap = (task: string) => b1.prompts[0].prompt.replace(/<task>[\s\S]*<\/task>/, () => `<task>\n${task}\n</task>`);
+    const probes = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-feature-title-probes.json'), 'utf8')) as { probes: { id: string; label: string; wrapped: boolean; prompt: string }[] };
+    const misses = probes.probes.filter(p => {
+      const d = routePrompt(p.wrapped ? wrap(p.prompt) : p.prompt, [...routed, proveIt]);
+      const names = d.route ? d.routes.map(r => r.skill) : [];
+      return p.label === 'bug' ? names[0] !== 'prove-it' : names.includes('prove-it');
+    }).map(p => p.id);
+    expect(misses).toEqual(['f14']);
+  });
+
   test('the installed bug-fix skill leads when it reaches the threshold beside a gstack skill: an agent runs the first one named (GEVA-562)', () => {
     const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
     const d = routePrompt('Write a test that reproduces the timeout in the upload path, then make the tests pass.', [...routed, proveIt]);

@@ -277,9 +277,10 @@ const PARAGRAPH_BREAK = /(\n[ \t]*\n)/;
  * A prompt split into its prose and its Markdown code, as CommonMark reads them: fenced code blocks (an unclosed fence
  * runs to the end) and inline code spans (a backtick run closed by the next run of the same length in its paragraph; an
  * unmatched run is prose). A command quoted in backticks names the command; it does not ask for anything, so triggers
- * match the prose only (#4564). Each run looks up its closer once, so a long prompt full of unmatched runs stays linear.
+ * match the prose only (#4564). Each run looks up its closer once, so a long prompt full of unmatched runs stays linear. An inline
+ * span that matches keep stays in the prose as plain text.
  */
-export function splitCode(prompt: string): { prose: string; code: string } {
+export function splitCode(prompt: string, keep?: RegExp): { prose: string; code: string } {
   const prose: string[] = [];
   const code: string[] = [];
   let fence = '';
@@ -308,8 +309,9 @@ export function splitCode(prompt: string): { prose: string; code: string } {
       const close = closer[i];
       if (close === undefined) continue;
       const open = runs[i];
-      code.push(part.slice(open.index + open[0].length, runs[close].index));
-      out += `${part.slice(at, open.index)} `;
+      const inner = part.slice(open.index + open[0].length, runs[close].index);
+      code.push(inner);
+      out += `${part.slice(at, open.index)}${keep?.test(inner) ? inner : ' '}`;
       at = runs[close].index + runs[close][0].length;
       i = close;
     }
@@ -392,6 +394,7 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
   const seq = tokens(scored);
   const promptSeq = ` ${seq.join(' ')} `;
   const promptSet = new Set(contentTokens(scored));
+  const reported = bugReport(prompt);
   const out: RouteCandidate[] = [];
   for (const skill of skills) {
     let best: RouteCandidate | null = null;
@@ -404,7 +407,7 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
       const phrase = promptSeq.includes(` ${tokens(trigger).join(' ')} `);
       const weakSingle = content.length === 1 && !SPECIFIC_WORD.test(content[0]);
       const thinPartial = matched < content.length && !shared.some(w => w !== 'bug' && SPECIFIC_WORD.test(w));
-      const everyday = !content.some(w => w === 'bug' || SPECIFIC_WORD.test(w));
+      const everyday = !content.some(w => (w === 'bug' && reported) || SPECIFIC_WORD.test(w));
       const scattered = matched === content.length && everyday && !within(seq, content, EVERYDAY_SPAN);
       const score = phrase ? 1 : weakSingle || thinPartial || scattered ? 0 : Math.round((matched / content.length) * 100) / 100;
       const tie = !!best && score === best.score && (matched > best.matched || (matched === best.matched && phrase && !bestPhrase));
@@ -452,6 +455,43 @@ const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/,
 const defectSign = (text: string) => words(text).some(w => SYMPTOM_STEMS.has(stem(w)) || /^[a-z]{3,}(?:error|exception)$/.test(w))
   || STRONG_SIGN.test(text);
 
+/**
+ * A feature request's title: the prose's first line, or the first line inside the prose's first lone opening tag such as <task>
+ * when the prose outside that tag names no defect, standing alone (a blank line, the prompt's edge or a lone tag on each side),
+ * whose first word, after any leading #, asks for something new and is followed by a space or a colon, the way gstack-evals
+ * draws its non-fit tasks. Its body may name an error or a failing case (GEVA-558: 13 of 27 feature-titled tasks routed as bug
+ * reports), so it is no bug report unless the title names a defect (any strong or weak sign, the verb fix, or an error status
+ * it returns) or the body follows an issue template (steps to reproduce, expected or actual behavior).
+ */
+const FEATURE_TITLE = /^(?:\[?feature(?: request)?\]?|feat(?:\([^)]*\))?:|enhancement|add|adds|adding|support|allow|implement|introduce|provide|expose|new)(?=[\s:]|$)/i;
+const LONE_TAG = /^\s*<\/?[A-Za-z][\w-]*>\s*$/;
+const ERROR_STATUS = /\b(?:returns?|returning|gives?|giving|throws?|responds? with)\s+(?:an?\s+)?(?:http\s+)?[45]\d\d\b/;
+const TEMPLATE_SIGN = /\b(?:steps to reproduce|(?:expected|actual) (?:behaviou?r|result|output))\b|(?:^|\n)\s*(?:expected|actual):/;
+const lowered = (text: string) => text.toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
+function featureTitled(prose: string): boolean {
+  if (TEMPLATE_SIGN.test(prose.toLowerCase())) return false;
+  const lines = prose.split('\n');
+  const edge = (l: string | undefined) => l === undefined || !l.trim() || LONE_TAG.test(l);
+  const namesDefect = (raw: string) => {
+    const text = lowered(raw);
+    return defectSign(text) || WEAK_SIGNS.some(re => re.test(text)) || words(text).some(w => FIX_WORD.test(w)) || ERROR_STATUS.test(text);
+  };
+  const titled = (i: number) => {
+    const line = lines[i];
+    if (line === undefined || LONE_TAG.test(line) || !edge(lines[i - 1]) || !edge(lines[i + 1])) return false;
+    const title = line.trim().replace(/^#+\s*/, '');
+    return FEATURE_TITLE.test(title) && !namesDefect(title);
+  };
+  const first = lines.findIndex(l => l.trim());
+  if (first < 0) return false;
+  if (titled(first)) return true;
+  const open = lines.findIndex(l => LONE_TAG.test(l));
+  if (open < 0 || lines[open].trim().startsWith('</')) return false;
+  const close = lines.findIndex((l, i) => i > open && l.trim() === `</${lines[open].trim().slice(1)}`);
+  const outside = [...lines.slice(0, open), ...(close < 0 ? [] : lines.slice(close + 1))].join('\n');
+  return titled(lines.findIndex((l, i) => i > open && l.trim())) && !namesDefect(outside);
+}
+
 /** The verb fix, as a prompt asks for one. */
 const FIX_WORD = /^(?:re-)?fix(?:es|ing)?$/;
 
@@ -460,12 +500,13 @@ const EXCEPTION_NAME = /\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b/;
 
 /**
  * What the window (promptWindow) of the prompt's prose (splitCode) reports: a defect (one strong sign or two different weak
- * ones) and whether it asks for a fix (the verb fix). Its code counts only
+ * ones) and whether it asks for a fix (the verb fix), both false under a feature title (featureTitled). Its code counts only
  * for an exception name, since a pasted traceback or a quoted `KeyError` reports one; a flag such as `--fix` or the word
  * broken in a log does not.
  */
 function reportSigns(prompt: string): { defect: boolean; fix: boolean } {
   const { prose, code } = splitCode(prompt);
+  if (featureTitled(promptWindow(splitCode(prompt, EXCEPTION_NAME).prose))) return { defect: false, fix: false };
   const text = promptWindow(prose).toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
   return {
     defect: EXCEPTION_NAME.test(promptWindow(code)) || defectSign(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2,
