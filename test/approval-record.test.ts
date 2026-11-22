@@ -423,6 +423,21 @@ describe('import --autoplan', () => {
     expect(second.map(r => r.source)).toEqual([`autoplan:${b}@gate_rev=1`]);
   });
 
+  // Value: protects=an abandoned older interactive run's pending rows do not mark a newer approved run as unanswered;
+  //   fails_when=stillPending counts pending rows from every run in the directory; why_new=the newest-run selection
+  //   left the pending count pooled; seam=none
+  test('an abandoned older run leaves no unanswered decisions on the newer approved run', () => {
+    const run = path.join(tmp('appr-run-'), 'autoplan');
+    fs.mkdirSync(run);
+    const a = 'feature-x-20261122-104500', b = 'feature-y-20261122-114500';
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: a, id: `${a}-d1`, label: 'D1', title: 'Abandoned decision', status: 'pending', gate_rev: 1 }) + '\n'
+      + JSON.stringify({ schema_version: 1, run: b, id: `${b}-p1`, label: 'P1', title: 'Plan approval', options: ['a', 'b'], recommended: 'a', kind: 'approval',
+        status: 'approved', gate_rev: 1, chosen: 'a', answered_at: '2026-11-22T11:50:00.000Z', reply: 'a' }) + '\n');
+    const rows = importAutoplan(run, 'b', 'owner');
+    if ('code' in rows) throw new Error(rows.message);
+    expect(rows.map(r => [r.source, r.outcome, r.pending])).toEqual([[`autoplan:${b}@gate_rev=1`, 'approved', 'none']]);
+  });
+
   test('an unanswered gate imports nothing and says why', () => {
     const run = tmp('appr-run-');
     fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: 'run-1', id: 'run-1-p1', label: 'P1', status: 'pending', gate_rev: 1 }) + '\n');

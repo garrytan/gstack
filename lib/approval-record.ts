@@ -444,7 +444,7 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     const outcome: Outcome = !p1 ? 'pending' : p1.chosen === 'a' || p1.chosen === 'b' ? 'approved' : p1.chosen === 'e' ? 'rejected' : 'pending';
     const items = group.filter(r => r !== p1);
     const changed = items.filter(r => r.chosen && r.recommended && r.chosen !== r.recommended);
-    const stillPending = rows.filter(r => r.gate_rev === rev && r.status === 'pending');
+    const stillPending = own.filter(r => r.gate_rev === rev && r.status === 'pending');
     const answerer = first.answered_by ?? 'unknown';
     const carried = p1?.carried_gate_from ? p1 : undefined;
     const relayed = carried?.carried_answered_by && carried.carried_answered_by !== 'human' ? `, relayed by ${carried.carried_answered_by}` : '';
