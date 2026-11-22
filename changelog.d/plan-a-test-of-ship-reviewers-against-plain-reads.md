@@ -1,0 +1,1 @@
+Added a preregistered test of whether /ship's review panel finds more planted bugs than two plain review reads plus its second-model reviewer, on Claude Opus 5.5 and GPT-6.2 Sol. Its plan is in docs/evals/ship-panel-plain-reads-prereg.md.
