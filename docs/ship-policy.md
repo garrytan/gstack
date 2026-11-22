@@ -3130,7 +3130,7 @@ the lock before anything else:
 | gone | that group has no such process left, or a mark file written by this same machine (hostname and machine id) under an earlier boot id shows it wrote the lock before it last restarted | takes it over, no flag needed |
 | unknown, expired | it ran on another machine, or an older gstack wrote it without a process, and `expires_at` (or its last phase plus 90 minutes) has passed | takes it over, no flag needed |
 | unknown, not expired | as above, before the expiry | refuses with the expiry time and the fix: rerun after it, or pass `--break-lock` once you know that land stopped (the usual `--break-lock` rules apply) |
-| held on purpose | its mark file here records a hold: `land.merged_checks` were running when it stopped (they run in their own process group, so a check may still run and the git directory was never compared), or they changed the checkout's git directory | refuses on this machine even after the expiry; make sure nothing it started still runs and the git directory is intact, then release it with that PR's own `land --pr <n> --pin <sha>` (or `--break-lock`) |
+| held on purpose | its mark file here records a hold: `land.merged_checks` were running when it stopped (they run in their own process group, so a check may still run and the git directory was never compared), or they changed the checkout's git directory | refuses on this machine even after the expiry, that PR's own rerun with `--allow-repo-commands` included; make sure nothing it started still runs and the git directory is intact, then release it with that PR's own `land --pr <n> --pin <sha>` without `--allow-repo-commands` (or `--break-lock` when no check changed the git directory) |
 
 Every takeover prints `LOCK_TAKEOVER: <lock> (holder, phase, since): <why>` and writes
 `took_over` (the PR, the holder, the lock commit it replaced, why and when) into the
@@ -3140,8 +3140,9 @@ exact lease on the lock commit it judged: if another lander moved the lock meanw
 the takeover fails instead of replacing the newer lock, and a land whose lock was taken
 over can no longer move or release it, because a retry adopts only a lock that carries
 its own mark (two machines can share a hostname and a pid). A hold lives in the
-holding machine's state root, so another machine, whose checkout the checks never
-touched, still takes the lock over once it expires. Telling whether a holder
+holding machine's state root and names that machine, so another machine, whose
+checkout the checks never touched, still takes the lock over once it expires. A land
+that cannot write the hold before its checks start runs no check and merges nothing. Telling whether a holder
 runs needs Linux's `/proc`; elsewhere only the expiry applies. Locks from the
 stamp-at-merge `land` and from `train land` keep the rules in
 [the per-PR merge step](#gstack-ship-queue-land-the-per-pr-merge-step).

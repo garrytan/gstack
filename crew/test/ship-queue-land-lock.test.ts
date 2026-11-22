@@ -237,8 +237,8 @@ describe.skipIf(process.platform !== 'linux')('a direct land\'s lock cannot go s
   const marksDirs: string[] = [];
   afterEach(() => { while (marksDirs.length) fs.rmSync(marksDirs.pop()!, { recursive: true, force: true }); });
   const newMarks = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-marks-')); marksDirs.push(d); return d; };
-  const takeDirect = (root: string, pr: string, o: { proc: LockProcess | null; marks: string; now?: () => Date; breakLock?: boolean; journal?: string }) => acquireLandLock({
-    root, holder: `cox.local:${o.proc?.pid ?? 1}`, owner: { pr }, journal: o.journal ?? pin(pr.slice(-1)), now: o.now ?? at(0), phase: () => 'merging', breakLock: o.breakLock,
+  const takeDirect = (root: string, pr: string, o: { proc: LockProcess | null; marks: string; now?: () => Date; breakLock?: boolean; journal?: string; releasesHold?: boolean }) => acquireLandLock({
+    root, holder: `cox.local:${o.proc?.pid ?? 1}`, owner: { pr }, journal: o.journal ?? pin(pr.slice(-1)), now: o.now ?? at(0), phase: () => 'merging', breakLock: o.breakLock, releasesHold: o.releasesHold,
     processScoped: { ttlMs: DIRECT_LOCK_TTL_MS, proc: o.proc, marks: o.marks },
   });
 
@@ -349,11 +349,27 @@ describe.skipIf(process.platform !== 'linux')('a direct land\'s lock cannot go s
     withRepoEnv(repo, () => {
       const got = takeDirect(repo.work, '4670', { proc, marks });
       if (!('held' in got)) throw new Error('lock not taken');
-      got.held.hold('land.merged_checks were running when it stopped');
+      expect(got.held.hold('land.merged_checks were running when it stopped')).toBe(true);
       const refused = failureOf(takeDirect(repo.work, '4671', { proc: { ...self, mark: 'h1' }, marks, now: at(1) }));
       expect(refused!.message).toContain('its land left it held on purpose: land.merged_checks were running when it stopped');
-      got.held.hold(null);
+      expect(refused!.fix).toContain('or pass --break-lock');
+      const retry = failureOf(takeDirect(repo.work, '4670', { proc: { ...self, mark: 'h0' }, marks, now: at(1) }));
+      expect(retry!.message).toBe("#4670's earlier land left the lock held on purpose: land.merged_checks were running when it stopped");
+      expect(failureOf(takeDirect(repo.work, '4670', { proc: { ...self, mark: 'h0' }, marks, now: at(1), releasesHold: true }))).toBeNull();
+      writeLock(repo.work, readLock(repo.work).sha, { released: true, by: 'test', at: new Date(T0).toISOString() });
+
+      const again = takeDirect(repo.work, '4672', { proc, marks });
+      if (!('held' in again)) throw new Error('lock not taken');
+      expect(again.held.hold('land.merged_checks were running when it stopped')).toBe(true);
+      expect(again.held.hold(null)).toBe(true);
       expect(failureOf(takeDirect(repo.work, '4671', { proc: { ...self, mark: 'h2' }, marks, now: at(1) }))).toBeNull();
+
+      const unwritable = path.join(marks, 'not-a-dir');
+      fs.writeFileSync(unwritable, '');
+      writeLock(repo.work, readLock(repo.work).sha, { released: true, by: 'test', at: new Date(T0).toISOString() });
+      const blind = takeDirect(repo.work, '4673', { proc: { ...self, mark: 'h3' }, marks: unwritable });
+      if (!('held' in blind)) throw new Error('lock not taken');
+      expect(blind.held.hold('land.merged_checks were running when it stopped')).toBe(false);
     });
   }, 60_000);
 
@@ -362,8 +378,12 @@ describe.skipIf(process.platform !== 'linux')('a direct land\'s lock cannot go s
     const marks = newMarks();
     const lock = (proc: LockProcess): LandLock => ({ pr: '4670', holder: 'cox.local:9', started_at: new Date(T0).toISOString(), phase: 'merging', journal: pin('4'), proc });
     const otherNs: LockProcess = { ...self, pidns: 'pid:[1]', pid: 9, pgid: 9, start: 1, mark: 'ns' };
-    fs.writeFileSync(path.join(marks, 'ns.json'), JSON.stringify({ machine: 'irrelevant', boot: self.boot }));
+    const machine = `${os.hostname()}/${(() => { try { return fs.readFileSync('/etc/machine-id', 'utf8').trim(); } catch { return ''; } })()}`;
+    fs.writeFileSync(path.join(marks, 'ns.json'), JSON.stringify({ machine, boot: self.boot }));
     expect(judgeOwner(lock(otherNs), self, marks).state).toBe('unknown');
+    const heldElsewhere: LockProcess = { ...self, boot: 'their-boot', pid: 9, pgid: 9, start: 1, mark: 'held-elsewhere' };
+    fs.writeFileSync(path.join(marks, 'held-elsewhere.json'), JSON.stringify({ machine: 'another-host/another-id', boot: 'their-boot', hold: 'land.merged_checks were running when it stopped' }));
+    expect(judgeOwner(lock(heldElsewhere), self, marks).state).toBe('unknown');
     const otherMachine: LockProcess = { ...self, boot: 'their-boot', pid: 9, pgid: 9, start: 1, mark: 'theirs' };
     fs.writeFileSync(path.join(marks, 'theirs.json'), JSON.stringify({ machine: 'another-host/another-id', boot: 'their-boot' }));
     expect(judgeOwner(lock(otherMachine), self, marks).state).toBe('unknown');

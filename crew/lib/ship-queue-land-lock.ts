@@ -72,22 +72,23 @@ export function thisProcess(): LockProcess | null {
 /**
  * A live process of the holder's group that started at or after the holder (the holder, or a child it started,
  * even one orphaned when the holder died); 0 when there is none. Older members are the shell that ran the holder.
- * This run, its ancestors and its siblings (a `| tee` beside a rerun in the same script) are never counted, except
- * the holder itself. A group reused after its last member exited reads as running: a refusal, never a theft.
+ * When this run shares the holder's group (a rerun in the same script), this run, its ancestors and its siblings
+ * (a `| tee` beside it) are never counted, except the holder itself. A group reused after its last member exited reads as running: a refusal, never a theft.
  */
 function groupRunning(p: LockProcess): number {
   let entries: string[];
   try { entries = fs.readdirSync('/proc'); } catch { return p.pid; }
   const mine = new Set<number>();
   for (let at = process.pid; at > 1 && !mine.has(at);) { mine.add(at); at = procStat(at)?.ppid ?? 0; }
-  const parent = procStat('self')?.ppid ?? 0;
+  const self = procStat('self');
+  const parent = self?.pgrp === p.pgid ? self.ppid : 0;
   for (const name of entries) {
     const pid = Number(name);
     if (!Number.isInteger(pid) || pid <= 0) continue;
     const s = procStat(pid);
     if (!s || s.pgrp !== p.pgid || s.start < p.start || s.state === 'Z' || s.state === 'X') continue;
     const holder = pid === p.pid && s.start === p.start;
-    if (!holder && (mine.has(pid) || (parent > 1 && s.ppid === parent))) continue;
+    if (!holder && parent && (mine.has(pid) || (parent > 1 && s.ppid === parent))) continue;
     return pid;
   }
   return 0;
@@ -105,8 +106,14 @@ const markFile = (dir: string, mark: string) => path.join(dir, `${mark.replace(/
 function readMark(dir: string, mark: string): { hold?: string; machine?: string; boot?: string } | null {
   try { return JSON.parse(fs.readFileSync(markFile(dir, mark), 'utf8')); } catch { return null; }
 }
-function writeMark(dir: string, mark: string, value: object): void {
-  try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(markFile(dir, mark), JSON.stringify(value) + '\n'); } catch { /* no mark: only the expiry applies after a restart */ }
+function writeMark(dir: string, mark: string, value: object): boolean {
+  const file = markFile(dir, mark);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(`${file}.${process.pid}.tmp`, JSON.stringify(value) + '\n');
+    fs.renameSync(`${file}.${process.pid}.tmp`, file);
+    return true;
+  } catch { return false; }
 }
 const dropMark = (dir: string, mark: string) => { try { fs.rmSync(markFile(dir, mark), { force: true }); } catch { /* already gone */ } };
 
@@ -122,7 +129,7 @@ export function judgeOwner(lock: LandLock, self: LockProcess | null, marks: stri
   const here = !!(p && self && p.boot === self.boot && p.pidns === self.pidns);
   const pid = here ? groupRunning(p!) : 0;
   if (pid) return { state: 'running', pid, why: `process ${pid} of its land (process group ${p!.pgid}) is still running on this machine` };
-  if (mark?.hold) return { state: 'held', why: `its land left it held on purpose: ${mark.hold}` };
+  if (mark?.hold && mark.machine === thisMachine()) return { state: 'held', why: `its land left it held on purpose: ${mark.hold}` };
   if (here) return { state: 'gone', why: `its land (process ${p!.pid}) and every process it started have exited` };
   if (p && self && mark && mark.machine === thisMachine() && mark.boot === p.boot && p.boot !== self.boot) return { state: 'gone', why: 'this machine wrote it before it last restarted, so its land is gone' };
   return { state: 'unknown', why: p ? 'its land ran on another machine, so this one cannot check whether it still runs' : 'it records no land process (an older gstack wrote it), so no machine can check it' };
@@ -175,8 +182,8 @@ export interface HeldLandLock {
   /** Move to a phase under the exact lease; a failure is another lander's lock (QUEUE_LAND_LOCKED) or a refused push (QUEUE_NOT_READY). */
   set(phase: LandLockPhase, extra?: Partial<LandLock>): QueueFailure | null;
   release(): boolean;
-  /** Mark a process-scoped lock as held on purpose (no git call): if this process stops while a reason is set, later lands here refuse it with that reason; null clears it. */
-  hold(reason: string | null): void;
+  /** Mark a process-scoped lock as held on purpose (no git call): if this process stops while a reason is set, later lands here refuse it with that reason; null clears it. False when the mark could not be written. */
+  hold(reason: string | null): boolean;
 }
 export interface AcquireOptions {
   root: string; remote?: string; holder: string; owner: LockOwner; journal: string; now: () => Date;
@@ -191,6 +198,8 @@ export interface AcquireOptions {
   extra?: (own: LandLock | null) => Partial<LandLock>;
   /** The lock lives only as long as this process (land --pin): each write records the process and expires ttlMs later. proc and marks are for tests. */
   processScoped?: { ttlMs: number; proc?: LockProcess | null; marks?: string };
+  /** This run may replace a lock held on purpose by its own PR's earlier run (land --pin without --allow-repo-commands, the documented release). */
+  releasesHold?: boolean;
 }
 
 /** Why --break-lock may not break a foreign lock, or null when it may. */
@@ -205,8 +214,8 @@ function unbreakable(lock: LandLock, o: AcquireOptions, age: number): QueueFailu
 }
 
 /** The fix a refusal of a process-scoped lock names: the expiry and --break-lock, or how a deliberate hold is released. */
-function scopedFix(lock: LandLock, state: OwnerVerdict['state'], expiry: number, now: number): string {
-  if (state === 'held') return `make sure nothing that land started still runs and restore any path of the checkout's git directory it changed from a trusted copy, then release it: gstack-ship-queue land --pr ${lock.pr} --pin ${lock.journal.replace(/^land-pin:/, '')} (without --allow-repo-commands), or pass --break-lock`;
+function scopedFix(lock: LandLock, state: OwnerVerdict['state'], expiry: number, now: number, tampered = false): string {
+  if (state === 'held') return `make sure nothing that land started still runs and restore any path of the checkout's git directory it changed from a trusted copy, then release it: gstack-ship-queue land --pr ${lock.pr} --pin ${lock.journal.replace(/^land-pin:/, '')} (without --allow-repo-commands)${tampered ? '' : ', or pass --break-lock'}`;
   return `the lock expires at ${new Date(expiry).toISOString()} (in ${Math.max(1, Math.ceil((expiry - now) / 60_000))} min), and the first land after that takes it over; to take it sooner, make sure the land that holds it has stopped, then rerun with --break-lock`;
 }
 
@@ -234,6 +243,7 @@ export function acquireLandLock(o: AcquireOptions): { held: HeldLandLock; lines:
     const verdict = processScopedLock(current) ? judgeOwner(current, proc ?? thisProcess(), marks) : null;
     if (verdict?.state === 'running') return { failure: { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(current)}'s land is still running: ${verdict.why}; a running land's lock is never taken over, --break-lock included`, fix: `wait for it to finish, then rerun land; if it is stuck, stop process ${verdict.pid} and rerun land, which then takes the lock over` }, lines };
     const expiry = verdict ? lockExpiry(current) : NaN;
+    if (verdict?.state === 'held' && (own || current.pr === o.owner.pr) && !o.releasesHold && !o.breakLock) return { failure: { code: 'QUEUE_LAND_LOCKED', message: `#${current.pr}'s earlier land left the lock held on purpose: ${verdict.why.replace(/^its land left it held on purpose: /, '')}`, fix: scopedFix(current, 'held', expiry, o.now().getTime(), /changed this checkout/.test(verdict.why)) }, lines };
     const allowed = own ? null : o.takeover?.(current) ?? null;
     if (own) { /* this owner's own lock: resumed below */ } else if (allowed) lines.push(allowed);
     else if (verdict && !o.breakLock && (verdict.state === 'gone' || (verdict.state === 'unknown' && o.now().getTime() >= expiry))) {
@@ -242,7 +252,7 @@ export function acquireLandLock(o: AcquireOptions): { held: HeldLandLock; lines:
       lines.push(`LOCK_TAKEOVER: ${lockLabel(current)}'s land lock (holder ${current.holder}, phase ${current.phase}, since ${current.phase_at ?? current.started_at}): ${why}`);
     } else {
       const age = o.now().getTime() - Date.parse(current.phase_at ?? current.started_at);
-      if (!o.breakLock) return { failure: { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(current)} holds the land lock (${current.holder}, phase ${current.phase}, since ${current.started_at})${verdict ? `; ${verdict.why}` : ''}`, ...(verdict ? { fix: scopedFix(current, verdict.state, expiry, o.now().getTime()) } : {}) }, lines };
+      if (!o.breakLock) return { failure: { code: 'QUEUE_LAND_LOCKED', message: `${lockLabel(current)} holds the land lock (${current.holder}, phase ${current.phase}, since ${current.started_at})${verdict ? `; ${verdict.why}` : ''}`, ...(verdict ? { fix: scopedFix(current, verdict.state, expiry, o.now().getTime(), /changed this checkout/.test(verdict.why)) } : {}) }, lines };
       lines.push(`LOCK_HOLDER: ${lockLabel(current)} holder=${current.holder} phase=${current.phase} since=${current.started_at}`);
       const refusal = unbreakable(current, o, age);
       if (refusal) return { failure: refusal, lines };
@@ -292,7 +302,7 @@ export function acquireLandLock(o: AcquireOptions): { held: HeldLandLock; lines:
       if (ok && proc) dropMark(marks, proc.mark);
       return ok;
     },
-    hold: reason => { if (proc) writeMark(marks, proc.mark, markOf(reason)); },
+    hold: reason => !proc || writeMark(marks, proc.mark, markOf(reason)),
   };
   return { held, lines };
 }
