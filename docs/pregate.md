@@ -271,9 +271,12 @@ Two stages with separate clocks, both printed:
   A one- or two-digit integer (`12`, `-10`) found through the module counts only
   in a statement that names the constant or a binding the file takes from the
   module: a JS/TS import of it (type-only imports excluded) or a variable that a
-  line naming the module declares (`const out = run('scripts/arms.ts')`). So
-  `expect(shards()).toBe(12)` after importing `shards` still fails, while a
-  comment naming the module beside an unrelated `10` does not (#4312). A call-site name such as `attempts`
+  statement naming the module or another such binding declares or assigns, its
+  continuation lines included (`const out = run('scripts/arms.ts')`,
+  `const items = listItems()`). So `expect(shards()).toBe(12)` after importing
+  `shards` still fails, while a comment naming the module beside an unrelated
+  `10` does not (#4312). A local helper function that wraps an imported name is
+  not followed, so its assertions need the constant's name to count. A call-site name such as `attempts`
   or `limit` is an ordinary word, so for it the file must also name the changed
   module, whatever the old value's length: a test that only uses the word is not
   a consumer, and a test that imports the module still is.

@@ -144,7 +144,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
     if (!((nameRequired ? nameRe.test(text) : nameRe.test(text) || moduleRe.test(text)) && (!callSite || moduleRe.test(text)))) continue;
     const lines = text.split('\n');
-    const bindings = shortNumber ? moduleBindings(lines, moduleRe, comment) : [];
+    const bindings = shortNumber ? moduleBindings(lines, moduleRe, comment, continues) : [];
     if (shortNumber && !bindings.length && !nameRe.test(text)) continue;
     const statementRe = bindings.length ? new RegExp(`(?<![\\w$])(?:${[change.name, ...bindings].map(escape).join('|')})(?![\\w$])`) : nameRe;
     const named = (i: number) => {
@@ -183,8 +183,8 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   return hits;
 }
 
-/** The names a file takes from the module: the bindings of a JS/TS import whose specifier is the module (type-only ones excluded), and the variables a non-comment line naming the module declares. */
-function moduleBindings(lines: readonly string[], moduleRe: RegExp, comment: (l: string) => boolean): string[] {
+/** The names a file takes from the module: the bindings of a JS/TS import whose specifier is the module (type-only ones excluded), and the variables a non-comment statement (a line plus the lines that continue it) declares or assigns from the module or from such a name (`const items = listItems()`, `out = run('bin/x.sh')` in a hook). */
+function moduleBindings(lines: readonly string[], moduleRe: RegExp, comment: (l: string) => boolean, continues: (prev: string, cur: string) => boolean): string[] {
   const code = lines.filter(l => !comment(l)).join('\n');
   const out = new Set<string>();
   const names = (list: string) => list.split(',').map(s => s.trim()).filter(s => s && !/^type\s/.test(s)).map(s => s.split(/\s+as\s+|:/).pop()!.replace(/^\.\.\./, '').trim());
@@ -194,9 +194,22 @@ function moduleBindings(lines: readonly string[], moduleRe: RegExp, comment: (l:
     if (braces) for (const n of names(braces[1]!)) out.add(n);
     for (const n of m[1]!.replace(/\{[^}]*\}/, '').split(',').map(s => s.trim().replace(/^\*\s+as\s+/, ''))) out.add(n);
   }
-  for (const line of code.split('\n')) {
-    const m = moduleRe.test(line) ? /\b(?:const|let|var)\s+(\{[^}]*\}|[\w$]+)\s*=/.exec(line) : null;
-    if (m) for (const n of m[1]!.startsWith('{') ? names(m[1]!.slice(1, -1)) : [m[1]!]) out.add(n);
+  const codeLines = code.split('\n');
+  const statements = codeLines.map((line, i) => {
+    let s = line;
+    for (let j = i + 1; j < codeLines.length && j - i < 4 && continues(codeLines[j - 1]!, codeLines[j]!); j++) s += '\n' + codeLines[j];
+    return s;
+  });
+  const declRe = /(?:\b(?:const|let|var)\s+(\{[^}]*\}|[\w$]+)|(?<![\w$.])([\w$]+))\s*=(?![=>])/;
+  for (let grew = true, round = 0; grew && round < 4; round++) {
+    grew = false;
+    const known = [...out].filter(n => /^[\w$]+$/.test(n));
+    const knownRe = known.length ? new RegExp(`(?<![\\w$])(?:${known.map(escape).join('|')})(?![\\w$])`) : null;
+    for (const s of statements) {
+      const m = declRe.exec(s);
+      if (!m || !(moduleRe.test(s) || knownRe?.test(s.slice(m.index + m[0].length)))) continue;
+      for (const n of m[1]?.startsWith('{') ? names(m[1].slice(1, -1)) : [m[1] ?? m[2]!]) if (!out.has(n)) { out.add(n); grew = true; }
+    }
   }
   return [...out].filter(n => /^[\w$]+$/.test(n));
 }

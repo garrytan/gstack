@@ -256,10 +256,12 @@ describe('literals (pure)', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
   // Value: protects=a one- or two-digit old value found only through the module counts in a statement that uses a binding the file
-  //   takes from it (an import, multi-line, namespace or require), never beside a comment naming the module or after a type-only
-  //   import, and a negative two-digit value gets the same rule; three digits keep the module rule; fails_when=short integers match
-  //   any line in a file that mentions the module again (#4312: 10 -> 11 flagged 194 lines in 11 files); why_new=only one-character
-  //   values were gated; seam=none; no_claim=Python or shell bindings (a short value there needs the constant's name)
+  //   takes from it (an import, multi-line, namespace or require, a local declared from one, a hook assignment, a declaration whose
+  //   module path sits on a continuation line), never beside a comment naming the module or after a type-only import, and a negative
+  //   two-digit value gets the same rule; three digits keep the module rule; fails_when=short integers match any line in a file that
+  //   mentions the module again (#4312: 10 -> 11 flagged 194 lines in 11 files), or a derived local stops counting; why_new=only
+  //   one-character values were gated; seam=none; no_claim=Python or shell bindings, and a local helper function that wraps an
+  //   imported name (a short value there needs the constant's name or a binding on the asserting statement)
   test('consumersOf: a one- or two-digit value found through its module counts only beside a binding taken from it (#4312)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-short-'));
     const nl = String.fromCharCode(10);
@@ -271,10 +273,14 @@ describe('literals (pure)', () => {
       'test/binding.test.ts': ['import {', '  maxItems as limit,', "} from '../lib/retry.js';", 'expect(n).toBe(10);', 'expect(', '  limit(),', ').toBe(10);', ''].join(nl),
       'test/namespace.test.ts': ["import * as retry from '../lib/retry';", 'expect(retry.MAX).toBe(10);', ''].join(nl),
       'test/require.test.ts': ["const { maxItems } = require('../lib/retry');", 'expect(maxItems()).toBe(10);', ''].join(nl),
+      'test/derived.test.ts': ["import { listItems } from '../lib/retry';", 'const items = listItems();', 'expect(items).toHaveLength(10);', ''].join(nl),
+      'test/hook.test.ts': ['let out;', "beforeAll(() => { out = run('lib/retry.ts'); });", 'expect(out.count).toBe(10);', ''].join(nl),
+      'test/multiline.test.ts': ["const r = spawnSync('bun', [", "  path.join(ROOT, 'lib/retry.ts'),", ']);', 'expect(r.status).toBe(10);', ''].join(nl),
     };
     for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
     expect(consumersOf(root, Object.keys(files), { name: 'MAX_ITEMS', old: '10', new: '11', file: 'lib/retry.ts' })).toEqual([
       'test/named.test.ts:1', 'test/binding.test.ts:7', 'test/namespace.test.ts:2', 'test/require.test.ts:2',
+      'test/derived.test.ts:3', 'test/hook.test.ts:3', 'test/multiline.test.ts:4',
     ]);
     fs.writeFileSync(path.join(root, 'test/negative.test.ts'), ['// covers lib/retry', 'expect(offset).toBe(-10);', ''].join(nl));
     fs.writeFileSync(path.join(root, 'test/negative-import.test.ts'), ["import { offset } from '../lib/retry';", 'expect(offset()).toBe(-10);', ''].join(nl));
