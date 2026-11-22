@@ -253,6 +253,7 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
   const needles = patterns.map(b => Buffer.from(b));
   const lines: string[] = [];
   let total = 0;
+  const enobufs: GrepFailure = { status: null, err: 'ENOBUFS', timedOut: false };
   for (let i = 0; i < found.length;) {
     const chunk: Hit[] = [];
     for (let bytes = 0; i < found.length; i++) {
@@ -260,7 +261,8 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
       chunk.push(found[i]!);
       bytes += found[i]!.name.length;
     }
-    const out: string[] = [];
+    let over = false;
+    const add = (line: string) => { total += Buffer.byteLength(line) + 1; if (total > outputBytes) over = true; else lines.push(line); return !over; };
     const unread: string[] = [];
     const blobs: Hit[] = [];
     const match = (body: Buffer, h: Hit) => {
@@ -268,13 +270,14 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
       needles.forEach((needle, k) => { for (let x = body.indexOf(needle); x >= 0; x = body.indexOf(needle, x + 1)) at.push([x, k]); });
       at.sort((x, y) => x[0] - y[0] || needles[y[1]]!.length - needles[x[1]]!.length);
       const shown = rev ? `${rev}:${h.name}` : h.name;
-      for (let cur = 0, j = 0; j < at.length; j++) if (at[j]![0] >= cur) { out.push(`${shown}\0${patterns[at[j]![1]]}`); cur = at[j]![0] + needles[at[j]![1]]!.length; }
+      for (let cur = 0, j = 0; j < at.length; j++) if (at[j]![0] >= cur) { if (!add(`${shown}\0${patterns[at[j]![1]]}`)) return; cur = at[j]![0] + needles[at[j]![1]]!.length; }
     };
     for (const h of chunk) {
       if (rev || h.sha) { blobs.push(h); continue; }
       let body: Buffer | null = null;
       try { const st = fs.lstatSync(path.join(root, h.name)); if (st.isFile() && st.size <= outputBytes) body = fs.readFileSync(path.join(root, h.name)); } catch { body = null; }
       if (body) match(body, h); else unread.push(h.name);
+      if (over) return enobufs;
     }
     if (blobs.length) {
       const want = blobs.map(h => h.sha ?? `${rev}:${h.name}`);
@@ -298,6 +301,7 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
           const [, type, got] = b.stdout.subarray(at, nl < 0 ? at : nl).toString().split(' ');
           if (nl < 0 || type !== 'blob' || got !== String(size(batch[j]!))) return { status: null, err: `git cat-file --batch could not read ${blobs[batch[j]!]!.name}`, timedOut: false };
           match(b.stdout.subarray(nl + 1, nl + 1 + size(batch[j]!)), blobs[batch[j]!]!);
+          if (over) return enobufs;
           at = nl + 2 + size(batch[j]!);
         }
       }
@@ -305,14 +309,10 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
     if (unread.length) {
       const r = gitUntil(root, [...flags, ...unread], deadline);
       if (r.status !== 0 && r.status !== 1) return r;
-      out.push(...r.out.split('\n').filter(Boolean));
+      for (const line of r.out.split('\n')) if (line && !add(line)) break;
     }
     if (Date.now() >= deadline) return { status: null, err: '', timedOut: true };
-    for (const line of out) {
-      total += Buffer.byteLength(line) + 1;
-      if (total > outputBytes) return { status: null, err: 'ENOBUFS', timedOut: false };
-      lines.push(line);
-    }
+    if (over) return enobufs;
   }
   return lines;
 }

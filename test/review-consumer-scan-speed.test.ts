@@ -70,6 +70,14 @@ describe('the consumer scan picks the same matches as git grep -o (HARN-98)', ()
     for (const at of [r.head, '']) expect(lines(grepConsumers(r.dir, ['a.json', 'ba.json'], at, () => true, Date.now() + 30_000, 16_000, 4_000))).toEqual(wholeTree(r.dir, ['a.json', 'ba.json'], at));
   }, 60_000);
 
+  // Value: protects=a file past the read cap whose git -o output holds 1.2 million matches still gives git's lines;
+  //   fails_when=the fallback's lines are spread into one push call (RangeError: Maximum call stack size exceeded); seam=grepConsumers
+  //   with a 21 MB output cap over a 21.5 MB file
+  test('a file past the read cap with 1.2 million matches gives the lines git grep -o gives', () => {
+    const r = repo({ 'b.ts': 'a.json\n'.repeat(1_200_000) + 'x'.repeat(13_100_000) + '\n' });
+    for (const at of ['HEAD', '']) expect(lines(grepConsumers(r.dir, ['a.json'], at, () => true, Date.now() + 60_000, 16_000, 21_000_000))).toEqual(wholeTree(r.dir, ['a.json'], at));
+  }, 120_000);
+
   // Value: protects=a results tree whose trial files name many data basenames on long lines finishes the scan in seconds;
   //   fails_when=the scan goes back to git's -o with every pattern (17.7 s on this 16 MB file on a 4-core machine, 220 s on
   //   harness-evals#551's); seam=grepConsumers with a 5-second deadline; no_claim=the scan's speed on other shapes
