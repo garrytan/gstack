@@ -141,7 +141,7 @@ function main(argv: string[]): number {
   const autoLinks = !argv.includes('--no-auto-links');
   const binDir = path.dirname(Bun.fileURLToPath(import.meta.url));
 
-  const log = git(['log', '--format=%H%n%B%x00', `origin/${base}..HEAD`], repoRoot) ?? git(['log', '--format=%H%n%B%x00', `${base}..HEAD`], repoRoot);
+  const log = git(['log', '-z', '--format=%H%n%B', `origin/${base}..HEAD`], repoRoot) ?? git(['log', '-z', '--format=%H%n%B', `${base}..HEAD`], repoRoot);
   if (log === undefined) { process.stderr.write(`gstack-issue-links: cannot read commits ${base}..HEAD (fetch origin/${base} first)\n`); return EXIT.usage; }
   const named: IssueMention[] = [];
   for (const entry of log.split('\0')) {

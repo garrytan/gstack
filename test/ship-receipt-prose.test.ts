@@ -75,6 +75,45 @@ describe('checkReceiptProse', () => {
 
 // GST-412: the `## Approvals` block gstack-approvals renders quotes the owner's words, which can hold
 // numbers (`one Step 11 pass` read as a gate `pass` claim of 11). Only that rendered block is skipped.
+describe('the opening above the first fold is not prose', () => {
+  // Value: protects=a result the PR is about, quoted in its plain opening (58 fixed with gstack), is not read as review_loop.fixed;
+  //   fails_when=check-prose reports RECEIPT_PROSE_MISMATCH review_loop.fixed body=58 on a correct receipt (GSTA-687, #4598);
+  //   seam=checkReceiptProse; no_claim=numbers inside a fold, which stay claims
+  test('numbers above the first fold are skipped; claims inside the folds and in a body with no fold are still checked', () => {
+    const opening = 'gstack shows no gain in bug fixes: 58 fixed with gstack, 61 of 99 without.\nWhy: the old page claimed a gain.\n\n';
+    const folded = opening + '<details><summary>Pre-Landing Review</summary>\n\nReview: 2 passes, 1 fixed.\n</details>\n';
+    expect(checkReceiptProse(receipt, folded)).toEqual({ checked: 2, mismatches: [] });
+    expect(checkReceiptProse(receipt, opening + '<details><summary>Notes</summary>\n\n58 fixed with gstack.\n</details>\n').mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
+    expect(checkReceiptProse(receipt, opening).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
+    expect(checkReceiptProse(receipt, '```\n<details>\n```\n' + opening + '<details><summary>x</summary>\n</details>\n').mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
+  });
+
+  // Value: protects=only an opening R76 allows (3 lines, 600 characters) is skipped; fails_when=a body that leaves its review section
+  //   unfolded above a late fold hides every receipt counter claim from the check; why_new=ship-4672 p1/specialist-batched#1; seam=checkReceiptProse
+  test('an opening longer than R76 allows is still checked', () => {
+    const long = 'What changed.\n\n## Pre-Landing Review\nReview: 2 passes, 9 fixed.\nmore\n<details><summary>Agent notes</summary>\n</details>\n';
+    expect(checkReceiptProse(receipt, long).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 9, receipt: 1 }]);
+    expect(checkReceiptProse(receipt, 'x'.repeat(601) + '\n9 fixed.\n<details><summary>n</summary>\n</details>\n').mismatches).toEqual([{ field: 'review_loop.fixed', prose: 9, receipt: 1 }]);
+  });
+
+  // Value: protects=the opening is measured as the PR body shape check measures it (comments and the Agent notes marker do not count);
+  //   fails_when=a 3-line opening followed by the marker or a comment line is checked whole and its subject number refuses the receipt;
+  //   why_new=ship-4672 p2/red-team#1; seam=checkReceiptProse; no_claim=bodies the shape check refuses
+  test('a 3-line opening followed by the Agent notes marker or a comment is still skipped', () => {
+    const opening = 'gstack shows no gain: 58 fixed with gstack.\nWhy: the old page claimed a gain.\nNothing to do.\n';
+    const notes = '<details><summary>Agent notes</summary>\n\nReview: 2 passes, 1 fixed.\n</details>\n';
+    expect(checkReceiptProse(receipt, opening + '<!-- gstack:agent-notes -->\n' + notes).mismatches).toEqual([]);
+    expect(checkReceiptProse(receipt, opening + '<!-- a note -->\n' + notes).mismatches).toEqual([]);
+  });
+
+  // Value: protects=a code block in the opening counts at its full length, as the shape check counts it; fails_when=an opening over R76 because of
+  //   a fence collapses to one line and hides its counter claims; why_new=ship-4672 p2/outside-voice#2; seam=checkReceiptProse
+  test('an opening over R76 because of a code block is still checked', () => {
+    const body = 'What changed.\n```\na\nb\nc\n```\n9 fixed.\n<details><summary>n</summary>\n</details>\n';
+    expect(checkReceiptProse(receipt, body).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 9, receipt: 1 }]);
+  });
+});
+
 describe('the rendered Approvals block is not prose', () => {
   const lanes = { ...receipt, gate: { unit: { pass: 1181, fail: 0, skip: 3 } } };
   const row = (words: string): ApprovalRow => ({

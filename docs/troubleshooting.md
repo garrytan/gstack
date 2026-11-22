@@ -4307,7 +4307,9 @@ leave `merged.jsonl`, and it never reaches the Red Team, the judge, the
 returned output or PR text. `verify` prints `FETCH_VIOLATION:` and refuses
 until the stage has rerun and swept clean. A test run's fixtures (a root
 carrying `.gstack-test-fixture`, or a repository whose remote resolves to a local
-path through `url.<base>.insteadOf`) print `FETCH_IGNORED:` and never count.
+path through `url.<base>.insteadOf`) and the checkout's own native build output at a
+path its committed root `.gitignore` names exactly (`bin/gstack-cso-core`) print
+`FETCH_IGNORED:` and never count.
 Capy's `~/.capy/drive` is never walked, and the drive sync database under
 `~/.capy/drive-engine` (`state.db` and its `-wal`, `-shm` and `-journal` files)
 is ignored, so that database growing past 100 MB is not a violation. Any other
@@ -7979,8 +7981,9 @@ the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
 `## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`,
 `Documentation exception: …`, `Ruled note: …`, `Gate disposition: …`, `Mechanical retake: …` and
-`Test-lane exception: …` lines the receipt requires, and the inside of a
-closed code fence are never read as claims.
+`Test-lane exception: …` lines the receipt requires, the body's opening above
+its first `<details>` fold when it fits 3 lines and 600 characters, and the
+inside of a closed code fence are never read as claims.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten

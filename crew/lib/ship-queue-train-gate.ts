@@ -146,6 +146,13 @@ export function classifyWorkflowRun(o: { run: RunFacts; head: string; workflow: 
 }
 
 /** JUnit XML (testcase elements) or a JSON test list ({ tests: [{ id, status }] }) to executed and failed test ids. */
+/** An XML attribute's text with its character references decoded (`&gt;`, `&apos;`, `&#44;`), so a JUnit case id matches the name a READY declares (#4569). */
+const XML_NAMED: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+const xmlText = (s: string) => s.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(lt|gt|amp|quot|apos));/gi, (whole, hex: string | undefined, dec: string | undefined, name: string | undefined) => {
+  const code = hex ? parseInt(hex, 16) : dec ? Number(dec) : -1;
+  return name ? XML_NAMED[name.toLowerCase()]! : code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+});
+
 export function parseTestRecord(files: Array<{ name: string; text: string }>): RecordFacts | null {
   let executed = 0; const failed: string[] = []; let read = false;
   for (const f of files) {
@@ -162,7 +169,7 @@ export function parseTestRecord(files: Array<{ name: string; text: string }>): R
     } else if (f.name.endsWith('.xml')) {
       read = true;
       for (const m of f.text.matchAll(/<testcase\b([^>]*?)(\/>|>([\s\S]*?)<\/testcase>)/g)) {
-        const attr = (k: string) => new RegExp(`\\b${k}="([^"]*)"`).exec(m[1]!)?.[1] ?? '';
+        const attr = (k: string) => xmlText(new RegExp(`\\b${k}="([^"]*)"`).exec(m[1]!)?.[1] ?? '');
         const body = m[3] ?? '';
         if (/<skipped\b/.test(body)) continue;
         executed++;

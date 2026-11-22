@@ -15,6 +15,7 @@ import { EXIT } from '../../lib/headless-artifacts';
 import { TRAIN_GATES_KEY_VERSION, validatePolicy } from '../../lib/ship-policy';
 import { baseRedAdmission, classifyPrefixes, classifyWorkflowRun, commandReservation, concurrencyKeyed, gatedChain, parseTestRecord } from '../lib/ship-queue-train-gate';
 import { pushMatchesPrefix, workflowFacts } from '../lib/ship-queue-train-init';
+import { fixesBaseRedCases } from '../lib/ship-queue-train-cli';
 import type { TrainSlot } from '../lib/ship-queue-train-record';
 import { BASE_POLICY, cleanup } from '../../test/helpers/restamp-fixture';
 import { line, nonceOf, openPr, queue, readyReceipt, repoKey, shippedBody, trainFixture, trainJson, TRAIN_POLICY, type TrainFixture } from '../../test/helpers/ship-queue-train-fixture';
@@ -166,6 +167,24 @@ describe('prefix verdicts', () => {
     expect(parseTestRecord([{ name: 'r.xml', text: xml }])).toEqual({ executed: 2, failed: ['a.bad'] });
     expect(parseTestRecord([{ name: 'r.json', text: JSON.stringify({ tests: [{ id: 'x', status: 'pass' }, { id: 'y', status: 'fail' }, { id: 'z', status: 'skip' }] }) }])).toEqual({ executed: 2, failed: ['y'] });
     expect(parseTestRecord([{ name: 'r.txt', text: '' }])).toBeNull();
+  });
+  test('a JUnit case name with XML character references reads as the name a READY declares (#4569)', () => {
+    const xml = '<testsuite><testcase classname="cancel.test.ts" name="saves, and the create saves before the cancel writes &gt; it&apos;s &#x2192; done &amp; &#44;"><failure/></testcase></testsuite>';
+    expect(parseTestRecord([{ name: 'r.xml', text: xml }])!.failed).toEqual(["cancel.test.ts.saves, and the create saves before the cancel writes > it's \u2192 done & ,"]);
+  });
+  test('--fixes-base-red-file names cases that hold a comma, one per line; the comma list and the errors are unchanged (#4569)', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-fixes-red-'));
+    try {
+      const file = path.join(d, 'cases.txt');
+      fs.writeFileSync(file, 'a.test.ts > saves, and the create saves before the cancel writes\r\n\n  b.test.ts > other  \n');
+      expect(fixesBaseRedCases(['--fixes-base-red-file', file])).toEqual({ cases: ['a.test.ts > saves, and the create saves before the cancel writes', 'b.test.ts > other'] });
+      expect(fixesBaseRedCases(['--fixes-base-red', 'a, b'])).toEqual({ cases: ['a', 'b'] });
+      expect(fixesBaseRedCases([])).toEqual({ cases: undefined });
+      expect(fixesBaseRedCases(['--fixes-base-red', 'a', '--fixes-base-red-file', file])).toEqual({ error: 'pass --fixes-base-red or --fixes-base-red-file, not both' });
+      expect('error' in fixesBaseRedCases(['--fixes-base-red-file', path.join(d, 'missing')])).toBe(true);
+      fs.writeFileSync(file, '\n');
+      expect('error' in fixesBaseRedCases(['--fixes-base-red-file', file])).toBe(true);
+    } finally { fs.rmSync(d, { recursive: true, force: true }); }
   });
   test('gated refs and the command price', () => {
     const prefixes = [0, 1, 2].map(index => ({ index, commit: String(index).repeat(40), tree: 't'.repeat(40) }));
