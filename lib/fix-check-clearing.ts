@@ -33,7 +33,6 @@ const git = (cwd: string, args: string[]) => {
 const ancestor = (cwd: string, a: string, d: string) => a === d || git(cwd, ['merge-base', '--is-ancestor', a, d]) !== null;
 const treeOf = (cwd: string, c: string) => git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{tree}`])?.trim();
 const findingsOf = (r: Row): Row[] => (Array.isArray(r?.findings) ? r.findings.filter((f: unknown) => !!f && typeof f === 'object') : []);
-const locusOf = (f: Row) => (typeof f.path === 'string' && Number.isInteger(f.line) ? `${f.path.replace(/^\.\//, '')}:${f.line}` : /^(.+?):(\d+):/.exec(String(f.fingerprint ?? ''))?.slice(1, 3).join(':') ?? null);
 const nameOf = (b: OpenBlocker) => (typeof b === 'string' ? b : b.id);
 
 /** A fix-check grant buys one fix-check: it is spent once a row carries it, or once any fix-check started after it was recorded. */
@@ -45,7 +44,8 @@ export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'appr
  * claim, whose grant is an approved fix-check grant naming its fix_check_base as the stop head on its PR; no agent-written
  * range_base that disagrees; a completed, converged read bound to its commit's own tree, which contains the base; nothing open in it
  * (rule e: its status, an inline finding with action open at any severity, findings_open from a findings file, an id its dispatch
- * ledger collected that the row does not dispose); and the hunks its reader was given are git diff <base> <commit> over their paths.
+ * ledger collected that the row does not dispose); and the hunks its reader was given are git diff <base> <commit> over their paths,
+ * which cover every path that diff changes.
  */
 export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRoundGrant[]): RowBinding {
   const no = (why: string): RowBinding => ({ ok: false, why });
@@ -63,6 +63,9 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
   if (!h || typeof h.sha256 !== 'string' || !Array.isArray(h.paths) || !h.paths.length) return no('it carries no record of the hunks its reader was given');
   const diff = git(cwd, ['diff', base, commit, '--', ...h.paths]);
   if (diff === null || createHash('sha256').update(diff).digest('hex') !== h.sha256) return no(`the hunks its reader was given are not git diff ${s12(base)} ${s12(commit)}`);
+  const changed = git(cwd, ['diff', '--name-only', base, commit]);
+  const unread = changed === null ? null : changed.split('\n').filter(p => p && !h.paths.includes(p));
+  if (unread === null || unread.length) return no(`the hunks its reader was given leave out ${unread?.join(', ') ?? 'paths git could not list'}, which git diff ${s12(base)} ${s12(commit)} changes`);
   if (typeof h.ledger === 'string') {
     let ids: string[];
     try { ids = ledgerPass(h.ledger, id => `${path.basename(path.dirname(h.ledger))}/${id}`).ids ?? []; } catch { return no(`its dispatch ledger ${h.ledger} is unreadable`); }
@@ -79,7 +82,8 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
  * this run, and it binds (bindFixCheckRow) at the stop's head and tree from the body, never the newest review row, on the receipt
  * head or a head that only merges the base into it; (d) the stop, the claim and the row's start are recorded in that order;
  * (e) inside the binding; (f) each grant id closes the one open blocker whose id it is, a fingerprint only for a blocker without a
- * ledger id that no other blocker shares, never a gate finding; an id that names nothing closes nothing.
+ * ledger id that no other blocker shares, never a gate finding, and only an id the fix list its reader was given named; an id
+ * that names nothing closes nothing.
  */
 export function clearByGrant(cwd: string, o: { pr: number; run: string; head: string; baseRef: string; body: string; grants: readonly ReviewRoundGrant[]; rows: readonly Row[]; open: readonly OpenBlocker[] }): GrantClearing {
   const none = (why: string): GrantClearing => ({ ids: [], why });
@@ -99,15 +103,19 @@ export function clearByGrant(cwd: string, o: { pr: number; run: string; head: st
   const started = row!.review_binding?.started_at;
   if (!(Date.parse(String(stop.at)) < Date.parse(String(claim.at)) && Date.parse(String(claim.at)) < Date.parse(String(started)))) return none(`the stop (${stop.at ?? 'no time'}), the claim (${claim.at ?? 'no time'}) and the fix-check's start (${started ?? 'no time'}) are not recorded in that order`);
   const gated = new Set(o.rows.flatMap(r => findingsOf(r).filter(f => f.gate !== undefined).flatMap(f => [f.ledger_id, f.fingerprint])));
-  const ids = g.findings!.filter(name => o.open.filter(b => nameOf(b) === name).length === 1 && !o.open.some(b => typeof b !== 'string' && b.fingerprint === name) && !gated.has(name));
-  const unnamed = g.findings!.filter(name => !ids.includes(name));
-  return { ids, approval: g.approval, run: o.run, ...(unnamed.length ? { why: `grant ${g.approval} names ${unnamed.join(', ')}, which no open blocker carries alone` } : {}) };
+  const asked = new Set<string>(Array.isArray(row!.hunks?.fix_list) ? row!.hunks.fix_list : []);
+  const ids = g.findings!.filter(name => asked.has(name) && o.open.filter(b => nameOf(b) === name).length === 1 && !o.open.some(b => typeof b !== 'string' && b.fingerprint === name) && !gated.has(name));
+  const unasked = g.findings!.filter(name => !asked.has(name));
+  const unnamed = g.findings!.filter(name => asked.has(name) && !ids.includes(name));
+  const why = [...(unasked.length ? [`the fix list its reader was given does not name ${unasked.join(', ')}`] : []), ...(unnamed.length ? [`grant ${g.approval} names ${unnamed.join(', ')}, which no open blocker carries alone`] : [])].join('; ');
+  return { ids, approval: g.approval, run: o.run, ...(why ? { why } : {}) };
 }
 
 /**
  * The #4597 route: an open blocker closes when a branch commit carries its Review-Finding trailer (its exact ledger id, or its
  * fingerprint when no other open blocker shares it) and a later complete full review, bound to its own committed tree on this
- * branch and holding that commit in its range, reports no open finding at that id or locus. Gate findings never close this way.
+ * branch and holding that commit in its range, left nothing open (the same open test as bindFixCheckRow: its status, findings_open
+ * from a findings file, an inline open finding). Gate findings never close this way.
  */
 export function clearByTrailer(cwd: string, o: { head: string; baseRef: string; rows: readonly Row[]; open: readonly OpenBlocker[] }): TrailerClearing[] {
   const log = git(cwd, ['log', '--no-merges', '--format=%H%x00%(trailers:key=Review-Finding,valueonly,separator=%x1f)%x1e', `${o.baseRef}..${o.head}`]);
@@ -118,11 +126,11 @@ export function clearByTrailer(cwd: string, o: { head: string; baseRef: string; 
     const alone = o.open.filter(c => (typeof c === 'string' ? c : c.fingerprint) === fp).length === 1;
     const t = trailers.find(x => x.finding === id || (alone && x.finding === fp));
     if (!t || !raised.length || raised.some(x => x.f.gate !== undefined)) return [];
-    const after = Math.max(...raised.map(x => rowTime(x.r))), at = locusOf(raised.at(-1)!.f);
+    const after = Math.max(...raised.map(x => rowTime(x.r)));
     const review = o.rows.find(r => r?.skill === 'review' && r.via === 'ship' && r.completed === true && r.scope !== 'fix-range' && r.scope !== 'scoped' && rowTime(r) > after
       && (r.review_binding?.state === 'verified' || r.review_binding?.state === 'incomplete') && typeof r.tree === 'string' && r.review_binding.start_wtree === r.tree && r.review_binding.end_wtree === r.tree
       && SHA.test(String(r.commit_full)) && treeOf(cwd, r.commit_full) === r.tree && ancestor(cwd, t.commit, r.commit_full) && ancestor(cwd, r.commit_full, o.head)
-      && !findingsOf(r).some(f => f.action === 'open' && (f.ledger_id === id || (!!at && locusOf(f) === at))));
+      && r.status !== 'issues_found' && r.status !== 'issues_open' && Number(r.findings_open ?? 0) === 0 && !findingsOf(r).some(f => f.action === 'open'));
     return review ? [{ id, commit: t.commit, review: review.commit_full as string }] : [];
   });
 }

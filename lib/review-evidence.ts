@@ -492,18 +492,23 @@ const hunksFile = (cwd: string) => {
   return r.status === 0 && r.stdout.trim() ? resolve(cwd, r.stdout.trim()) : '';
 };
 
-/** gstack-review-plan --fix-check-prompt and the pass program's fix-check render record the hunks they rendered from; a failed write only leaves the row without hunks, so it closes nothing. */
-export function recordFixCheckHunks(cwd: string, text: string, ledger?: string): void {
+/** The ledger ids and path:line:category fingerprints a fix list names: the only grant ids its clean fix-check can close. */
+export function fixListNames(text: string): string[] {
+  return [...new Set(text.split(/[\s`'"(),;]+/).map(t => t.replace(/[.:]+$/, '')).filter(t => t.includes('#') || /:\d+:/.test(t)))].sort();
+}
+
+/** gstack-review-plan --fix-check-prompt and the pass program's fix-check render record the hunks and fix list they rendered from; a failed write only leaves the row without hunks, so it closes nothing. */
+export function recordFixCheckHunks(cwd: string, text: string, ledger: string | undefined, fixList: string): void {
   try {
     const file = hunksFile(cwd);
-    if (file) writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...hunksDigest(text), ...(ledger ? { ledger: resolve(ledger) } : {}) }) + '\n');
+    if (file) writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...hunksDigest(text), fix_list: fixListNames(fixList), ...(ledger ? { ledger: resolve(ledger) } : {}) }) + '\n');
   } catch { /* the row carries no hunks and closes nothing */ }
 }
 
 /** The hunks record gstack-review-log stamps on a granted fix-check row: the newest render at or after the row's start. */
-export function readFixCheckHunks(cwd: string, since: string): { sha256: string; paths: string[]; ledger?: string } | undefined {
+export function readFixCheckHunks(cwd: string, since: string): { sha256: string; paths: string[]; fix_list: string[]; ledger?: string } | undefined {
   try {
     const o = JSON.parse(readFileSync(hunksFile(cwd), 'utf8'));
-    return Date.parse(o.at) >= Date.parse(since) && typeof o.sha256 === 'string' && Array.isArray(o.paths) ? { sha256: o.sha256, paths: o.paths, ...(typeof o.ledger === 'string' ? { ledger: o.ledger } : {}) } : undefined;
+    return Date.parse(o.at) >= Date.parse(since) && typeof o.sha256 === 'string' && Array.isArray(o.paths) ? { sha256: o.sha256, paths: o.paths, fix_list: Array.isArray(o.fix_list) ? o.fix_list : [], ...(typeof o.ledger === 'string' ? { ledger: o.ledger } : {}) } : undefined;
   } catch { return undefined; }
 }

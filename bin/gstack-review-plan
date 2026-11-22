@@ -147,7 +147,7 @@ function main(): number {
     const [fixList, touchedHunks, testResults, callers] = [read('--fix-list', true), read('--hunks', true), read('--tests', true), read('--callers', false)];
     if (fixList === null || touchedHunks === null || testResults === null || callers === null) { process.stderr.write('gstack-review-plan: --fix-check-prompt needs readable --fix-list, --hunks and --tests files (--callers optional)\n'); return EXIT.usage; }
     process.stdout.write(renderFixCheckPrompt({ fixList, touchedHunks, testResults, callers }));
-    recordFixCheckHunks(process.cwd(), touchedHunks);
+    recordFixCheckHunks(process.cwd(), touchedHunks, undefined, fixList);
     return EXIT.ok;
   }
   const base = flag('--base');

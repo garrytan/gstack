@@ -255,16 +255,19 @@ file (`lib/fix-check-clearing.ts`): the grant answers the newest stop record
 for this PR; the PR body's first claim of it is this run's; exactly one
 `review-fix-check` row carries it, and `gstack-review-log` stamped that row from
 the claim (`fix_check_base`, `run`, `grant`, `pr`) with the digest of the hunks
-its reader was given; the row read the stop's head to the receipt head (or a
+its reader was given, which cover every path the stop-to-fix diff changes, and
+the ledger ids and fingerprints its fix list named; the row read the stop's head to the receipt head (or a
 head that only merges the base in) on one committed tree, with nothing open at
 any severity; and the stop, the claim and the row's start were recorded in that
-order. Each grant id closes the one open blocker carrying that id; a fingerprint
+order. Each grant id the fix list named closes the one open blocker carrying
+that id; a grant id the fix list left out closes nothing, and a fingerprint
 shared by two blockers closes neither. Anything less closes nothing, and write
 says why on a `FIX_CHECK_CLEAR:` line. The receipt records `cleared_by_grant`,
 and the Agent notes section gets one `Closed by grant …` line. A finding whose
 fix commit carries its `Review-Finding:` trailer also closes once a later full
-round, bound to its committed tree and holding that commit, reports nothing
-open at its id or line (`cleared_by_trailer`, #4597). finish counts the same
+round, bound to its committed tree and holding that commit, left nothing open
+at all, by its status, its findings file or an inline finding
+(`cleared_by_trailer`, #4597). finish counts the same
 stamped row, anchored on the grant's stop rather than the newest reviewed tree
 (#4612).
 

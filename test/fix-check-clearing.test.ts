@@ -43,7 +43,7 @@ function logRow(g: Pick<Granted, 'run'>, skill: string, row: Record<string, unkn
  * run (the stop's own run for harness-evals #508, a new run for gstack #4537) claims the grant, commits the fix at F and runs the
  * fix-check from the stop head through the logger and gstack-review-plan --fix-check-prompt, which records its hunks.
  */
-function grantedRun(o: { sameRun: boolean; fixRow?: Record<string, unknown> }): Granted {
+function grantedRun(o: { sameRun: boolean; fixRow?: Record<string, unknown>; extra?: Record<string, string>; hunkPaths?: string[] }): Granted {
   const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n', 'test/x.test.ts': TEST });
   fxs.push(f);
   const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
@@ -57,11 +57,11 @@ function grantedRun(o: { sameRun: boolean; fixRow?: Record<string, unknown> }): 
   const grant = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(ok(run('gstack-approvals', ['round-grant', '--pr', '7', '--head', S, '--kind', 'fix-check', '--stop-run', 'ro', '--findings', ID, '--reason', 'fixable blocker', '--by', 'Captain GStack Minder (GSTA-36)'])))![1]!;
   const fixRun = o.sameRun ? 'ro' : 'fc1';
   if (!o.sameRun) marker(f, fixRun);
-  f.write({ 'src/x.ts': 'export const x = 3;\n' }); f.commit('fix the blocker');
+  f.write({ 'src/x.ts': 'export const x = 3;\n', ...o.extra }); f.commit('fix the blocker');
   const F = headOf(f);
   expect(ok(run('gstack-ship-receipt', ['claim', '--body', body, '--run', fixRun, '--grant', grant]))).not.toContain('RUN_RECORD');
   const start = ok(run('gstack-review-log', ['--start', 'review-fix-check'])).trim();
-  const files = Object.entries({ fixes: 'fix ' + ID + '\n', hunks: f.git('diff', S, F).stdout, tests: '3 pass\n' }).map(([k, v]) => { const p = path.join(f.root, k + '.txt'); fs.writeFileSync(p, v); return p; });
+  const files = Object.entries({ fixes: 'fix ' + ID + '\n', hunks: f.git('diff', S, F, ...(o.hunkPaths ? ['--', ...o.hunkPaths] : [])).stdout, tests: '3 pass\n' }).map(([k, v]) => { const p = path.join(f.root, k + '.txt'); fs.writeFileSync(p, v); return p; });
   ok(run('gstack-review-plan', ['--fix-check-prompt', '--fix-list', files[0]!, '--hunks', files[1]!, '--tests', files[2]!]));
   ok(run('gstack-review-log', [JSON.stringify({ skill: 'review-fix-check', timestamp: new Date().toISOString(), via: 'ship', review_scope: 'frozen', range_base: S, ...CLEAN, ...o.fixRow }), '--finish', start]));
   return { f, run, S, F, grant, body, since, fixRun };
@@ -145,6 +145,24 @@ describe('a granted, clean fix-check closes exactly its grant\'s findings at wri
     expect(w.status, w.stderr).toBe(0);
     expect(w.stderr).toContain('TRAILER_CLEAR: ' + ID + ' (fixed by ' + headOf(f).slice(0, 12));
     expect(extractReceipt(fs.readFileSync(g.body, 'utf8')).receipt?.cleared_by_trailer).toEqual([{ id: ID, commit: headOf(f), review: headOf(f) }]);
+    // Value: protects=a later round that left anything open never clears by trailer, even with its findings in a findings file;
+    //   fails_when=a round-2 row whose status says issues remain closes the trailer's finding; seam=clearByTrailer
+    const rows = rowsOf(g), pass2 = rows.filter(r => r.skill === 'review').at(-1)!;
+    const byTrailer = (r2: Record<string, unknown>) => clearByTrailer(f.work, { head: headOf(f), baseRef: 'origin/main', rows: [...rows.filter(r => r !== pass2), r2], open: loop.open });
+    expect(byTrailer(pass2)).toHaveLength(1);
+    expect(byTrailer({ ...pass2, status: 'issues_found', findings_open: 1, findings_file: '/tmp/f.jsonl', status_source: 'derived' })).toEqual([]);
+    expect(byTrailer({ ...pass2, findings: [{ fingerprint: 'src/x.ts:9:style', severity: 'INFORMATIONAL', action: 'open' }] })).toEqual([]);
+  });
+});
+
+describe('a fix-check reader given only part of the fix closes nothing', () => {
+  // Value: protects=the hunks a granted fix-check read cover the whole stop-to-fix diff; fails_when=hunks over one of two changed
+  //   files bind and close the grant; seam=bindFixCheckRow
+  test('hunks covering only part of the stop..fix diff close nothing', () => {
+    const g = grantedRun({ sameRun: false, extra: { 'src/y.ts': 'export const y = 1;\n' }, hunkPaths: ['src/x.ts'] });
+    const row = rowsOf(g).filter(r => r.skill === 'review-fix-check').at(-1)!;
+    expect(row.hunks.paths).toEqual(['src/x.ts']);
+    expect(bindFixCheckRow(g.f.work, row, grantsOf(g))).toMatchObject({ ok: false, why: expect.stringContaining('leave out src/y.ts') });
   });
 });
 
@@ -252,6 +270,12 @@ describe('clearing refuses every gap GSTA-665\'s trail reads found in #4546 (lib
     const late = placeRunEntry(base.body.replace(/\{"head":"[0-9a-f]{40}","run":"ro","mark":"stop"[^\n]*\n/, ''), stopMarker({ head: stop.head, tree: stop.tree!, run: 'ro', at: '2099-01-01T00:00:00.000Z' }));
     expect(clear({ body: late }).why).toContain('not recorded in that order');
     expect(clear({ rows: [...base.rows, { skill: 'review', via: 'ship', findings: [{ ledger_id: ID, gate: 'RH1', action: 'open' }] }] }).ids).toEqual([]);
+  });
+  // Value: protects=a clean fix-check closes only the grant ids its fix list named; fails_when=a grant id the reader was never
+  //   asked about closes; seam=gstack-review-plan --fix-check-prompt, clearByGrant
+  test('the fix list\'s names are recorded, and a grant id the fix list left out closes nothing', () => {
+    expect(fixRow().hunks.fix_list).toEqual([ID]);
+    expect(clear({ rows: withRow({ ...fixRow(), hunks: { ...fixRow().hunks, fix_list: [] } }) })).toMatchObject({ ids: [], why: expect.stringContaining('does not name ' + ID) });
   });
   test('no trailer, or a trailer with no later full round, closes nothing by trailer', () => {
     expect(clearByTrailer(g.f.work, { head: g.F, baseRef: 'origin/main', rows: base.rows, open: base.open })).toEqual([]);

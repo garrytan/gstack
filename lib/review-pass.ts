@@ -245,7 +245,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };
       const fc = m.fix_check!;
       Object.assign(slots, { fix_list: read(fc.fix_list, 'fix list'), hunks: read(fc.hunks, 'hunks'), tests: read(fc.tests, 'tests'), callers: read(fc.callers, 'callers') });
-      recordFixCheckHunks(process.cwd(), slots.hunks ?? '', m.ledger);
+      recordFixCheckHunks(process.cwd(), slots.hunks ?? '', m.ledger, slots.fix_list ?? '');
     }
     let targeted = {};
     if (role === 'targeted' || (role === 'adversarial-native' && r.classes?.length)) {
