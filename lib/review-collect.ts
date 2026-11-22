@@ -9,7 +9,6 @@
  */
 import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveBase, type ResolvedBase } from './gate-diff/git';
 import { GENERATED_PATH, parseRegistry } from './regen';
@@ -169,10 +168,12 @@ export type ScanMemo = { exts: Set<string>; blob: string[]; disk: string[]; git:
 
 type Hit = { name: string; sha?: string };
 
-/** One `git grep -l` of `patterns` over a scratch index holding `entries` (`--cached` reads their blobs, otherwise the working tree). */
+/** One `git grep -l` of `patterns` over a scratch index holding `entries` (`--cached` reads their blobs, otherwise the working tree), kept under the git dir as patch-id diffs are, so an unwritable TMPDIR cannot fail the scan; a spot it cannot write is a named scan failure. */
 function grepIndex(root: string, entries: readonly string[], each: readonly string[], cached: boolean, deadline: number): string[] | GrepFailure {
   if (!entries.length) return [];
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-consumers-'));
+  const at = path.resolve(root, gitUntil(root, ['rev-parse', '--git-path', 'gstack-consumers'], deadline).out.trim() || '.git/gstack-consumers');
+  let dir: string;
+  try { fs.mkdirSync(at, { recursive: true }); dir = fs.mkdtempSync(path.join(at, 'scan-')); } catch (e) { return { status: null, err: `cannot create a scratch index under ${at} (${(e as Error).message.split('\n')[0]}); make that directory writable`, timedOut: false }; }
   try {
     const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') };
     const run = (args: string[], input?: string) => spawnSync('git', args, { cwd: root, env, input, encoding: 'utf8', timeout: Math.max(1, deadline - Date.now()), maxBuffer: CONSUMER_SCAN_OUTPUT_BYTES });
