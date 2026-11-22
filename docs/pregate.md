@@ -929,8 +929,8 @@ once:
   attempt meanwhile is `run_changed`. A newer run of the same workflow on the
   head, of any event, vetoes it (`newer_run_vetoes`) when that run failed, was
   cancelled or is still running. A newer green run doesn't, and neither does a
-  newer skipped run, which ran no job and so says nothing about the tree
-  (GST-3514).
+  newer skipped or neutral run, which ran no job that could fail and so says
+  nothing about the tree (GST-3514, GST-3554).
 - Every job the profile names appears exactly once in that attempt and
   succeeded. Jobs and runs are read across every page.
 - `tree.json` (an artifact of at most 8 MiB) names this run, attempt, event and
@@ -1055,7 +1055,9 @@ of a caller: a workflow in the branch's own `.github/workflows/` with a job
 that says `uses: ./.github/workflows/<lane's>.yml` (GST-971), read at
 pregate.json's recorded tree, as long as the lane's own job succeeded in the
 run under that calling job (`<calling job> / <lane job>`); else it refuses
-with `caller_job_skipped`. Fix lines only suggest `gh workflow run` for
+with `caller_job_skipped`. A caller run counts only at pregate.json's own
+head: a green caller run of any other commit refuses with `head_mismatch`
+(GST-3554). Fix lines only suggest `gh workflow run` for
 a file with a `workflow_dispatch` trigger.
 The run must also
 have finished green (GSTA-203 PR 8): a run that is still queued or running

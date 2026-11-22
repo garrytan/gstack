@@ -5053,7 +5053,9 @@ line; after the last three, clear again with a finished green run of the
 lane's own workflow ([run evidence](pregate.md#run-evidence)). For a lane whose
 workflow runs only through `workflow_call`, a run of a workflow whose job says
 `uses: ./.github/workflows/<lane's>.yml` counts as a run of the lane (GST-971);
-it refuses `caller_job_skipped` when its `<calling job> / <lane job>` job did not succeed.
+it refuses `caller_job_skipped` when its `<calling job> / <lane job>` job did not succeed,
+and `head_mismatch` when the caller run ran at a commit other than pregate.json's head
+(GST-3554): dispatch the caller at the head and clear with that run.
 
 Another tree is accepted in exactly one case: it differs from `pregate.json`'s
 tree only in the repo's stamp rule (`.gstack/ship-policy.json` on the base

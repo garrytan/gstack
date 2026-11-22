@@ -176,7 +176,7 @@ export async function waitForRun(deps: RunDeps, o: { workflow: string; events: s
   const end = o.clock() + o.timeoutMs;
   for (;;) {
     const runs = [o.head, ...(o.also ?? [])].flatMap(h => deps.runsForHead(o.workflow, h)).filter(r => o.events.includes(r.event)).sort(newestFirst);
-    const newest = runs.find(r => !(r.status === 'completed' && r.conclusion === 'skipped')) ?? runs[0];
+    const newest = runs.find(r => !(r.status === 'completed' && (r.conclusion === 'skipped' || r.conclusion === 'neutral'))) ?? runs[0];
     if (newest?.status === 'completed') {
       if (newest.conclusion === 'success') return { state: 'green', run: newest };
       const failing = deps.jobs(newest.id, newest.run_attempt).filter(j => !PASSING.includes(j.conclusion ?? '')).map(j => j.name);
