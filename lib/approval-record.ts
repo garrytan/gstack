@@ -389,20 +389,10 @@ export function approvalsGrantStopSpans(text: string): Array<{ line: number; fro
   return spans;
 }
 
-interface DecisionLike { id?: string; run?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; answer_words?: string; words_by?: string; carried_from?: string; label?: string; chosen_text?: string;
+interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; answer_words?: string; words_by?: string; carried_from?: string; label?: string; chosen_text?: string;
   carried_gate_from?: string; carried_gate_rev?: number; carried_answered_by?: string; carried_under?: string; carry_check?: string }
 
 const stripRef = (t: string) => t.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
-
-/**
- * The run id an autoplan run directory answers to: run.json's, else the newest run its gate rows carry (an interactive
- * /autoplan writes no run.json and appends every run to the same directory, #4402), else the directory name.
- */
-export function autoplanRunId(runDir: string, run: Record<string, any>, rows: readonly { run?: unknown }[]): string {
-  if (run.run ?? run.id) return String(run.run ?? run.id);
-  const newest = [...rows].reverse().find(r => typeof r.run === 'string' && r.run.length > 0)?.run;
-  return typeof newest === 'string' ? newest : path.basename(runDir);
-}
 
 /**
  * Rows for every answered gate in an autoplan run: one row per answer event (gate_rev, time, answerer), covering
@@ -427,9 +417,8 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
   const plan = reviewedPlan(runDir, run);
   const planTitle = firstTitle(plan.text) ?? 'the plan';
   const planSha = plan.sha;
-  const runId = autoplanRunId(runDir, run, rows);
-  const own = (run.run ?? run.id) || !rows.some(r => r.run === runId) ? rows : rows.filter(r => r.run === runId);
-  const answered = own.filter(r => r.status && r.status !== 'pending' && r.answered_at && !r.carried_from);
+  const runId = String(run.run ?? run.id ?? path.basename(runDir));
+  const answered = rows.filter(r => r.status && r.status !== 'pending' && r.answered_at && !r.carried_from);
   if (!answered.length) return { code: 'APPROVAL_IMPORT_UNANSWERED', message: `no answered gate in ${runDir}` };
   const groups = new Map<string, DecisionLike[]>();
   for (const r of answered) {
@@ -444,7 +433,7 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     const outcome: Outcome = !p1 ? 'pending' : p1.chosen === 'a' || p1.chosen === 'b' ? 'approved' : p1.chosen === 'e' ? 'rejected' : 'pending';
     const items = group.filter(r => r !== p1);
     const changed = items.filter(r => r.chosen && r.recommended && r.chosen !== r.recommended);
-    const stillPending = own.filter(r => r.gate_rev === rev && r.status === 'pending');
+    const stillPending = rows.filter(r => r.gate_rev === rev && r.status === 'pending');
     const answerer = first.answered_by ?? 'unknown';
     const carried = p1?.carried_gate_from ? p1 : undefined;
     const relayed = carried?.carried_answered_by && carried.carried_answered_by !== 'human' ? `, relayed by ${carried.carried_answered_by}` : '';

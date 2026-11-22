@@ -41,21 +41,6 @@ function fixture(files: Record<string, Array<Partial<ApprovalRow> & { ask: strin
   return { cwd, env, ids };
 }
 
-describe('an interactive /autoplan run cited by its directory (#4402)', () => {
-  // Value: protects=a Plan line naming an interactive run's directory (no run.json) resolves through the run id its gate
-  //   rows carry, the id the import now records; fails_when=the path token still resolves to the shared directory name
-  //   "autoplan" and finds no row; why_new=path tokens were only resolved through run.json or the directory name; seam=none
-  test('a path token resolves through the run its decision rows carry', () => {
-    const id = 'feature-x-20261122-104500';
-    const f = fixture({ b: [{ ask: `Approve the plan (autoplan run ${id}, 1 decisions)`, source: `autoplan:${id}@gate_rev=1` }] });
-    const run = path.join(f.cwd, '.gstack', 'tmp', 'autoplan');
-    fs.mkdirSync(run, { recursive: true });
-    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ run: id, id: `${id}-p1`, status: 'approved', gate_rev: 1 }) + '\n');
-    const r = resolvePlan(parsePlanLine('Plan: approved: .gstack/tmp/autoplan'), { cwd: f.cwd, env: f.env });
-    expect(r.ok ? 'resolved' : r.failure.message).toBe('resolved');
-  });
-});
-
 describe('parsePlanLine', () => {
   test('reads approved, exempt and required, tolerating spacing and bold, and ignores fenced text', () => {
     expect(parsePlanLine('x\nPlan: approved: ap-20261107055041\n')).toEqual({ kind: 'approved', line: 'Plan: approved: ap-20261107055041', token: 'ap-20261107055041' });

@@ -389,55 +389,6 @@ describe('import --autoplan', () => {
     expect(typed.status).not.toBe(0);
   });
 
-  // Value: protects=an interactive /autoplan run (no run.json; its gate rows carry the run id) imports under that run id,
-  //   so the id can be cited and two interactive runs never share one gate state; fails_when=the import falls back to the
-  //   shared directory name "autoplan"; why_new=every answered-gate import case wrote run.json (#4402); seam=none
-  test('an interactive run without run.json imports under the run id its gate rows carry', () => {
-    const run = path.join(tmp('appr-run-'), 'autoplan');
-    fs.mkdirSync(run);
-    const id = 'feature-x-20261122-104500';
-    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: id, id: `${id}-p1`, label: 'P1', title: 'Plan approval',
-      options: ['a', 'b'], recommended: 'a', kind: 'approval', status: 'approved', gate_rev: 1, chosen: 'a', answered_at: '2026-11-22T10:50:00.000Z', reply: 'a' }) + '\n');
-    const rows = importAutoplan(run, 'b', 'owner');
-    if ('code' in rows) throw new Error(rows.message);
-    expect(rows.map(r => r.source)).toEqual([`autoplan:${id}@gate_rev=1`]);
-    expect(rows[0]!.ask).toContain(`autoplan run ${id}`);
-  });
-
-  // Value: protects=a second interactive run appended to the same autoplan directory imports under its own run id with only
-  //   its own answers; fails_when=mixed run ids fall back to the directory name and pool both runs' answers; why_new=the
-  //   interactive case held a single run; seam=none
-  test('a second interactive run appended to the same directory imports under its own run id', () => {
-    const run = path.join(tmp('appr-run-'), 'autoplan');
-    fs.mkdirSync(run);
-    const row = (id: string, at: string) => JSON.stringify({ schema_version: 1, run: id, id: `${id}-p1`, label: 'P1', title: 'Plan approval',
-      options: ['a', 'b'], recommended: 'a', kind: 'approval', status: 'approved', gate_rev: 1, chosen: 'a', answered_at: at, reply: 'a' }) + '\n';
-    const a = 'feature-x-20261122-104500', b = 'feature-y-20261122-114500';
-    fs.writeFileSync(path.join(run, 'decisions.jsonl'), row(a, '2026-11-22T10:50:00.000Z'));
-    const first = importAutoplan(run, 'b', 'owner');
-    if ('code' in first) throw new Error(first.message);
-    expect(first.map(r => r.source)).toEqual([`autoplan:${a}@gate_rev=1`]);
-    fs.appendFileSync(path.join(run, 'decisions.jsonl'), row(b, '2026-11-22T11:50:00.000Z'));
-    const second = importAutoplan(run, 'b', 'owner');
-    if ('code' in second) throw new Error(second.message);
-    expect(second.map(r => r.source)).toEqual([`autoplan:${b}@gate_rev=1`]);
-  });
-
-  // Value: protects=an abandoned older interactive run's pending rows do not mark a newer approved run as unanswered;
-  //   fails_when=stillPending counts pending rows from every run in the directory; why_new=the newest-run selection
-  //   left the pending count pooled; seam=none
-  test('an abandoned older run leaves no unanswered decisions on the newer approved run', () => {
-    const run = path.join(tmp('appr-run-'), 'autoplan');
-    fs.mkdirSync(run);
-    const a = 'feature-x-20261122-104500', b = 'feature-y-20261122-114500';
-    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: a, id: `${a}-d1`, label: 'D1', title: 'Abandoned decision', status: 'pending', gate_rev: 1 }) + '\n'
-      + JSON.stringify({ schema_version: 1, run: b, id: `${b}-p1`, label: 'P1', title: 'Plan approval', options: ['a', 'b'], recommended: 'a', kind: 'approval',
-        status: 'approved', gate_rev: 1, chosen: 'a', answered_at: '2026-11-22T11:50:00.000Z', reply: 'a' }) + '\n');
-    const rows = importAutoplan(run, 'b', 'owner');
-    if ('code' in rows) throw new Error(rows.message);
-    expect(rows.map(r => [r.source, r.outcome, r.pending])).toEqual([[`autoplan:${b}@gate_rev=1`, 'approved', 'none']]);
-  });
-
   test('an unanswered gate imports nothing and says why', () => {
     const run = tmp('appr-run-');
     fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: 'run-1', id: 'run-1-p1', label: 'P1', status: 'pending', gate_rev: 1 }) + '\n');
