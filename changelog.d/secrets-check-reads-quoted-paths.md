@@ -1,0 +1,1 @@
+**The secrets check now reads files whose names hold a space, an accent or another character git quotes.** A key in `src/clé.rs` or `src/my file.rs` passed the check, because the file reached the scanner with no type and the rules for Rust and other languages skipped it; the push check also listed such a file as unknown. Both now read the name the way git writes it. (GST-3528)

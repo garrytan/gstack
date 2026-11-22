@@ -20,6 +20,30 @@ import type { CheckDef, CheckResult, PregateContext } from '../types';
 
 const BIN_DIR = path.resolve(path.dirname(Bun.fileURLToPath(import.meta.url)), '..', '..', '..', 'bin');
 
+/**
+ * GST-3528: the file a `+++ ` header names, or '' when it is not under `b/`.
+ * Git C-quotes a path holding a non-ASCII byte, a quote, a backslash or a
+ * control character (`+++ "b/cl\\303\\251.rs"`: octal bytes of UTF-8 and
+ * `\\t`-style escapes), and ends an unquoted path holding a space with a tab
+ * (`+++ b/my file.rs<TAB>`). Reading either raw gave the scanner no file
+ * type, so every path-scoped rule skipped it.
+ */
+export function diffHeaderPath(line: string): string {
+  const raw = line.slice(4);
+  if (!raw.startsWith('"')) return raw.startsWith('b/') ? raw.replace(/\t$/, '').slice(2) : '';
+  const bytes: number[] = [];
+  const chars = Array.from(raw);
+  for (let i = 1; i < chars.length; i++) {
+    const c = chars[i]!;
+    if (c === '"') { const name = new TextDecoder().decode(Uint8Array.from(bytes)); return name.startsWith('b/') ? name.slice(2) : ''; }
+    if (c !== '\\') { bytes.push(...new TextEncoder().encode(c)); continue; }
+    const next = chars[++i] ?? '';
+    if (/^[0-7]{3}$/.test(chars.slice(i, i + 3).join(''))) { bytes.push(parseInt(chars.slice(i, i + 3).join(''), 8)); i += 2; continue; }
+    bytes.push(({ a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 } as Record<string, number>)[next] ?? next.charCodeAt(0));
+  }
+  return '';
+}
+
 /** The diff's added-line text per file, hunk-aware: a `+++` inside a hunk is content, not a header. */
 export function parseAddedLines(diff: string): Map<string, string[]> {
   const files = new Map<string, string[]>();
@@ -28,7 +52,7 @@ export function parseAddedLines(diff: string): Map<string, string[]> {
   for (const line of diff.split('\n')) {
     if (line.startsWith('diff --')) { file = ''; inHunk = false; continue; }
     if (line.startsWith('@@')) { inHunk = true; continue; }
-    if (!inHunk) { if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : ''; continue; }
+    if (!inHunk) { if (line.startsWith('+++ ')) file = diffHeaderPath(line); continue; }
     if (!line.startsWith('+')) continue;
     const lines = files.get(file);
     if (lines) lines.push(line.slice(1)); else files.set(file, [line.slice(1)]);
@@ -45,7 +69,7 @@ export function parseAddedLineNumbers(diff: string): Map<string, number[]> {
     if (line.startsWith('diff --')) { file = ''; next = 0; continue; }
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (hunk) { next = Number(hunk[1]); continue; }
-    if (!next) { if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : ''; continue; }
+    if (!next) { if (line.startsWith('+++ ')) file = diffHeaderPath(line); continue; }
     if (line.startsWith('+')) { if (!files.has(file)) files.set(file, []); files.get(file)!.push(next++); }
     else if (line.startsWith(' ')) next++;
   }
@@ -66,7 +90,7 @@ export function parsePostimages(diff: string): Map<string, string[]> {
       if (lines) files.set(file, lines); else file = '';
       continue;
     }
-    if (lines === null) { if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : ''; continue; }
+    if (lines === null) { if (line.startsWith('+++ ')) file = diffHeaderPath(line); continue; }
     if (line.startsWith('+') || line.startsWith(' ')) lines.push(line.slice(1));
   }
   return files;

@@ -47,7 +47,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
-import { scannableReadings } from "../lib/pregate/checks/secrets";
+import { diffHeaderPath, scannableReadings } from "../lib/pregate/checks/secrets";
 import { resolveStateRoot } from "../lib/state-root";
 import { evaluateSealed, publishedCommits, renderSealed, sealedErrorReport, type SealedReport } from "../lib/sealed-guard";
 
@@ -354,7 +354,7 @@ function collectAddedLines(diff: string, commit?: string): AddedFile[] {
       nextLine = Number(/ \+(\d+)(?:,\d+)? @+/.exec(line)?.[1] ?? 0);
       continue;
     }
-    if (!inHunk && line.startsWith("+++ ")) { file = line.startsWith("+++ b/") ? line.slice(6) : ""; continue; }
+    if (!inHunk && line.startsWith("+++ ")) { file = diffHeaderPath(line); continue; }
     if (!inHunk && (line.startsWith("+++") || line.startsWith("---"))) continue;
     const inResult = inHunk && !line.startsWith("\\") && !line.slice(0, parents).includes("-");
     const lineNumber = inResult ? nextLine++ : 0;
