@@ -455,6 +455,16 @@ export function assertOpenedFileContained(root: string, full: string, fd: number
   )
     throw new CsoError('SNAPSHOT_RACE', 'Opened source identity changed during containment validation');
 }
+/** A permission error (a sandbox deny rule, a mode-000 file): the capture may withhold an excluded path instead (#4395). */
+const DENIED = new Set(['EACCES', 'EPERM']);
+class UnreadableSource extends CsoError {
+  constructor(
+    path: string,
+    public errno: string,
+  ) {
+    super('UNSAFE_PATH', `Source could not be opened as a regular file: ${path}`);
+  }
+}
 function readStableWith<T>(
   root: string,
   path: string,
@@ -478,6 +488,7 @@ function readStableWith<T>(
     const code = (error as NodeJS.ErrnoException).code;
     if (['ELOOP', 'ENOENT', 'ENOTDIR', 'ENXIO'].includes(code ?? ''))
       throw new CsoError('SNAPSHOT_RACE', `Source changed before it could be opened: ${path}`);
+    if (DENIED.has(code ?? '')) throw new UnreadableSource(path, code!);
     throw new CsoError('UNSAFE_PATH', `Source could not be opened as a regular file: ${path}`);
   }
   try {
@@ -662,8 +673,15 @@ async function rejectSpecialFiles(
         const path = relativePath(prefix ? `${prefix}/${item.name}` : item.name);
         if (noReadPath(path) || ignoredDirectory(path)) continue;
         admission.count(++visited);
-        const full = join(at, item.name),
+        const full = join(at, item.name);
+        let stat: fs.Stats;
+        try {
           stat = fs.lstatSync(full);
+        } catch (error: any) {
+          // Never opened: the capture withholds an unreadable excluded path.
+          if (DENIED.has(error?.code) && exclusion(path)) continue;
+          throw error;
+        }
         if (stat.isDirectory()) {
           if (leadsIntoScope(path)) walk(full, path);
           continue;
@@ -740,8 +758,24 @@ export async function capture(
       sensitiveEvidence: any[] = [],
       boundaries = new Map<string, fs.Stats>(),
       links = new Map<string, LinkIdentity>(),
-      absentPaths = new Set<string>();
+      absentPaths = new Set<string>(),
+      lstatDenied = new Set<string>();
     let total = 0;
+    // An excluded secret-like path that cannot be read is already kept out of
+    // snapshot/; record it as an unread input (a coverage gap) instead of
+    // aborting. Every other unreadable path still fails the capture.
+    const withholdUnreadable = (path: string, source: fs.Stats | undefined, errno: string) => {
+      if (!source) lstatDenied.add(path);
+      entries.push({
+        path,
+        pathId: snapshotPathId(repo, path),
+        originalHash: 'not-read',
+        bytes: source?.size ?? 0,
+        mode: (source?.mode ?? 0) & 0o777,
+        transformation: `withheld: ${exclusion(path)} file is unreadable (${errno}); its payload was not assessed`,
+      });
+      guard();
+    };
     guard();
     const objectFormat = (await git(repo, ['rev-parse', '--show-object-format'], home)).trim();
     guard();
@@ -798,6 +832,10 @@ export async function capture(
       } catch (error: any) {
         if (error?.code === 'ENOENT') {
           absentPaths.add(path);
+          continue;
+        }
+        if (DENIED.has(error?.code) && exclusion(path)) {
+          withholdUnreadable(path, undefined, error.code);
           continue;
         }
         throw error;
@@ -875,7 +913,15 @@ export async function capture(
         continue;
       }
       if (total + size > SOURCE_LIMIT) throw sourceCapError();
-      const { data, mode } = readStable(repo, path, SOURCE_LIMIT);
+      let read: { data: Buffer; mode: number };
+      try {
+        read = readStable(repo, path, SOURCE_LIMIT);
+      } catch (error) {
+        if (!(error instanceof UnreadableSource && exclusion(path))) throw error;
+        withholdUnreadable(path, source, error.errno);
+        continue;
+      }
+      const { data, mode } = read;
       total += data.length;
       guard();
       if (total > SOURCE_LIMIT) throw sourceCapError();
@@ -984,6 +1030,17 @@ export async function capture(
               throw new CsoError('SNAPSHOT_RACE', `${message}: ${e.path}`);
             guard();
             continue;
+          }
+          if (lstatDenied.has(e.path)) {
+            try {
+              fs.lstatSync(containedFile(repo, e.path));
+            } catch (error: any) {
+              if (DENIED.has(error?.code)) {
+                guard();
+                continue;
+              }
+            }
+            throw new CsoError('SNAPSHOT_RACE', `${message}: ${e.path}`);
           }
           const current = fs.lstatSync(containedFile(repo, e.path)),
             compared = gitHashes.get(e.path);
