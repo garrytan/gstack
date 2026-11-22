@@ -30,6 +30,8 @@ export const RULED_NOTE_SCOPE = /^\s*ruled_note\b/;
 export const ruledNoteRow = (finding: string, head: string, reason: string) => ({ scope: `ruled_note ${finding} ${head}`, ask: `ruled_note ${finding} at ${head}: ${reason}` });
 /** Where a lane relays the owner's ruling from: `<thread code>:<message id or timestamp>`, a message a reader can look up. */
 export const OWNER_REF = /^[A-Z][A-Z0-9]*-[1-9]\d*:[A-Za-z0-9][\w.:+-]*$/;
+/** OWNER_REF in words, for the refusals and the help that name it (#4718). */
+export const OWNER_REF_SHAPE = '<thread code>:<message id or timestamp>, where the thread code is an uppercase letter, then uppercase letters or digits, a dash and a number from 1 (GSTA-36), and the message part starts with a letter or digit (GSTA-36:2026-11-19T12:29:59Z)';
 const RED_TEAM = /:red-team$/i;
 /** A ruling row's source: `relayed:<owner ref>` for a relayed ruling and `not-security` for a red-team finding the owner ruled not security class. */
 export const ruledNoteSource = (o: { ownerRef?: string; notSecurity?: boolean }) => [o.ownerRef ? `relayed:${o.ownerRef}` : '', o.notSecurity ? 'not-security' : ''].filter(Boolean).join(' ') || undefined;

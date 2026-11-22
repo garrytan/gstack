@@ -2259,8 +2259,13 @@ holds an open /ship run, and for `lane-exception` a `--files` list that is
 empty or holds whitespace. `add` refuses a `ruled_note` or
 `test_lane_exception` scope ([ruled notes](ship-policy.md#ruled-notes),
 [test-lane exceptions](ship-policy.md#test-lane-exceptions)).
+`rule` and `round-grant` refuse an `--owner-ref` that is not
+`<thread code>:<message id or timestamp>`, where the thread code is shaped like
+`GSTA-36` (an uppercase letter, then uppercase letters or digits, a dash and a
+number from 1), and an `--owner-ref` given without `--words` (for `rule`, also
+without `--by`); each of these checks prints its own line.
 
-**Fix.** Rerun with every required flag inside the caps the line names. A
+**Fix.** Rerun the same command with the flag the line names, inside its caps. A
 ruling or a test-lane exception is the owner's: record it from the owner's
 session, outside the lane's /ship run.
 

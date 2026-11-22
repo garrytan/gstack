@@ -500,3 +500,74 @@ describe('import --autoplan --stack', () => {
     expect(bin(['import', '--autoplan', tmp('appr-run-'), '--branch', 'feature/one', '--stack', 'feature/one'], { cwd }).status).toBe(2);
   });
 });
+
+// Value: protects=each APPROVAL_RECORD_INVALID refusal of an --owner-ref names the one check that failed, states the shape OWNER_REF
+//   accepts, and ends with a fix clause that names no other subcommand's flags; fails_when=a bad ref, a missing --words and a missing
+//   --by print one shared sentence again, or fix: points rule, round-grant, lane-exception or gate at add (--ask, --scope);
+//   why_new=no test read the refusal text, only its exit code (#4718); seam=gstack-approvals rule|round-grant|lane-exception|gate
+describe('APPROVAL_RECORD_INVALID names the check that failed and no other command (#4718)', () => {
+  const committed = () => {
+    const cwd = repo();
+    spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd, timeout: 30_000 });
+    return { cwd, env: { GSTACK_STATE_ROOT: tmp('appr-state-') } };
+  };
+  /** stderr split at `; fix: `: the refusal with its detail, then the fix clause and the code. */
+  const parts = (err: string) => { const at = err.indexOf('; fix: '); return { why: err.slice(0, at), fix: err.slice(at + '; fix: '.length) }; };
+  const RULE = ['rule', '--finding', 'a.txt:1:docs', '--head', 'HEAD', '--reason', 'synthetic'];
+  const BAD_REF = 'ship-161:2026-11-22T18:40:00Z';
+
+  test('rule: a ref outside OWNER_REF is refused for its shape alone, and a ref inside it still records', () => {
+    const o = committed();
+    const r = bin([...RULE, '--words', 'A', '--by', 'owner', '--owner-ref', BAD_REF], o);
+    expect(r.status).toBe(2);
+    expect(r.err).toContain('(APPROVAL_RECORD_INVALID)');
+    const { why } = parts(r.err);
+    expect(why).toContain(JSON.stringify(BAD_REF));
+    expect(why).toMatch(/uppercase/i);
+    expect(why).toMatch(/dash/i);
+    expect(why).not.toContain('--words');
+    expect(why).not.toContain('--by');
+    const ok = bin([...RULE, '--words', 'A', '--by', 'owner', '--owner-ref', 'SHIP-161:2026-11-22T18:42:14Z'], o);
+    expect(ok.status, ok.err).toBe(0);
+  });
+
+  test('rule: a valid ref without --words names --words only', () => {
+    const r = bin([...RULE, '--by', 'owner', '--owner-ref', 'SHIP-161:2026-11-22T18:42:14Z'], committed());
+    expect([r.status, r.err]).toEqual([2, expect.stringContaining('(APPROVAL_RECORD_INVALID)')]);
+    const { why } = parts(r.err);
+    expect(why).toContain('--words');
+    expect(why).not.toContain('--by');
+    expect(why).not.toMatch(/thread code/i);
+  });
+
+  test('rule: a valid ref without --by names --by only', () => {
+    const r = bin([...RULE, '--words', 'A', '--owner-ref', 'SHIP-161:2026-11-22T18:42:14Z'], committed());
+    expect([r.status, r.err]).toEqual([2, expect.stringContaining('(APPROVAL_RECORD_INVALID)')]);
+    const { why } = parts(r.err);
+    expect(why).toContain('--by');
+    expect(why).not.toContain('--words');
+    expect(why).not.toMatch(/thread code/i);
+  });
+
+  test('round-grant: a ref outside OWNER_REF is refused for its shape alone', () => {
+    const r = bin(['round-grant', '--pr', '7', '--head', 'HEAD', '--kind', 'extra-round', '--reason', 'r', '--by', 'Captain', '--owner-ref', 'ship-161:x', '--words', 'w'], committed());
+    expect([r.status, r.err]).toEqual([2, expect.stringContaining('(APPROVAL_RECORD_INVALID)')]);
+    const { why } = parts(r.err);
+    expect(why).toMatch(/uppercase/i);
+    expect(why).toMatch(/dash/i);
+    expect(why).not.toContain('--words');
+  });
+
+  test('the fix clause of rule, round-grant, lane-exception and gate names no flag of add', () => {
+    const o = committed();
+    for (const args of [[...RULE, '--words', 'A', '--by', 'owner', '--owner-ref', BAD_REF], ['round-grant'], ['lane-exception'], ['gate']]) {
+      const r = bin(args, o);
+      expect([args[0], r.status, r.err]).toEqual([args[0], 2, expect.stringContaining('(APPROVAL_RECORD_INVALID)')]);
+      const { fix } = parts(r.err);
+      expect(fix).not.toContain('gstack-approvals add');
+      expect(fix).not.toContain('--ask');
+      expect(fix).not.toContain('--scope');
+      expect(fix).toContain('nothing was written');
+    }
+  });
+});
