@@ -391,15 +391,25 @@ const TEST_FILE = /\.(test|spec)\.[^/]+$|_test\.(go|py)$|(^|\/)test_[^/]+\.py$/;
 
 /**
  * Whether a hit is the repo's own contract test for the exclusion naming a path as an example and nothing more: a test
- * file that names review_exclude_paths and holds the path only as whole quoted strings ('p', "p" or `p`). Such a test
- * pins the pattern list or checks which paths match; it does not read the file, so it keeps nothing (GST-3512). Any
- * other form, such as a joined or prefixed path, still counts, and so does every non-test file.
+ * file that names review_exclude_paths and holds the path only as whole quoted strings ('p', "p" or `p`) that are
+ * array elements (the innermost open bracket before the quote is [). Such a test pins the pattern list or lists the
+ * paths it expects to match, so it keeps nothing (GST-3512). A quoted path passed to a call (readFileSync('p'),
+ * path.join(ROOT, 'p')), held in an object or a plain constant, joined or prefixed, still counts, and so does every
+ * non-test file.
  */
 function contractExample(s: string, file: string, body: string): boolean {
   if (!TEST_FILE.test(file) || !body.includes('review_exclude_paths')) return false;
   for (let at = body.indexOf(s); at >= 0; at = body.indexOf(s, at + 1)) {
     const q = body[at - 1];
     if (!q || !'\'"`'.includes(q) || body[at + s.length] !== q) return false;
+    let depth = 0;
+    let k = at - 2;
+    for (; k >= 0; k--) {
+      const c = body[k]!;
+      if (c === ')' || c === ']' || c === '}') depth++;
+      else if (c === '(' || c === '[' || c === '{') { if (depth === 0) break; depth--; }
+    }
+    if (body[k] !== '[') return false;
   }
   return true;
 }

@@ -36,16 +36,26 @@ describe('review_exclude_paths and its contract test', () => {
   }, 120_000);
 
   // Value: protects=named-by-code still keeps a file that code reads, that a test outside the exclusion's contract names,
-  //   or that the contract test names in any form but a whole quoted string; fails_when=the exemption reaches past the
-  //   contract test's quoted examples; why_new=GST-3512 negative control
-  test('code, other tests and joined paths still keep the files they name', () => {
+  //   or that the contract test names in any form but a quoted array element (a joined path, a './' prefix, a call
+  //   argument, an object value); fails_when=the exemption reaches past the contract test's listed examples;
+  //   why_new=GST-3512 negative control, /ship review of #4699 (lib/review-exclude.ts:398, test:38)
+  test('code, other tests, call arguments and joined paths still keep the files they name', () => {
     const r = repo({
-      [CONTRACT]: contract("const local = `${ROOT}/results/b2/other.json`;"),
+      [CONTRACT]: contract([
+        "const local = `${ROOT}/results/b2/other.json`;",
+        "const raw = require('fs').readFileSync('results/b2/fourth.json', 'utf8');",
+        "const dotted = ['./results/b2/fifth.json'];",
+        "const cfg = { file: 'results/b2/sixth.json' };",
+      ].join('\n')),
+      'results/b2/fourth.json': '{"pass": 4}\n', 'results/b2/fifth.json': '{"pass": 5}\n', 'results/b2/sixth.json': '{"pass": 6}\n',
       'lib/load.js': "module.exports = () => require('fs').readFileSync('wiki/b2/sessions.jsonl', 'utf8');\n",
       'test/reader.test.js': "const fixture = 'results/b2/third.json';\n",
     });
     expect(r.kept.filter(k => k.path !== 'results/b2/run.json')).toEqual([
+      { path: 'results/b2/fifth.json', reason: 'named-by-code' },
+      { path: 'results/b2/fourth.json', reason: 'named-by-code' },
       { path: 'results/b2/other.json', reason: 'named-by-code' },
+      { path: 'results/b2/sixth.json', reason: 'named-by-code' },
       { path: 'results/b2/third.json', reason: 'named-by-code' },
       { path: 'wiki/b2/sessions.jsonl', reason: 'named-by-code' },
     ]);
