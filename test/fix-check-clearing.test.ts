@@ -299,10 +299,6 @@ describe('clearing refuses every gap GSTA-665\'s trail reads found in #4546 (lib
     expect(clear({ body: late }).why).toContain('not recorded in that order');
     expect(clear({ rows: [...base.rows, { skill: 'review', via: 'ship', findings: [{ ledger_id: ID, gate: 'RH1', action: 'open' }] }] }).ids).toEqual([]);
   });
-  // Value: protects=a clean fix-check closes only the grant ids its fix list named; fails_when=a grant id the reader was never
-  //   asked about closes; seam=gstack-review-plan --fix-check-prompt, clearByGrant
-  // Value: protects=a fix-check row whose dispatch ledger can't be read closes nothing (#4664 trail read, flag 1); fails_when=a
-  //   missing ledger reads as empty, so the check that the row disposes every id the reader raised passes; seam=bindFixCheckRow
   // Value: protects=a grant naming a security-class fingerprint closes nothing by grant either, line or no line (#4664 trail read,
   //   flag 3; #4696 ship-4696c p1/specialist-batched#1); fails_when=a raw security fingerprint the fix list names closes; seam=clearByGrant
   test('a grant naming a security fingerprint closes nothing, while the same grant on a plain fingerprint closes', () => {
@@ -311,9 +307,13 @@ describe('clearing refuses every gap GSTA-665\'s trail reads found in #4546 (lib
     expect(named('src/x.ts:1:security')).toEqual([]);
     expect(named('src/x.ts::security')).toEqual([]);
   });
+  // Value: protects=a fix-check row whose dispatch ledger can't be read closes nothing (#4664 trail read, flag 1); fails_when=a
+  //   missing ledger reads as empty, so the check that the row disposes every id the reader raised passes; seam=bindFixCheckRow
   test('a fix-check row naming a dispatch ledger that is missing closes nothing', () => {
     expect(clear({ rows: withRow({ ...fixRow(), hunks: { ...fixRow().hunks, ledger: path.join(g.f.root, 'gone', 'fc', 'ledger.jsonl') } }) })).toMatchObject({ ids: [], why: expect.stringContaining('unreadable') });
   });
+  // Value: protects=a clean fix-check closes only the grant ids its fix list named; fails_when=a grant id the reader was never
+  //   asked about closes; seam=gstack-review-plan --fix-check-prompt, clearByGrant
   test('the fix list\'s names are recorded, and a grant id the fix list left out closes nothing', () => {
     expect(fixRow().hunks.fix_list).toEqual([ID]);
     expect(clear({ rows: withRow({ ...fixRow(), hunks: { ...fixRow().hunks, fix_list: [] } }) })).toMatchObject({ ids: [], why: expect.stringContaining('does not name ' + ID) });
