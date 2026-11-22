@@ -60,7 +60,7 @@ export function generateTranscriptDiscovery(ctx: TemplateContext): string {
   } else if (ctx.host === 'claude') {
     body = [
       'else',
-      '  TRANSCRIPT_DIR="$HOME/.claude/projects/$(printf \'%s\' "$PROJECT_ROOT" | sed \'s/[^A-Za-z0-9]/-/g\')"',
+      '  TRANSCRIPT_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf \'%s\' "$PROJECT_ROOT" | sed \'s/[^A-Za-z0-9]/-/g\')"',
       '  if [ -d "$TRANSCRIPT_DIR" ]; then',
       '    TRANSCRIPT_COUNT=0',
       '    while IFS= read -r f; do TRANSCRIPT_COUNT=$((TRANSCRIPT_COUNT + 1)); echo "TRANSCRIPT: $f"; done < <(find "$TRANSCRIPT_DIR" -maxdepth 1 -name \'*.jsonl\' -mtime -"$TRANSCRIPT_DAYS" 2>/dev/null | sort)',
@@ -73,7 +73,7 @@ export function generateTranscriptDiscovery(ctx: TemplateContext): string {
   } else if (ctx.host === 'codex') {
     body = [
       'else',
-      '  TRANSCRIPT_DIR="$HOME/.codex/sessions"',
+      '  TRANSCRIPT_DIR="${CODEX_HOME:-$HOME/.codex}/sessions"',
       '  if [ -d "$TRANSCRIPT_DIR" ]; then',
       '    TRANSCRIPT_COUNT=0',
       '    while IFS= read -r f; do',

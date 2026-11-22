@@ -86,9 +86,50 @@ function tmpBase(): string {
   return base;
 }
 
-function check(root: string) {
-  const r = spawnSync('bash', [CHECK, root], { encoding: 'utf8', timeout: 30_000 });
+function check(root: string, env: NodeJS.ProcessEnv = {}) {
+  const r = spawnSync('bash', [CHECK, root], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...env } });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
+}
+
+/**
+ * A root Git Bash leaves unconverted: MSYS rewrites a /c/x argument to C:/x as
+ * a native program starts, but never one holding ' ` [ ] (msys2-runtime
+ * winsup/cygwin/msys2_path_conv.cc), and native Bun cannot open /c/x. The
+ * space keeps the path whole on its way into bash from this test: Bun quotes
+ * an argument with a space, and the MSYS runtime reads an unquoted ' in its
+ * command line as a quote.
+ */
+const UNCONVERTED_ROOT = "hook root o'brien";
+/** A fresh such root, spelled as pwd -P spells it (macOS's /var is /private/var). */
+const unconvertedRoot = () => path.join(fs.realpathSync(tmpBase()), UNCONVERTED_ROOT);
+
+/**
+ * A Windows bash on a POSIX host for a root Git Bash does not convert:
+ * OSTYPE=msys, a cygpath that spells <root> as another directory, and a bun
+ * that fails, as bun.exe does, on an argument naming <root> in its shell
+ * spelling. The bun maps the cygpath spelling back before it runs the real Bun.
+ */
+function simulatedWindowsBash(root: string): NodeJS.ProcessEnv {
+  const dir = tmpBase();
+  const vars = `APOS=${JSON.stringify(root)} LINK=${JSON.stringify(path.join(dir, 'native-spelling'))}`;
+  const write = (name: string, body: string[]) => fs.writeFileSync(path.join(dir, name), ['#!/usr/bin/env bash', vars, ...body, ''].join('\n'), { mode: 0o755 });
+  write('cygpath', [
+    '[ "$1" = -m ] && shift',
+    'for p in "$@"; do case "$p" in "$APOS"*) p="$LINK${p#"$APOS"}" ;; esac; printf \'%s\\n\' "$p"; done',
+  ]);
+  write('bun', [
+    'a=()',
+    'for x in "$@"; do',
+    '  case "$x" in',
+    '    --config=NUL) a+=(--config=/dev/null) ;;',
+    '    "$LINK"*) a+=("$APOS${x#"$LINK"}") ;;',
+    '    *"$APOS"*) echo "error: Module not found \\"$x\\"" >&2; exit 1 ;;',
+    '    *) a+=("$x") ;;',
+    '  esac',
+    'done',
+    `exec ${JSON.stringify(process.execPath)} "\${a[@]}"`,
+  ]);
+  return { OSTYPE: 'msys', PATH: `${dir}${path.delimiter}${process.env.PATH ?? ''}` };
 }
 
 describe('gstack-hook-check: the hook list is the registration code', () => {
@@ -134,6 +175,34 @@ describe('gstack-hook-check: what fails', () => {
     expect(broken.out).toContain(`fail hosts/claude/hooks/question-log-hook ${shellPath(path.join(root, 'hosts/claude/hooks/question-log-hook.ts'))}:1: `);
     expect(broken.out).not.toContain('bun could not bundle the TypeScript entry');
   }, 90_000); // Git Bash process startup makes two checks slow on Windows.
+
+  // Under a home such as C:\Users\O'Brien, or with MSYS_NO_PATHCONV=1, Bun got
+  // each entry as /c/x and every TypeScript hook was reported as "bun could
+  // not bundle the TypeScript entry". POSIX hosts run the simulated Windows bash.
+  test('entries bundle in a root Git Bash does not convert', () => {
+    const root = unconvertedRoot();
+    fixtureTree(root);
+    const envs = process.platform === 'win32' ? [{}, { MSYS_NO_PATHCONV: '1' }] : [simulatedWindowsBash(root)];
+    for (const env of envs) {
+      const r = check(root, env);
+      expect(r.out).not.toContain('fail ');
+      expect(r.code).toBe(0);
+      expect(r.out.trim().split('\n')).toEqual(HOOKS.map(h => `ok ${h}`));
+    }
+  }, 90_000);
+
+  test('a root named like a glob pattern is read literally, not as the sibling it matches', () => {
+    const base = fs.realpathSync(tmpBase());
+    const root = path.join(base, 'hooks[1]');
+    fixtureTree(root);
+    fixtureTree(path.join(base, 'hooks1'));
+    const envs = process.platform === 'win32' ? [{}] : [{}, simulatedWindowsBash(root)];
+    for (const env of envs) {
+      const r = check(root, env);
+      expect(r.out).not.toContain('fail ');
+      expect(r.code).toBe(0);
+    }
+  }, 90_000);
 
   test('healthy fixture passes', () => {
     const root = tmpBase();
@@ -296,6 +365,41 @@ describe('gstack-hook-check: what fails', () => {
   });
 });
 
+/** The TypeScript files a shim runs, as gstack-hook-check's ts_entries reads them. */
+const tsEntries = (shim: string) => [...new Set(fs.readFileSync(shim, 'utf8').split('\n')
+  .filter(line => !/^\s*#/.test(line)).flatMap(line => [...line.matchAll(/[\w.-]+\.ts\b/g)].map(m => m[0])))];
+
+/** Every shim that starts Bun on a TypeScript entry: the hooks setup and skills register, plus the opt-in shims beside them (gstack-memorable registers its own). */
+const BUN_SHIMS = [...new Set([...HOOKS, ...fs.readdirSync(path.join(ROOT, 'hosts/claude/hooks'))
+  .filter(f => !path.extname(f)).map(f => `hosts/claude/hooks/${f}`)])]
+  .filter(h => fs.statSync(path.join(ROOT, h), { throwIfNoEntry: false })?.isFile() && tsEntries(path.join(ROOT, h)).length > 0);
+
+describe('hook shims: Bun gets an entry path it can open', () => {
+  // Each shim spells its own directory with pwd (/c/x on Git Bash), so under a
+  // root Git Bash does not convert every TypeScript hook died in bun.exe with
+  // "Module not found" before it ran: the /autoplan Read barrier denied every
+  // Read, and the record and gate hooks did nothing. POSIX hosts run the
+  // simulated Windows bash.
+  test('every shim that runs TypeScript starts its entry in a root Git Bash does not convert', () => {
+    expect(BUN_SHIMS.length).toBeGreaterThanOrEqual(13);
+    const root = unconvertedRoot();
+    for (const shim of BUN_SHIMS) {
+      fs.mkdirSync(path.dirname(path.join(root, shim)), { recursive: true });
+      fs.copyFileSync(path.join(ROOT, shim), path.join(root, shim));
+      fs.chmodSync(path.join(root, shim), 0o755);
+      for (const entry of tsEntries(path.join(ROOT, shim))) fs.writeFileSync(path.join(root, path.dirname(shim), entry), "console.log('entry ran');\n");
+    }
+    const env = { ...process.env, ...(process.platform === 'win32' ? {} : simulatedWindowsBash(root)) };
+    // autoplan-stop-gate-publish starts Bun only for a publish no-op.
+    const input = JSON.stringify({ tool_input: { command: 'true autoplan-published ceo' } });
+    const runs = BUN_SHIMS.map((shim) => {
+      const r = spawnSync('bash', [posix(path.join(root, shim))], { input, env, encoding: 'utf8', timeout: 30_000 });
+      return `${shim}: ${r.status} ${r.stdout.trim()}`;
+    });
+    expect(runs).toEqual(BUN_SHIMS.map(shim => `${shim}: 0 entry ran`));
+  }, 120_000); // Thirteen Git Bash and Bun starts on Windows.
+});
+
 describe('setup: registers the hooks that parse, refuses the rest, exits non-zero', () => {
   test('the gate runs before any hook registration is healed or written', () => {
     const gate = SETUP.indexOf('# Hook parse gate');
@@ -412,3 +516,16 @@ describe('setup: registers the hooks that parse, refuses the rest, exits non-zer
     expect(registeredCommands(fx)).toEqual(before);
   }, 30_000); // Two setup hook passes, each resolving every gate switch.
 });
+
+describe('setup: Git Bash argument conversion stays on for what setup starts', () => {
+  // MSYS_NO_PATHCONV=1 or MSYS2_ARG_CONV_EXCL=* (common for Docker users) left
+  // every /c/x argument unconverted, so setup's first Bun step failed (#4386).
+  test('a Windows bash unsets MSYS_NO_PATHCONV and MSYS2_ARG_CONV_EXCL; other shells keep them', () => {
+    const script = SETUP.slice(0, SETUP.indexOf('\numask 077')) + '\necho "nopathconv=' + '$' + '{MSYS_NO_PATHCONV-unset} excl=' + '$' + '{MSYS2_ARG_CONV_EXCL-unset}"\n';
+    const run = (ostype: string) => spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, OSTYPE: ostype, MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*' } }).stdout.trim();
+    expect(run('msys')).toBe('nopathconv=unset excl=unset');
+    expect(run('cygwin')).toBe('nopathconv=unset excl=unset');
+    if (process.platform !== 'win32') expect(run('linux-gnu')).toBe('nopathconv=1 excl=*');
+  });
+});
+

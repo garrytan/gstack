@@ -1045,9 +1045,8 @@ sets the defaults that keep it from coming back.
   a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain once none of
   its PRs is open (R91), through `gstack-archive-check thread`. A thread
   mid-/ship or mid-merge gets `DEFER:` and nothing happens until that work finishes.
-- **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, one /ship subagent per
-  PR head (metering its own row with a 50M default cap, `BUDGET_DEFAULT_CAP:`), two review rounds, and a fresh
-  thread per automation run.
+- **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, /ship run in the pull
+  request's own thread rather than a subagent, two review rounds, and a fresh thread per automation run.
 
 Scanning FOUN-4, FOUN-14 and FOUN-71 as read on 2026-11-03, before R70's 2026-11-09 amendment and the 2026-11-15 halving of
 its token lines (today only a thread marked standing gets `ROTATE`, past 250M; a crew thread past 500M gets `CHECK_IN`; a

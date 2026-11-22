@@ -127,7 +127,7 @@ async function main(): Promise<number> {
       const extra = (['muse', 'grok'] as TargetName[]).filter(n => TARGETS[n].present(env, home)).map(n => ({ target: n, ...(check ? harnessSees(TARGETS[n], '', env, ['review', 'gstack-review'], true) : { visible: 'unknown' as const }) }));
       if (json) { console.log(JSON.stringify({ registrations: rows, detected: extra })); return 0; }
       if (!rows.length && !extra.length) console.log('gstack-harness: no harness registrations on this machine');
-      for (const r of rows) console.log(r.target + '\t' + r.mode + '\t' + r.dest + '\t' + r.files + ' files\t' + (r.stale ? 'stale (' + r.version + '; refresh: ' + self + ' refresh)' : r.version) + '\tvisible to harness: ' + r.visible + (r.checked ? ' (' + r.checked + ')' : '') + (r.missing?.length ? ' missing: ' + r.missing.slice(0, 5).join(', ') : '') + '\t' + r.id
+      for (const r of rows) console.log(r.target + '\t' + r.mode + '\t' + r.dest + '\t' + r.files + ' files\t' + (r.stale ? 'stale (' + r.version + '; refresh: ' + self + ' refresh)' : r.version) + '\tvisible to harness: ' + r.visible + (r.checked ? ' (' + r.checked + ')' : '') + (r.error ? ': ' + r.error : '') + (r.missing?.length ? ' missing: ' + r.missing.slice(0, 5).join(', ') : '') + '\t' + r.id
         + (r.hook ? '\n  start hook: ' + r.hook.state + (r.hook.detail ? ' - ' + r.hook.detail : '') + (r.hook.state !== 'active' && r.hook.fix ? '; ' + r.hook.fix : '') : ''));
       for (const x of extra) console.log(x.target + '\tdetect\t~/.claude/skills\t' + (x.visible === 'yes' ? 'discovered (Claude-rendered, unverified)' : 'unverified') + (x.checked ? ' (' + x.checked + ')' : ''));
       return 0;

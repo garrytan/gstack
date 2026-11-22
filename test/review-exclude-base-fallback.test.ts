@@ -91,6 +91,17 @@ describe('an invalid exclusion list on the base is set aside, never loosened (GS
     expect('code' in q && q.code).toBe('POLICY_INVALID');
   }, 120_000);
 
+  // Value: protects=only the two exclusion keys themselves are set aside: an unknown key that merely starts with one of their names
+  //   (review_exclude_paths[0]) is an error of its own and still refuses; fails_when=the key filter is unanchored and drops that key
+  //   with the list; seam=lib/ship-policy.ts finish; no_claim=the wording of the refusal
+  test('an unknown key that starts with an exclusion key name still refuses', () => {
+    const repo = repoWith({ review_exclude_paths: patterns(65), 'review_exclude_paths[0]': 'data/**' });
+    const r = plan(repo);
+    expect(r.status).toBe(EXIT.refused);
+    expect(r.err).toContain('POLICY_INVALID');
+    expect(r.out).not.toContain('REVIEW_EXCLUDE: fallback');
+  }, 120_000);
+
   // Value: protects=the merge step reads a base that fails only on its exclusion list, with its other keys, so the PR that fixes
   //   the list can land; fails_when=gstack-ship-queue refuses POLICY_INVALID on it; seam=loadBasePolicy; no_claim=land's checks
   test('the queue reads such a base with its other keys', () => {

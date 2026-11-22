@@ -96,6 +96,7 @@ import {
   type StateEntry,
 } from "../lib/memory-ingest-landing";
 import { writeReceipt } from "../lib/egress-receipt";
+import { artifactBody } from "../lib/memory-artifact-body";
 import { checkOwnedStagingDir, STAGING_MARKER } from "../lib/staging-guard";
 import { hasRepoPolicyStore, repoPolicyTierBatch } from "../lib/gbrain-repo-policy-client";
 import { resolveStateRoot, mergedStateRoots, type StateRootEnv } from "../lib/state-root";
@@ -978,8 +979,7 @@ function buildArtifactPage(path: string, type: MemoryType, raw?: string): PageRe
 
   const tags = [type, `repo:${slug_repo}`, `date:${date}`];
 
-  // Truncate body to 200KB
-  const body = raw.slice(0, 200000);
+  const body = artifactBody(path, raw);
 
   return {
     slug,

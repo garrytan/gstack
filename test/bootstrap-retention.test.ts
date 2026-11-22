@@ -108,8 +108,12 @@ test('paid scope creation preserves non-Linux behavior without inherited qualifi
   }
 });
 
+// Root passes the ptrace check that makes a nondumpable process's /proc/<pid>/cwd unreadable, so the uninspectable-process
+// paths these cases need cannot happen there.
+const NONDUMPABLE_DENIES = process.getuid?.() !== 0;
+
 describe.skipIf(process.platform !== 'linux')('bootstrap attempt retention boundaries', () => {
-  test('pre-existing same-uid nondumpable host process is not an attempt writer', async () => {
+  test.skipIf(!NONDUMPABLE_DENIES)('pre-existing same-uid nondumpable host process is not an attempt writer', async () => {
     const child = await censusProcess('dumpable(0);');
     expect(fs.statSync(`/proc/${child.pid}`).uid).toBe(process.getuid!());
     expect(() => fs.readlinkSync(`/proc/${child.pid}/cwd`)).toThrow('EACCES');
@@ -151,7 +155,7 @@ describe.skipIf(process.platform !== 'linux')('bootstrap attempt retention bound
     } finally { dir.mockRestore(); read.mockRestore(); }
   });
 
-  test.each(['new process', 'new denial', 'different lifetime'])('%s cannot inherit an unrelated process census exclusion', async scenario => {
+  test.skipIf(!NONDUMPABLE_DENIES).each(['new process', 'new denial', 'different lifetime'])('%s cannot inherit an unrelated process census exclusion', async scenario => {
     const child = scenario === 'new process' ? undefined : await censusProcess(scenario === 'different lifetime'
       ? 'dumpable(0);'
       : "process.stdin.once('data', () => { dumpable(0); console.log('changed'); });");
@@ -265,7 +269,7 @@ describe.skipIf(process.platform !== 'linux')('bootstrap attempt retention bound
     } finally { stat.mockRestore(); }
   });
 
-  test('reusing a scope cannot baseline-exempt an unreadable process from its prior attempt', async () => {
+  test.skipIf(!NONDUMPABLE_DENIES)('reusing a scope cannot baseline-exempt an unreadable process from its prior attempt', async () => {
     const { temporary, scope, root: outer } = fixture();
     const first = project(temporary);
     const retained = register(first, scope);

@@ -319,8 +319,16 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts',
   },
   {
+    file: 'test/ship-queue-trial-fetch.test.ts',
+    reason: 'spawns bin/gstack-ship-queue (shebang), a #!/bin/sh gh shim and a #!/bin/sh upload-pack wrapper through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts, as test/ship-queue-ready-fresh-base.test.ts does',
+  },
+  {
     file: 'test/ship-queue-ready-fresh-base.test.ts',
     reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts (windows-scoped-shard, run 42720453184)',
+  },
+  {
+    file: 'test/ship-queue-ready-pr-base.test.ts',
+    reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts, as test/ship-queue-ready-fresh-base.test.ts does',
   },
   {
     file: 'crew/test/release-gate-workflow.test.ts',
@@ -467,6 +475,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/ship-run-record.test.ts',
     reason: 'drives bin/gstack-ship-preflight, gstack-ship-run, gstack-ship-receipt, gstack-approvals, gstack-review-log, gstack-lease and gstack-skill-end (shebangs) through test/helpers/ship-bin-fixture.ts like test/round-cap-granted-stop.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
+  },
+  {
+    file: 'test/fix-check-clearing.test.ts',
+    reason: 'drives bin/gstack-ship-receipt, gstack-approvals, gstack-review-log, gstack-review-plan, gstack-review-scope, gstack-review-read and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/round-cap-granted-stop.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
   },
   {
     file: 'test/round-cap-granted-stop.test.ts',

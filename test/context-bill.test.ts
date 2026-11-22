@@ -591,7 +591,7 @@ describe("token estimate calibration", () => {
     expect(text).toContain("Bytes are always exact");
     const exactText = tokenDisclaimer({
       tokenEstimateErrorPct: 0,
-      tokenSource: "count_tokens (claude-opus-4-5)",
+      tokenSource: "count_tokens (claude-opus-5-5)",
     });
     expect(exactText).toContain("measured with count_tokens");
     expect(exactText).not.toContain("ESTIMATES");
@@ -1397,7 +1397,7 @@ describe("--exact (opt-in measurement; offline here via an injected fetch)", () 
     });
     fs.rmSync(tmp, { recursive: true, force: true });
     expect(code).toBe(0);
-    expect(JSON.parse(stdout.text()).tokenSource).toBe("count_tokens (claude-opus-4-5)");
+    expect(JSON.parse(stdout.text()).tokenSource).toBe("count_tokens (claude-opus-5-5)");
   });
 
   it("refuses a walked file swapped for a FIFO instead of hanging", () => {

@@ -6,6 +6,7 @@
  * and the canonical `GSTACK_RESULT: skill=ship-queue status=<s> run=<record>`.
  * Loaded by the bin only when one of those paths runs.
  */
+import * as fs from 'node:fs';
 import { EXIT, formatResult } from '../../lib/headless-artifacts';
 import { RESULT_CODES } from '../../lib/result-codes';
 import type { QueueContext } from '../../lib/ship-queue';
@@ -56,7 +57,7 @@ export const TRAIN_HELP = `  train build --prs <n>@<sha>[,...] [--order <n>,...]
                                            settles merging or green trains whose every PR is merged or closed on GitHub, and
                                            deletes screen/<pr>-* branches of merged or closed PRs
   ready --pr <n> --screen [--broad] | --no-screen [--dry-run] [--dispatch-ci <wf.yml[,…]> [--timeout <s>]]
-        [--base-red --fixer <pr> | --fixes-base-red <case,...>]
+        [--base-red --fixer <pr> | --fixes-base-red <case,...> | --fixes-base-red-file <file>]
                                            (trains with gates) --base-red: a conditional READY for a paused /ship, seated
                                            only behind fixer <pr> at slot 1; --fixes-base-red: the fixer's READY
                                            (train policy) READY plus the screen choice, recorded as a receipt; a head whose
@@ -74,6 +75,22 @@ export const TRAIN_HELP = `  train build --prs <n>@<sha>[,...] [--order <n>,...]
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
+}
+
+/**
+ * The gate cases a fixer's READY names: `--fixes-base-red <case,...>`, or `--fixes-base-red-file <file>` with one case per
+ * line, for case names that hold a comma (#4569: Vitest titles such as "…, and the create saves before the cancel writes").
+ */
+export function fixesBaseRedCases(args: string[]): { cases: string[] | undefined } | { error: string } {
+  const list = flag(args, '--fixes-base-red'), file = flag(args, '--fixes-base-red-file');
+  if (list !== undefined && file !== undefined) return { error: 'pass --fixes-base-red or --fixes-base-red-file, not both' };
+  if (list === undefined && file === undefined) return args.includes('--fixes-base-red-file') ? { error: '--fixes-base-red-file needs a file, one gate case per line' } : { cases: undefined };
+  let cases: string[];
+  if (file !== undefined) {
+    try { cases = fs.readFileSync(file, 'utf8').split(/\r?\n/).map(s => s.trim()).filter(Boolean); }
+    catch { return { error: `--fixes-base-red-file cannot read ${file}; it needs one gate case per line` }; }
+  } else cases = list!.split(',').map(s => s.trim()).filter(Boolean);
+  return cases.length ? { cases } : { error: '--fixes-base-red names the gate cases the fixer repairs, comma-separated, or one per line in --fixes-base-red-file' };
 }
 
 export function printTrain(cmd: string, out: TrainOut): number {
@@ -178,13 +195,14 @@ export async function readyMain(ctx: QueueContext, args: string[], base: { pr: s
   const timeoutSec = positive(flag(args, '--timeout'), 2700);
   if (!Number.isFinite(timeoutSec)) return usage('--timeout needs a positive number of seconds');
   const fixer = flag(args, '--fixer');
-  const fixes = flag(args, '--fixes-base-red');
+  const fixes = flag(args, '--fixes-base-red') ?? (args.includes('--fixes-base-red-file') ? '' : undefined);
   if (fixer !== undefined && !/^\d+$/.test(fixer)) return usage('--fixer needs the fixer PR number');
   if (fixer !== undefined && !args.includes('--base-red')) return usage('--fixer names the fixer of a --base-red READY');
   if (args.includes('--base-red') && fixes !== undefined) return usage('--base-red (the paused PR) and --fixes-base-red (its fixer) are different READYs; pass one');
   if ((args.includes('--base-red') || fixes !== undefined) && !noScreen) return usage('a base-red READY is --no-screen: the train gates every prefix');
-  const fixesBaseRed = fixes?.split(',').map(s => s.trim()).filter(Boolean);
-  if (fixes !== undefined && !fixesBaseRed?.length) return usage('--fixes-base-red names the gate cases the fixer repairs, comma-separated');
+  const named = fixesBaseRedCases(args);
+  if ('error' in named) return usage(named.error);
+  const fixesBaseRed = named.cases;
   return guarded('ready', () => trainReady(ctx, { ...base, baseRed: args.includes('--base-red') ? { fixer } : undefined, fixesBaseRed, screen: screen ? 'screen' : noScreen ? 'no-screen' : undefined, broad: args.includes('--broad'), dryRun: args.includes('--dry-run'),
     dispatchCi: workflows.length ? { workflows, timeoutSec, pollMs: Number(process.env.GSTACK_SHIP_QUEUE_POLL_MS) || 30_000 } : undefined }));
 }

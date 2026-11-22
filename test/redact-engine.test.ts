@@ -190,6 +190,12 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
     );
     expect(f?.tier).toBe("MEDIUM");
   });
+  test("an AQ. Gemini key from Google AI Studio is google.api_key", () => {
+    const f = scan("AQ.Ab" + "c".repeat(40), { repoVisibility: "private" }).findings.find(
+      (x) => x.id === "google.api_key",
+    );
+    expect(f?.tier).toBe("MEDIUM");
+  });
   test("jwt is MEDIUM", () => {
     const jwt = "eyJhbGciOiJ.eyJzdWIiOiI." + "x".repeat(20);
     const f = scan(jwt, { repoVisibility: "private" }).findings.find((x) => x.id === "jwt");

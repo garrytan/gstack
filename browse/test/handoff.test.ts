@@ -169,6 +169,27 @@ describe('restoreState', () => {
     expect(stateAfter.cookies.some(c => c.name === 'restored')).toBe(true);
     expect(stateAfter.pages.length).toBeGreaterThanOrEqual(1);
   }, 30000);
+
+  test('closes the blank tab a fresh persistent context opens on its own', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const state = await bm.saveState();
+
+    // Mirror handoff(): a new persistent context starts with an about:blank
+    // tab of its own and empty tab maps, then restoreState() opens the saved
+    // tabs. Without the cleanup that first tab stays open in the headed window.
+    const context = (bm as any).context;
+    const oldPages = [...(bm as any).pages.values()];
+    (bm as any).pages = new Map();
+    (bm as any).tabSessions = new Map();
+    for (const page of oldPages) await page.close();
+    const stray = await context.newPage();
+
+    await bm.restoreState(state);
+
+    expect(stray.isClosed()).toBe(true);
+    expect(context.pages().length).toBe((bm as any).pages.size);
+    expect((await bm.saveState()).pages.some((p: { url: string }) => p.url.includes('/basic.html'))).toBe(true);
+  }, 30000);
 });
 
 // ─── Unit Tests: Handoff Edge Cases ──────────────────────────────

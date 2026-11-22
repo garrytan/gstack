@@ -47,6 +47,11 @@ The command:
    (never auto-executed — run it yourself, or on your own machine
    `bin/gstack-gbrain-source-wireup` does the same wiring) so
    `gbrain search` can index your synced learnings, plans, and designs.
+   When the brain host is this same machine and the source sits somewhere
+   other than `~/.gstack-brain-worktree` (a `--url` or `--path ~/<id>`
+   clone), set `GSTACK_BRAIN_SOURCE_ID` to the source's id so `/sync-gbrain`
+   doesn't import your plans and designs a second time and
+   `gstack-decision-search --semantic` searches that source.
    The old `gstack-brain-reader add --ingest-url ...` HTTP path was
    removed in v1.15.1.0 — it depended on a `/ingest-repo` endpoint gbrain
    never shipped.
@@ -268,10 +273,13 @@ this — it happens automatically at the first skill invocation each day.
 Historical note (#2516): that daily pull refreshed only `~/.gstack` itself —
 NOT the detached worktree at `~/.gstack-brain-worktree` that gbrain actually
 indexes, so the brain silently served stale pages until the next
-setup-gbrain/sync-gbrain run. Since this fix, the daily sync also advances
-the brain worktree (`gstack-gbrain-source-wireup --advance-only`, throttled
-via `~/.gstack/.brain-worktree-last-advance`); a failed advance warns instead
-of failing silently, and never force-resets a dirty worktree.
+setup-gbrain/sync-gbrain run. Since this fix, every sync ends by advancing
+the brain worktree to the commit it just made
+(`gstack-gbrain-source-wireup --advance-only`), so gbrain indexes what the
+sync published. An advance that fails, or that refuses a dirty worktree,
+warns once and waits 24 hours before trying again
+(`~/.gstack/.brain-worktree-last-advance`); it never force-resets a dirty
+worktree.
 
 ## Uninstall
 

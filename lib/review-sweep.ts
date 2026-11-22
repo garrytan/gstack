@@ -34,7 +34,7 @@ const SCP = /^(?:[\w.-]+@)?[\w.-]+:(?!\/\/)[\w./-]+$/;
 export interface Inventory { at: number; roots: string[]; repos: Record<string, string[]>; big: Record<string, number>; ignored?: Record<string, Omit<Ignored, 'path'>>; partial?: string }
 export interface Found { path: string; kind: 'repo' | 'download'; remote?: string; bytes: number | null }
 /** A new directory the sweep saw and did not count: a marked test fixture root, or a repository whose remote resolves locally. */
-export interface Ignored { path: string; reason: 'fixture-marker' | 'local-remote'; remote?: string }
+export interface Ignored { path: string; reason: 'fixture-marker' | 'local-remote' | 'build-output'; remote?: string }
 export type SweepVerdict = 'clean' | 'violation' | 'partial';
 export interface StageSweep {
   attempt: number;
@@ -139,7 +139,7 @@ export function inventory(roots: readonly string[], checkout: string, skip: read
     }
     for (const d of list) {
       const p = path.join(dir, d.name);
-      if (d.isFile()) { if (ENGINE_DB.test(d.name) && dir.startsWith(engine)) continue; try { const s = fs.statSync(p); if (s.size >= BIG_BYTES) inv.big[p] = s.size; } catch { /* gone */ } continue; }
+      if (d.isFile()) { if (ENGINE_DB.test(d.name) && dir.startsWith(engine)) continue; try { const s = fs.statSync(p); if (s.size >= BIG_BYTES) { if (buildOutput(home, p)) inv.ignored![p] = { reason: 'build-output' }; else inv.big[p] = s.size; } } catch { /* gone */ } continue; }
       if (d.isDirectory() && !SKIP.has(d.name) && depth < SWEEP_DEPTH) walk(p, depth + 1);
     }
   };
@@ -148,6 +148,26 @@ export function inventory(roots: readonly string[], checkout: string, skip: read
 }
 
 function realOr(p: string): string { try { return fs.realpathSync(p); } catch { return path.resolve(p); } }
+
+/** ELF, Mach-O (32, 64 and universal, either byte order) and PE headers: what a compiler or `bun build --compile` writes. */
+const NATIVE_MAGIC = [[0x7f, 0x45, 0x4c, 0x46], [0xfe, 0xed, 0xfa, 0xce], [0xfe, 0xed, 0xfa, 0xcf], [0xce, 0xfa, 0xed, 0xfe], [0xcf, 0xfa, 0xed, 0xfe], [0xca, 0xfe, 0xba, 0xbe], [0x4d, 0x5a]];
+
+/**
+ * A big file the checkout's own build writes, not a fetch (GSTA-745: `bin/gstack-cso-core`, 110 MB, built while a stage ran):
+ * a native executable inside the checkout at a path its committed, unmodified root `.gitignore` names exactly, with no glob.
+ * Anything else, a download into an ignored directory or under a glob included, stays a fetch.
+ */
+function buildOutput(checkout: string, file: string): boolean {
+  const rel = path.relative(checkout, file);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+  const git = (args: string[]) => spawnSync('git', ['-C', checkout, ...args], { encoding: 'utf8', timeout: 10_000 });
+  if (git(['ls-files', '--error-unmatch', '--', '.gitignore']).status !== 0 || git(['diff', '--quiet', 'HEAD', '--', '.gitignore']).status !== 0) return false;
+  const hit = /^\.gitignore:\d+:(.*)\t/.exec(git(['check-ignore', '--no-index', '-v', '--', rel.split(path.sep).join('/')]).stdout ?? '');
+  if (!hit || hit[1]!.replace(/^\//, '') !== rel.split(path.sep).join('/')) return false;
+  const head = Buffer.alloc(4);
+  try { const fd = fs.openSync(file, 'r'); try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); } } catch { return false; }
+  return NATIVE_MAGIC.some(m => m.every((b, i) => head[i] === b));
+}
 function du(p: string): number | null {
   const r = spawnSync('du', ['-sk', p], { encoding: 'utf8', timeout: 10_000 });
   const kb = Number(/^(\d+)/.exec(r.stdout ?? '')?.[1]);
@@ -163,7 +183,7 @@ export function sweepDiff(start: Inventory, end: Inventory): Found[] {
     found.push({ path: p, kind: 'repo', remote, bytes: du(p) });
   }
   for (const [p, bytes] of Object.entries(end.big)) {
-    if (p in start.big || found.some(f => p.startsWith(f.path + path.sep))) continue;
+    if (p in start.big || start.ignored?.[p]?.reason === 'build-output' || found.some(f => p.startsWith(f.path + path.sep))) continue;
     found.push({ path: p, kind: 'download', bytes });
   }
   return found;
@@ -206,7 +226,7 @@ export function foundLines(stage: Stage, attempt: number, found: readonly Found[
 export function ignoredLines(stage: Stage, attempt: number, ignored: readonly Ignored[]): string[] {
   return ignored.map(i => {
     const remote = i.remote ? ` remote=${control(i.remote) ? JSON.stringify(i.remote) : i.remote}` : '';
-    const why = i.reason === 'fixture-marker' ? `a test fixture root carrying ${FIXTURE_MARKER}` : 'its remote resolves to a local path through url.<base>.insteadOf';
+    const why = i.reason === 'fixture-marker' ? `a test fixture root carrying ${FIXTURE_MARKER}` : i.reason === 'build-output' ? 'a native executable the checkout\'s committed .gitignore names exactly, which its own build writes' : 'its remote resolves to a local path through url.<base>.insteadOf';
     return `FETCH_IGNORED: stage=${stage} attempt=${attempt} path=${shownPath(i.path)} reason=${i.reason}${remote} (${why}, so not a fetch; docs/review-policy.md#what-readers-may-fetch)`;
   });
 }

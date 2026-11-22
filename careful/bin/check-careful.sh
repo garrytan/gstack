@@ -102,8 +102,9 @@ if grep -qE '\$\{IFS\}|\$IFS|\$\(echo[^)]*base64[^)]*\)|base64[[:space:]]+(-d|--
 fi
 
 # --- Commit-message masking (#1060) ---
-# Mask quoted -m/-am/--message argument content in git commit commands so that
-# descriptive commit messages do not trigger false positives. The quote-aware
+# Mask quoted -m/-am/--message argument content in git commit commands, and the
+# quoted --title/--body of gh issue and gh pr create, comment and edit (#4601),
+# so that descriptive text does not trigger false positives. The quote-aware
 # scanner lives in mask-commit-message.awk beside this hook: as a heredoc inside
 # a command substitution, its quote characters are mis-parsed by bash 3.2
 # (macOS /bin/bash), which made this whole hook a syntax error there. A missing
@@ -114,7 +115,7 @@ PATTERN=""
 CMD_MEDIUM="$CMD"
 CMD_MEDIUM_LOWER="$CMD_LOWER"
 _MASK_AWK="$_HOOK_DIR/mask-commit-message.awk"
-case "$CMD" in *git*commit*) _MAYBE_COMMIT=1 ;; *) _MAYBE_COMMIT=0 ;; esac
+case "$CMD" in *git*commit*|*gh*) _MAYBE_COMMIT=1 ;; *) _MAYBE_COMMIT=0 ;; esac
 if [ "$_MAYBE_COMMIT" -eq 1 ] && [ -f "$_MASK_AWK" ]; then
   if _cmd_masked=$(printf '%s' "$CMD" | awk -f "$_MASK_AWK" 2>/dev/null); then
     CMD_MEDIUM="$_cmd_masked"
@@ -140,6 +141,9 @@ _RX_CACHE="^${_RX_HOME}/(\.cache|\.npm|\.bun/install/cache|\.cargo/registry|\.lo
 _RX_ARTIFACT="^([^[:space:];&|#(${_BT}\$]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.tox|\.nox|htmlcov|\.eggs|\.venv|venv|[^/[:space:]]+\.egg-info)(/|/\*)?\$"
 _RX_ROOT="^(/+|/+\*|${_RX_HOME}(/+|/+\*)?|/(usr|etc|var|home|opt|bin|sbin|lib|lib64|boot|root|srv|System|Users|Library|Applications|private|mnt/c|c)(/+|/+\*)?|${_RX_HOME}/(Documents|Desktop|Downloads|Library|Pictures|Movies|Music|\.ssh|\.config|\.aws|\.gnupg|\.kube)(/+|/+\*)?)\$"
 
+# A device node under /dev, and a system folder a cd can lead a relative delete into.
+_RX_DEV_NODE='^/dev/(sd|nvme|hd|vd|xvd|mmcblk|loop|disk|rdisk|md|dm-|nbd|sr|mapper/|sg[0-9]|zram[0-9]|ram[0-9]|mtd|ubi)'
+_RX_SYSDIR='^/(etc|usr|boot|bin|sbin|lib|lib32|lib64|root|opt|var/(lib|log|db|spool)|System|Library|private/etc)/'
 _CAREFUL_CWD="${GSTACK_HOOK_CWD:-}"
 [ -n "$_CAREFUL_CWD" ] || _CAREFUL_CWD="$PWD"
 if command -v gstack_hook_normalize_path >/dev/null 2>&1; then
@@ -230,6 +234,12 @@ _careful_rm_safe() {
   return 1
 }
 
+# _SQ is $1 with doubled slashes and /./ folded, the way the kernel reads it.
+_careful_squash() {
+  _SQ="$1"
+  while [[ $_SQ == *//* || $_SQ == */./* ]]; do _SQ=${_SQ//\/\//\/}; _SQ=${_SQ//\/.\//\/}; done
+}
+
 # A delete target outside the session's folder: an absolute or ~ path that is
 # not scratch or a cache, a path climbing out with .., or a word led by a
 # variable that may be unset.
@@ -237,6 +247,8 @@ _careful_outside() {
   local t="$1"
   [ -n "$t" ] || return 1
   case "/$t/" in */../*) return 0 ;; esac
+  [[ $t =~ $_RX_DEV_NODE ]] && return 0
+  _careful_squash "$t"; [[ $_SQ =~ $_RX_DEV_NODE ]] && return 0
   case "$t" in /dev/*|/proc/*|/tmp|/tmp/|/var/tmp|/var/tmp/|/private/tmp|/private/tmp/) return 1 ;; esac
   [[ $t =~ $_RX_TMP ]] && return 1
   [[ $t =~ $_RX_CACHE ]] && return 1
@@ -254,11 +266,39 @@ _careful_outside() {
     '~'|'~/'*) t="${HOME:-}${t#\~}" ;;
     '~'*) return 0 ;;
     /*) ;;
-    *) return 1 ;;
+    *)
+      [ "$_SCRATCH" -eq 0 ] && [ -n "$_CUR_DIR" ] || return 1
+      _careful_squash "$_CUR_DIR/$t"
+      if [[ $_CUR_DIR/ =~ $_RX_SYSDIR ]]; then t="$_CUR_DIR/$t"
+      elif [[ $_SQ =~ $_RX_DEV_NODE ]]; then return 0
+      elif [[ $_SQ =~ $_RX_SYSDIR ]]; then t="$_SQ"
+      else
+        # A cd that climbs with .. (cd ../../etc) lands where cd folds it.
+        _D="$_SQ"; _careful_fold
+        if [[ $_D =~ $_RX_DEV_NODE ]]; then return 0
+        elif [[ $_D =~ $_RX_SYSDIR ]]; then t="$_D"
+        else return 1; fi
+      fi ;;
   esac
   t="${t%/}"
   if [ -n "$_CAREFUL_CWD" ] && { [ "$t" = "$_CAREFUL_CWD" ] || [ "${t#"$_CAREFUL_CWD"/}" != "$t" ]; }; then return 1; fi
   return 0
+}
+
+# _D with . and .. folded the way cd reads an absolute path (logically).
+_careful_fold() {
+  case "$_D" in /*) ;; *) return 0 ;; esac
+  local out="" part rest="${_D#/}"
+  while [ -n "$rest" ]; do
+    part="${rest%%/*}"
+    case "$rest" in */*) rest="${rest#*/}" ;; *) rest="" ;; esac
+    case "$part" in
+      ''|.) ;;
+      ..) out="${out%/*}" ;;
+      *) out="$out/$part" ;;
+    esac
+  done
+  _D="${out:-/}"
 }
 
 # _CUR_DIR is the folder a cd leads to, or empty when it is unknown.
@@ -450,19 +490,37 @@ _careful_push_default() {
   return 0
 }
 
+# Each push is read twice: once with a push-option value counted as an operand
+# (git push -f -o x main), and once without (git push -f -o ci.skip origin on
+# main), so either reading can deny.
 _careful_push() {
-  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0
+  _careful_push_scan 0
+  _careful_push_scan 1
+  return 0
+}
+
+_careful_push_scan() {
+  local j=0 t c r force=0 lease=0 dry=0 del=0 np=0 nr=0 repo=0 all=0 val=0 pov=0 pw=0 d0=0 fd=0 dd=0 e0=0
   local refs=()
   while [ "$j" -lt "$na" ]; do
     t="${a[$j]}"; j=$((j + 1))
     if [ "$val" -eq 1 ]; then val=0; continue; fi
+    # git reads the word after -o as its push-option value, so it never starts a
+    # dry run: the value keeps the dry-run state before it. Its other effects
+    # still count, since an option or redirect before -o can take -o itself.
+    pw=0
+    if [ "$pov" -eq 1 ]; then
+      pov=0
+      pw=1; d0=$dry; e0=$dd
+    fi
     case "$t" in
       --force-with-lease*|--force-if-includes) lease=1 ;;
       -f|--force) force=1 ;;
       --mirror) force=1; all=1 ;;
       --all|--branches) all=1 ;;
       -n|--dry-run) dry=1 ;;
-      --no-dry-run) dry=0 ;;
+      --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) dry=0; dd=0 ;;
+      --pu|--pus|--push|--push-|--push-o|--push-op|--push-opt|--push-opti|--push-optio|--push-option) pov=1 ;;
       -d|--delete) del=1 ;;
       --repo=*) repo=1 ;;
       --repo) repo=1; val=1 ;;
@@ -471,14 +529,25 @@ _careful_push() {
         # In a short-option group, letters after o are its push-option value.
         c="${t#-}"
         case "$c" in
-          *[!a-zA-Z]*) ;;
+          *[!a-zA-Z]*)
+            # A group with a digit (-f4, -4f, -fo-n) still forces, unless the same
+            # group holds its own -n (-fn4 is a dry run, as main reads it).
+            case "${c%%o*}" in
+              ''|*[!a-zA-Z0-9]*) ;;
+              *)
+                [ "${c%%o*}o" != "$c" ] || pov=1
+                case "${c%%o*}" in *f*) fd=1 ;; esac
+                case "${c%%o*}" in *n*) dd=1 ;; esac ;;
+            esac ;;
           *)
+            [ "${c%%o*}o" != "$c" ] || pov=1
             c="${c%%o*}"
             case "$c" in *f*) force=1 ;; esac
             case "$c" in *n*) dry=1 ;; esac ;;
         esac ;;
       [0-9]'>'*|'>'*|'<'*) ;;
       *)
+        if [ "$pw" -eq 1 ] && [ "$1" -eq 1 ]; then pov=0; [ "$d0" -eq 1 ] || dry=0; [ "$e0" -eq 1 ] || dd=0; continue; fi
         np=$((np + 1))
         # With --repo the first operand may be a refspec too: read it as one.
         if [ "$np" -gt 1 ] || [ "$repo" -eq 1 ]; then
@@ -487,8 +556,10 @@ _careful_push() {
           refs[$nr]="$r"; nr=$((nr + 1))
         fi ;;
     esac
+    if [ "$pw" -eq 1 ]; then pov=0; [ "$d0" -eq 1 ] || dry=0; [ "$e0" -eq 1 ] || dd=0; fi
   done
   [ "$dry" -eq 0 ] || return 0
+  if [ "$force" -eq 0 ] && [ "$fd" -eq 1 ] && [ "$dd" -eq 0 ]; then force=1; fi
   if [ "$force" -eq 1 ] && [ -z "$_PUSH_DENY" ]; then _careful_push_default; fi
   if [ "$force" -eq 1 ] || [ "$lease" -eq 1 ]; then _PUSH_FORCE=1; fi
   if [ "$del" -eq 1 ]; then _PUSH_DELETE=1; fi
@@ -857,7 +928,12 @@ case "$CMD" in
   *$'\n'*) : ;; # multi-line: fall through to the destructive checks
   *..*) : ;; # a path climbing out with .. is never build output here
   *rm*)
-    if grep -qE '^[[:space:]]*rm[[:space:]]+(-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+|--recursive[[:space:]]+)(([^[:space:];&|#(`]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage)[[:space:]]*)+$' <<< "$CMD" 2>/dev/null; then
+    # A target may also sit in one pair of quotes when nothing inside them
+    # differs from its unquoted spelling (#4628: rm -rf "/home/me/app/dist").
+    _RX_BUILD_NAMES='(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage)'
+    _RX_BUILD_Q="([A-Za-z0-9_./@+,:%=-]*/)?${_RX_BUILD_NAMES}"
+    _RX_BUILD_T="(([^[:space:];&|#(${_BT}]*/)?${_RX_BUILD_NAMES}|\"${_RX_BUILD_Q}\"|'${_RX_BUILD_Q}')"
+    if grep -qE "^[[:space:]]*rm[[:space:]]+(-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+|--recursive[[:space:]]+)${_RX_BUILD_T}([[:space:]]+${_RX_BUILD_T})*[[:space:]]*\$" <<< "$CMD" 2>/dev/null; then
       echo '{}'
       exit 0
     fi

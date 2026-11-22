@@ -22,6 +22,7 @@ import { spawnSync } from 'node:child_process';
 import { unregisteredSkills } from '../scripts/discover-skills';
 import { bunIsolationArgs } from './bun-isolation';
 import { runBashSync } from './script-invocation';
+import { readConfigKey } from './state-root';
 import { frontmatterList, routerLine } from './skill-triggers';
 import { activateHook, assertHookRoot, foreignOpenclawConfig, hookChoice, hookConfig, hookFiles, hookProfile, hookRoot, inspectHook, isHookTarget, profileSkills, type HookResult } from './harness-start-hook';
 
@@ -233,8 +234,10 @@ function skillDirs(root: string, triggersByName = new Map<string, string[]>()): 
 }
 
 /** The skills a target's payload carries: the host render (made for this checkout as the install root) or the checkout's committed Claude render. */
-export function sourceSkills(target: Target, checkout: string, scratch: string): SkillEntry[] {
-  const off = unregisteredSkills();
+export function sourceSkills(target: Target, checkout: string, scratch: string, env: Env = process.env): SkillEntry[] {
+  const disabled = (readConfigKey('disabled_skills', env) ?? '').replace(/["']/g, '').split(/[\s,]+/)
+    .map(n => n.replace(/^\//, '')).filter(n => n && n !== 'gstack' && n !== 'gstack-upgrade').map(n => n.replace(/^gstack-/, ''));
+  const off = [...unregisteredSkills(), ...disabled];
   const registered = (s: SkillEntry) => !off.includes(s.name.replace(/^gstack-/, ''));
   if (target.render === 'claude') return skillDirs(checkout).filter(s => s.name !== 'gstack' && registered(s));
   const out = path.join(scratch, 'render');
@@ -394,7 +397,7 @@ function resolveDest(opts: RegisterOptions, id?: string): string | null {
 /** Desired files (absolute path -> bytes), the router path, the skill names the harness lists, the skills listed directly beside a router, and the skill count. */
 export function planPayload(opts: RegisterOptions, dest: string, mode: SkillsMode, scratch: string): { files: Map<string, Buffer>; router: string | null; visible: string[]; direct: string[]; skills: number } {
   const t = opts.target;
-  const skills = sourceSkills(t, opts.checkout, scratch);
+  const skills = sourceSkills(t, opts.checkout, scratch, { ...process.env, ...opts.env, GSTACK_STATE_ROOT: opts.stateRoot });
   const files = new Map<string, Buffer>();
   const copyDir = (from: string, to: string) => { for (const f of walkFiles(from)) files.set(path.join(to, path.relative(from, f)), fs.readFileSync(f)); };
   const claudeFiles = (s: SkillEntry, to: string) => {
@@ -728,17 +731,19 @@ export function refresh(base: Omit<RegisterOptions, 'target'>, skip: Set<string>
     }));
 }
 
-export interface StatusRow { id: string; target: string; dest: string; mode: string; files: number; version: string; stale: boolean; visible: 'yes' | 'no' | 'unknown'; checked?: string; missing?: string[]; hook?: HookResult }
+export interface StatusRow { id: string; target: string; dest: string; mode: string; files: number; version: string; stale: boolean; visible: 'yes' | 'no' | 'unknown'; checked?: string; error?: string; missing?: string[]; hook?: HookResult }
 
-/** Runs the harness's own skill list: 'yes' when every name shows (or, with any, at least one). */
-export function harnessSees(t: Target, dest: string, env: Env, names: string[], any = false): { visible: 'yes' | 'no' | 'unknown'; checked?: string; missing?: string[] } {
+/** Runs the harness's own skill list: 'yes' when every name shows (or, with any, at least one); 'unknown' with its first error line when the list command fails (#4412). */
+export function harnessSees(t: Target, dest: string, env: Env, names: string[], any = false): { visible: 'yes' | 'no' | 'unknown'; checked?: string; error?: string; missing?: string[] } {
   const lc = t.listCommand?.(dest);
   if (!lc || !names.length || !onPath(lc.argv[0], env)) return { visible: 'unknown' };
   const r = spawnSync(lc.argv[0], lc.argv.slice(1), { env: { ...process.env, ...env, ...lc.env }, encoding: 'utf8', timeout: 120_000 });
+  const checked = lc.argv.join(' ');
+  if (r.error || r.status !== 0) return { visible: 'unknown', checked, error: (r.stderr ?? '').split('\n').map(l => l.trim()).find(Boolean) || r.error?.message || 'exit ' + (r.status ?? r.signal) };
   const text = (r.stdout ?? '') + (r.stderr ?? '');
   const missing = names.filter(n => !lc.listed(n).test(text));
   const ok = any ? missing.length < names.length : missing.length === 0;
-  return { visible: ok ? 'yes' : 'no', checked: lc.argv.join(' '), ...(ok || any ? {} : { missing }) };
+  return { visible: ok ? 'yes' : 'no', checked, ...(ok || any ? {} : { missing }) };
 }
 
 export function status(stateRoot: string, version: string, env: Env, check = true): StatusRow[] {

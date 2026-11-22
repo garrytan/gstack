@@ -16,6 +16,7 @@ import { join } from "path";
 import { spawnSync } from "child_process";
 
 import {
+  federatedCuratedSourceId,
   FEDERATED_CURATED_TYPES,
   MEMORY_INGEST_TYPES,
   resolveMemoryIngestSources,
@@ -24,6 +25,39 @@ import {
 const ROOT = join(import.meta.dir, "..");
 const SCRIPT = join(ROOT, "bin", "gstack-gbrain-sync.ts");
 const ENV = "GSTACK_MEMORY_INGEST_SOURCES";
+
+describe.skipIf(process.platform === "win32")("federatedCuratedSourceId honors GSTACK_BRAIN_SOURCE_ID (#4443)", () => {
+  function probe(localPath: string, sourceId?: string, federated = true): string | null {
+    const home = mkdtempSync(join(tmpdir(), "gstack-4443-"));
+    try {
+      const bin = join(home, "bin");
+      mkdirSync(bin);
+      writeFileSync(
+        join(bin, "gbrain"),
+        `#!/bin/sh\n[ "$1" = sources ] && [ "$2" = list ] && echo '{"sources":[{"id":"acme-gstack-artifacts","local_path":"${localPath}","federated":${federated},"page_count":750}]}' && exit 0\nexit 1\n`,
+      );
+      chmodSync(join(bin, "gbrain"), 0o755);
+      return federatedCuratedSourceId({
+        HOME: home,
+        GSTACK_HOME: join(home, ".gstack"),
+        PATH: `${bin}:${process.env.PATH}`,
+        ...(sourceId === undefined ? {} : { GSTACK_BRAIN_SOURCE_ID: sourceId }),
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  test("a source at a host-side clone is found by the id the variable names", () => {
+    expect(probe("/srv/brain/sources/acme-gstack-artifacts")).toBeNull();
+    expect(probe("/srv/brain/sources/acme-gstack-artifacts", "acme-gstack-artifacts")).toBe("acme-gstack-artifacts");
+  });
+
+  test("a named source must still be federated, and an unknown id never falls back to the path match", () => {
+    expect(probe("/srv/brain/sources/acme-gstack-artifacts", "acme-gstack-artifacts", false)).toBeNull();
+    expect(probe("/srv/brain/sources/acme-gstack-artifacts", "other-source")).toBeNull();
+  });
+});
 
 describe("resolveMemoryIngestSources (#2922)", () => {
   test("unset, empty, whitespace or `all` → null (full walk)", () => {

@@ -261,8 +261,10 @@ replaceable from disk on each Mac.
 
 ## How the agent uses it
 
-At every gstack skill start, the preamble runs
-`gstack-brain-context-load` which:
+When a skill that declares `gbrain.context_queries` starts (`/office-hours`,
+`/plan-ceo-review`, `/design-shotgun`, `/design-consultation`, `/retro`) in a
+repo whose gbrain policy is not `deny`, the preamble runs
+`gstack-brain-context-load`, which:
 
 1. Reads the active skill's `gbrain.context_queries:` frontmatter
 2. Dispatches each query to gbrain (vector / list / filesystem)

@@ -26,8 +26,8 @@ import { resultLineWithDocs } from '../lib/result-codes';
 import { runScriptSync } from '../lib/script-invocation';
 import { isUnavailable, loadPolicyFromBase, policyUnavailableLine, resolveBaseBranch } from '../lib/ship-policy';
 import {
-  deferredRecord, ledgerPass, parseFixTrailers, parseHunks, renderDeferredSection, reviewLoopLine, scopeFindings, scopeLine, summarizeReviewLoop,
-  REVIEW_SCOPE_POLICIES, type DeferredRecord, type ReviewScopePolicy, type ScopeFinding, type ScopedFinding,
+  deferredRecord, ledgerPass, parseFixTrailers, parseHunks, renderDeferredSection, reviewLoopLine, rowTime, scopeFindings, scopeLine, summarizeReviewLoop,
+  FIX_CHECK_SKILL, REVIEW_SCOPE_POLICIES, type DeferredRecord, type ReviewScopePolicy, type ScopeFinding, type ScopedFinding,
 } from '../lib/review-scope';
 import { ledgerBlockers, type LedgerBlocker } from '../lib/review-ledger';
 
@@ -213,8 +213,19 @@ function cmdSummary(rest: string[], json: boolean): number {
   const log = spawnSync('git', ['log', '--first-parent', '--no-merges', `--since=${since}`, '--format=%H%x00%(trailers:key=Review-Finding,valueonly,separator=%x1f)%x1e', 'HEAD'], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
   if (log.status !== 0) return refuse('summary', 'REVIEW_SCOPE_INPUT', `git log for Review-Finding trailers failed: ${(log.stderr ?? '').trim().split('\n')[0] ?? ''}`);
   const trailers = log.stdout.split('\x1e').flatMap(rec => { const [sha, values] = rec.trim().split('\0'); return sha && values ? parseFixTrailers(sha, values.split('\x1f').map(v => v.trim()).filter(Boolean)) : []; });
-  const summary = summarizeReviewLoop(rows, since, ledgers, files.map(f => ledgerPass(f, keyOf(f))), trailers);
+  const ledgerPasses = files.map(f => ledgerPass(f, keyOf(f)));
+  const summary = summarizeReviewLoop(rows, since, ledgers, ledgerPasses, trailers);
   for (const u of summary.unbound ?? []) process.stderr.write(`REVIEW_SCOPE_UNBOUND: ${u}\n`);
+  // HARN-109: readers that ran with no row of this run behind them leave gstack-review-read at NO_REVIEWS, so a stop, a grant or finish cannot bind them.
+  const sinceMs = Date.parse(since);
+  const logged = rows.filter(r => r?.via === 'ship' && rowTime(r) >= sinceMs);
+  const passRows = logged.filter(r => r.skill === 'review');
+  const fixCheckRows = new Set(logged.filter(r => r.skill === FIX_CHECK_SKILL).map(r => JSON.stringify([r.pass ?? null, r.commit_full ?? r.commit ?? '', r.review_binding?.started_at ?? r.timestamp ?? '', (Array.isArray(r.findings) ? r.findings : []).map((f: any) => f?.ledger_id ?? f?.fingerprint ?? '').sort()])));
+  const ran = ledgerPasses.filter(p => !(p.started < sinceMs));
+  const fixCheckLedgers = ran.filter(p => p.fixCheck);
+  const unloggedPasses = !logged.length ? ran.filter(p => !p.fixCheck) : ran.filter(p => !p.fixCheck && /^p\d+$/.test(p.name ?? '') && !passRows.some(r => `p${r.pass}` === p.name));
+  const unlogged = [...unloggedPasses, ...(fixCheckLedgers.length > fixCheckRows.size ? fixCheckLedgers : [])];
+  if (unlogged.length) process.stderr.write(`REVIEW_ROWS_MISSING: ${unloggedPasses.length ? 'readers ran' : 'a fix-check reader ran'} (ledger ${unlogged.map(p => p.name).join(', ')}) with no ${!logged.length ? 'review-log' : unloggedPasses.length ? 'review' : 'review-fix-check'} row from this run since ${since}: Step 9.4's persistence never ran for ${unlogged.length === 1 ? 'it' : 'them'}, so a stop, a fix-check grant or finish cannot bind ${unlogged.length === 1 ? 'it' : 'them'}; log each pass and fix-check with gstack-review-log --start/--finish, and never hand-run a reader\n`);
   for (const v of summary.voided ?? []) process.stderr.write(`REVIEW_SCOPE_VOIDED: ${v}\n`);
   const line = reviewLoopLine(summary);
   // A /ship invocation always runs Step 9 once, or, answering a stop with a fix-check grant, only that fix-check (GST-2968); no row at all means the wrong --since or a review log written elsewhere, never a loop to record.

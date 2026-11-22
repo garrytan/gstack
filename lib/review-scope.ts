@@ -314,13 +314,16 @@ export interface ReviewLoopSummary {
  * writer fills `timestamp` by hand, so a date-only or guessed value could otherwise
  * sort a real pass before `--since` and leave the receipt without a loop to record.
  */
-function rowTime(row: Record<string, any>): number {
+export function rowTime(row: Record<string, any>): number {
   for (const value of [row.review_binding?.started_at, row.timestamp]) {
     const ms = typeof value === 'string' ? Date.parse(value) : NaN;
     if (Number.isFinite(ms)) return ms;
   }
   return NaN;
 }
+
+/** A repeated logger command writes the same row twice (#3911: one fix-check counted as two): rows that record their head dedupe by kind, pass, head and finding ids. */
+export const reviewRowKey = (r: Record<string, any>) => JSON.stringify([r.skill, r.pass ?? null, r.commit_full ?? r.commit ?? '', (Array.isArray(r.findings) ? r.findings : []).map((f: any) => (f && typeof f === 'object' ? (typeof f.ledger_id === 'string' ? f.ledger_id : findingIdentity(f)) : '')).sort()]);
 
 /**
  * A Step 11 late defer (a queued adversarial finding scoped `defer` after the
@@ -414,9 +417,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   const inRun = (r: Record<string, any>) => r && r.via === 'ship' && Number.isFinite(rowTime(r)) && (!Number.isFinite(sinceMs) || rowTime(r) >= sinceMs);
   const unbound: string[] = rows.filter(r => r && r.via === 'ship' && loopSkill(r) && !Number.isFinite(rowTime(r)))
     .map(r => `row ${String(r.skill)} pass=${String(r.pass ?? '?')}: no start token and no readable timestamp, so it cannot be placed in this run`);
-  // A repeated logger command writes the same row twice (#3911: one fix-check counted as two): rows that record their head dedupe by kind, pass, head and finding ids.
-  const rowKey = (r: Record<string, any>) => JSON.stringify([r.skill, r.pass ?? null, r.commit_full ?? r.commit ?? '', (Array.isArray(r.findings) ? r.findings : []).map((f: any) => (f && typeof f === 'object' ? (typeof f.ledger_id === 'string' ? f.ledger_id : findingIdentity(f)) : '')).sort()]);
-  const loopRows = [...new Map(rows.filter(r => inRun(r) && loopSkill(r)).map((r, i) => [r.commit_full || r.commit ? rowKey(r) : `#${i}`, r] as const)).values()];
+  const loopRows = [...new Map(rows.filter(r => inRun(r) && loopSkill(r)).map((r, i) => [r.commit_full || r.commit ? reviewRowKey(r) : `#${i}`, r] as const)).values()];
   const passes = loopRows.filter(r => r.skill === 'review');
   const named = (dir: string) => { const n = /^p(\d+)$/.exec(dir)?.[1]; return loopRows.some(r => (n !== undefined && r.skill === 'review' && String(r.pass) === n) || (Array.isArray(r.findings) && r.findings.some((f: any) => typeof f?.ledger_id === 'string' && f.ledger_id.startsWith(`${dir}/`)))); };
   const passNo = (p: LedgerPass) => (p.fixCheck ? undefined : Number(/^p(\d+)$/.exec(p.name ?? '')?.[1] ?? NaN));

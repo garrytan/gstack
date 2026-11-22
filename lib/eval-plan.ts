@@ -19,7 +19,7 @@ import { EXCLUDED_BILLING_CATEGORIES, estimateCostUsd, hasPricing, PRICING, pric
 import type { ResultCodeName } from './result-codes';
 import type { ModelRulesCheck } from './eval-models';
 import { readLedger, release, reserve, settle, SpendCapExceeded, summarize, type SpendLedger, type SpendSummary } from './spend-ledger';
-import { checkDecisions, checkLoop, checkModelGenerations, checkQuickLook, checkScoring, frozenDate, grandfathered, isQuickLook, loopGrandfathered, type DecisionsCheck, type LoopCheck, type ModelGenerationCheck, type QuickLookCheck, type ScoringCheck } from './eval-plan-checks';
+import { checkDecisions, checkLoop, checkModelGenerations, checkQuickLook, checkScoring, frozenDate, grandfathered, isQuickLook, loopGrandfathered, type DecisionsCheck, type LoopCheck, type ModelGenerationCheck, type PlanModels, type QuickLookCheck, type ScoringCheck } from './eval-plan-checks';
 
 // ---------------------------------------------------------------------------
 // preregistration
@@ -60,7 +60,7 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 <!-- \`judge: none\` when a rule scores every metric; otherwise \`judge: <model>\` from another model family than every arm, \`labels: <n>\` hand-labelled outputs it is checked against (at least 100, or 40 for a plan frozen before 2026-11-22; never held-out rows) and \`agreement: <kappa bar>\` (at least 0.6), \`per-arm: yes\` (agreement read on each arm's outputs, not pooled) and \`effort: <the reasoning effort set in the judge's start>\`; GPT-6 Astra or GPT-6.2 Astra judges Claude arms, Claude Opus 5.5 judges GPT arms. With two or more arms: \`paired: yes\`, \`interval: 95%\` and \`mdd: <the smallest difference this run can detect>\`. -->
 
 ## Models
-<!-- Optional: every other model the run starts, as \`reader: <model>\` and \`simulator: <model>\` lines. R116 refuses gpt-4o and any model lib/pricing.ts marks \`superseded_by\` in every role, arms and the judge included, and names the replacement. \`vendor-default: <model> <system>\` keeps a competitor system's built-in model when that system (an arm) is tested as its vendor ships it; the check records it and the results must name it. -->
+<!-- Optional: every other model the run starts, as \`reader: <model>\` and \`simulator: <model>\` lines. R116 refuses gpt-4o, any model lib/pricing.ts marks \`superseded_by\` and an unpriced older generation of a priced family in every role, arms and the judge included, and names the replacement. \`vendor-default: <model> <system>\` keeps a competitor system's built-in model when that system (an arm) is tested as its vendor ships it; the check records it and the results must name it. -->
 
 ## Pilot
 <!-- Uncounted, per arm, before its counted run: \`share: <at most 10>%\` of that arm's budget; \`counted: no\`; \`ran:\` how the arm's own outputs show the part under test ran; \`judge:\` the judge's label check on that arm's pilot outputs (with a model judge); \`supply:\` how the units are shown to be suppliable at the planned rate; \`units:\` every unit type the counted run uses, each drawn at least once; \`seed:\` the fixed seed for the draw order, independent of the number of workers. An arm that fails is fixed or left out, and reported as left out. -->
@@ -80,7 +80,7 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 ## Held-out exposure
 <!-- Every held-out set this plan touches: | set | prior exposure (which runs, which models) | reservation (what this run may read) | -->
 <!-- Answers on the task machine: how each unit's machine was checked, before any session, for answers the agent could read there (other git refs such as \`git log --all\`, build and package caches, archives and the task's own work tree; never a sweep of \`/\`, runner state or \`~/.ssh\`). -->
-<!-- Grader: when a grader runs git in the agent's repo, how it treats that repo as hostile: a sanitized copy of .git with no repo, system or global config, hooks, attributes, textconv or signature display; original index timestamps; no API keys in its environment; a test that plants each setting. -->
+<!-- \`grader:\` how a grader that runs git in the agent's repo treats that repo as hostile, or \`grader: none\` when none does: a sanitized copy of .git with no repo, system or global config, hooks, attributes, textconv or signature display; original index timestamps; no API keys in its environment; a test that plants each setting. -->
 <!-- Optional: a \`## Diagnostics\` section declares the summarizer (\`summarizer: <command naming {fixture}>\`), its synthetic records (\`fixture: <path>\`) and one | diagnostic | expected | row per diagnostic; \`prereg --check --allow-repo-commands\` runs it. A count reported as zero needs its diagnostic declared here with a planted case (expected 1 or more). -->
 `;
 }
@@ -99,7 +99,7 @@ cap: $100
 }
 
 /** A section's content lines (blank lines and `<!-- -->` guidance, one-line or multi-line, dropped); null when the heading is absent. */
-function sectionBody(text: string, name: string): string[] | null {
+export function sectionBody(text: string, name: string): string[] | null {
   const lines = text.split('\n');
   const headings = lines.map((l, i) => ({ i, m: /^#{1,6}\s+(.+?)\s*$/.exec(l) })).filter(x => x.m) as Array<{ i: number; m: RegExpExecArray }>;
   const idx = headings.findIndex(h => h.m[1]!.toLowerCase().replace(/[^a-z]/g, '') === name.toLowerCase().replace(/[^a-z]/g, ''));
@@ -187,7 +187,7 @@ export function checkPrereg(text: string): PreregCheck {
   const decisions = exempt ? { outcomes: [], errors: [] } : checkDecisions(sectionBody(text, 'Decisions'));
   const scoring = exempt ? { judge: null, labels: null, agreement: null, errors: [] } : checkScoring(sectionBody(text, 'Scoring'), armIdentities(text), frozenDate(text));
   const section = (name: string) => sectionBody(text, name);
-  const loop = loopExempt ? noLoop : checkLoop({ pilot: section('Pilot'), cost: section('Cost'), interim: section('Interim look'), scoring: section('Scoring'), bars: section('Bars'), arms: section('Arms'), heldOut: section('Held-out exposure') });
+  const loop = loopExempt ? noLoop : checkLoop({ pilot: section('Pilot'), cost: section('Cost'), interim: section('Interim look'), scoring: section('Scoring'), bars: section('Bars'), arms: section('Arms'), heldOut: section('Held-out exposure'), frozen: frozenDate(text) });
   const models = checkModelGenerations({ arms: armIdentities(text), judge: scoring.judge, models: section('Models'), frozen: frozenDate(text) });
   const ok = missing.length === 0 && empty.length === 0 && !comparison.errors.length && no_gstack.ok && !diagnostics?.errors.length && !decisions.errors.length && !scoring.errors.length && !loop.errors.length && models.ok;
   return { ok, models, present, missing, empty, comparison, no_gstack, diagnostics, decisions, scoring, frozen: frozenDate(text), grandfathered: exempt, loop, loop_grandfathered: loopExempt, quick: null };
@@ -349,12 +349,13 @@ export interface DryRunResult {
     model_rules?: { ok: boolean; source: string; refused: string[] };
     /** R54: Haiku and Sonnet are not models under test; arms on them alone are refused unless the plan asks about that tier. */
     frontier: { ok: boolean; small_tier: string[]; tier_question: string | null; recost_usd: Record<string, number> };
-    /** R116: no arm is gpt-4o or a model lib/pricing.ts marks superseded_by. */
+    /** R116: no arm is gpt-4o or a model lib/pricing.ts marks superseded_by, unless the --prereg plan's vendor-default line or frozen date keeps it. */
     generation: ModelGenerationCheck;
   };
+  prereg?: PlanModels;
   per_item_usd: Record<string, number | null>; excluded_billing: readonly string[]; pass: boolean; stub: 'stub-model (no network, $0)';
 }
-export interface DryRunOptions { input: string; arms: string[]; fields?: string[]; outputBudget?: number; retryPrompt?: string; maxRows?: number; cap?: number; modelRules?: ModelRulesCheck; tierQuestion?: string }
+export interface DryRunOptions { input: string; arms: string[]; fields?: string[]; outputBudget?: number; retryPrompt?: string; maxRows?: number; cap?: number; modelRules?: ModelRulesCheck; tierQuestion?: string; prereg?: PlanModels }
 
 /** Today's frontier models under test (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test); a small-tier plan is re-costed on these. */
 export const FRONTIER_MODELS = ['claude-opus-5-5', 'gpt-6.2-sol'] as const;
@@ -401,9 +402,9 @@ export function dryRun(o: DryRunOptions): DryRunResult {
   const smallTier = o.arms.filter(a => isSmallTierModel(armModel(a)));
   const recost = Object.fromEntries(FRONTIER_MODELS.map(m => [m, rows * o.arms.length * estimateCostUsd({ input: avgIn, output: budget }, m)]));
   checks.frontier = { ok: smallTier.length < o.arms.length || !!o.tierQuestion?.trim(), small_tier: smallTier, tier_question: o.tierQuestion?.trim() || null, recost_usd: recost };
-  checks.generation = checkModelGenerations({ arms: o.arms });
+  checks.generation = checkModelGenerations({ arms: o.arms, models: o.prereg?.models, frozen: o.prereg?.frozen });
   return {
-    schema_version: 1, input: o.input, rows, bad_rows: bad, est_input_tokens: inputTokens, est_output_tokens: rows * budget, arms: o.arms, checks, per_item_usd: perItem,
+    schema_version: 1, input: o.input, rows, bad_rows: bad, est_input_tokens: inputTokens, est_output_tokens: rows * budget, arms: o.arms, checks, per_item_usd: perItem, ...(o.prereg ? { prereg: o.prereg } : {}),
     excluded_billing: EXCLUDED_BILLING_CATEGORIES, pass: rows > 0 && bad.length === 0 && checks.price_table.ok && checks.output_budget.ok && checks.retry_prompt.ok && (checks.reservation_fits_cap?.ok ?? true) && (checks.model_rules?.ok ?? true) && checks.frontier.ok && checks.generation.ok, stub: 'stub-model (no network, $0)',
   };
 }
@@ -453,7 +454,7 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
   const dry = JSON.parse(fs.readFileSync(o.dryRun, 'utf8')) as DryRunResult;
   if (!dry.pass) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `${o.dryRun} did not pass; the pilot never starts on a failed dry run` } };
   if (o.arms.length && o.arms.every(a => isSmallTierModel(armModel(a))) && !dry.checks.frontier?.tier_question) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `every pilot arm is Haiku or Sonnet and ${o.dryRun} records no --tier-question (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test)` } };
-  const stale = checkModelGenerations({ arms: o.arms }).refused; if (stale.length) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_MODEL_OLD_GENERATION', message: stale.map(a => `${a.model} is an older generation; use ${a.replacement} (R116)`).join('; ') } };
+  const stale = checkModelGenerations({ arms: o.arms, models: dry.prereg?.models, frozen: o.arms.every(a => dry.arms.includes(a)) ? dry.prereg?.frozen : null }).refused; if (stale.length) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_MODEL_OLD_GENERATION', message: stale.map(a => `${a.model} is an older generation; use ${a.replacement} (R116)`).join('; ') } };
   const tokens = o.tokens ?? { input: dry.rows ? Math.ceil(dry.est_input_tokens / dry.rows) : DEFAULT_TOKENS.input, output: dry.checks.output_budget.budget };
   const seat = o.seatMetered ?? [];
   const stray = seat.filter(a => !o.arms.includes(a));

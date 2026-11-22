@@ -129,6 +129,16 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('(app/storage.py, line 5)'), expect.stringContaining('(src/launch.ts, added line 6)')] });
   });
 
+  // Value: protects=pregate's secrets check passes a Rust file of type annotations and fails a key bound with let or const in a .rs file; fails_when=Rust
+  //   type annotations block a push again, or a let or const binding of a key passes it; why_new=GST-3474 came from gbrain #10028's pregate runs; seam=fixture repo; no_claim=other languages
+  test('Rust type annotations pass; a key bound with let or const in a .rs file still fails (GST-3474)', () => {
+    const secret = ['sk-live-FAKE-', 'Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');
+    const rs = "pub struct Index<'a> {\n    token: Option<&'a str>,\n    key: &'a RelationshipKey,\n    by_key: Mutex<HashMap<String, u32>>,\n}\n";
+    expect(repo({ 'src/index.rs': rs }).secrets()).toMatchObject({ status: 'pass', lines: [] });
+    const r = repo({ 'src/index.rs': rs + 'fn connect() {\n    let token = "' + secret + '";\n}\nconst API_KEY: &str = "' + secret + '";\n' }).secrets();
+    expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('(src/index.rs, added line 7)'), expect.stringContaining('(src/index.rs, added line 9)')] });
+  });
+
   test('parseAddedLineNumbers numbers each added line from its hunk header', () => {
     const diff = ['diff --git a/a.py b/a.py', '--- a/a.py', '+++ b/a.py', '@@ -3,0 +4,2 @@', '+one', '+two', '@@ -9 +11 @@', '-old', '+new'].join('\n');
     expect([...parseAddedLineNumbers(diff)]).toEqual([['a.py', [4, 5, 11]]]);

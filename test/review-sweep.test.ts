@@ -110,6 +110,56 @@ describe('review-sweep inventory diff', () => {
 
   // Value: protects=a start walk that stopped at its bounds cannot tell a repository it never reached from a new one, so what the end walk finds past it is a note, never a quarantine;
   //   fails_when=a partial start turns pre-existing repositories into FETCH_VIOLATION and FETCH_RERUN_SPENT on runs where nobody fetched; why_new=ship-c-p1 specialist-batched#1 (CRITICAL); seam=sweepResult; no_claim=that a partial sweep sees every fetch
+  // Value: protects=a native executable the checkout's own build writes at a path its committed root .gitignore names exactly (bin/gstack-cso-core,
+  //   GSTA-745) is printed as FETCH_IGNORED build-output, not a download; fails_when=a stage that builds the repo stops /ship with FETCH_VIOLATION, or
+  //   the exemption lets through a download under an ignored directory or glob, a non-executable at that path, or a path a reader added to .gitignore;
+  //   seam=inventory; no_claim=which reader built it
+  test('a native build output the committed .gitignore names exactly is ignored; every other new big file is still a download', async () => {
+    const root = tmp();
+    const checkout = path.join(root, 'checkout');
+    repoAt(checkout, 'https://github.com/me/app.git');
+    fs.writeFileSync(path.join(checkout, '.gitignore'), 'bin/gstack-cso-core\n/bin/gstack-cso-core.exe\ndist/\n*.tar\n');
+    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' };
+    expect(spawnSync('bash', ['-c', 'git add .gitignore && git commit -q -m base'], { cwd: checkout, encoding: 'utf8', env, timeout: 30_000 }).status).toBe(0);
+    fs.mkdirSync(path.join(checkout, 'bin')); fs.mkdirSync(path.join(checkout, 'dist'));
+    const start = inventory([root], checkout, []);
+    await Bun.sleep(30);
+    const big = (rel: string, head: number[]) => { const p = path.join(checkout, rel); fs.writeFileSync(p, Buffer.from(head)); fs.truncateSync(p, BIG_BYTES); return p; };
+    const elf = [0x7f, 0x45, 0x4c, 0x46];
+    const core = big('bin/gstack-cso-core', elf);
+    const exe = big('bin/gstack-cso-core.exe', [0x4d, 0x5a, 0x90, 0x00]);
+    const found = [big('dist/blob.bin', elf), big('bin/chats.tar', elf), big('bin/notes.txt', [0x68, 0x69, 0x0a, 0x0a])];
+    const r = sweepResult(start, inventory([root], checkout, []));
+    expect(r.found.map(f => f.path).sort()).toEqual([...found].sort());
+    expect([...r.ignored!].sort((a, b) => a.path < b.path ? -1 : 1)).toEqual([{ path: core, reason: 'build-output' as const }, { path: exe, reason: 'build-output' as const }]);
+    expect(ignoredLines('specialists', 1, r.ignored!)[0]).toContain('reason=build-output');
+    fs.rmSync(core); fs.writeFileSync(core, 'not a binary\n'); fs.truncateSync(core, BIG_BYTES);
+    fs.appendFileSync(path.join(checkout, '.gitignore'), 'bin/notes.txt\n');
+    const later = sweepResult(start, inventory([root], checkout, []));
+    expect(later.found.map(f => f.path).sort()).toEqual([...found, core, exe].sort());
+    expect(later.ignored ?? []).toEqual([]);
+  });
+
+  // Value: protects=a build output already on disk when a stage starts is never counted, as on main where it sat in start.big;
+  //   fails_when=an uncommitted .gitignore edit or a git timeout at the end walk moves it from ignored to big and the stage is voided as FETCH_VIOLATION;
+  //   why_new=ship-4672 p1/red-team#1; seam=sweepDiff; no_claim=files the stage itself wrote
+  test('a build output ignored at the start of a stage and big at its end is not a download', () => {
+    const core = '/r/checkout/bin/gstack-cso-core';
+    const start = { at: 1, roots: ['/r'], repos: {}, big: {}, ignored: { [core]: { reason: 'build-output' as const } } };
+    const r = sweepResult(start, { at: 2, roots: ['/r'], repos: {}, big: { [core]: BIG_BYTES }, ignored: {} });
+    expect([r.verdict, r.found]).toEqual(['clean', []]);
+  });
+
+  // Value: protects=only a build output is excused at its start path; fails_when=a fixture-marker or local-remote directory swapped for a big
+  //   download at the same path reads clean; why_new=ship-4672 p2/outside-voice#1; seam=sweepDiff; no_claim=a build output replaced in place
+  test('an ignored directory swapped for a big file at the same path is still a download', () => {
+    for (const reason of ['fixture-marker', 'local-remote'] as const) {
+      const dir = '/r/fixtures/root';
+      const r = sweepResult({ at: 1, roots: ['/r'], repos: {}, big: {}, ignored: { [dir]: { reason } } }, { at: 2, roots: ['/r'], repos: {}, big: { [dir]: BIG_BYTES }, ignored: {} });
+      expect([r.verdict, r.found.map(f => f.path)]).toEqual(['violation', [dir]]);
+    }
+  });
+
   test('a partial start inventory makes what the end walk finds a partial note, not a violation', () => {
     const root = tmp();
     const checkout = path.join(root, 'checkout');

@@ -128,10 +128,12 @@ fi
 # The day's marker is claimed with noclobber (O_EXCL), so concurrent runs send it once.
 if [ "$EVENT_TYPE" = "onboarding" ]; then
   OB_NAME="$(printf '%s' "$SKILL" | tr -cd 'A-Za-z0-9_-')--$(printf '%s' "$OUTCOME" | tr -cd 'A-Za-z0-9_-')"
-  OB_MARKER="$ANALYTICS_DIR/.onboarding-$OB_NAME-$(date -u +%Y-%m-%d)"
+  OB_DAY="$(date -u +%Y-%m-%d)"
+  OB_MARKER="$ANALYTICS_DIR/.onboarding-$OB_NAME-$OB_DAY"
   mkdir -p "$ANALYTICS_DIR" 2>/dev/null
   ( set -C; : > "$OB_MARKER" ) 2>/dev/null || exit 0 # best-effort: another run already recorded this step today
-  for _ob in "$ANALYTICS_DIR"/.onboarding-"$OB_NAME"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do [ "$_ob" = "$OB_MARKER" ] || rm -f "$_ob"; done
+  # Only older days' markers go: a run still on yesterday's date at UTC midnight must not delete today's (#4597).
+  for _ob in "$ANALYTICS_DIR"/.onboarding-"$OB_NAME"-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]; do [[ "${_ob: -10}" < "$OB_DAY" ]] && rm -f "$_ob"; done
 fi
 
 # ─── Finalize stale .pending markers ────────────────────────

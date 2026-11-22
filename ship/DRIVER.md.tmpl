@@ -1,7 +1,7 @@
-# /ship driver: run /ship from a parent agent
+# /ship driver
 
-Read this, not `ship/SKILL.md`, when a parent agent runs /ship
-(`SESSION_KIND: unattended`). Commands live in `<root>/bin/` (`<root>` holds `ship/`); run each with
+Read this, not `ship/SKILL.md`, to run /ship (`SESSION_KIND: unattended`) in the PR's
+own thread, never in a subagent. Commands live in `<root>/bin/` (`<root>` holds `ship/`); run each with
 the `GSTACK_LAUNCH` assignments your installer printed (`. <its GSTACK_LAUNCH_FILE>`), never
 `export $(...)`, `env`, `printenv` or a bare `set` in a tool fence.
 

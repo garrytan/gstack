@@ -12,6 +12,7 @@ import { docsExceptionLine, parseReceiptDocs } from './ship-receipt-docs';
 import { ruledNoteText, type RuledNote } from './ruled-notes';
 import { gateDispositionText, type GateDisposition } from './gate-dispositions';
 import { laneExceptionBodyLines } from './test-lane-exception';
+import { VISIBLE_CHARS, VISIBLE_LINES, visibleOpening } from './pr-body-shape';
 
 export interface ProseClaim { field: string; prose: number; receipt: number }
 export interface ProseCheck { checked: number; mismatches: ProseClaim[] }
@@ -58,6 +59,20 @@ function withoutFences(body: string): string {
     i = end;
   }
   return out.join('');
+}
+
+/**
+ * The body without its opening, the lines above its first `<details>` fold (after closed fences are gone): R76 keeps that
+ * part to what changed for a user, why and what to do, so a number there is the subject of the PR (`58 fixed with gstack`,
+ * a published result), never one of its receipt counters. A body with no fold, or an opening longer than R76 allows
+ * (VISIBLE_LINES lines, VISIBLE_CHARS characters, measured on the body before its fences collapse, as the PR body shape check measures it), is checked whole.
+ */
+function withoutOpening(body: string, unfenced: string): string {
+  const lines = body.split(/(?<=\n)/);
+  const fold = lines.findIndex(l => /^ {0,3}<details\b/i.test(l));
+  if (fold <= 0) return body;
+  const opening = visibleOpening(unfenced);
+  return opening.length > VISIBLE_LINES || [...opening.join('\n')].length > VISIBLE_CHARS ? body : '(opening)\n' + lines.slice(fold).join('');
 }
 
 /**
@@ -120,7 +135,7 @@ function withoutExceptionLines(body: string, receipt: Record<string, unknown>): 
 
 /**
  * Every `<name>=<n>`, `<name>: <n>` and `<n> <name>` in the prose (the body
- * without its receipt block, its code fences, its rendered Approvals block and its exception lines), where `<name>` is a counter's leaf key with `_`
+ * without its receipt block, its opening above the first fold, its code fences, its rendered Approvals block and its exception lines), where `<name>` is a counter's leaf key with `_`
  * matched as `_`, space or `-` and not part of a longer word (`3 pass-through`
  * is not a `pass` claim), compared with the receipt. A leaf key shared by
  * several counters (`pass` under every gate lane, `passed` under gate and ci)
@@ -130,7 +145,8 @@ function withoutExceptionLines(body: string, receipt: Record<string, unknown>): 
  * `<n> <name>` claim about the next key (#3513).
  */
 export function checkReceiptProse(receipt: Record<string, unknown>, body: string): ProseCheck {
-  const prose = withoutExceptionLines(withoutApprovalsBlocks(withoutFences(body.replace(BLOCK_RE, ''))), receipt);
+  const raw = body.replace(BLOCK_RE, '');
+  const prose = withoutExceptionLines(withoutApprovalsBlocks(withoutOpening(withoutFences(raw), raw)), receipt);
   const byLeaf = new Map<string, Array<{ field: string; value: number }>>();
   for (const [field, value] of receiptCounters(receipt)) {
     const leaf = field.split('.').at(-1)!;

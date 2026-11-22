@@ -24,6 +24,7 @@ import { listReceipts } from "../../lib/egress-receipt";
 
 const TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
 const GEMINI_KEY = "AIzaFixtureNotARealKey0000000000000000";
+const GEMINI_AQ_KEY = "AQ.AbExampleFixtureNotARealKey00000000";
 const ENV_KEYS = ["HOME", "GSTACK_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL", "GEMINI_API_KEY", "GSTACK_DESIGN_PROVIDER", DESIGN_MODEL_ENV, DESIGN_IMAGE_MODEL_ENV];
 
 /** Google's documented generateContent answer: candidates[0].content.parts with an inlineData image. */
@@ -154,6 +155,28 @@ describe("$D setup reaches Gemini without a terminal", () => {
     expect(r.status, r.stderr).toBe(0);
     expect(JSON.parse(fs.readFileSync(path.join(dir, ".gstack", "gemini.json"), "utf8"))).toEqual({ api_key: GEMINI_KEY });
     expect(r.stdout).toContain("Fix: export GSTACK_DESIGN_PROVIDER=gemini");
+  });
+
+  // #4239: Google AI Studio now issues Gemini keys that start with "AQ.".
+  test("an AQ. Gemini key is saved and smoke-tested, with or without --provider", () => {
+    const explicit = cli(["--provider", "gemini", "--key-stdin"], {}, GEMINI_AQ_KEY);
+    expect(explicit.status, explicit.stderr).toBe(0);
+    expect(explicit.stdout).toContain("Smoke test PASSED.");
+    expect(explicit.stdout + explicit.stderr).not.toContain(GEMINI_AQ_KEY);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, ".gstack", "gemini.json"), "utf8"))).toEqual({ api_key: GEMINI_AQ_KEY });
+    fs.rmSync(path.join(dir, ".gstack"), { recursive: true, force: true });
+
+    const inferred = cli(["--key-stdin"], { OPENAI_API_KEY: "sk-unverified" }, GEMINI_AQ_KEY);
+    expect(inferred.status, inferred.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, ".gstack", "gemini.json"), "utf8"))).toEqual({ api_key: GEMINI_AQ_KEY });
+    expect(fs.existsSync(path.join(dir, ".gstack", "openai.json"))).toBe(false);
+  });
+
+  test("a Gemini setup still rejects a key that starts with neither AIza nor AQ.", () => {
+    const r = cli(["--provider", "gemini", "--key-stdin"], {}, "aq.FixtureNotARealKey0000000000000000");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("Invalid key. A Gemini key starts with 'AIza' or 'AQ.'.");
+    expect(fs.existsSync(path.join(dir, ".gstack", "gemini.json"))).toBe(false);
   });
 
   test("no switch line when the saved key is the one later runs pick", () => {

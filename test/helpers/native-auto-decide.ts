@@ -337,7 +337,7 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   // loaded text (GST-3157); that load counts as the session's one start.
   const loadStarts = (transcript.skillLoads ?? []).flatMap(load => {
     if (load.sessionId !== opts.sessionId || load.skill !== opts.skillName || !timely(load.timestamp)) return [];
-    const output = loadedStartOutput(load.text), session = output === null ? null : startSession(output);
+    const output = loadedStartOutput(load.text), session = output === null || /^SKILL_START: /m.test(output) ? null : startSession(output);
     return session ? [{ toolUseId: undefined, at: load.timestamp, session }] : [];
   });
   const starts = [...shellStarts, ...loadStarts];
