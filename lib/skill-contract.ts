@@ -42,6 +42,8 @@ export interface ContractItem {
   heading?: string;
   labels?: string[];
   match?: string;
+  /** agent_dispatch on Codex: the task name that stands in for match when Codex encrypted the spawn message. */
+  task_name?: string;
   marker?: string;
   empty_marker?: string;
   fix?: string;
@@ -89,7 +91,8 @@ export function parseContract(frontmatter: string): { contract: Contract } | { e
   return validateContract(isObject(doc) ? doc.contract : undefined);
 }
 
-const STRING_FIELDS = ['heading', 'match', 'marker', 'empty_marker', 'fix', 'summary'] as const;
+const STRING_FIELDS = ['heading', 'match', 'task_name', 'marker', 'empty_marker', 'fix', 'summary'] as const;
+const TASK_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const REGEX_FIELDS = ['match'] as const;
 
 /**
@@ -153,6 +156,8 @@ export function validateContract(raw: unknown): { contract: Contract } | { error
       out.labels = item.labels.map((l: string) => l.trim());
     }
     if (out.kind === 'agent_dispatch' && !out.match) return { error: `${id}: agent_dispatch needs match` };
+    if (out.task_name !== undefined && out.kind !== 'agent_dispatch') return { error: `${id}: task_name applies only to agent_dispatch` };
+    if (out.task_name !== undefined && !TASK_NAME.test(out.task_name)) return { error: `${id}: task_name must match ${TASK_NAME}` };
     if (out.kind === 'agent_dispatch' && out.marker) return { error: `${id}: agent_dispatch takes no marker until the checker can bind a marker to the dispatch it names (GST-1242)` };
     items.push(out);
   }
@@ -370,9 +375,14 @@ function checkItem(item: ContractItem, run: TranscriptEvent[], codex: boolean): 
     case 'agent_dispatch': {
       const re = new RegExp(item.match as string, 'i');
       if (codex) {
-        return agents.some(a => re.test(agentText(a)))
-          ? { met: true, detail: `a spawn_agent call matches /${item.match}/`, fix: '' }
-          : { met: false, detail: `no spawn_agent call matches /${item.match}/`, fix: item.fix ?? `start the subagent pass matching /${item.match}/ with spawn_agent, then wait_agent for its result` };
+        if (agents.some(a => re.test(agentText(a)))) return { met: true, detail: `a spawn_agent call matches /${item.match}/`, fix: '' };
+        if (item.task_name && agents.some(a => a.input.sealed === true && a.input.task_name === item.task_name)) {
+          return { met: true, detail: `spawn_agent started ${item.task_name} with an encrypted message`, fix: '' };
+        }
+        const fix = item.task_name
+          ? `start the subagent pass with spawn_agent (task_name "${item.task_name}", its message matching /${item.match}/), then wait_agent for its result`
+          : `start the subagent pass matching /${item.match}/ with spawn_agent, then wait_agent for its result`;
+        return { met: false, detail: `no spawn_agent call matches /${item.match}/`, fix: item.fix ?? fix };
       }
       return agents.some(a => re.test(agentText(a)))
         ? { met: true, detail: `an Agent dispatch matches /${item.match}/`, fix: '' }

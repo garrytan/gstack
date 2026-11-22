@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { seedAutoplanOnboarding } from './helpers/autoplan-preconfigured-fixture';
+import { readShippedSkillRouting } from './helpers/shipped-skill-routing';
 import { DESIGN_DOC_DISCOVERY_BLOCK } from '../scripts/resolvers/design-doc-discovery';
 const root = resolve(import.meta.dir, '..');
 const read = (file: string) => readFileSync(join(root, file), 'utf8');
@@ -18,7 +19,7 @@ function fixture(plan = original) {
   writeFileSync(planFile, plan);
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd });
   // This free test controls unrelated startup side effects, not the seeded repo.
-  // proactive: all, because the seeded CLAUDE.md is the every-rule section that setting offers.
+  // proactive: all, because the seeded CLAUDE.md is the every-rule section gstack used to offer under that setting.
   writeFileSync(join(state, 'config.yaml'), 'update_check: false\nartifacts_sync: off\ntelemetry: off\nproactive: all\n');
   writeFileSync(join(state, '.proactive-prompted'), '');
   const env = { PATH: process.env.PATH!, HOME: home, GSTACK_HOME: state, GSTACK_STATE_ROOT: state, GSTACK_LEASE_DIR: join(state, 'gstack-leases') };
@@ -35,17 +36,15 @@ test('real skill-start and canonical discovery see the configured chain prerequi
     const before = f.start();
     expect(before).toContain('SESSION_KIND: interactive');
     expect(before).toContain('HAS_ROUTING: no');
-    expect(before).toContain('GSTACK_INSTRUCTION_BEGIN: routing-injection ');
+    expect(before).not.toContain('routing-injection');
     expect(f.discover()).toBe('No design doc found');
     seedAutoplanOnboarding(f.cwd);
     const after = f.start();
     expect(after).toContain('SESSION_KIND: interactive');
     expect(after).toContain('HAS_ROUTING: yes');
-    expect(after).toContain('ROUTING_DECLINED: false');
-    expect(after).not.toContain('GSTACK_INSTRUCTION_BEGIN: routing-injection ');
+    expect(after).not.toContain('routing-injection');
     expect(f.discover()).toBe(`Design doc found: ${join(f.cwd, 'docs/designs/dashboard-context.md')}`);
-    const offered = before.slice(before.indexOf('## Skill routing\n'), before.indexOf('\nIf B: run', before.indexOf('## Skill routing\n'))).trimEnd() + '\n';
-    expect(readFileSync(join(f.cwd, 'CLAUDE.md'), 'utf8')).toBe(offered);
+    expect(readFileSync(join(f.cwd, 'CLAUDE.md'), 'utf8')).toBe(readShippedSkillRouting().section + '\n');
     expect(readFileSync(f.planFile, 'utf8')).toBe(original);
   } finally { f.cleanup(); }
 }, 60_000);

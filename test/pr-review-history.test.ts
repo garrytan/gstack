@@ -20,11 +20,11 @@ describe('prReviewHistory', () => {
     expect(prReviewHistory('## Summary\nprose\n')).toMatchObject({ rounds: 0, full: 0, runs: 0, first_full: null, source: 'pr-body' });
   });
 
-  test('rounds follow R51 (passes plus fix-checks) summed across /ship runs, not the largest run', () => {
+  test('rounds follow R51 (passes, never fix-checks) summed across /ship runs, not the largest run', () => {
     let body = placeReceipt('', receipt(sha('a'), { passes: 1, fix_checks: 1, rounds: 2 }, { run: 'r1' }));
     body = placeReceipt(body, receipt(sha('b'), { passes: 1, fix_checks: 1, rounds: 2 }, { run: 'r2' }));
     const h = prReviewHistory(body);
-    expect(h).toMatchObject({ runs: 2, rounds: 4, full: 2, fix_checks: 2, first_full: sha('a'), last_full: sha('b') });
+    expect(h).toMatchObject({ runs: 2, rounds: 2, full: 2, fix_checks: 2, first_full: sha('a'), last_full: sha('b') });
   });
 
   test('a scoped pass 2 is a round but not a full round', () => {
@@ -42,10 +42,12 @@ describe('prReviewHistory', () => {
     expect(prReviewHistory(body)).toMatchObject({ rounds: 1, full: 1, rechecks: 1, runs: 1, heads: 3 });
   });
 
-  test('the same run written twice counts once', () => {
+  test('the same run written twice at one head counts once; a run id reused at another head counts again (gstack-evals#406)', () => {
     let body = placeReceipt('', receipt(sha('a'), { passes: 1, rounds: 1 }, { run: 'r1' }));
-    body = placeReceipt(body, receipt(sha('b'), { passes: 1, rounds: 1 }, { run: 'r1' }));
+    body = placeReceipt(body, receipt(sha('a'), { passes: 1, rounds: 1, deferred: 1 }, { run: 'r1' }));
     expect(prReviewHistory(body)).toMatchObject({ rounds: 1, runs: 1 });
+    body = placeReceipt(body, receipt(sha('b'), { passes: 1, rounds: 1 }, { run: 'r1' }));
+    expect(prReviewHistory(body)).toMatchObject({ rounds: 2, runs: 2 });
   });
 
   test('a started stub counts its rounds so far until its run writes a receipt, which replaces it', () => {
@@ -54,10 +56,10 @@ describe('prReviewHistory', () => {
     expect(prReviewHistory(body)).toMatchObject({ rounds: 2, stubs: 1 });
     body = placeRunEntry(body, { head: sha('b'), run: 'r2', status: 'started', review_loop: loop({ passes: 1, fix_checks: 1, rounds: 2 }) });
     expect(receiptRuns(body).filter(r => r.status === 'started').length).toBe(1);
-    expect(prReviewHistory(body).rounds).toBe(3);
+    expect(prReviewHistory(body).rounds).toBe(2);
     body = placeReceipt(body, receipt(sha('c'), { passes: 1, fix_checks: 1, rounds: 2 }, { run: 'r2' }));
     expect(receiptRuns(body).some(r => r.status === 'started')).toBe(false);
-    expect(prReviewHistory(body)).toMatchObject({ rounds: 3, stubs: 0, runs: 2 });
+    expect(prReviewHistory(body)).toMatchObject({ rounds: 2, stubs: 0, runs: 2 });
   });
 
   test('a voided stub (an infrastructure failure) counts nothing', () => {

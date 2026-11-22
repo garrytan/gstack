@@ -222,7 +222,7 @@ export const QUESTIONS = {
     skill: 'office-hours',
     category: 'routing',
     door_type: 'two-way',
-    options: ['startup', 'intrapreneur', 'hackathon', 'oss-research', 'learning', 'fun'],
+    options: ['startup', 'intrapreneur', 'pivot', 'hackathon', 'oss-research', 'learning', 'fun'],
     signal_key: 'session-mode',
     description: "What's your goal with this session? (Sets mode: startup vs builder)",
   },
@@ -529,14 +529,6 @@ export const QUESTIONS = {
     door_type: 'two-way',
     options: ['core', 'all', 'off'],
     description: "Let gstack proactively suggest skills based on conversation context? core (the four core skills, default) / all / off",
-  },
-  'preamble-routing-injection': {
-    id: 'preamble-routing-injection',
-    skill: 'preamble',
-    category: 'approval',
-    door_type: 'two-way',
-    options: ['accept', 'decline'],
-    description: "Add gstack skill routing rules to CLAUDE.md?",
   },
   'preamble-vendored-migration': {
     id: 'preamble-vendored-migration',

@@ -354,7 +354,7 @@ python3 -c 'import pathlib,subprocess,sys; subprocess.run(["glab","mr","update",
 5. Clean up the tempfile:
 
 ```bash
-rm -f "<run-dir>/body.md" "<run-dir>/body-original.md"
+rm "<run-dir>/body.md" "<run-dir>/body-original.md" 2>/dev/null || true
 rmdir "<run-dir>"
 ```
 

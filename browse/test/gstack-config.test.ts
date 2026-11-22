@@ -179,7 +179,7 @@ describe('gstack-config', () => {
     expect(content).toContain('telemetry:');
     expect(content).toContain('auto_upgrade:');
     expect(content).toContain('skill_prefix:');
-    expect(content).toContain('routing_declined:');
+    expect(content).not.toContain('routing_declined:');
     expect(content).toContain('codex_reviews:');
     expect(content).toContain('skip_eng_review:');
   });
@@ -229,24 +229,5 @@ describe('gstack-config', () => {
     const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
     expect(content).toContain('existing: value');
     expect(content).not.toContain('# gstack configuration');
-  });
-
-  // ─── routing_declined ──────────────────────────────────────
-  test('routing_declined defaults to false (not set)', () => {
-    const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('false');
-  });
-
-  test('routing_declined can be set and read', () => {
-    run(['set', 'routing_declined', 'true']);
-    const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('true');
-  });
-
-  test('routing_declined can be reset to false', () => {
-    run(['set', 'routing_declined', 'true']);
-    run(['set', 'routing_declined', 'false']);
-    const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('false');
   });
 });

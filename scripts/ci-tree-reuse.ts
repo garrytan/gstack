@@ -18,7 +18,11 @@
  *       this workflow (pull_request or workflow_dispatch, newest first, at most MAX_CANDIDATES), and accepts the
  *       first one lib/run-evidence.ts verifyRun accepts under the profile in the pushed tree's
  *       .gstack/pregate.json. A pull_request run counts only when its merge commit's tree is its head's tree
- *       (verifyRun). It writes reused=true, run_id, run_url and tree to GITHUB_OUTPUT, or reused=false and a
+ *       (verifyRun). When the head's tree differs (land merged a stale-base pin), the only candidate is the newest
+ *       workflow_dispatch run on landBranch(<pr>), the run land.merged_ci gated the merge on, and it counts only when
+ *       verifyRun accepts it with the pushed tree as its tested tree (newest by run id, so a re-run of an older land run
+ *       never outranks a later red one): that run executed this same tree's workflow, so
+ *       the rules it ran under are the ones now on main. It writes reused=true, run_id, run_url and tree to GITHUB_OUTPUT, or reused=false and a
  *       reason, with one REUSE: line in the step summary. Every lookup failure is a refusal, never a pass: the
  *       workflow then runs every job as before. Dispatch runs never consume.
  *
@@ -32,7 +36,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ghApiJson, ghRunDeps, runProfileErrors, verifyRun, type ApiRun, type RunDeps, type RunProfile } from '../lib/run-evidence';
+import { ghApiJson, ghRunDeps, landBranch, runProfileErrors, verifyRun, type ApiRun, type RunDeps, type RunProfile } from '../lib/run-evidence';
 
 export const MAX_PULLS = 10;
 export const MAX_CANDIDATES = 10;
@@ -40,9 +44,8 @@ const SHA = /^[0-9a-f]{40}$/;
 const OSES = ['Linux', 'macOS', 'Windows'];
 
 export interface ApiPull { number: number; merged_at: string | null; merge_commit_sha: string | null; base: { ref: string; repo?: { full_name: string } | null }; head: { sha: string; repo: { full_name: string } | null } }
-export interface ReuseDeps extends RunDeps { pullsForCommit(sha: string): ApiPull[] }
-export interface PrReuseDeps extends RunDeps {
-  runsForBranch(workflow: string, branch: string): ApiRun[];
+export interface ReuseDeps extends RunDeps { pullsForCommit(sha: string): ApiPull[]; runsForBranch(workflow: string, branch: string): ApiRun[] }
+export interface PrReuseDeps extends RunDeps, Pick<ReuseDeps, 'runsForBranch'> {
   commit(sha: string): { tree: string; parents: string[] } | null;
   blob(sha: string, file: string): string | null;
 }
@@ -71,8 +74,19 @@ export function findReuse(deps: ReuseDeps, o: { repo: string; base: string; push
     const pushTree = deps.commitTree(o.pushSha);
     const headTree = deps.commitTree(pr.head.sha);
     if (!pushTree || !headTree) return refuse('api_error', `cannot read the tree of ${pushTree ? pr.head.sha : o.pushSha}`);
-    if (headTree !== pushTree) return refuse('tree_mismatch', `#${pr.number}'s head ${pr.head.sha.slice(0, 12)} has tree ${headTree.slice(0, 12)}, the push has ${pushTree.slice(0, 12)}`);
     const events: string[] = o.profile.events.filter(e => e === 'pull_request' || e === 'workflow_dispatch');
+    if (headTree !== pushTree) {
+      const mismatch = `#${pr.number}'s head ${pr.head.sha.slice(0, 12)} has tree ${headTree.slice(0, 12)}, the push has ${pushTree.slice(0, 12)}`;
+      const branch = landBranch(pr.number);
+      const land = events.includes('workflow_dispatch')
+        ? deps.runsForBranch(o.workflow, branch).filter(r => r.event === 'workflow_dispatch' && r.head_branch === branch).sort((a, b) => b.id - a.id)[0]
+        : undefined;
+      if (!land) return refuse('tree_mismatch', `${mismatch}, and ${branch} has no workflow_dispatch run of ${o.workflow}`);
+      const v = verifyRun(deps, { repo: o.repo, runRef: String(land.id), profileName: o.profileName, profile: o.profile, now: o.now });
+      if (!v.ok) return refuse('no_verified_run', `${mismatch}; land run ${land.id} on ${branch} reason=${v.reason} ${v.detail}`);
+      if (v.evidence.tree !== pushTree) return refuse('tree_mismatch', `${mismatch}, and land run ${land.id} on ${branch} tested tree ${v.evidence.tree.slice(0, 12)}`);
+      return { reused: true, run_id: v.evidence.run_id, run_attempt: v.evidence.run_attempt, event: v.evidence.event, pr: pr.number, head_sha: v.evidence.head_sha, tree: pushTree };
+    }
     const candidates = deps.runsForHead(o.workflow, pr.head.sha).filter(r => events.includes(r.event))
       .sort((a, b) => startedAt(b).localeCompare(startedAt(a)) || b.id - a.id).slice(0, MAX_CANDIDATES);
     if (!candidates.length) return refuse('no_candidate', `#${pr.number}'s head ${pr.head.sha.slice(0, 12)} has no ${events.join(' or ') || 'pull_request or workflow_dispatch'} run of ${o.workflow}`);
@@ -210,6 +224,7 @@ function find(args: string[]): number {
     ...ghRunDeps(repo, process.cwd()),
     commitTree: sha => (SHA.test(sha) ? ghApiJson<{ tree?: { sha?: string } }>(`repos/${repo}/git/commits/${sha}`).tree?.sha ?? null : null),
     pullsForCommit: sha => ghApiJson<ApiPull[]>(`repos/${repo}/commits/${sha}/pulls?per_page=${MAX_PULLS}`),
+    runsForBranch: (wf, branch) => ghApiJson<{ workflow_runs?: ApiRun[] }>(`repos/${repo}/actions/workflows/${wf}/runs?branch=${encodeURIComponent(branch)}&per_page=${MAX_CANDIDATES}`).workflow_runs ?? [],
   };
   if (mainPush) return settle(findReuse(deps, { repo, base: 'main', pushSha: env.GITHUB_SHA ?? '', workflow, profileName, profile, now: new Date() }));
   let event: { pull_request?: { number?: number; head?: { sha?: string; ref?: string; repo?: { full_name?: string } | null }; base?: { ref?: string } } };
@@ -218,7 +233,6 @@ function find(args: string[]): number {
   const pr: PrContext = { number: Number(p.number), mergeSha: env.GITHUB_SHA ?? '', headSha: p.head?.sha ?? '', headRef: p.head?.ref ?? '', headRepo: p.head?.repo?.full_name ?? '', baseRef: p.base?.ref ?? '', runId: Number(env.GITHUB_RUN_ID), runAttempt: Number(env.GITHUB_RUN_ATTEMPT) };
   const prDeps: PrReuseDeps = {
     ...deps,
-    runsForBranch: (wf, branch) => ghApiJson<{ workflow_runs?: ApiRun[] }>(`repos/${repo}/actions/workflows/${wf}/runs?branch=${encodeURIComponent(branch)}&per_page=${MAX_CANDIDATES}`).workflow_runs ?? [],
     commit: sha => {
       if (!SHA.test(sha)) return null;
       const c = ghApiJson<{ tree?: { sha?: string }; parents?: Array<{ sha?: string }> }>(`repos/${repo}/git/commits/${sha}`);

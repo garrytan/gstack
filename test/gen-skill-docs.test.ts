@@ -919,9 +919,8 @@ describe('REVIEW_DASHBOARD resolver', () => {
 
   test('plan-ceo-review chaining mentions eng and design reviews', () => {
     // Carved skill: the chaining prose lives in sections/*.md. (It used to
-    // pass against the skeleton only because the preamble's routing-injection
-    // rules incidentally named these skills — that prose moved into
-    // bin/gstack-skill-start in token-reduction Phase 2.)
+    // pass against the skeleton only because the preamble's CLAUDE.md routing
+    // offer incidentally named these skills; that offer is gone.)
     const content = readSkillUnion('plan-ceo-review');
     expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-design-review');
@@ -2279,21 +2278,9 @@ describe('parameterized resolver support', () => {
   });
 });
 
-// --- Preamble routing injection tests ---
+// --- Preamble routing probe ---
 
-describe('preamble routing injection (bin/gstack-skill-start emission layer)', () => {
-  // Token-reduction Phase 2: the routing-injection prose left the rendered
-  // preamble entirely — bin/gstack-skill-start probes, gates, and emits the
-  // whole flow as a GSTACK_INSTRUCTION block (with the AUQ, the routing rules
-  // to append, and the decline ack all INSIDE the block). Absence from the
-  // renders is pinned by test/onboarding-moved-literals.test.ts (tombstone);
-  // this suite pins the gate structure and the emitted block's content.
-  const routingBlock = (() => {
-    const start = SKILL_START_SCRIPT.indexOf('_emit_block routing-injection');
-    expect(start).toBeGreaterThan(0);
-    return SKILL_START_SCRIPT.slice(start, SKILL_START_SCRIPT.indexOf('\nEOI', start));
-  })();
-
+describe('preamble routing probe (bin/gstack-skill-start)', () => {
   test('routing probe checks CLAUDE.md and AGENTS.md (now in gstack-skill-start)', () => {
     // #2500: the probe iterates CLAUDE.md AND AGENTS.md — non-Claude hosts
     // route skills via AGENTS.md, the cross-harness convention file.
@@ -2302,47 +2289,11 @@ describe('preamble routing injection (bin/gstack-skill-start emission layer)', (
     expect(SKILL_START_SCRIPT).toContain('echo "HAS_ROUTING: $_HAS_ROUTING"');
   });
 
-  test('script reads and echoes routing_declined config', () => {
-    expect(SKILL_START_SCRIPT).toMatch(/_ROUTING_DECLINED=\$\("\$_BIN\/gstack-config" get routing_declined/);
-    expect(SKILL_START_SCRIPT).toContain('echo "ROUTING_DECLINED: $_ROUTING_DECLINED"');
-  });
-
-  test('emitted block carries the routing injection AskUserQuestion', () => {
-    expect(routingBlock).toContain('Add routing rules to CLAUDE.md');
-    expect(routingBlock).toContain("I'll invoke skills manually");
-  });
-
-  test('routing injection respects prior decline (gate + in-block ack)', () => {
-    expect(SKILL_START_SCRIPT).toContain('[ "$_ROUTING_DECLINED" = "false" ]');
-    expect(routingBlock).toMatch(/routing_declined.*true/);
-    expect(routingBlock).toContain('re-enable with `__BIN__/gstack-config set routing_declined false`');
-  });
-
-  test('routing injection only fires when all conditions met', () => {
-    // Must be: HAS_ROUTING=no AND ROUTING_DECLINED=false AND PROACTIVE_PROMPTED=yes AND the offer is not switched off by proactive off
-    expect(SKILL_START_SCRIPT).toContain(
-      'if [ "$_HAS_ROUTING" = "no" ] && [ "$_ROUTING_DECLINED" = "false" ] && [ "$_PROACTIVE_PROMPTED" = "yes" ] && [ "$_PROACTIVE_OFF" = "no" ]; then',
-    );
-  });
-
-  test('routing section content includes key routing rules', () => {
-    expect(routingBlock).toContain('invoke /office-hours');
-    expect(routingBlock).toContain('Bugs/errors → fix them directly');
-    expect(routingBlock).not.toContain('/investigate');
-    expect(routingBlock).toContain('invoke /ship');
-    expect(routingBlock).toContain('invoke /qa');
-  });
-
-  test('routing section uses renamed checkpoint skills (not stale /checkpoint)', () => {
-    expect(routingBlock).toContain('invoke /context-save');
-    expect(routingBlock).toContain('invoke /context-restore');
-    expect(routingBlock).not.toContain('invoke checkpoint');
-  });
-
-  test('routing section routes only to available skills, without "when in doubt" over-triggering (#3018)', () => {
-    expect(routingBlock).toContain("Route only to skills in the session's available-skills list");
-    expect(routingBlock).not.toContain('When in doubt');
-    expect(routingBlock).not.toContain('Do NOT answer directly');
+  test('skill-start no longer offers to write a routing section into CLAUDE.md: the prompt-routing hook routes instead (B1e)', () => {
+    expect(SKILL_START_SCRIPT).not.toContain('routing-injection');
+    expect(SKILL_START_SCRIPT).not.toContain('Add routing rules to CLAUDE.md');
+    expect(SKILL_START_SCRIPT).not.toContain('routing_declined');
+    expect(SKILL_START_SCRIPT).not.toContain('ROUTING_DECLINED');
   });
 
   test('root router skips routes to skills that are not loaded and says when not to invoke (#3018)', () => {

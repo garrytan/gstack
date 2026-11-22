@@ -130,6 +130,8 @@ function runMergedChecks(root: string, base: string, pin: string, checks: string
   if (r.status !== 0) throw new Error(`runMergedChecks child exited ${r.status ?? r.signal}: ${r.stderr}`);
   return JSON.parse(r.stdout) as MergedRun;
 }
+/** A new base policy committed straight onto origin/main, for a policy whose commands name the fixture's own paths. */
+const writePolicy = (fx: Fx, policy: Record<string, unknown>) => moveMain(fx, '.gstack/ship-policy.json', JSON.stringify(policy, null, 2) + '\n');
 /** Commit a file straight onto origin/main (another PR that landed first). */
 function moveMain(fx: Fx, file: string, text: string): string {
   const { repo } = fx;
@@ -338,6 +340,157 @@ describe('land --pin: direct merge at the PR\'s own green head', () => {
       if (stray > 1) try { process.kill(stray, 'SIGKILL'); } catch {}
       fs.rmSync(scratch, { recursive: true, force: true });
     }
+  }, 90_000);
+
+  test('land.merged_checks that write .git hooks, .git config and node_modules in their own tree: the writes stay in the throwaway clone, no hook runs, and land merges', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-clone-'));
+    const marker = path.join(scratch, 'hook-ran');
+    const write = `d=$(git rev-parse --path-format=absolute --git-common-dir); printf '#!/bin/sh\\ntouch ${marker}\\n' > $d/hooks/pre-push; chmod +x $d/hooks/pre-push; git config --file $d/config gstack.probe changed; mkdir -p node_modules && echo poison > node_modules/poison`;
+    const fx = setup({ ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const pin = openPr(fx, '90');
+      moveMain(fx, 'other.txt', 'other\n');
+      const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+      const config = fs.readFileSync(path.join(common, 'config'), 'utf8');
+      const ok = land(fx, '90', pin, ['--allow-repo-commands']);
+      expect(ok.err).toBe('');
+      expect(ok.status).toBe(EXIT.ok);
+      expect(fx.read().mergeArgs).toBeDefined();
+      expect(fs.existsSync(path.join(common, 'hooks', 'pre-push'))).toBe(false);
+      expect(fs.readFileSync(path.join(common, 'config'), 'utf8')).toBe(config);
+      expect(fs.existsSync(path.join(fx.repo.work, 'node_modules', 'poison'))).toBe(false);
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('land.merged_checks that write the checkout\'s own git hooks or config by absolute path: land refuses with QUEUE_LAND_MERGED_CHECKS naming each path and a hold-and-inspect fix, runs no hook, pushes no lock release, and the unlock command releases the lock without running the checks', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-gitdir-'));
+    const marker = path.join(scratch, 'hook-ran');
+    const fx = setup({ ...POLICY, land: { merged_checks: ['true'] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+      const write = `d=${common}; printf '#!/bin/sh\\ntouch ${marker}\\n' > $d/hooks/pre-push; chmod +x $d/hooks/pre-push; git config --file $d/config gstack.probe changed`;
+      writePolicy(fx, { ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+      const pin = openPr(fx, '95');
+      moveMain(fx, 'other.txt', 'other\n');
+      const config = fs.readFileSync(path.join(common, 'config'), 'utf8');
+      const lock = () => JSON.parse(fx.repo.git('--git-dir', fx.repo.origin, 'show', 'refs/notes/gstack-land:lock.json'));
+      const r = land(fx, '95', pin, ['--allow-repo-commands']);
+      expect(r.status).not.toBe(EXIT.ok);
+      expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+      expect(r.err).toContain('the checks changed .git/config, .git/hooks/pre-push, which land\'s later git and gh calls read');
+      expect(r.err).toContain('restore it from a trusted copy (delete a hook the checks added)');
+      expect(r.err).toContain('hold and inspect');
+      expect(r.err).not.toContain('git merge origin/main');
+      expect(r.out).toContain(`release the lock without running the checks: gstack-ship-queue land --pr 95 --pin ${pin} (without --allow-repo-commands)`);
+      expect(fx.read().mergeArgs).toBeUndefined();
+      expect(fs.existsSync(marker)).toBe(false);
+      expect(lock().released).not.toBe(true);
+      fs.rmSync(path.join(common, 'hooks', 'pre-push'));
+      fs.writeFileSync(path.join(common, 'config'), config);
+      const unlock = land(fx, '95', pin);
+      expect(unlock.err).toContain('(REPO_COMMANDS_NOT_ALLOWED)');
+      expect(fs.existsSync(path.join(common, 'hooks', 'pre-push'))).toBe(false);
+      expect(fx.read().mergeArgs).toBeUndefined();
+      expect(lock()).toMatchObject({ released: true });
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('a hook a merged check writes under the checkout\'s core.hooksPath never runs in land\'s git calls, and land still merges', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-hookspath-'));
+    const marker = path.join(scratch, 'hook-ran');
+    const fx = setup({ ...POLICY, land: { merged_checks: ['true'] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const h = path.join(fx.repo.work, '.hooks');
+      writePolicy(fx, { ...POLICY, land: { merged_checks: [`mkdir -p ${h} && printf '#!/bin/sh\\ntouch ${marker}\\n' > ${h}/pre-push && chmod +x ${h}/pre-push`] }, min_gstack_version: LAND_KEY_VERSION });
+      fx.repo.git('config', 'core.hooksPath', '.hooks');
+      const pin = openPr(fx, '91');
+      moveMain(fx, 'other.txt', 'other\n');
+      const ok = land(fx, '91', pin, ['--allow-repo-commands']);
+      expect(ok.err).toBe('');
+      expect(ok.status).toBe(EXIT.ok);
+      expect(fs.existsSync(path.join(h, 'pre-push'))).toBe(true);
+      expect(fs.existsSync(marker)).toBe(false);
+      expect(fx.read().mergeArgs).toBeDefined();
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('a merged check that points the checkout\'s .git/commondir at another directory: land refuses naming it and leaves the lock held', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-commondir-'));
+    const alt = path.join(scratch, 'alt');
+    const fx = setup({ ...POLICY, land: { merged_checks: ['true'] }, min_gstack_version: LAND_KEY_VERSION });
+    try {
+      const d = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+      writePolicy(fx, { ...POLICY, land: { merged_checks: [`a=${alt}; mkdir -p $a && ln -s ${d}/objects ${d}/refs $a/ && cp ${d}/HEAD $a/ && printf '[core]\\n\\tsshCommand = false\\n' > $a/config && echo $a > ${d}/commondir`] }, min_gstack_version: LAND_KEY_VERSION });
+      const pin = openPr(fx, '92');
+      moveMain(fx, 'other.txt', 'other\n');
+      const r = land(fx, '92', pin, ['--allow-repo-commands']);
+      expect(r.status).not.toBe(EXIT.ok);
+      expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+      expect(r.err).toContain('the checks changed .git/commondir, which');
+      expect(fx.read().mergeArgs).toBeUndefined();
+      expect(JSON.parse(fx.repo.git('--git-dir', fx.repo.origin, 'show', 'refs/notes/gstack-land:lock.json')).released).not.toBe(true);
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 90_000);
+
+  test('a merged check that repoints the middle link of a symlinked .git/config chain: land detects it and refuses naming the link', () => {
+    const fx = setup({ ...POLICY, land: { merged_checks: ['true'] }, min_gstack_version: LAND_KEY_VERSION });
+    const common = fx.repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+    writePolicy(fx, { ...POLICY, land: { merged_checks: [`d=${common}; printf '[core]\\n\\tsshCommand = false\\n' > $d/alt && ln -sfn alt $d/config.mid`] }, min_gstack_version: LAND_KEY_VERSION });
+    const pin = openPr(fx, '94');
+    moveMain(fx, 'other.txt', 'other\n');
+    fs.renameSync(path.join(common, 'config'), path.join(common, 'config.real'));
+    fs.symlinkSync('config.real', path.join(common, 'config.mid'));
+    fs.symlinkSync('config.mid', path.join(common, 'config'));
+    const r = land(fx, '94', pin, ['--allow-repo-commands']);
+    expect(r.status).not.toBe(EXIT.ok);
+    expect(r.err).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+    expect(r.err).toContain('the checks changed .git/config.mid, which');
+    expect(fx.read().mergeArgs).toBeUndefined();
+  }, 90_000);
+
+  test('GST-1766: a merged check that edits a config file the checkout includes, creates a global git config, or rewrites the gh land runs: land refuses naming that file and merges nothing', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-reads-'));
+    try {
+      const inc = path.join(scratch, 'inc.cfg');
+      fs.writeFileSync(inc, '[gstack]\n\tprobe = 1\n');
+      const cases: Array<[string, (fx: Fx) => string, (fx: Fx) => string]> = [
+        ['96', fx => { fx.repo.git('config', 'include.path', inc); return `printf '[core]\\n\\tsshCommand = false\\n' >> ${inc}`; }, () => inc],
+        ['97', fx => `printf '[credential]\\n\\thelper = !false\\n' >> ${fx.repo.env.GIT_CONFIG_GLOBAL}`, fx => fx.repo.env.GIT_CONFIG_GLOBAL],
+        ['98', fx => `echo '// changed' >> ${path.join(fx.repo.root, 'gh-shim', 'gh')}`, fx => path.join(fx.repo.root, 'gh-shim', 'gh')],
+      ];
+      for (const [pr, arm, named] of cases) {
+        const fx = setup({ ...POLICY, land: { merged_checks: ['true'] }, min_gstack_version: LAND_KEY_VERSION });
+        const write = arm(fx);
+        writePolicy(fx, { ...POLICY, land: { merged_checks: [write] }, min_gstack_version: LAND_KEY_VERSION });
+        const pin = openPr(fx, pr);
+        moveMain(fx, 'other.txt', 'other\n');
+        const r = land(fx, pr, pin, ['--allow-repo-commands']);
+        expect(r.status, pr).not.toBe(EXIT.ok);
+        expect(r.err, pr).toContain('(QUEUE_LAND_MERGED_CHECKS)');
+        expect(r.err, pr).toContain(`the checks changed ${named(fx)}, which land's later git and gh calls read`);
+        expect(fx.read().mergeArgs, pr).toBeUndefined();
+      }
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  }, 120_000);
+
+  test('GST-1766: a git a merged check drops early on PATH never runs in land\'s later git or gh calls (land pinned git before the checks), and land merges', () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-land-shim-'));
+    try {
+      const early = path.join(scratch, 'early'), marker = path.join(scratch, 'shim-ran'), shim = path.join(scratch, 'git-shim');
+      fs.mkdirSync(early);
+      fs.writeFileSync(shim, `#!/bin/sh\ntouch ${marker}\nexec ${Bun.which('git')} "$@"\n`, { mode: 0o755 });
+      const fx = setup({ ...POLICY, land: { merged_checks: [`cp ${shim} ${early}/git && chmod +x ${early}/git`] }, min_gstack_version: LAND_KEY_VERSION });
+      fx.env.PATH = `${early}:${fx.env.PATH}`;
+      const pin = openPr(fx, '99');
+      moveMain(fx, 'other.txt', 'other\n');
+      const ok = land(fx, '99', pin, ['--allow-repo-commands']);
+      expect(ok.err).toBe('');
+      expect(ok.status).toBe(EXIT.ok);
+      expect(fs.existsSync(path.join(early, 'git'))).toBe(true);
+      expect(fs.existsSync(marker)).toBe(false);
+      expect(fx.read().mergeArgs).toBeDefined();
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
   }, 90_000);
 
   test('QUEUE_LAND_NOT_CLEAN: on a stale base the pin conflicts with main, so no merged check runs and nothing merges', () => {
@@ -1328,6 +1481,65 @@ describe('land --pin and verify --pin accept owner gate dispositions (GST-2491)'
     expect(gateLines(landed.out)).toEqual(gateLines(ok.out));
     expect(gateLines(landed.out)[1]).toContain(`accepted=${id}`);
   }, 180_000);
+
+  // Value: protects=a disposition recorded on the /ship machine reaches a lander on another machine through the READY note, still
+  //   only by the lander's explicit acceptance, and a note row edited after ready wrote it counts for nothing; fails_when=land on a
+  //   machine without the store refuses QUEUE_GATE_DISPOSITION (#4581 needed GSTACK_APPROVALS_DIR pointed at a hand copy), lands an
+  //   unaccepted disposition, or trusts an edited note row; seam=ready's note and pinAcceptance; no_claim=a security-class row, which
+  //   stays store-only so the public notes ref never carries its words
+  test('#4581: land on a machine without the store reads the signed row ready copied into the READY note', () => {
+    const fx = prep();
+    const head = openPr(fx, '44', { ready: false });
+    fx.repo.git('checkout', '-q', 'pr-44');
+    const rec = record(fx, '44', head);
+    expect(rec.status, rec.err).toBe(0);
+    const id = rec.out.split(' ')[1]!;
+    const ds = applied(fx, '44', head);
+    setBody(fx, '44', bodyWith('44', head, ds));
+    const pregate = path.join(fx.repo.root, 'pregate.json');
+    fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(fx.repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+    const ready = runBin(fx.repo, 'gstack-ship-queue', ['ready', '--pr', '44', '--pregate', pregate, '--base', 'main'], fx.env);
+    expect(ready.status, ready.out + ready.err).toBe(EXIT.ok);
+    fx.repo.git('checkout', '-q', '--detach', 'origin/main');
+    const elsewhere = { ...fx.env, GSTACK_STATE_ROOT: path.join(fx.repo.root, 'lander-state') };
+    const landAt = (env: Record<string, string>, extra: string[] = []) => runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '44', '--pin', head, '--base', 'main', ...extra], env);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-44', pin: head, env: { ...storeEnv(fx), GSTACK_STATE_ROOT: elsewhere.GSTACK_STATE_ROOT } }).applied).toEqual([]);
+    const bare = landAt(elsewhere);
+    expect([bare.status, bare.err]).toEqual([EXIT.refused, expect.stringContaining(`disposition ${id} is not accepted`)]);
+    expect(gateLines(bare.out)[0]).toBe(`GATE_DISPOSITION: ${gateDispositionText(ds[0]!)}`);
+    expect(gateLines(bare.out)[1]).toContain('ready_note_rows=1');
+    const landed = landAt(elsewhere, ['--accept-gate-disposition', id]);
+    expect(landed.status, landed.out + landed.err).toBe(EXIT.ok);
+    expect(landed.out).toContain('MERGED: #44 as ');
+  }, 180_000);
+
+  test('#4581: an edited READY note row counts for nothing, so land elsewhere still refuses', () => {
+    const fx = prep();
+    const head = openPr(fx, '45', { ready: false });
+    const rec = record(fx, '45', head);
+    expect(rec.status, rec.err).toBe(0);
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-45' }) as StoreLocation;
+    const row = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    const edited = { ...row, ask: row.ask.replace(REASON, 'the gate is fine') };
+    const env = { ...storeEnv(fx), GSTACK_STATE_ROOT: path.join(fx.repo.root, 'lander-state') };
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-45', pin: head, env, noted: [edited] }).applied).toEqual([]);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-45', pin: head, env, noted: [row] }).applied.map(d => d.approval)).toEqual([row.id]);
+    const other = appliedGateDispositions(fx.repo.work, { branch: 'pr-46', pin: head, env, noted: [row] }).applied;
+    expect(other).toEqual([]);
+  }, 120_000);
+
+  test('#4581: a newer store row for the same finding wins over an older READY note row', () => {
+    const fx = prep();
+    const head = openPr(fx, '47', { ready: false });
+    expect(record(fx, '47', head).status).toBe(0);
+    const loc = locate({ cwd: fx.repo.work, env: storeEnv(fx), branch: 'pr-47' }) as StoreLocation;
+    const older = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    const again = runBin(fx.repo, 'gstack-approvals', ['gate', '--branch', 'pr-47', '--finding', F, '--gate-id', G, '--head', head, '--reason', 'owner re-ruled after ready', '--words', 'Do it', '--by', 'Founderstar Captain (FOUN-1)'], fx.env);
+    expect(again.status, again.err).toBe(0);
+    const newer = JSON.parse(fs.readFileSync(loc.file, 'utf8').trim().split('\n').at(-1)!) as ApprovalRow;
+    expect(newer.id).not.toBe(older.id);
+    expect(appliedGateDispositions(fx.repo.work, { branch: 'pr-47', pin: head, env: storeEnv(fx), noted: [older] }).applied.map(d => d.approval)).toEqual([newer.id]);
+  }, 120_000);
 
   test('a row the lane appends to the store by hand, digest and all, still needs the lander: land refuses and prints it, a wrong id refuses, and the accepted id lands', () => {
     const fx = prep();

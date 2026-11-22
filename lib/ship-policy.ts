@@ -21,7 +21,7 @@ import { LAND_EXPLANATION, LAND_KEYS, landPolicyErrors, type LandPolicy } from '
 import { DOCS_ONLY_KEYS, docsOnlyPolicyErrors, unknownKeyWarnings, type DocsOnlyPolicy, type PolicyWarning } from './ship-policy-docs-only';
 import { RESULT_CODES, type ResultCodeName } from './result-codes';
 import { reviewErrors, type ReviewPolicy } from './ship-policy-review';
-import { READERS_EXPLANATION, readersErrors, type ReadersPolicy } from './ship-policy-readers';
+import { READERS_EXPLANATION, readersErrors, type ReadersPolicy } from './ship-policy-readers'; import { VENDORED_EXPLANATION, vendoredErrors, type VendoredPolicyRaw } from './review-vendored';
 import { cmpVersion, parseVersion } from './version-source';
 import { POLICY_COMPAT_FLOOR, BUMP_NEVER_KEY_VERSION, TRAIN_GATES_KEY_VERSION, POLICY_KEY_INTRODUCED, LAND_DOCS_ONLY_SKIP_KEY_VERSION, HISTORY_NO_REWRITE_KEY_VERSION, LAND_MERGE_COMMIT_PATHS_KEY_VERSION } from './ship-policy-keys';
 import { placeholderErrors, templateErrors } from './ship-policy-stamps';
@@ -70,6 +70,7 @@ export interface ShipPolicy {
   review_content_patterns: string[];
   /** How much review /ship runs (docs/review-policy.md#review-depth): the panel fallback, the risk reader's model, platform review and extra risk paths; read from the base only. */ review: ReviewPolicy;
   /** What /ship's readers may not fetch or open beyond the default fetch rule, and the one-line note every brief carries; the base governs, the head may only add (docs/ship-policy.md#readers). */ readers: ReadersPolicy;
+  /** The upstreams a repo vendors unchanged files from and the manifests that pin them; read from the base only (docs/vendored-code.md). */ review_vendored: VendoredPolicyRaw | null;
   /** Consumed by the plan reviews (D1). */
   pr_count: { default_pr_count: number; split_requires_owner: boolean };
   /** Maintainer logins for contributor-PR mode (E3); empty means "use push permission". */
@@ -198,7 +199,7 @@ export const DEFAULT_POLICY: ShipPolicy = {
   train: null,
   docs: null,
   base_red: null, merge: 'train', land: null, bookkeeping: [], mechanical_retake: [], test_code: [],
-  release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null }, ci_record_timeout_s: 600,
+  release_gate: null, readers: { forbid_fetch: [], forbid_paths: [], brief_note: null }, review_vendored: null, ci_record_timeout_s: 600,
   plan_record: 'off', docs_only: null,
 };
 
@@ -222,7 +223,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   review_exclude_paths: 'Git glob pathspecs, root-anchored and case-sensitive (`receipts/**`, `**/*.jsonl`; at most 64, 256 characters each, no leading `:` or `!`): /ship\'s reviewers leave out the data, docs, binary and .log files they match. Read from the base branch only, so a branch cannot exclude its own files. Code, gate paths, agent prose, config, executables, .gstack/ and .github/ files, gate-tagged or secret-bearing files and files a kept code or test file names by full path stay reviewed (docs/ship-policy.md#review-exclude-paths).',
   review_content_patterns: 'Git glob pathspecs in the same dialect as review_exclude_paths (`results/*/raw/**`): a file both keys match is content, so the exclusion leaves it out whatever its extension (.patch files, MANIFEST.sha256, extension-less licence texts). Explicit policy only: nothing is inferred, and a pattern here with no review_exclude_paths pattern over the same files excludes nothing. Read from the base branch only. Gate paths, agent prose, config, source files (.ts, .py, .sh and the like), executables, links, native binaries, .gstack/ and .github/ files, gate-tagged or secret-bearing files and files a kept code or test file names by full path stay reviewed (docs/ship-policy.md#review-content-patterns).',
   review: '{ panel?, reader_model?, platform?, risk_paths? }, read from the base branch only. panel: all (default: today\'s panel and loop everywhere) | risk (opt-in: today\'s panel at full depth on risk class, one reader on the rest) | off (one merged reader on risk class too); risk and off run one fix round. Their one-reader shape has not passed a no-loss replay yet (GSTA-258 C: FIX-METHOD). reader_model: the model of the one reader a lean depth runs, `lane` (default: the lane\'s own model, the native adversarial reader), `cross-family` or a model id. platform: off (default) | on: a docs or tests diff with no numeric, results or prereg claims whose PR carries the platform review (capy-ai[bot]) at the exact head skips /ship\'s readers (review_depth platform); never runtime code. risk_paths: globs of code paths that are risk class on top of R51\'s; data, docs and binary files under them stay out (docs/review-policy.md#review-depth).',
-  readers: READERS_EXPLANATION,
+  readers: READERS_EXPLANATION, review_vendored: VENDORED_EXPLANATION,
   pr_count: '{ default_pr_count, split_requires_owner }: the PR-count row in plan reviews.',
   maintainers: 'GitHub logins treated as maintainers by /review contributor mode; empty uses repository push permission.',
   stamp_files: 'The repo’s stamp rule: globs of the only files that may differ by a stamp (version file, manifests, plugin trees, the PR’s own since: rows). Empty keeps gstack’s per-file rules; set, it applies before every rule.',
@@ -240,7 +241,7 @@ export const POLICY_EXPLANATIONS: Record<PolicyKey, string> = {
   bookkeeping: 'Root-anchored globs of bookkeeping tables, each ending in .tsv, .csv or .txt and never under .gstack/ or .github/, for example ["scripts/*-baseline.tsv"]. An edit of at most 20 lines to a matching file after review binds, first touched or not, takes /ship finish\'s scoped reader instead of Steps 5–11.5; the reader still reads every changed row. Read from the base branch only. Empty (default) declares none.',
   mechanical_retake: MECHANICAL_EXPLANATION,
   test_code: 'Root-anchored globs of test code the built-in test names miss, never under .gstack/ or .github/, for example ["tests/**/*.gd"] for GDScript checks. /ship finish routes a matching file changed after review as test code (one scoped reader of its test hunks) instead of behavior, beside the built-in globs; shared helpers and fixtures stay behavior. Read from the base branch only. Empty (default) declares none.',
-  ci_record_timeout_s: 'Seconds `gstack-ship-release accept` lets one `gstack-evidence record-ci` run before it stops that lane, an integer of at least 60 (default 600). A value over 3600 is clamped to 3600, and accept prints the bound it used (`CI_RECORD_TIMEOUT:`). Raise it when record-ci runs long, for example a per_file remainder of CI-skipped files. Read from the base branch only.',
+  ci_record_timeout_s: 'Seconds one `gstack-evidence record-ci` may run before it stops that lane (gstack-ship-release accept and finish, gstack-ship-preflight Step 5), an integer of at least 60 (default 600). A value over 3600 is clamped to 3600, and accept prints the bound it used (`CI_RECORD_TIMEOUT:`). Raise it when record-ci runs long, for example a per_file remainder of CI-skipped files. Read from the base branch only.',
   plan_record: 'off (default) | warn | require. Whether `gstack-ship-queue ready` and `land` check the PR body\'s `Plan:` line (approved: <run id or row id> | exempt: <reason>) against the approval store (docs/ship-policy.md#plan-record). warn prints the PLAN: line and continues; require refuses a missing, unresolved or agent-approved plan. This key is read from the base branch only; with it off, GSTACK_PLAN_RECORD, then plan_record in <state root>/config.yaml (gstack-config set plan_record warn, for a repo that commits no .gstack/), then warn in a Capy session decide. On a public repo render --plan writes Plan: approved (record r-<id>) instead of the run id.',
   docs_only: '{ allow, deny?, tests? } or null, read from the base revision only (docs/pregate.md#repo-docs-paths). allow (1 to 16) adds human-docs globs to the docs-only allowlist (README.md, docs/**.md, changelog.d/*.md): each ends in .md, starts with a literal directory or file name and passes through no hidden, code, test or agent directory ("wiki/board/**.md"). deny (up to 64 globs) removes paths, built-in ones included. tests (up to 16 test file paths) are the repository\'s checks for those directories: the docs lane runs them, and a non-docs file that names an allowed directory ("wiki/", \'wiki\') refuses the change unless it is one of them, names one, or one names it. The built-in deny list (agent instructions, templates, prompts, preferences, tool configuration, pinned results, preregistrations, generated outputs) always wins, a path a script or test names stays pinned, and a pull request that edits this file is never docs-only. An unknown key under docs_only is a warning, and the classifier then ignores allow. Needs min_gstack_version.',
   merge: 'train (default) | direct. direct: the Captain lands each READY PR at its own green head with `gstack-ship-queue land --pr <n> --pin <sha>` (no train, no stamp commit; the PR leaves VERSION, the manifest version and the CHANGELOG at the base and the release stamps them), and train build refuses. train: merge trains as before (docs/ship-policy.md#land-direct).',
@@ -481,6 +482,7 @@ export function validatePolicy(raw: unknown, opts: { gstackVersion?: string } = 
   if ('review_content_patterns' in obj) excludeErrors('review_content_patterns', obj.review_content_patterns, errors);
   if ('review' in obj) reviewErrors(obj.review, errors, (k, v) => listErrors(k, v, errors, globError));
   if ('readers' in obj) readersErrors(obj.readers, errors, containedRelative);
+  if ('review_vendored' in obj) vendoredErrors(obj.review_vendored, errors, containedRelative);
   if ('release_tool' in obj && obj.release_tool !== null) {
     const t = obj.release_tool;
     if (typeof t !== 'string' || !t.trim()) errors.push({ code: 'POLICY_INVALID', path: 'release_tool', message: 'must be a non-empty string or null' });
@@ -653,6 +655,8 @@ export interface LoadedPolicy {
   errors: PolicyError[];
   /** Unknown keys under land and docs_only (policyWarnings): ignored, never errors. */
   warnings: PolicyWarning[];
+  /** A base policy's errors when all are in review_exclude_paths or review_content_patterns: both keys are dropped, which only widens review, and the rest applies (GST-3399). */
+  setAside?: PolicyError[];
   values: Record<string, string>;
 }
 export type PolicyLoad = LoadedPolicy | { unavailable: true; base: string; detail: string };
@@ -679,10 +683,11 @@ export function finish(rawText: string | null, source: PolicySource): LoadedPoli
   let raw: unknown;
   try { raw = JSON.parse(rawText); }
   catch (e: any) { return { policy: JSON.parse(JSON.stringify(DEFAULT_POLICY)), present: true, source, errors: [{ code: 'POLICY_INVALID', path: SHIP_POLICY_PATH, message: `not valid JSON: ${e.message}` }], warnings: [], values: {} }; }
-  const errors = validatePolicy(raw);
-  const merged = mergePolicy(errors.length ? null : (raw as Record<string, unknown>), source.label);
+  const all = validatePolicy(raw), exclusion = /^review_(exclude_paths|content_patterns)(\[|$)/;
+  const rest = source.kind === 'base' && all.length && all.every(e => exclusion.test(e.path)) ? Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([k]) => !exclusion.test(k))) : null;
+  const errors = rest && !validatePolicy(rest).length ? [] : all, read = errors.length ? null : (rest ?? raw) as Record<string, unknown>, merged = mergePolicy(read, source.label);
   const warnings = raw && typeof raw === 'object' && !Array.isArray(raw) ? policyWarnings(raw as Record<string, unknown>) : [];
-  return { policy: merged.policy, present: true, source, errors, warnings, values: merged.values };
+  return { policy: merged.policy, present: true, source, errors, warnings, values: merged.values, ...(rest && !errors.length ? { setAside: all } : {}) };
 }
 
 /**

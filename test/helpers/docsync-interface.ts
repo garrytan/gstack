@@ -6,7 +6,9 @@ import { freeTextFileBash } from '../../scripts/resolvers/free-text-file';
 
 /** /ship Step 14.5's own product-tree record: the path, the Entry's reset and the shared exclude line that keeps it out of git. */
 export const DOCS_AUDIT_RECORD = '.gstack/tmp/docs-audit.json';
-export const DOCS_AUDIT_RESET = `rm -f ${DOCS_AUDIT_RECORD}`;
+export const DOCS_AUDIT_RESET = `rm ${DOCS_AUDIT_RECORD} 2>/dev/null || true`;
+/** The reset Step 14.5 printed before Codex-safe cleanup (GST-3364); captured runs replay it. */
+export const DOCS_AUDIT_RESET_FORCED = `rm -f ${DOCS_AUDIT_RECORD}`;
 export const DOCS_TMP_EXCLUDE = freeTextFileBash([]).split('\n').find(line => line.startsWith('_EX='))!;
 /** The paths the Step 14.5 continue path may create in the product tree: the record, its directories and git's exclude file. */
 export const DOCS_AUDIT_RECORD_PATHS = ['.gstack', '.gstack/tmp', DOCS_AUDIT_RECORD, '.git/info/exclude'];

@@ -133,6 +133,7 @@
     { "file": "lib/evidence-bundle.ts", "movedFrom": "(new: portable evidence bundle, execution identity and ancestor check, C3/C7)" },
     { "file": "lib/tree-receipt.ts", "movedFrom": "(new: tree equality modulo stamps and per-gate reuse, C3)" },
     { "file": "lib/ship-receipt.ts", "movedFrom": "(new: the ship receipt block, PR-body placement and adoption census, C5)" },
+    { "file": "lib/ship-run-record.ts", "movedFrom": "(new: the /ship run record that replaces the bare run marker, its transition table and the gate lock, GST-3260)" },
     { "file": "lib/ship-receipt-docs.ts", "movedFrom": "(new: the receipt's docs record, the owner exception and the policy doc caps, kept out of lib/ship-receipt.ts; convergence lane PR 2)" },
     { "file": "lib/spend-ledger.ts", "movedFrom": "(new: the spend cap admission ledger reserve/settle/release and the file lock, B2)" },
     { "file": "lib/outside-voice-runner.ts", "movedFrom": "(new: the outside-voice adapter interface, model families and runner selection, B3)" },

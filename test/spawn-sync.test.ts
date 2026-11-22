@@ -3,7 +3,11 @@
  * reads as a finished command. Bun can return status 0 together with error
  * ENOBUFS and cut-off stdout when the child exits before the overflow kill
  * lands (GSTA-618, seen on Bun 1.4.2 and 1.4.4). A child that ignores SIGTERM
- * reproduces that every time, so these tests do not depend on timing.
+ * reproduces that every time, so these tests do not depend on timing, as long as
+ * its one write fits the Unix socket send buffer (212,992 bytes on Linux): a write
+ * that does not fit takes EPIPE when Bun closes its end, and the child exits 1
+ * within about 10 ms. 200,000 bytes sat 13 KB under that buffer and flaked on CI
+ * (GSTA-712), so the child writes 32 KiB, still far past maxBuffer.
  */
 import { describe, expect, test } from 'bun:test';
 import { spawnSync as rawSpawnSync } from 'node:child_process';
@@ -26,7 +30,7 @@ function realGit(env: NodeJS.ProcessEnv = process.env): string {
   return Bun.which('git', { PATH: env.PATH }) || '/usr/bin/git';
 }
 
-const OVERFLOW = "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(200000)); setTimeout(() => {}, 300);";
+const OVERFLOW = "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(32768)); setTimeout(() => {}, 300);";
 const overflowArgs = ['-e', OVERFLOW];
 
 describe('spawnSync (lib/spawn-sync.ts)', () => {

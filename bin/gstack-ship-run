@@ -1,0 +1,80 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-ship-run — this checkout's /ship run record (lib/ship-run-record.ts, docs/ship-policy.md#what-ends-a-run).
+ *
+ *   gstack-ship-run status
+ *   gstack-ship-run abandon --run <id> --by <lane or Captain> --reason <one line> [--sha256 <digest>] [--pr <n> [--repo <r>] | --body <file>]
+ *   gstack-ship-run skill-end --run <session id>
+ */
+import * as path from 'node:path';
+import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
+import { ghSpawnSync } from '../lib/gh-poll';
+import { resultLineWithDocs } from '../lib/result-codes';
+import { isGstackActorName } from '../lib/ruled-notes';
+import { BIN_DIR, runScriptSync } from '../lib/script-invocation';
+import { abandonRefusal, changeRunRecord, openRun, readRunRecord, RUN_ID } from '../lib/ship-run-record';
+import { spawnSync } from '../lib/spawn-sync';
+
+const HELP = `gstack-ship-run — this checkout's /ship run record (docs/ship-policy.md#what-ends-a-run)
+
+  status      RUN_STATE: run=<id> state=open|stopped|finished|abandoned|legacy beat_age=<m>m …, then NEXT: with the abandon
+              command while the run still blocks; an unreadable record prints its sha256 and SHIP_RUN_RECORD_UNREADABLE (exit 1)
+  abandon --run <id> --by <the lane or its Captain> --reason <one line> [--sha256 <digest>] [--pr <n> [--repo <r>] | --body <file>]
+              end a run that stopped working: the record becomes abandoned with who and why, and the open PR's runs block gets a
+              mark:abandoned entry (skipped with a note when no PR body is reachable). Refused (SHIP_RUN_ABANDON_REFUSED, exit 3)
+              while the run beat in the last 60 minutes, for another run's record, or once it ended; --by gstack is usage (2).
+              A bare marker from an older gstack (state legacy) goes at any age; an unreadable record goes as --run unknown with
+              the --sha256 status printed. It completes in one call: never rerun it after RUN_ABANDONED
+  skill-end --run <session id>
+              what gstack-skill-end calls: marks the record finished (ended_by skill-end) when it names that run
+
+${exitTableHelp()}`;
+
+function main(argv: string[]): number {
+  const [cmd, ...rest] = argv;
+  const flag = (name: string) => { const i = rest.lastIndexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
+  const cwd = process.cwd();
+  if (!cmd || cmd === '--help' || cmd === '-h') { process.stdout.write(HELP + '\n'); return cmd ? EXIT.ok : EXIT.usage; }
+  if (cmd === 'status') {
+    const read = readRunRecord(cwd);
+    const open = openRun(read);
+    if (read.kind === 'none') { process.stdout.write('RUN_STATE: none (no /ship run record on this checkout)\n'); return EXIT.ok; }
+    if (read.kind === 'unreadable') {
+      process.stdout.write(`RUN_STATE: run=unknown state=unreadable file=${read.file} sha256=${read.sha256 ?? 'unreadable'}\nNEXT: ${open!.detail}\n`);
+      process.stderr.write(resultLineWithDocs('gstack-ship-run status', 'SHIP_RUN_RECORD_UNREADABLE', `${read.file}: ${read.why}`) + '\n');
+      return EXIT.fail;
+    }
+    const rec = read.kind === 'record' ? read.record : undefined;
+    const age = rec ? `${Math.max(0, Math.floor((Date.now() - Date.parse(rec.beat_at)) / 60_000))}m` : 'unknown';
+    process.stdout.write(`RUN_STATE: run=${read.kind === 'record' ? read.record.run : read.run} state=${rec?.state ?? 'legacy'} beat_age=${age} started_at=${rec?.started_at ?? 'unknown'} head=${rec?.head.slice(0, 12) ?? 'unknown'}${rec?.stop ? ` stop=${rec.stop.head.slice(0, 12)}` : ''}${rec?.claim ? ` claim=${rec.claim.grant}` : ''}${rec?.ended_by ? ` ended_by=${rec.ended_by}` : ''}\n${open ? `NEXT: ${open.detail}\n` : ''}`);
+    return EXIT.ok;
+  }
+  if (cmd === 'skill-end') {
+    const run = flag('--run');
+    if (!run) { process.stderr.write('gstack-ship-run skill-end: --run <session id> is required\n'); return EXIT.usage; }
+    const done = changeRunRecord(cwd, 'skill-end', run, { ended_by: 'skill-end' });
+    process.stdout.write(done.ok ? `RUN_ENDED: run=${run} state=finished ended_by=skill-end\n` : `RUN_ENDED: none (${done.why})\n`);
+    return EXIT.ok;
+  }
+  if (cmd !== 'abandon') { process.stderr.write(`gstack-ship-run: unknown command ${cmd}\n${HELP}\n`); return EXIT.usage; }
+  const run = flag('--run'), by = flag('--by')?.trim(), reason = flag('--reason')?.trim();
+  if (!run || (run !== 'unknown' && !RUN_ID.test(run)) || !by || !reason || /[\x00-\x1f\x7f]/.test(by + reason)) {
+    process.stderr.write('gstack-ship-run abandon: --run <id> (unknown for an unreadable record), --by <the lane or its Captain> and --reason <one line> are required\n');
+    return EXIT.usage;
+  }
+  if (isGstackActorName(by)) { process.stderr.write('gstack-ship-run abandon: --by names gstack; the lane or its Captain abandons a run, never gstack itself\n'); return EXIT.usage; }
+  const done = changeRunRecord(cwd, 'abandon', run, { ended_by: by, reason }, { check: read => abandonRefusal(read, run, flag('--sha256')) });
+  if (!done.ok) { process.stderr.write(resultLineWithDocs('gstack-ship-run abandon', 'SHIP_RUN_ABANDON_REFUSED', `${done.why}; nothing changed`) + '\n'); return EXIT.refused; }
+  process.stdout.write(`RUN_ABANDONED: run=${run} from=${done.from} by=${by} at=${done.record?.beat_at}\n`);
+  const branch = spawnSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8', timeout: 10_000 }).stdout?.trim() ?? '';
+  const listed = flag('--body') || flag('--pr') || !branch ? undefined : ghSpawnSync(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number', '--jq', '.[0].number // empty'], { cwd, encoding: 'utf8', timeout: 60_000 });
+  const pr = flag('--pr') ?? listed?.stdout?.trim();
+  const target = flag('--body') ? ['--body', flag('--body')!] : pr && /^[1-9]\d*$/.test(pr) ? ['--pr', pr, ...(flag('--repo') ? ['--repo', flag('--repo')!] : [])] : undefined;
+  if (!target) { process.stdout.write(`RUN_ABANDON_PR: skipped (no open PR body reachable${branch ? ` for ${branch}` : ''}${listed?.status ? `: gh exit ${listed.status}` : ''}); the record is abandoned, so do not rerun abandon\n`); return EXIT.ok; }
+  const mark = runScriptSync(path.join(BIN_DIR, 'gstack-ship-receipt'), ['abandoned', ...target, '--run', run, '--by', by, '--reason', reason], { cwd, encoding: 'utf8', timeout: 120_000 });
+  process.stdout.write(mark.stdout ?? '');
+  if (mark.status !== 0) process.stdout.write(`RUN_ABANDON_PR: not recorded (${(mark.stderr ?? '').trim().split('\n')[0] || `gstack-ship-receipt abandoned exit ${mark.status}`}); the record is abandoned, so do not rerun abandon: add the entry with gstack-ship-receipt abandoned ${target.join(' ')} --run ${run} --by "<who>" --reason "<one line>"\n`);
+  return EXIT.ok;
+}
+
+process.exitCode = main(process.argv.slice(2));

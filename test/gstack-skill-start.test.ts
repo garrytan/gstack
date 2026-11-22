@@ -70,7 +70,7 @@ afterAll(() => {
  * PROACTIVE, SKILL_PREFIX, REPO_MODE, GSTACK_PLAN_MODE,
  * ARTIFACTS_SYNC, ...) and keys the script's OWN emission gates consume
  * (ACTIVATED, FIRST_TASK, LAKE_INTRO, TEL_PROMPTED, PROACTIVE_PROMPTED,
- * HAS_ROUTING, ROUTING_DECLINED, VENDORED_GSTACK, ...). Both classes stay in
+ * HAS_ROUTING, VENDORED_GSTACK, ...). Both classes stay in
  * the emitted contract: the echoes are the debugging surface for the gates,
  * and prose in older installed renders may still read them.
  */
@@ -96,7 +96,6 @@ const PROSE_REFERENCED_KEYS = [
   'UPDATE_CHECK',
   'LEARNINGS',
   'HAS_ROUTING',
-  'ROUTING_DECLINED',
   'VENDORED_GSTACK',
   'MODEL_OVERLAY',
   'GSTACK_PLAN_MODE',

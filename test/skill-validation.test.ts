@@ -779,6 +779,17 @@ describe('office-hours skill structure', () => {
     test(`contains forcing question: ${question}`, () => expect(content).toContain(question));
   }
 
+  test('builder mode never gets the startup reality check, commitment or memo route (GST-3024)', () => {
+    const sections = path.join(ROOT, 'office-hours', 'sections');
+    const builder = fs.readFileSync(path.join(sections, 'phase-2b-builder-brainstorm.md'), 'utf-8');
+    for (const startupOnly of ['real outcome', 'paying user', 'KILL/CONTINUE', '--kill-check', 'decision memo', 'Demand Reality']) {
+      expect(builder).not.toContain(startupOnly);
+    }
+    expect(fs.readFileSync(path.join(sections, 'phase-2a-startup-diagnostic.md'), 'utf-8')).toContain('### Reality Check');
+    const skeleton = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+    expect(skeleton).toMatch(/learning, having fun → \*\*Builder mode\*\* \(Phase 2B\)/);
+  });
+
   // Builder mode questions
   test('contains builder brainstorming questions', () => {
     expect(content).toContain('coolest version');
@@ -2039,7 +2050,7 @@ describe('Bug reports: the router has no bug-fix route, other surfaces keep thei
     expect(router).not.toContain('/investigate');
   });
 
-  test('the routing gstack offers for CLAUDE.md, and this repo\'s own, fix bugs directly behind a cause check or a failing test', () => {
+  test('the routing section gstack offered for CLAUDE.md, and this repo\'s own, fix bugs directly behind a cause check or a failing test', () => {
     const bugRule = readShippedSkillRouting().section.split('\n').find(line => line.startsWith('- Bugs/errors'));
     expect(bugRule).toMatch(/→ fix them directly: one read-only check of the cause, or a focused failing test first when the cause is unclear/);
     expect(bugRule).not.toContain('/investigate');

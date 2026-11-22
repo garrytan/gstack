@@ -8,13 +8,25 @@
       "id": "phase-2a-startup-diagnostic",
       "file": "phase-2a-startup-diagnostic.md",
       "title": "Phase 2A startup-mode diagnostic",
-      "trigger": "running the startup-mode diagnostic (Phase 2A: operating principles, pushback patterns, and the six forcing questions)"
+      "trigger": "running the startup-mode diagnostic (Phase 2A: the reality check, operating principles, pushback patterns, and the six forcing questions)"
+    },
+    {
+      "id": "phase-2c-pivot-discovery",
+      "file": "phase-2c-pivot-discovery.md",
+      "title": "Phase 2C pivot and discovery flows",
+      "trigger": "running a memo session (Phase 2C: no real outcome yet, a pivot goal, or a change of business direction; the pivot and discovery flows and the memo-session routing)"
     },
     {
       "id": "phase-2b-builder-brainstorm",
       "file": "phase-2b-builder-brainstorm.md",
       "title": "Phase 2B builder-mode brainstorm",
       "trigger": "giving any builder-mode response (Phase 2B: brainstorm questions and every suggestion, adjacent unlock or riff; holds the operating principles, the wild exemplar, the response posture and the generative questions)"
+    },
+    {
+      "id": "landscape",
+      "file": "landscape.md",
+      "title": "Phase 2.75 landscape search",
+      "trigger": "running the Phase 2.75 landscape search the user just allowed (queries per mode, the three-layer synthesis and the eureka check)"
     },
     {
       "id": "second-opinion",

@@ -63,7 +63,7 @@ interface Workdir {
  *   - bin/ scripts referenced by the preamble
  *   - A scoped GSTACK_HOME under the workdir so on-disk artifacts are
  *     contained and assertable
- *   - A CLAUDE.md with the ## Skill routing section gstack ships
+ *   - A CLAUDE.md with the ## Skill routing section gstack offered (older projects still carry it)
  *
  * `installSkills` lets each test pick the minimum surface (e.g., the
  * provenance-refusal scenario doesn't need /scrape).

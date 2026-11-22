@@ -118,7 +118,7 @@ environment variable should be set. gstack detects this and adjusts:
   irreversible options are never auto-chosen — the conservative choice wins
   and gets recorded in the completion report)
 - Suppresses interactive-onboarding instruction blocks at emission (upgrade
-  checks, telemetry prompts, feature discovery, routing injection, tips), so
+  checks, telemetry prompts, feature discovery, tips), so
   one-time prompts survive intact for the next human session
 - Suppresses the Conductor prose signal (`CONDUCTOR_SESSION: true`) — a
   spawned session inside a Conductor workspace auto-chooses instead of

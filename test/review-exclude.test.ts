@@ -215,6 +215,7 @@ describe('the base policy read', () => {
     expect(r.err).toContain('POLICY_SOURCE_UNAVAILABLE');
 
     const bad = census([':(icase)receipts/**']);
+    onBase(bad, { '.gstack/ship-policy.json': JSON.stringify({ review_exclude_paths: [':(icase)receipts/**'], review: { panel: 'some' }, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n' });
     const b = plan(bad);
     expect(b.status).toBe(EXIT.refused);
     expect(b.err).toContain('review_exclude_paths[0]');
@@ -472,7 +473,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     test('an unreadable base policy still refuses a receipt with no digest or an older one', () => {
       for (const basePolicy of [null, ['receipts/**']]) {
         const { repo, body } = shipped(CODE, basePolicy);
-        policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
+        policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**", "review": { "panel": "some" } }\n');
         const b = bind(repo, body);
         expect({ basePolicy, ok: b.ok, code: b.ok ? '' : b.code }).toEqual({ basePolicy, ok: false, code: 'POLICY_INVALID' });
       }
@@ -541,7 +542,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     }, 240_000);
 
     test('an unreadable or malformed base policy still refuses carry', () => {
-      for (const text of [JSON.stringify({ review_exclude_paths: 'receipts/**', min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n', '{ not json\n']) {
+      for (const text of [JSON.stringify({ review_exclude_paths: 'receipts/**', review: { panel: 'some' }, min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n', '{ not json\n']) {
         const { repo, body } = shipped(CODE, null);
         onBase(repo, { '.gstack/ship-policy.json': text });
         const refused = carry(repo, body);
@@ -600,6 +601,23 @@ describe('the receipt binds the selection the reviewers read', () => {
       expect(receiptIn(body).review_exclude!.digest).toBe(now);
     }, 240_000);
 
+    // Value: protects=a base whose list no longer validates writes the fallback record and never carries a receipt whose review
+    //   left a PR file out; fails_when=write drops review_exclude_fallback or carry accepts the narrower review (GST-3399);
+    //   seam=gstack-ship-receipt write and carry; no_claim=the queue's reading of the field
+    test('a base list that is set aside writes the fallback record and refuses carry of the narrower review', () => {
+      const { repo, body } = reviewed();
+      policyOnBaseOnly(repo, policyText(Array.from({ length: 65 }, (_, i) => `data/p${i}/**`)));
+      const w = writeWith(repo, []);
+      expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
+      const written = receiptIn(path.join(repo.root, 'body-w.md'));
+      expect(written.review_exclude).toBeUndefined();
+      expect(written.review_exclude_fallback!.errors).toEqual(['review_exclude_paths: more than 64 patterns']);
+      repo.git('merge', '-q', '--no-edit', 'origin/main');
+      const refused = carry(repo, body);
+      expect(refused.status).toBe(EXIT.refused);
+      expect(refused.err).toContain('review_exclude changed: recorded=');
+    }, 240_000);
+
     test('a policy edit that changes the selection over the PR files still refuses write, ready and carry', () => {
       const changes: Array<{ name: string; after: string[] }> = [
         { name: 'a new pattern keeps a PR file', after: ['receipts/**', 'lib/**'] },
@@ -630,7 +648,7 @@ describe('the receipt binds the selection the reviewers read', () => {
         expect({ extra, status: w.status }).toEqual({ extra, status: EXIT.fail });
         expect(w.err).toContain('field=review_exclude expected=');
       }
-      policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**" }\n');
+      policyOnBaseOnly(repo, '{ "review_exclude_paths": "receipts/**", "review": { "panel": "some" } }\n');
       const unreadable = writeWith(repo, ['--review-exclude', digest]);
       expect(unreadable.status).toBe(EXIT.refused);
       expect(unreadable.err).toContain('so its review_exclude_paths cannot be read');
@@ -886,6 +904,55 @@ describe('the receipt binds the selection the reviewers read', () => {
       refusedWith(writeWith(again), again, "docs/guide.md at this audit's Prepare snapshot is not the content audit a1 recorded");
       binds(twoAudits({ a1: { 'docs/x.md': '# x\n' }, rereview: true }), 'docs/new.md', '');
     }, 480_000);
+
+    // Value: protects=a re-audit that edits nothing at a base-merge head binds the reviewed digest through the audit it carries,
+    //   while a docs file the PR itself changes after that re-audit still refuses (GST-3260: gbrain #9975 refused RECEIPT_INVALID
+    //   field=review_exclude after audit a1, a base merge that added docs files and moved the policy from 5 to 6 patterns, and a
+    //   no-edit re-audit carrying a1, with no documented way out); fails_when=write stops at the empty re-audit without trying the
+    //   carried audit, reads a docs file only the base merge changed as an unnamed audit file, compares the rebuilt selection only
+    //   against the moved policy's digest, or drops a docs file the PR changed after the last audit; why_new=the GST-1616 rows
+    //   merge a base that adds no file under a pattern, keep the policy, and end on a re-audit with edits; seam=gstack-docs-candidate
+    //   snapshot --run --pre --carry, then gstack-ship-receipt write --review-exclude --docs-post --docs-pre; no_claim=a live /ship run
+    test('the #9975 shape: a no-edit re-audit after a base merge that adds docs files and a pattern binds through the carried audit', () => {
+      const FIVE = ['docs/**', 'test/fixtures/goldens/**', 'receipts/**', 'data/**', 'vendor/**'];
+      const merged = (after: Record<string, string>, reaudit = true) => {
+        const repo = makeFixtureRepo({ prefix: 'gstack-exclude-merged-', baseFiles: { '.gstack/ship-policy.json': policyText(FIVE), 'docs/guides/setup.md': '# setup\n', 'lib/index.js': "exports.k = 'docs/key-files.md';\n" } });
+        repos.push(repo);
+        commit(repo, BRANCH);
+        const reviewed = JSON.parse(plan(repo, ['--json']).out).review_exclude.digest as string;
+        const snapshot = (id: string, out: string, extra: string[] = []) => {
+          const file = path.join(repo.root, out);
+          const s = runBin(repo, 'gstack-docs-candidate', ['snapshot', '--out', file, '--audit-id', id, '--mode', 'edit', '--base', repo.git('rev-parse', 'origin/main'), '--docs', 'docs', '--run', RUN, ...extra]);
+          expect({ status: s.status, err: s.err }).toMatchObject({ status: 0 });
+          return file;
+        };
+        const pre1 = snapshot('a1', 'a1.json');
+        write(repo.work, 'docs/guides/setup.md', '# setup\n\nUpdated by the docs audit.\n');
+        const post1 = snapshot('a1', 'a1-post.json', ['--pre', pre1]);
+        commit(repo, {}, 'docs audit a1');
+        onBase(repo, { '.gstack/ship-policy.json': policyText([...FIVE, 'assets/**']), 'docs/architecture/key-files/commands-2-continued.md': '# commands, continued\n' });
+        const pre = reaudit ? snapshot('a2', 'a2.json') : pre1;
+        const post = reaudit ? snapshot('a2', 'a2-post.json', ['--pre', pre, '--carry', post1]) : post1;
+        if (Object.keys(after).length) commit(repo, after, 'docs edit after the re-audit');
+        return { repo, reviewed, pre, post, body: path.join(repo.root, 'body.md') };
+      };
+      const writeWith = (a: ReturnType<typeof merged>) => writeReceipt(a.repo, a.body, ['--review-exclude', a.reviewed, '--docs-post', a.post, '--docs-pre', a.pre, ...targetedAtHead(a.repo)]);
+      const a = merged({});
+      const w = writeWith(a);
+      expect({ status: w.status, err: w.status === EXIT.ok ? '' : w.err }).toEqual({ status: EXIT.ok, err: '' });
+      expect(w.err + w.out).toContain(`REVIEW_EXCLUDE_DOCS_AUDIT: reviewed=${a.reviewed.slice(0, 12)} `);
+      expect(w.err + w.out).toContain('files=docs/guides/setup.md audits=a1,a2 (');
+      expect(receiptIn(a.body).review_exclude!.digest).not.toBe(a.reviewed);
+      const late = merged({ 'docs/parity.md': '# parity\nedited after the re-audit\n' });
+      const refused = writeWith(late);
+      expect({ status: refused.status, written: fs.existsSync(late.body) }).toEqual({ status: EXIT.fail, written: false });
+      expect(refused.err).toContain(`recorded=${late.reviewed} `);
+      expect(refused.err).toContain("docs/parity.md changed after the snapshot's HEAD");
+      const both = merged({ 'docs/architecture/key-files/commands-2-continued.md': '# commands, continued\nedited by the PR after the base merge\n' }, false);
+      const refusedBoth = writeWith(both);
+      expect({ status: refusedBoth.status, written: fs.existsSync(both.body) }).toEqual({ status: EXIT.fail, written: false });
+      expect(refusedBoth.err).toContain("docs/architecture/key-files/commands-2-continued.md changed after the snapshot's HEAD");
+    }, 360_000);
   });
 });
 

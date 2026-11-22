@@ -110,9 +110,9 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
     pass(path.join(run, 'p1'), [['specialist/security', '- [INFORMATIONAL] lib/review-depth.ts:1a a CSS escape\n- [INFORMATIONAL] lib/review-depth.ts:1b a zero-padded reference\n- [INFORMATIONAL] lib/review-depth.ts:1c a split handler line'], ['red-team', CLEAN]]);
     pass(path.join(run, 'p2'), [['red-team', '[CRITICAL] lib/review-depth.ts:212 a stray quote hides an external href from the drawing check']]);
     pass(path.join(run, 'p2-voices'), [['outside-voice', OUTSIDE_CLEAN], ['adversarial-native', 'lib/review-depth.ts:300 CSS image-set() loads an outside image. FIXABLE\nRecommendation: fix because the drawing loads a remote URL']]);
-    expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 1, noted: 8, fixed: 4, fix_checks: 3, rounds: 5 });
+    expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 1, noted: 8, fixed: 4, fix_checks: 3, rounds: 2 });
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ passes: 2, blocking_found: 2, deferred: 0, noted: 8, fixed: 4, fix_checks: 3, rounds: 5, unrecorded: 1, ledgers_read: 3 });
+    expect(s).toMatchObject({ passes: 2, blocking_found: 2, deferred: 0, noted: 8, fixed: 4, fix_checks: 3, rounds: 2, unrecorded: 1, ledgers_read: 3 });
   });
 
   // #3837 (reconstruction): pass 1's row was logged before the outside voice's seven findings were classified, so they sit in the
@@ -131,12 +131,12 @@ describe('GST-951: the receipt counts every blocker the readers found', () => {
       ...seven.map((f, i) => `${i + 1}. ${f.fingerprint.split(':').slice(0, 2).join(':')} finding ${i + 1} Severity: High Blocks: yes`),
       'Recommendation: fix 1-6 because a self-grandfathered row skips every plan rule',
     ].join('\n')]]);
-    expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 0, noted: 11, fixed: 0, fix_checks: 3, rounds: 5 });
+    expect(loop(summary(repo, '--no-ledger'))).toMatchObject({ passes: 2, blocking_found: 0, noted: 11, fixed: 0, fix_checks: 3, rounds: 2 });
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ passes: 2, blocking_found: 7, noted: 11, fixed: 0, unrecorded: 7, ledgers_read: 2, rounds: 5 });
+    expect(s).toMatchObject({ passes: 2, blocking_found: 7, noted: 11, fixed: 0, unrecorded: 7, ledgers_read: 2, rounds: 2 });
     const line = runBin(repo, 'gstack-review-scope', ['summary', '--since', SINCE, '--run', run]);
     expect(line.out.trim()).toBe('REVIEW_LOOP: passes=2 blocking_found=7 deferred=0 noted=11 fixed=0 scope=frozen unrecorded=7 ledgers_read=2 fix_checks=3');
-    expect(parseReviewLoop(s)).toMatchObject({ blocking_found: 7, unrecorded: 7, ledgers_read: 2, rounds: 5 });
+    expect(parseReviewLoop(s)).toMatchObject({ blocking_found: 7, unrecorded: 7, ledgers_read: 2, rounds: 2 });
   });
 
   test('a blocker both sources hold counts once, and a disposed one is not unrecorded', () => {
@@ -266,7 +266,7 @@ describe('GST-986 item 5: fix-check passes and their findings count from the led
     step('fc2', [['fix-check', CLEAN]]);
     step('s11', [['targeted', '- [INFORMATIONAL] lib/stamp-only.ts:14 a comment names the old bound\n- [INFORMATIONAL] lib/stamp-only.ts:30 the side argument has no default test']]);
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ passes: 1, blocking_found: 2, fixed: 2, fix_checks: 2, rounds: 3, ledgers_read: 4 });
+    expect(s).toMatchObject({ passes: 1, blocking_found: 2, fixed: 2, fix_checks: 2, rounds: 1, ledgers_read: 4 });
     expect(s.unrecorded).toBeUndefined();
   });
 
@@ -283,7 +283,7 @@ describe('GST-986 item 5: fix-check passes and their findings count from the led
     step('p1', [['red-team', '[CRITICAL] lib/a.ts:5 a deferred defect outside the diff\n[CRITICAL] lib/b.ts:9 a fixed defect']]);
     step('fc1', [['fix-check', '[CRITICAL] lib/c.ts:3 the fix broke the caller']]);
     const s = loop(summary(repo, '--run', run));
-    expect(s).toMatchObject({ passes: 1, blocking_found: 3, deferred: 1, fixed: 0, fix_checks: 1, rounds: 2, unrecorded: 2 });
+    expect(s).toMatchObject({ passes: 1, blocking_found: 3, deferred: 1, fixed: 0, fix_checks: 1, rounds: 1, unrecorded: 2 });
   });
 
   // Value: protects=a blocker the last fix-check raises again is not fixed: only a fix-check after its last occurrence follows it
@@ -317,7 +317,7 @@ describe('GST-986 item 5: fix-check passes and their findings count from the led
     const r = summary(repo, '--run', run);
     expect(r.err).not.toContain('REVIEW_SCOPE_UNBOUND');
     const s = loop(r);
-    expect(s).toMatchObject({ passes: 2, blocking_found: 1, fixed: 1, fix_checks: 1, rounds: 3, ledgers_read: 3 });
+    expect(s).toMatchObject({ passes: 2, blocking_found: 1, fixed: 1, fix_checks: 1, rounds: 2, ledgers_read: 3 });
     expect(s.unbound).toBeUndefined();
   });
 });

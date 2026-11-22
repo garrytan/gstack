@@ -280,11 +280,12 @@ coverage, not as a clean outside review.
 
 The pass program (`lib/capy-review-pass.js`) picks the outside voice's model
 when `input.models['outside-voice']` is empty and the lane model is
-`anthropic/`: `openai/gpt-6.1-sol` at medium reasoning, the pairing the no-loss
-rounds ran. Any other lane must name a model. An outside voice from the same
+`anthropic/`: `openai/gpt-6.2-sol` at medium reasoning, the current Sol since
+R116 (the no-loss rounds ran on `openai/gpt-6.1-sol` at medium, which a lane can
+still name explicitly). Any other lane must name a model. An outside voice from the same
 provider as the lane model or the native voice stops the pass (`STOP:`) before
 either voice is created, including on a rerun, and each outside voice prints an
-`OUTSIDE_VOICE:` line saying whether it is the certified configuration. An
+`OUTSIDE_VOICE:` line saying whether it is the default configuration. An
 outside voice still running with no output after `input.stuckMs` (20 minutes by
 default) is stopped, and one that stops or fails without leaving findings, or
 finishes empty, is collected as unavailable coverage (`COLLECT_UNAVAILABLE:`)
@@ -1097,9 +1098,11 @@ opening line is not. The reader's read is a trail row with phase `trail-read`
 whose decision names the reader (`gstack-decision-trail <file> trail-read
 "openai/gpt-6.2-sol (Subagent 4)" <why> <evidence> <flags>`).
 `gstack-ship-queue ready --trail <file>` prints the opening line from that row
-for a risk-class receipt, or `MISSING: cross-family trail read` when the trail
+for a risk-class receipt, then that row's flags (`Flags (trail row <n>): …`, or
+`No flags (trail row <n>)`), or `MISSING: cross-family trail read` when the trail
 has none, and one `TRIAL_MERGES` line per open PR that shares a file, from
-`git merge-tree` at both heads. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
+`git merge-tree` at both heads. A PR from a fork is labelled as an outside PR
+and never fetched or merged. `decisions.jsonl` stays the typed record `gstack-artifact` validates; the
 trail is the plain one a person reads, and `column -s$'\t' -t decisions.tsv`
 renders it in a terminal.
 

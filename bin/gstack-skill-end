@@ -69,6 +69,8 @@ case "$TEL_START" in ''|*[!0-9]*) ;; *) _TEL_DUR=$(( _TEL_END - TEL_START )) ;; 
 # Release the workflow lease run gstack-skill-start opened (SESSION_ID starts
 # with its harness pid), so a finished run stops blocking gstack-upgrade (GST-1205).
 [ -n "$SESSION_ID" ] && "$_BIN/gstack-lease" release --pid "${SESSION_ID%%-*}" --run "$SESSION_ID" >/dev/null 2>&1 || true
+_SHIP_RUN=$(git rev-parse --git-path gstack-ship-run 2>/dev/null || true)
+[ -n "$SESSION_ID" ] && [ -n "$_SHIP_RUN" ] && [ -f "$_SHIP_RUN" ] && "$_BIN/gstack-ship-run" skill-end --run "$SESSION_ID" >/dev/null 2>&1 || true
 
 # Record completion before the final drain, including its durable enqueue.
 # The normal sync gates still decide publication: full may sync timelines,

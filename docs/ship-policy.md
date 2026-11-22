@@ -77,18 +77,19 @@ branch that changes the policy.
 | `review_content_patterns` | git glob pathspecs | `[]` | Files that `review_exclude_paths` also matches and that count as content whatever their extension (`.patch` files, `MANIFEST.sha256`, extension-less licence texts), so the exclusion leaves them out. Source code, agent prose, config and the other keep rules still keep a matched file in review. Explicit policy only; a pattern here with no `review_exclude_paths` pattern over the same files excludes nothing. Read from the base only. See [review_content_patterns](#review-content-patterns). Needs `min_gstack_version`. |
 | `review` | `{ panel?, reader_model?, platform?, risk_paths? }` | `{ all, lane, off, [] }` | Who does `/ship`'s review, read from the base only; see [Who reads](review-policy.md#who-reads-r65-the-base-policys-review-key). `panel`: `all` (today's panel on every class) \| `risk` \| `off` (the opt-in one-reader shapes); `reader_model`: `lane`, `cross-family` or a model id; `platform`: `off` \| `on` (a docs or tests diff with no numeric, results or prereg claims whose PR carries capy-ai[bot]'s review at the exact head skips the readers); `risk_paths`: globs of code paths that count as risk class `policy`. Introduced at 1.94.30.0; needs `min_gstack_version` when set to a non-default value. |
 | `readers` | `{ forbid_fetch?, forbid_paths?, brief_note? }` | `{ [], [], null }` | What `/ship`'s readers may not reach beyond the fetch rule every brief carries; see [readers](#readers). Read from the base; the head may add `forbid_fetch` entries, never remove one. Needs `min_gstack_version`. |
+| `review_vendored` | `{ upstreams, manifests }` or `null` | `null` | The repositories this repo copies unchanged files from (https URLs, or `{ url, branches }`) and the manifests that pin each copied file to a path at a commit. `gstack-vendored-verify` checks every pinned file is byte-for-byte that upstream file at a commit on the upstream's default branch or a tag; see [vendored-code.md](vendored-code.md). Read from the base only. Needs `min_gstack_version`. |
 | `min_gstack_version` | version or `null` | `null` | The oldest gstack that may read the file; see the compatibility rule above. |
 | `docs` | `{ caps: [{ path, max_bytes }] }` or `null` | `null` | Documentation files with a byte cap. `/ship` Step 14.5 runs `gstack-ship-receipt docs-caps --base <base>` (the caps come from `origin/<base>`'s policy, never the branch's copy; `--policy <file>` is for a repository bootstrapping its policy) before the verification gate and prints one `DOCS_CAP: <path> <bytes>/<max> ok\|over` line per cap; any `over` (an absent file counts) exits 1 and blocks the ship until the file is trimmed or the cap raised on the base branch (`DOCS_AUDIT_BLOCKED`). At most 64 caps, each path contained. See [the ship receipt](#ship-receipt). Needs `min_gstack_version`. |
 | `train` | `{ gate_workflow, free_workflow, full_gate_check, record_artifact, max_size, fill_hours, screen_selection, trial_reservation_usd, land? }`, `{ gates, land, max_size, fill_hours }` or `null` | `null` | Turns on [merge trains](#run-a-merge-train), read from the base revision only. Every field is required and an unknown field is `POLICY_INVALID`: `max_size` 1 to 6, `fill_hours` above 0 and at most 24, `screen_selection` `gstack-paid` \| `none`, `trial_reservation_usd` above 0 and at most 100. A block with `gates` ([any repository](#train-gates)) takes `max_size` 1 to 5 and needs `min_gstack_version` at least `TRAIN_GATES_KEY_VERSION`. `null` keeps the per-PR queue exactly as it is. Needs `min_gstack_version`. |
 | `merge` | `train` \| `direct` | `train` | `direct` lands each READY PR at its own green head with [`land --pr <n> --pin <sha>`](#land-direct): no train and no stamp commit, and `train build` refuses. A PR then leaves VERSION, the `package.json` version and the CHANGELOG at its merge base, and the release sets them. Needs `changelog_fragments`, and the stamping `land --pr <n>` refuses under it. `train` keeps merge trains. Read from the base revision only. Needs `min_gstack_version`. |
-| `land` | `{ merged_checks?, docs_only_skip?, merge_commit_paths? }` or `null` | `null` | Under `merge: direct`, the shell commands (1 to 16, one line of at most 512 characters each, 15 minutes each) [`land --pin`](#land-direct) runs on the pin merged onto the base tip when the base moved past the pin's merge base; it lands only when every one exits 0. They are repo commands, so land runs them only with `--allow-repo-commands`, never under `--dry-run`. `null` lands a stale base untested with a `STALE_BASE: warn` line. `docs_only_skip` lists `merged_checks` commands to skip for a docs-only pin ([pregate.md](pregate.md#docs-only)) and needs `min_gstack_version` at its own release (`LAND_DOCS_ONLY_SKIP_KEY_VERSION`), because older releases refuse it. `merge_commit_paths` (1 to 64 git glob pathspecs, no `..`) makes every land form keep a merge commit, with the plain subject and body, for a PR that changes a matching path, such as an eval results PR whose run records point to its own commits; with it, `merged_checks` may be left out, and it needs `min_gstack_version` at its own release (`LAND_MERGE_COMMIT_PATHS_KEY_VERSION`). Any other key under `land` is a warning, ignored. Read from the base revision only. Needs `min_gstack_version`. |
+| `land` | `{ merged_checks?, docs_only_skip?, merge_commit_paths?, merged_ci? }` or `null` | `null` | Under `merge: direct`, the shell commands (1 to 16, one line of at most 512 characters each, 15 minutes each) [`land --pin`](#land-direct) runs on the pin merged onto the base tip when the base moved past the pin's merge base; it lands only when every one exits 0. They are repo commands, so land runs them only with `--allow-repo-commands`, never under `--dry-run`. `null` lands a stale base untested with a `STALE_BASE: warn` line. `docs_only_skip` lists `merged_checks` commands to skip for a docs-only pin ([pregate.md](pregate.md#docs-only)) and needs `min_gstack_version` at its own release (`LAND_DOCS_ONLY_SKIP_KEY_VERSION`), because older releases refuse it. `merge_commit_paths` (1 to 64 git glob pathspecs, no `..`) makes every land form keep a merge commit, with the plain subject and body, for a PR that changes a matching path, such as an eval results PR whose run records point to its own commits; with it, `merged_checks` may be left out, and it needs `min_gstack_version` at its own release (`LAND_MERGE_COMMIT_PATHS_KEY_VERSION`). `merged_ci` (`{ workflow, profile }`) dispatches that workflow on the merged commit after any `merged_checks` pass and lands only when its run passes the named run profile of `.gstack/pregate.json` ([land --pin](#land-direct)); with it, `merged_checks` may be left out, and an older gstack ignores it with a warning. Any other key under `land` is a warning, ignored. Read from the base revision only. Needs `min_gstack_version`. |
 | `docs_only` | `{ allow, deny?, tests? }` or `null` | `null` | Human-docs paths beyond `README.md`, `docs/**.md` and `changelog.d/*.md` for the [docs-only class](pregate.md#repo-docs-paths) (`{ "allow": ["wiki/board/**.md"] }`). `allow` (1 to 16) takes narrow Markdown globs: each ends in `.md`, starts with a literal directory or file name, and passes through no hidden, code, test or agent directory; `**`, `*`, `*.md` and patterns naming agent files are `POLICY_INVALID` with an example of a narrow one. `deny` (up to 64 globs) removes paths, built-in ones included. `tests` (up to 16 test files) are the repository's checks for those directories: the docs lane runs them, and a non-prose file that reads an allowed directory refuses the class unless it is tied to one; a listed test missing from the branch refuses it too. The built-in deny list always wins. Any other key under `docs_only` is a warning, and the classifier then ignores `allow`. Read from the base revision only; a pull request that edits this file is never docs-only. Needs `min_gstack_version`. |
 | `release_gate` | `{ cadence_hours, gate_workflow, branch, stable_ref, check_name, on_red, bisect_spend_cap_usd }` or `null` | `null` | One full paid gate on main every `cadence_hours` (8 to 168) instead of the per-push main backstop, feeding the stable release; see [release_gate](#release-gate). Every field is required: `on_red` is `hold-release`, `bisect_spend_cap_usd` 0 to 500 (0 skips the bisect). `null` keeps the per-push backstop. Needs `min_gstack_version`. |
 | `bookkeeping` | glob list | `[]` | <a id="bookkeeping"></a>Root-anchored globs of bookkeeping tables a verify or ratchet step rewrites (size baselines, serial lists, limits), each ending in `.tsv`, `.csv` or `.txt` and never under `.gstack/` or `.github/` (`["scripts/*-baseline.tsv"]`). A matching file changed at most 20 lines after review binds, first touched or not, takes finish's [one scoped reader](review-policy.md#bounded-post-review-edits) instead of Steps 5–11.5; the reader still reads every changed row. Read from the base revision only. Needs `min_gstack_version`. |
 | `mechanical_retake` | `[{ path, template, fields, regen }]` | `[]` | A version or rules constant a branch may have to retake after a base merge, next to `bookkeeping`'s bounded kind: `path` is one literal file, `template` the whole line with one `{n}` (`const RULE_NUMBERS := {n}`), `fields` the `{ glob, field }` fixture fields that carry the same value, and `regen` the [`.gstack/generated.json`](pregate.md#generated) entry ids whose command regenerates its goldens. A post-review edit finish proves to be only that retake routes as `mechanical=`, with no reader and no review round; see [mechanical retakes](#mechanical-retake). At most 8 constants and 16 fields or ids each; no glob, `..`, `.gstack/` or `.github/` path. Read from the base revision only. Needs `min_gstack_version`. |
 | `test_code` | glob list | `[]` | Root-anchored globs of test code the built-in test names miss, never under `.gstack/` or `.github/`, and never matching a file there (`["tests/**/*.gd"]` for GDScript checks). A matching file changed after review routes as test code, one scoped reader of its test hunks, instead of behavior, beside the built-in globs; shared `helpers/` and `fixtures/` files stay behavior. See [test code and Godot UID sidecars](#test-code). Read from the base revision only. Needs `min_gstack_version`. |
 | `plan_record` | `off` \| `warn` \| `require` | `off` | <a id="plan-record"></a>Whether `gstack-ship-queue ready` and `land` (direct, stamp and train land) and `/ship`'s `gstack-ship-release finish --plan "<line>"` check the PR body's `Plan:` line (GST-1751). The line is the brief's (`Plan: approved: <run id or row id>`, `Plan: exempt: <reason>` or `Plan: required`), written under `## Approvals` by `gstack-approvals render --plan`. `ready` resolves it with lib/plan-record.ts against every branch's approval rows on the lane machine: a run id needs the newest gate revision's plan approval answered `approved`, in the owner's words, with no decision of that revision left unanswered; a row id needs an approved row that is not a ruling or grant, and a row from an autoplan run stands for that run's gate the same way; a broken or unreadable store refuses (`PLAN_STORE_UNAVAILABLE`) and never throws, and under `off` changes nothing; an exemption must be one crew/docs/captain.md lists or `crew:<rule>`; a diff of changelog fragments only needs no line. `finish` resolves the brief's line the same way before its first stage. `ready` (train ready included) prints `PLAN:` and writes the resolved record into the READY note; `land` checks that the note carries the PR body's current line and never reads the store. `warn` prints and continues; `require` refuses (`PLAN_RECORD_MISSING`, `PLAN_UNRESOLVED`, `PLAN_NOT_APPROVED`, `PLAN_EXEMPT_UNKNOWN`, `PLAN_STORE_UNAVAILABLE`, `QUEUE_PLAN_MISMATCH`). When this key is `off` or absent, the mode comes from `GSTACK_PLAN_RECORD` (a crew's opt-in), then `plan_record` in `<state root>/config.yaml` (`gstack-config set plan_record off|warn|require`: the untracked source for a repo that commits no `.gstack/`; a typo is rejected, and the `PLAN:` line names the file), then `warn` in a Capy session (`GSTACK_CAPY=1`), then `off`; a machine's key never loosens a tracked `warn` or `require`. A repo with no tracked policy gets the check at `ready` and `finish` only: ready writes no READY note there and `land` refuses before its plan step. Capy's state root does not survive a fresh machine, so a Capy crew that wants more than `warn` sets `GSTACK_PLAN_RECORD` in its project env. On a public or unknown-visibility repository `render --plan` writes `Plan: approved (record r-<12 hex>)`, an opaque id of the approval row (opaque, not secret), so no run id, row id or path reaches the PR body or the READY note pushed to origin; `ready` resolves it by hashing every row id it reads and then applies the row-id rules, and render refuses with no output when an approved line does not resolve. gstack never infers a feature from the diff, title or changelog. Read from the base revision only. Needs `min_gstack_version`. |
-| `ci_record_timeout_s` | integer seconds, at least 60 | `600` | <a id="ci-record-timeout"></a>How long `gstack-ship-release accept` lets one `gstack-evidence record-ci` run before it stops that lane. A value over 3600 is clamped to 3600. accept prints the bound it used as `CI_RECORD_TIMEOUT: <n>s (default)`, `(origin/<base> ci_record_timeout_s)` or `(… <value> is over the 3600s ceiling)`. Raise it when record-ci runs long, for example when it reruns a per_file remainder of CI-skipped files here (harness-evals #271 needed about 745 s). Read from the base revision only, so a branch can't raise its own bound. Needs `min_gstack_version`. |
+| `ci_record_timeout_s` | integer seconds, at least 60 | `600` | <a id="ci-record-timeout"></a>How long one `gstack-evidence record-ci` may run before it stops that lane, in `gstack-ship-release accept` and finish and in `gstack-ship-preflight`'s Step 5. A value over 3600 is clamped to 3600. accept and preflight print the bound they used as `CI_RECORD_TIMEOUT: <n>s (default)`, `(origin/<base> ci_record_timeout_s)` or `(… <value> is over the 3600s ceiling)`. Raise it when record-ci runs long, for example when it reruns a per_file remainder of CI-skipped files here (harness-evals #271 needed about 745 s). Read from the base revision only, so a branch can't raise its own bound. Needs `min_gstack_version`. |
 | `base_red` | `{ setup, select, timeout_sec }` or `null` | `null` | How `/ship` Step 5 proves a failure is the base branch's own before pausing on it; see [base_red](#base-red). Read from the base revision only. Needs `min_gstack_version`. |
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version (under `merge: direct`, the [release PR](#release-stamp) does). `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
 
@@ -1464,9 +1465,21 @@ whose content files `/ship`'s reviewers leave out:
 the base commit it already resolved (`origin/<base>`, or `<base>`), never
 the branch's copy, so a branch cannot exclude its own files. A branch that adds
 the key gets `REVIEW_EXCLUDE: none (head sets review_exclude_paths; it applies
-after it lands on <base>)` and a normal review. A base policy that does not
-validate stops the plan (`POLICY_INVALID`), and a base git cannot read stops it
-(`POLICY_SOURCE_UNAVAILABLE`); neither turns exclusion off quietly.
+after it lands on <base>)` and a normal review. A base policy whose only errors
+are in `review_exclude_paths` or `review_content_patterns` (65 patterns, say,
+past the limit of 64) does not stop the plan: both keys are set aside, every
+file is reviewed as if the base excluded nothing, and every other key, the
+readers' `forbid_paths` included, applies as committed. The plan prints
+`REVIEW_EXCLUDE: fallback (WARNING: …)` naming each error and the fix, on
+stdout and stderr, `--json` carries `review_exclude.state: "fallback"`, the
+ship receipt records it as `review_exclude_fallback`, and every other step that
+reads the base policy (`gstack-ship-policy show-effective`, which prints the
+same warning on stderr, the pregate, the receipts, the merge step) reads it the
+same way, so the PR that corrects the list can be reviewed and land.
+`gstack-ship-policy validate` still reports the list as invalid. The PR's own
+list still doesn't count until it lands (GST-3399). Any other
+error in a base policy stops the plan (`POLICY_INVALID`), and a base git cannot
+read stops it (`POLICY_SOURCE_UNAVAILABLE`); neither turns exclusion off quietly.
 
 **Land the setting first.** Because the branch's copy doesn't count, a PR that adds bulk
 data lands its `review_exclude_paths` entry, and any secrets `allowlist` entries it needs
@@ -1514,8 +1527,13 @@ harness that writes the receipts names it) keeps nothing: the plan prints an
 informational `REVIEW_EXCLUDE_REFERENCE:` line naming the code that reads the
 folder. A data file never keeps another file: a results manifest such as
 `docs/receipts-manifest.json` lists every receipt by full path, and it is
-content, not a program that reads them. The name scan is an uncapped `git grep -F -f` of the candidates'
-paths over the consumer files alone (the head's and the merge base's trees filtered to code and tests and written into a
+content, not a program that reads them. A hash or pin manifest names nothing either (HARN-64:
+harness-evals #538's `pins.sha256` listed all 2,140 receipts): a file whose every non-blank line is a
+hex digest of 32 to 128 characters, one or two spaces, an optional `*` and a path made only of letters,
+digits and `. / _ - + @ ~`, as `sha256sum` writes it. Any other line, code or prose, makes it a consumer
+again, and its lines still count for the secret risk class. The name scan is an uncapped `git grep -F -l -f` of the candidates'
+paths, which lists the consumer files holding any of them, followed by a read of each such file
+(`git grep -o` with thousands of paths ran past its 120-second bound on #538), over the consumer files alone (the head's and the merge base's trees filtered to code and tests and written into a
 scratch index that one `git grep` per tree reads), never the data under the patterns, so its cost follows the code a results PR
 can be read by and not the receipts it adds (GST-1435), and its git calls stay the same however many files the tree holds
 (GST-1442); it is not the collector's capped consumer scan.
@@ -1690,7 +1708,7 @@ recorded by accident, but it does not read the review ledger: a write given the
 `expected=` digest passes without a review, and only the review run shows that
 the reviewers read that selection.
 Write, carry and the queue make one exception (GST-1408, GST-1415, GST-1434, GST-1446): when the digests differ but the recorded selection and HEAD's give the PR's files the same selection, meaning the same applied patterns, the same excluded files and the same kept files with their reasons, write records HEAD's digest, carry carries the receipt and records HEAD's digest, and the queue (`ready`, train build, land) binds it. So a pattern the base gains, adds, removes or reverts that changes nothing about the PR's files does not void the review. No recorded selection (`none`) counts as the empty one. A receipt's record counts only when its digest is built from its list hash. Write gets only a digest, so it rebuilds the recorded selection: the digest binds when the `review_exclude_paths` the base held at some commit that changed the policy file, combined with HEAD's list hash, gives that digest. It prints `REVIEW_EXCLUDE_POLICY_MOVED:`. A digest no such policy gives, an omitted `--review-exclude`, a selection that differs over the PR's files and an unreadable base policy still refuse.
-Write makes one exception for Step 14.5's docs audit, which runs after the review (GST-1429): with `--docs-post <audit-id>-post.json` it accepts the reviewed digest when that digest is HEAD's selection with every file under a pattern that changed since the snapshot's HEAD reset to it, each such file is uncommitted in the snapshot with the content HEAD holds, each is excluded or kept only because code names it, and every other file is excluded or kept alike on both sides. With `--docs-pre <Prepare snapshot>` only the files whose content changed between the audit's two snapshots reset, to their Prepare content, so uncommitted docs the reviewers read stay as they are; content compares as git stores it or as it checks out (autocrlf, filters). It prints `REVIEW_EXCLUDE_DOCS_AUDIT:` and records HEAD's digest. Any other change to the selection, an audit file the exclusion keeps for another reason, an edit after the snapshot and a missing or unreadable snapshot still refuse. When one `/ship` run audits twice (a re-audit after a base merge and restamp), every snapshot names the run (`--run <invocation record>`), each post snapshot names its Prepare snapshot (`--pre`, recording the files the audit edited), and the re-audit's post snapshot carries the earlier one (`--carry <earlier -post.json>`; GST-1616). Write then also resets each file an earlier audit of the run edited, to its content before that audit, when HEAD (or the re-audit's Prepare snapshot) holds what the audit left; a file no audit edited still refuses, and a carried audit of another run is refused by the snapshot and by write.
+Write makes one exception for Step 14.5's docs audit, which runs after the review (GST-1429): with `--docs-post <audit-id>-post.json` it accepts the reviewed digest when that digest is HEAD's selection with every file under a pattern that changed since the snapshot's HEAD reset to it, each such file is uncommitted in the snapshot with the content HEAD holds, each is excluded or kept only because code names it, and every other file is excluded or kept alike on both sides. With `--docs-pre <Prepare snapshot>` only the files whose content changed between the audit's two snapshots reset, to their Prepare content, so uncommitted docs the reviewers read stay as they are; content compares as git stores it or as it checks out (autocrlf, filters). It prints `REVIEW_EXCLUDE_DOCS_AUDIT:` and records HEAD's digest. Any other change to the selection, an audit file the exclusion keeps for another reason, an edit after the snapshot and a missing or unreadable snapshot still refuse. When one `/ship` run audits twice (a re-audit after a base merge and restamp), every snapshot names the run (`--run <invocation record>`), each post snapshot names its Prepare snapshot (`--pre`, recording the files the audit edited), and the re-audit's post snapshot carries the earlier one (`--carry <earlier -post.json>`; GST-1616). Write then also resets each file an earlier audit of the run edited, to its content before that audit, when HEAD (or the re-audit's Prepare snapshot) holds what the audit left; a file no audit edited still refuses, and a carried audit of another run is refused by the snapshot and by write. After a base merge, write does not count a file under a pattern that only the merged base changed (the PR's own three-dot diff leaves it alone), a re-audit that edited nothing still binds through the audits it carries, and the rebuilt selection binds the reviewed digest even when the merge moved the base policy (for example, added a pattern); a docs file the PR itself changes after the last audit still refuses (GST-3260).
 
 **Adopting it.** (1) Open a PR on the base that adds the patterns and
 `min_gstack_version` at least `REVIEW_EXCLUDE_KEY_VERSION`, and ship it like any
@@ -1783,6 +1801,21 @@ construction:
    the run and names the finding (path, severity, problem) for the owner instead
    of a third round; the owner may grant one scoped fix-check.
 
+<a id="what-ends-a-run"></a>
+**What ends a /ship run (GST-3260).** Preflight opens the run in the checkout's
+run record (`git rev-parse --git-path gstack-ship-run`), and while it is open a
+full preflight, round grants, gate dispositions, lane exceptions and rulings
+without `--owner-ref` stop. Only gstack's commands end it: `finish` removes the
+record (only when the open PR's body names that run), `gstack-ship-receipt stop`
+marks it stopped (it may then record the fix-check grant for its own stop, once
+per run, and a new run's preflight replaces it), `gstack-skill-end` marks it finished on any
+outcome, and `gstack-ship-run abandon` ends a run that stopped working, never
+within 60 minutes of its last beat. No timer ends a run. A bare marker from an
+older gstack reads as `legacy` and an unreadable record as `unreadable`; both
+block until abandoned. The record guards against mistakes, such as a base merge
+under a run's readers or a run granting itself a round; it is not proof of who
+the owner is.
+
 <a id="ruled-notes"></a>
 **Ruled notes (GST-1537).** R51's other answer to an open finding is the owner's
 ruling that it ships as a disclosed note, with the note listed. The owner records
@@ -1802,7 +1835,8 @@ a later head is a new row. Its `by` is the ruler and its `recorded_at` the time.
 newline or control character, a `--by` naming gstack (any `--by` that starts with
 `gstack`, except a crew named `GStack <Name>` such as `GStack Minder`, which is a
 person's crew; `gstack` and `gstack no-stop default (K1)` are always refused), and a ruling while this
-checkout holds an open /ship run's marker (the lane's own runner) unless the lane
+checkout holds an open /ship run's record (the lane's own runner; a stopped, legacy or
+unreadable record counts, [what ends a run](#what-ends-a-run)) unless the lane
 relays the owner's words with `--owner-ref <thread code>:<message id or timestamp>`
 (on Capy the owner, a Captain, has no session on the lane's checkout). A relayed row's
 source is `relayed:<owner ref>`, and its `RULED_NOTE:`, receipt entry and `Ruled note:`
@@ -1919,9 +1953,10 @@ The row is an approved `gstack-approvals` row with scope `gate_disposition
 trimmed first), a `--head` that is not a commit, a `--by` naming gstack (as for
 `rule`: a `GStack <Name>` crew may record), a row that
 `dispositions` would not list (a head that is not 40 hex, for one), and any call
-while a /ship run is open on the branch in any worktree of the repository: its
-marker counts while its lease is open, the same test preflight uses, so a run parked
-before finish stops counting once its 120-minute lease ends. It finds those worktrees
+while a /ship run is open on the branch in any worktree of the repository: each
+worktree's run record decides ([what ends a run](#what-ends-a-run)), so an open,
+stopped, legacy or unreadable record counts, a finished or abandoned one does not,
+and no timer ends a run. It finds those worktrees
 through the git common dir, and it checks and appends under a lock there that
 /ship's preflight also takes to write its marker. `add` refuses the scope and
 `--source gate`, so `gate` is the only writer. A row counts only when it has every
@@ -1961,8 +1996,16 @@ merges one only when the lander passes `--accept-gate-disposition <approval id>`
 for it.
 
 Land works the dispositions out again at the pin from the PR branch's approval
-store: the local record and its mirror. A lander on another machine reads the
-mirror the owner recorded into, so set `GSTACK_APPROVALS_DIR` to that directory
+store: the local record and its mirror, plus the rows `ready` copied into the
+READY note. The store lives on the machine that recorded the row, often the
+/ship machine, so `ready` copies each disposition it applies at the head into the
+READY note on `refs/notes/gstack-trains`, signed and whole, and land on any
+machine reads those rows beside its own store under the same checks: the
+writer's fields, the digest, the PR's branch and the head in the pin's history.
+An edited note row counts for nothing, and the lander still accepts each one
+explicitly (#4581). A security-class disposition stays out of the note, because
+the notes ref is public, so for one of those a lander on another machine reads
+the mirror the owner recorded into: set `GSTACK_APPROVALS_DIR` to that directory
 when it isn't the default. Land counts every disposition whose head the pin
 contains. In a full clone, a row whose head commit is gone (the branch was
 rewritten and garbage-collected, or the name reused) doesn't apply, because the
@@ -2015,7 +2058,8 @@ The row is an approved `gstack-approvals` row with scope `test_lane_exception <h
 (`lib/test-lane-exception.ts`). `lane-exception` refuses a head that is not a
 commit, a file with whitespace, a multi-line reason, a `--by` naming gstack (as
 for `rule`: a `GStack <Name>` crew may grant) and
-any grant while this checkout holds an open /ship run's marker, and `add` refuses
+any grant while this checkout holds an open /ship run's record
+([what ends a run](#what-ends-a-run)), and `add` refuses
 the scope, so the lane's own runner cannot write one; a row by gstack is ignored
 wherever it came from. `gstack-evidence record-ci` binds a grant only when its
 head is HEAD and its files are exactly the uncovered set, and only after a local
@@ -2945,14 +2989,15 @@ release-file rows):
 | GitHub reports the PR `MERGEABLE` and `CLEAN` | [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean) |
 | land takes the land lock (`land-pin:<pin>` journal, phase `merging`) and re-fetches `origin/main`; it takes over a lock an earlier `land --pin` run of the same PR left, and `--break-lock` breaks another lander's stale lock under the usual rules | `QUEUE_LAND_LOCKED`, `QUEUE_NOT_READY` |
 | when the base moved past the pin's merge base and the base policy lists `land.merged_checks`: `--allow-repo-commands` was passed, the pin merges onto the tip without a conflict, and every command passes on that merged tree | [`REPO_COMMANDS_NOT_ALLOWED`](troubleshooting.md#repo-commands-not-allowed), [`QUEUE_LAND_NOT_CLEAN`](troubleshooting.md#queue-land-not-clean), [`QUEUE_LAND_MERGED_CHECKS`](troubleshooting.md#queue-land-merged-checks) |
+| when the base moved past the pin's merge base and the base policy sets `land.merged_ci`: the workflow's run on the merged commit is green, and `lib/run-evidence.ts` accepts it under the named run profile with the merged tree as its tested tree | [`QUEUE_LAND_MERGED_CHECKS`](troubleshooting.md#queue-land-merged-checks) (a red run), `QUEUE_NOT_READY` |
 
 Release outputs (the agents digest) are checked by the Version Gate, which must
 be green at the pin: it accepts an output only when it equals what the release
 tool generates at the merge base's VERSION. A green PR merged onto newer
 commits can still break main (#3886 pushed ship/DRIVER.md past its size cap
 that way). So when the base moved, land builds the pin merged onto the tip of
-`origin/main` in a throwaway worktree (the checkout's `node_modules` linked
-in), runs each `land.merged_checks` command there in order, and prints
+`origin/main` in a fresh clone outside the checkout, with its own `.git` and a
+copy of the checkout's `node_modules`, runs each `land.merged_checks` command there in order, and prints
 `MERGED_CHECKS: pass tree=<tree> base=<tip> pin=<pin> checks: …`. The
 commands are repo commands: the merged tree's `package.json` decides what
 `bun run` does, so the PR controls them. Land runs them only with
@@ -2972,12 +3017,35 @@ land's starting environment to a same-user process. A check that moves HEAD
 off the merged commit fails. Land re-reads the base policy after the locked
 fetch, so a `land.merged_checks` that main gained meanwhile applies. When the
 merged tree's lockfile or `package.json` dependencies differ from the
-checkout's, the linked `node_modules` can't vouch for it: land refuses with
-`QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships. It doesn't sandbox
-the filesystem: a command can still write the checkout's `.git` (the worktree
-shares it) and the linked `node_modules`, and read anything the user can (other
-processes' environments, credential files), so pass the flag only for a base
-policy and PRs you trust to run. A list such
+checkout's, the copied `node_modules` can't vouch for it: land refuses with
+`QUEUE_NOT_READY` before any check runs, and the lane merges main and re-ships.
+What a check writes in the clone (its `.git`, hooks, config or `node_modules`)
+stays there, and land deletes the clone afterward. A check still runs as
+land's user, so it can write outside the clone by absolute path, to files
+land's later git and gh calls read with land's full environment. So before the
+checks land pins the absolute paths of `git` and `gh` (`lib/tool-path.ts`) and puts
+their directories first on its own `PATH`, so a `git` a check drops earlier on
+`PATH` never runs, and it records the config and hooks of the checkout's git
+directories, the `commondir` and `gitdir` files and the checkout's `.git` that say
+where git finds them, every config file git loads in the checkout (includes
+and the global file among them, plus the global and XDG files when absent),
+gh's `config.yml` and `hosts.yml`, the pinned `git` and `gh` files, and every hop of
+a symlink among them. When a check changed or added any of them, land
+restores nothing: it refuses with `QUEUE_LAND_MERGED_CHECKS` naming each path,
+makes no further git or gh call and leaves the land lock held. Inspect each
+named path and restore it from a trusted copy (delete a hook the checks
+added), then release the lock without running the checks with
+`gstack-ship-queue land --pr <n> --pin <sha>` (no `--allow-repo-commands`: it
+refuses with `REPO_COMMANDS_NOT_ALLOWED` and releases the lock). Land's own git
+calls in the clone run with the checks' environment, and no git call
+`gstack-ship-queue land` makes runs a hook or fsmonitor. That includes the managed
+pre-push guard: land pushes only the lock and notes it writes and, under
+`land.merged_ci`, the merged commit of commits that were already pushed, and a
+hook run after the checks is the opening this closes. It doesn't otherwise
+sandbox the filesystem: a command can still write the checkout's other files
+and read anything the user can (other processes' environments, credential
+files), so pass the flag only for a base policy and PRs you trust to
+run. A list such
 as typecheck plus the size ratchets takes about two minutes, against a main
 merge, a CI round and a new receipt per PR. gstack's own policy runs
 typecheck, the generated-docs freshness check, and the size and budget guards
@@ -2988,7 +3056,28 @@ plus the core files of `test:quick` through the strict free runner on
 doesn't run `test:quick` itself, because its browser tests find no Chromium
 under the throwaway `HOME`. Without the key, land prints
 `STALE_BASE: warn … no land.merged_checks configured` and merges the stale
-base untested, as it did before the key. Then land runs `gh pr merge
+base untested, as it did before the key.
+
+When the base policy sets `land.merged_ci` (`{ workflow, profile }`), land then runs CI
+on the same merged tree: it pushes the merged commit to the scratch branch
+`gstack-land/<n>`, dispatches the workflow there, waits up to 45 minutes, and
+prints `MERGED_CI: pass <workflow> run <url> on the merged tree <tree> (profile
+<profile>)` only when `lib/run-evidence.ts` accepts the run under that run profile
+of the base's `.gstack/pregate.json`, with the merged commit as its head and the
+merged tree as its tested tree. A red run refuses with
+`QUEUE_LAND_MERGED_CHECKS`; a run that can't be pushed, dispatched, finished in
+time or proved refuses with `QUEUE_NOT_READY`; the branch is deleted either way.
+The run is on CI runners, so it needs no `--allow-repo-commands`, and
+`--dry-run` dispatches nothing. gstack's own policy dispatches `free-tests.yml`
+under `ci-reuse/free-tests`, so the whole free suite has run on a stale-base tree
+before it lands (about 5 minutes); its `merged_checks` still run first and fail
+fast. A rerun after the merge checks the landed tree with `merged_checks` only,
+and main's own push run tests it in CI. When main didn't move again before
+the merge, the landed tree is the one this run tested, so main's push run of
+`free-tests.yml` reuses it instead of running the suite a second time
+([pregate.md](pregate.md#ci-reuse)).
+
+Then land runs `gh pr merge
 --squash --match-head-commit <pin>` (`--merge` under `history: merge-only`),
 reads the merge commit, and checks that its tree is the pin merged onto the
 merge commit's parent. The land lock keeps other gstack landers off main
@@ -3289,6 +3378,46 @@ PR whose check is red or missing. A PR opened before the workflow existed has no
 run until its title or body is edited or a commit is pushed; do one of those
 before landing it. The workflow reads the PR body from the event file, not an
 environment variable, so a very long body still reaches the checker.
+
+<a id="test-changes"></a>
+## Test changes: what a pull request does to its own tests (flag only)
+
+`.github/workflows/test-changes.yml` adds a **Test changes** check to every pull
+request in this repository. It is a two-week, flag-only trial (GST-3386): it is not
+a required check, and a flag never turns it red. A run that fails because the scan
+itself broke does show red, and `gstack-ship-queue land` refuses a pull request with
+any failed check at its head, so rerun that job from the Actions page before landing.
+
+It reports three things in the check's summary:
+
+- hunks that `bin/gstack-gate-diff` tags as removing or skipping a test (RH-1),
+  adding a suppression (RH-13), bypassing a gate (RH-14) or relaxing a gate value
+  (RH-15), by path and hunk id;
+- the number of test declarations the pull request adds and removes;
+- edits to the files that run or define this repository's own checks: any
+  workflow, `.gstack/`, `package.json`, the lockfile, `bunfig.toml`, the free-suite
+  shard runner and engine, `scripts/ci-tree-reuse.ts`, `lib/run-evidence.ts` and
+  `test/land-merged-checks.txt`.
+
+The workflow runs on `pull_request_target`, so main's copy of the workflow, of
+`scripts/test-changes-report.ts` and of the gate scan reports on the pull request,
+and the pull request can't edit the checker. It checks out main only, fetches the
+pull request's commits as git objects, and reads them with
+`gstack-gate-diff <base> --head <sha>`, which diffs merge-base to that commit without
+touching the working tree. The report names paths, tags and hunk ids, never the
+pull request's line content. A flag never turns the check red. The check fails only
+when the scan itself fails, so a broken run is never read as a quiet pull request.
+
+Each flag wants a reason in the pull request or a reviewer's ruling. The flags
+don't replace /review's and /ship's gate findings, which still need an owner ruling
+([gate dispositions](#gate-dispositions)).
+
+Replayed over the 303 landings on main from 2026-11-07 to 2026-11-21
+(`gstack-gate-diff --commit` on each landing), 24 (8%) carried at
+least one of the four tags and 50 (17%) edited a listed check file, about 12 and
+25 a week. The trial counts how many flags had a reason. A rule that would make
+`gstack-ship-queue land` refuse a pull request that edits its own checks without an
+owner ruling is out of scope until the trial reports.
 
 ## Approval classes
 

@@ -9,7 +9,8 @@
  */
 import { spawnSync } from './spawn-sync';
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
-import { isGstackActorName } from './ruled-notes';
+import { isGstackActorName, publicRuledNote, type RuledNote } from './ruled-notes';
+import { isSecurityFinding, opaqueFindingId, REDACTED_FINDING, REDACTED_REASON } from './security-findings';
 
 export const ROUND_GRANT_KINDS = ['extra-round', 'fix-check'] as const;
 export type RoundGrantKind = (typeof ROUND_GRANT_KINDS)[number];
@@ -36,6 +37,19 @@ export function reviewRoundGrants(rows: readonly ApprovalRow[]): ReviewRoundGran
     out.push({ kind: s[3] as RoundGrantKind, head: s[1]!, pr: Number(s[2]), by: r.by, reason: a[4]!, at: r.recorded_at, approval: r.id, ...(s[4] ? { stop_run: s[4], findings } : {}) });
   }
   return out;
+}
+
+/**
+ * A grant as the receipt in the PR body may carry it: a security-class finding it names leaves its fingerprint in the approval
+ * record (lib/security-findings.ts). One the owner ruled not security class shows as that ruling's public text does, and any
+ * other becomes an opaque id, so gstack-post never refuses the receipt over a grant's finding list (gbrain-evals#567). The grant's
+ * reason is free text that can describe the finding, so it becomes REDACTED_REASON whenever a security finding stays hidden.
+ */
+export function publicRoundGrant(g: ReviewRoundGrant, ruled: readonly RuledNote[]): ReviewRoundGrant {
+  if (!g.findings?.some(f => isSecurityFinding(f))) return g;
+  const shown = (f: string) => { const n = ruled.find(r => r.finding === f && r.not_security); return n ? publicRuledNote(n).finding : undefined; };
+  const hidden = g.findings.some(f => isSecurityFinding(f) && (shown(f) ?? REDACTED_FINDING) === REDACTED_FINDING);
+  return { ...g, findings: g.findings.map(f => !isSecurityFinding(f) ? f : shown(f) ?? opaqueFindingId(f, `round grant ${g.approval}`)), ...(hidden ? { reason: REDACTED_REASON } : {}) };
 }
 
 export function readReviewRoundGrants(cwd: string, env: Env = process.env): ReviewRoundGrant[] {

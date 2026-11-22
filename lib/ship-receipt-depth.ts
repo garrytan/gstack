@@ -66,6 +66,11 @@ function scopeOfRange(root: string, binDir: string, base: string, head: string, 
 
 export type ReceiptExclude = NonNullable<ShipReceipt['review_exclude']>;
 
+/** The receipt's record of a base policy whose exclusion keys were set aside (GST-3399), or undefined when none were. */
+export function receiptExcludeFallback(x: Exclusion): ShipReceipt['review_exclude_fallback'] {
+  return x.state === 'fallback' ? { source: x.source, errors: x.errors } : undefined;
+}
+
 /** The receipt's copy of an active exclusion: counts and hashes, plus the gate-tagged kept paths the queue cannot recompute. */
 export function receiptExclude(x: Exclusion): ReceiptExclude | undefined {
   if (x.state !== 'active') return undefined;
@@ -340,7 +345,10 @@ const treatment = (x: ActiveExclusion, p: string) => (x.excluded.has(p) ? 'exclu
  * them left. When the whole carried list does not rebuild the reviewed selection, write retries without the oldest carried audits,
  * one at a time down to none (a review that ran between two audits already read the earlier one's edits); only that digest
  * mismatch retries, so an integrity refusal (an edit after an audit, a file changed between audits, a foreign HEAD) ends it, and
- * the refusal names the whole list's reason. Content compares as git stores it or as it checks out (autocrlf, filters). Anything else, an unreadable
+ * the refusal names the whole list's reason. A file the merged base changed since an audit's HEAD and the PR's own three-dot diff
+ * leaves alone holds no PR edit, so it is not counted as changed; a latest audit that changed nothing still binds through the audits
+ * it carries; and the rebuilt selection binds the reviewed digest as carryExcludeBinds does, so a base policy change alone does not
+ * void it (GST-3260). Content compares as git stores it or as it checks out (autocrlf, filters). Anything else, an unreadable
  * snapshot included, refuses with `why`.
  */
 export function writeExcludeBinds(root: string, base: string, head: string, review: { exclude: Exclusion; tagged: ReadonlySet<string> | null }, flagged: string | undefined, docsPost: string | undefined, docsPre?: string): { ok: true; line?: string } | { ok: false; why?: string } {
@@ -369,10 +377,13 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
   if (earlier.length && !pre) return no(`it carries audit ${earlier.map(e => e.audit_id).join(',')}, so write needs --docs-pre <its Prepare snapshot>`);
   const at = post.head;
   if (!git(root, ['merge-base', '--is-ancestor', at, head]).ok) return no(`its HEAD ${short(at)} is not ${short(head)} or an ancestor of it`);
-  const since = (rev: string) => { const d = spawnSync('git', ['diff', '--name-only', '-z', '--no-renames', rev, head, '--', ...x.record.patterns.map(p => `:(top,glob)${p}`)], { cwd: root, encoding: 'utf8', timeout: 60_000 }); return d.status === 0 ? d.stdout.split('\0').filter(Boolean).sort() : null; };
+  const { ref, sha } = writeBase(root, base);
+  const names = (range: string[]) => { const d = spawnSync('git', ['diff', '--name-only', '-z', '--no-renames', ...range, '--', ...x.record.patterns.map(p => `:(top,glob)${p}`)], { cwd: root, encoding: 'utf8', timeout: 60_000 }); return d.status === 0 ? d.stdout.split('\0').filter(Boolean).sort() : null; };
+  const own = names([`${sha ?? ref}...${head}`]);
+  const since = (rev: string) => { const moved = names([rev, head]); const merged = names([`${rev}...${sha ?? ref}`]); return moved && merged && own ? moved.filter(p => own.includes(p) || !merged.includes(p)) : null; };
   const changed = since(at);
   if (!changed) return no(`git could not list the files under review_exclude_paths that changed since ${short(at)}`);
-  if (!changed.length) return no(`no file under review_exclude_paths changed since its HEAD ${short(at)}, so the docs audit did not change the selection`);
+  if (!changed.length && !earlier.length) return no(`no file under review_exclude_paths changed since its HEAD ${short(at)}, so the docs audit did not change the selection`);
   const blob = (rev: string, p: string) => { const b = git(root, ['rev-parse', '--verify', '--quiet', `${rev}:${p}`]); return b.ok ? b.out : null; };
   const holds = (rev: string, p: string, want: unknown) => {
     const id = blob(rev, p);
@@ -406,7 +417,7 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
       if (!kept) return no(`${p} at ${auditFiles.includes(p) ? `this audit's Prepare snapshot` : 'HEAD'} is not the content audit ${audit} recorded (an edit after that audit)`);
     }
     const files = [...resets.keys()].sort();
-    if (!files.length) return no(`--docs-pre ${docsPre}: the audit changed none of ${changed.join(',')}, so it did not change the selection`);
+    if (!files.length) return no(`--docs-pre ${docsPre}: the audit changed none of ${changed.join(',') || 'the files under review_exclude_paths'}, so it did not change the selection`);
     const gitDir = git(root, ['rev-parse', '--absolute-git-dir']).out;
     const index = path.join(gitDir, `gstack-receipt-${process.pid}-${randomBytes(4).toString('hex')}.index`);
     const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
@@ -427,10 +438,9 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
       if (!c.ok) return no(`git could not build HEAD with ${files.join(',')} reset to before the audit`);
       reset = c.out;
     } finally { fs.rmSync(index, { force: true }); }
-    const { ref, sha } = writeBase(root, base);
     const before = exclusionAt(root, ref, sha, reset, collectCommit(root, sha ?? ref, reset), review.tagged, 'gstack-ship-receipt');
     if (before.state !== 'active') return no(`the selection with ${files.join(',')} reset to before the audit cannot be read`);
-    if (before.record.digest !== given) return { retry: true, ...no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${pre ? 'their --docs-pre content' : short(at)}${left.size ? ` and the files audit ${carried.map(e => e.audit_id).join(',')} edited reset to before that audit` : ''} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`) };
+    if (!carryExcludeBinds(before, { review_exclude: reviewedRecord(root, base, before, given) })) return { retry: true, ...no(`the reviewed digest ${short(given)} is not the selection HEAD has with the files under review_exclude_paths that changed since the snapshot reset to ${pre ? 'their --docs-pre content' : short(at)}${left.size ? ` and the files audit ${carried.map(e => e.audit_id).join(',')} edited reset to before that audit` : ''} (${short(before.record.digest)}), so more than the docs audit changed what the reviewers read`) };
     for (const p of files) for (const [side, s] of [['the review', before], ['HEAD', x]] as const) {
       const t = treatment(s, p);
       if (!['absent', 'excluded', 'named-by-code'].includes(t)) return no(`${p} is ${t} at ${side}: the docs audit binds only docs the exclusion hides or keeps because code names them`);
@@ -482,7 +492,7 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
   const need = depthOfCommitInput({ ...c, scope, gateTagged: tagged, ...riskPathsOf(review), ...(x.state === 'active' ? { excluded: x.excluded } : {}) });
   const have = rd?.depth;
   const inputs = `base@${short(baseSha.ok ? baseSha.out : null)},registry@${short(c.registry.sha)},gate_scan@${scanBound ? short(rd!.gate_scan.head) : 'missing'}`;
-  const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs} rounds=${r.review_loop?.rounds ?? (r.review_loop ? r.review_loop.passes + (r.review_loop.fix_checks ?? 0) : 'none')}`;
+  const line = `REVIEW_DEPTH: receipt=${have ?? 'none'} required=${need.depth} runtime_lines=${need.runtimeLines} class=${need.class} reasons=${need.reasons.join(',')} inputs=${inputs} rounds=${r.review_loop?.rounds ?? r.review_loop?.passes ?? 'none'}`;
   if (have === 'platform') {
     const pr = rd!.platform_review;
     const fits = need.depth === 'light' && platformFits(need.class, c.paths, need.runtimeLines, scanNumbers(c.added));

@@ -25,7 +25,7 @@ const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
   'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'ci_carried', 'spend_usd', 'calls',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
-  'review_loop_exception', 'review_round_grants', 'ruled_notes', 'gate_dispositions', 'mechanical', 'review_targeted', 'design', 'review_exclude', 'carry', 'base_red', 'flaky_exception', 'no_stop',
+  'review_loop_exception', 'review_round_grants', 'ruled_notes', 'gate_dispositions', 'mechanical', 'review_targeted', 'design', 'review_exclude', 'review_exclude_fallback', 'carry', 'base_red', 'flaky_exception', 'no_stop',
 ];
 
 /** Keys in the fixed order so identifiers lead; undefined values are dropped. */
@@ -133,8 +133,8 @@ export const RUNS_RE = /```gstack-receipt-runs[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]
  * carries), `carry` for any other hop. status: a /ship run that
  * started and wrote no receipt yet (`started`, its counters so far) or ended on an infrastructure failure (`voided`).
  */
-export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string; carry_kind?: 'carry' | 'recheck'; status?: 'started' | 'voided'; mark?: 'stop' | 'grant'; tree?: string; grant?: string };
-/** The runs block keeps the newest RECEIPT_RUNS_KEPT run entries and every stop or grant marker (lib/pr-review-history.ts), in order. */
+export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version' | 'run' | 'review_loop' | 'review_loop_exception'> & { depth?: string; carried_from?: string; carry_kind?: 'carry' | 'recheck'; status?: 'started' | 'voided'; mark?: 'stop' | 'grant' | 'abandoned'; tree?: string; grant?: string; by?: string; reason?: string };
+/** The runs block keeps the newest RECEIPT_RUNS_KEPT run entries and every stop, grant or abandoned marker (lib/pr-review-history.ts), in order. */
 export function keptRuns(runs: readonly ReceiptRun[]): ReceiptRun[] {
   const keep = new Set(runs.filter(r => !r.mark).slice(-RECEIPT_RUNS_KEPT));
   return runs.filter(r => r.mark || keep.has(r));
@@ -230,12 +230,13 @@ export function receiptSummaryLine(r: ShipReceipt): string {
 export const riskClassReceipt = (r: ShipReceipt | undefined) => r?.review_depth?.class === 'gate' || !!r?.review_depth?.risk?.length;
 
 /** What ready found for the READY tail: its TRIAL_MERGES lines and the decision trail's cross-family read, or why there is none. */
-export interface ReadyTail { trialMerges: string[]; trailRead: { row: number; reader: string } | { missing: string } }
+export interface ReadyTail { trialMerges: string[]; trailRead: { row: number; reader: string; flags?: string } | { missing: string } }
 
 /**
  * The rest of the READY block (GSTA-258 E1: the ready output is the whole READY): the receipt's review loop, ready's trial
  * merges, and the Attention section, whose opening line follows the receipt's risk class and the trail's cross-family read
- * (docs/unattended.md): a risk-class PR with no trail-read row prints MISSING instead of a line to fill in.
+ * (docs/unattended.md): a risk-class PR with no trail-read row prints MISSING instead of a line to fill in. Its flags line is the
+ * trail-read row's result, and with no such row there is none: the lane lists its own audit's flags, never a template line.
  */
 export function readyTailLines(r: ShipReceipt | undefined, t: ReadyTail = { trialMerges: [], trailRead: { missing: 'ready did not look for one' } }): string[] {
   const loop = parseReviewLoop(r?.review_loop);
@@ -254,7 +255,7 @@ export function readyTailLines(r: ShipReceipt | undefined, t: ReadyTail = { tria
     ...(t.trialMerges.length ? t.trialMerges : ['TRIAL_MERGES: MISSING: ready did not check the open PRs that share a file (rule 14)']),
     'Attention:',
     reviewer,
-    '<flags against decision-trail row numbers, or No flags>',
+    ...((legacy || risk) && 'row' in t.trailRead ? [/^(none|no flags?)?\.?$/i.test(t.trailRead.flags?.trim() ?? '') ? `No flags (trail row ${t.trailRead.row})` : `Flags (trail row ${t.trailRead.row}): ${oneLine(t.trailRead.flags!)}`] : []),
   ];
 }
 
@@ -442,16 +443,18 @@ export const STACK_PARENT_WALK = 100;
  * that squash-merged (or merged) into the base after the receipt was written against the base (GST-1199). A commit with no
  * product change of its own (a test-first commit) is no parent, since any base trivially holds it, and neither is a commit
  * rangeBase already held: a parent that landed before the review is part of the reviewed base, so measuring from it drops
- * nothing and compares the wrong range (yc-software/qm#3457, GST-3315). Null when no
- * commit within STACK_PARENT_WALK qualifies or git cannot tell; a conflicted product path is never held.
+ * nothing and compares the wrong range (yc-software/qm#3457, GST-3315). That last skip is for a reviewed range (the receipt check
+ * and Step 11.5); `reviewedRange` false drops it, for land's commit message, whose range starts at a merge base the child's merge of
+ * the base moved past its parent's squash. Null when no commit within STACK_PARENT_WALK qualifies or git cannot tell; a conflicted
+ * product path is never held.
  */
-export function landedStackParent(repoRoot: string, s: { rangeBase: string; reviewed: string; currentBase: string }, product: readonly string[]): string | null {
+export function landedStackParent(repoRoot: string, s: { rangeBase: string; reviewed: string; currentBase: string }, product: readonly string[], reviewedRange = true): string | null {
   const run = (args: string[]) => spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
   const commits = run(['rev-list', '--topo-order', `--max-count=${STACK_PARENT_WALK + 1}`, `${s.rangeBase}..${s.reviewed}`]);
   if (commits.status !== 0) return null;
   for (const commit of commits.stdout.split('\n').filter(c => c && c !== s.reviewed)) {
     if (run(['diff', '--quiet', s.rangeBase, commit, '--', ...product]).status !== 1) continue;
-    if (heldBy(repoRoot, commit, s.currentBase, product) && !heldBy(repoRoot, commit, s.rangeBase, product)) return commit;
+    if (heldBy(repoRoot, commit, s.currentBase, product) && !(reviewedRange && heldBy(repoRoot, commit, s.rangeBase, product))) return commit;
   }
   return null;
 }

@@ -206,7 +206,7 @@ describe('frontier Claude judge compatibility', () => {
     expect(score.reason_substance).toBe(4);
     expect(score.reason_text).toBe('at 1/10 every dimension has gaps and none are obviously safe to skip.');
     expect(create.mock.calls[0][0].output_config).toEqual({ format: { type: 'json_schema', schema: RECOMMENDATION_JUDGE_SCHEMA } });
-    expect(create.mock.calls[0][0].model).toBe('claude-haiku-4-5-20251001');
+    expect(create.mock.calls[0][0].model).toBe('claude-haiku-5-5');
   });
 
   test('the captured unescaped reply is unparseable free-form text and fails without a score', async () => {

@@ -499,7 +499,7 @@ test('routing catalog contains installed project names without a request-to-skil
   expect(writes.size).toBe(4);
 });
 
-test('routing fixtures read the ## Skill routing section gstack ships', () => {
+test('routing fixtures read the ## Skill routing section gstack offered for CLAUDE.md, frozen in a fixture', () => {
   const routing = readShippedSkillRouting();
   expect(routing.instruction).toStartWith('## Skill routing\n\n');
   expect(routing.instruction).toContain('Skill tool');
@@ -508,9 +508,10 @@ test('routing fixtures read the ## Skill routing section gstack ships', () => {
   expect(routing.section).not.toContain('If B:');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shipped-routing-drift-'));
   try {
-    fs.mkdirSync(path.join(root, 'bin'));
-    fs.writeFileSync(path.join(root, 'bin', 'gstack-skill-start'), '#!/bin/bash\necho no routing here\n');
-    expect(() => readShippedSkillRouting(root)).toThrow('routing-injection heredoc not found');
+    expect(() => readShippedSkillRouting(root)).toThrow('routing section fixture not found');
+    fs.mkdirSync(path.join(root, 'test', 'fixtures'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'test', 'fixtures', 'claude-md-skill-routing.md'), '## Skill routing\n\nno rules here\n');
+    expect(() => readShippedSkillRouting(root)).toThrow('unexpected shape');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

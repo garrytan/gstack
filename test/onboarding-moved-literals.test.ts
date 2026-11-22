@@ -26,7 +26,6 @@ const MOVED: Record<string, string> = {
   'proactive-prompt': "Turn it off — I'll type /commands myself",
   'first-run-tip': 'Fresh repo — shape it first with',
   'first-loop-tip': 'gstack pays off when you complete one loop',
-  'routing-injection': 'Add routing rules to CLAUDE.md (recommended)',
   'vendoring-deprecation': 'Migrate to team mode?',
   'writing-style-migration': 'Keep default or restore terse?',
   'spawned-session': 'spawned by an AI orchestrator',

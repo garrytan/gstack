@@ -20,7 +20,7 @@ const NOW = new Date('2026-10-30T12:00:00Z');
 const PROFILE: RunProfile = { workflow: 'free-tests.yml', events: ['pull_request', 'workflow_dispatch'], jobs: ['free-plan', 'free-tests'], artifact: 'tested-tree', os: 'Linux' };
 const SCRIPT = path.resolve(import.meta.dir, '..', 'scripts', 'ci-tree-reuse.ts');
 
-interface Fake { id: number; event?: string; conclusion?: string | null; status?: string; started?: string; head?: string; record?: Partial<TreeRecord> | Error; jobs?: ApiJob[] }
+interface Fake { id: number; event?: string; conclusion?: string | null; status?: string; started?: string; head?: string; branch?: string; record?: Partial<TreeRecord> | Error; jobs?: ApiJob[] }
 interface World { pulls: ApiPull[] | Error; runs: Fake[]; trees: Record<string, string | null> }
 const pull = (over: Partial<ApiPull> = {}): ApiPull => ({ number: 42, merged_at: '2026-10-30T11:00:00Z', merge_commit_sha: PUSH, base: { ref: 'main', repo: { full_name: REPO } }, head: { sha: HEAD, repo: { full_name: REPO } }, ...over });
 function world(over: Partial<World> = {}): World {
@@ -28,7 +28,7 @@ function world(over: Partial<World> = {}): World {
 }
 function deps(w: World, reads: number[] = []): ReuseDeps {
   const api = (f: Fake): ApiRun => ({
-    id: f.id, run_attempt: 1, status: f.status ?? 'completed', conclusion: f.conclusion === undefined ? 'success' : f.conclusion, event: f.event ?? 'workflow_dispatch', head_sha: f.head ?? HEAD,
+    id: f.id, run_attempt: 1, status: f.status ?? 'completed', conclusion: f.conclusion === undefined ? 'success' : f.conclusion, event: f.event ?? 'workflow_dispatch', head_sha: f.head ?? HEAD, head_branch: f.branch ?? 'feat',
     path: '.github/workflows/free-tests.yml', created_at: f.started ?? '2026-10-30T10:00:00Z', run_started_at: f.started ?? '2026-10-30T10:00:00Z', updated_at: '2026-10-30T10:30:00Z',
     repository: { full_name: REPO }, head_repository: { full_name: REPO },
   });
@@ -37,6 +37,7 @@ function deps(w: World, reads: number[] = []): ReuseDeps {
     pullsForCommit: () => { if (w.pulls instanceof Error) throw w.pulls; return w.pulls; },
     run: id => { reads.push(id); return api(byId(id)); },
     runsForHead: (wf, sha) => (wf === 'free-tests.yml' ? w.runs.filter(r => (r.head ?? HEAD) === sha).map(api) : []),
+    runsForBranch: (wf, branch) => (wf === 'free-tests.yml' ? w.runs.filter(r => (r.branch ?? 'feat') === branch).map(api) : []),
     jobs: id => byId(id).jobs ?? [{ name: 'free-plan', conclusion: 'success' }, { name: 'free-tests', conclusion: 'success' }],
     artifact: id => {
       const f = byId(id);
@@ -78,6 +79,43 @@ describe('findReuse: candidate discovery for a main push', () => {
     const reads: number[] = [];
     expect(find(world({ trees: { [PUSH]: TREE, [HEAD]: '6'.repeat(40) } }), reads)).toMatchObject({ reused: false, reason: 'tree_mismatch' });
     expect(reads).toEqual([]);
+  });
+
+  describe('a stale-base land: the head lacks main\'s newer commits, so only land\'s merged_ci run can be reused', () => {
+    const LAND = '5'.repeat(40);
+    const OTHER = '6'.repeat(40);
+    const stale = (runs: Fake[], trees: Record<string, string> = {}) => world({ runs, trees: { [PUSH]: TREE, [HEAD]: OTHER, [LAND]: TREE, ...trees } });
+    const landRun = (over: Partial<Fake> = {}): Fake => ({ id: 300, head: LAND, branch: 'gstack-land/42', ...over });
+
+    test('the newest green dispatch run on gstack-land/<pr> that tested the pushed tree is reused', () => {
+      expect(find(stale([{ id: 100 }, landRun()]))).toEqual({ reused: true, run_id: 300, run_attempt: 1, event: 'workflow_dispatch', pr: 42, head_sha: LAND, tree: TREE });
+    });
+
+    test('only the newest land run counts, so a red retry on the same tree is never hidden behind an older green one', () => {
+      const LAND2 = '7'.repeat(40);
+      const v = find(stale([landRun({ started: '2026-10-30T10:00:00Z' }), landRun({ id: 301, head: LAND2, conclusion: 'failure', started: '2026-10-30T10:40:00Z' })], { [LAND2]: TREE }));
+      expect(v).toMatchObject({ reused: false, reason: 'no_verified_run' });
+      expect(!v.reused && v.detail).toContain('land run 301 on gstack-land/42 reason=run_not_success');
+      expect(why(stale([landRun({ status: 'in_progress', conclusion: null })]))).toBe('no_verified_run');
+      const rerunOlder = find(stale([landRun({ started: '2026-10-30T11:00:00Z' }), landRun({ id: 301, head: LAND2, conclusion: 'failure', started: '2026-10-30T10:40:00Z' })], { [LAND2]: TREE }));
+      expect(rerunOlder).toMatchObject({ reused: false, reason: 'no_verified_run', detail: expect.stringContaining('land run 301 on gstack-land/42 reason=run_not_success') });
+    });
+
+    test('a land run that tested another tree (main moved before the merge) is refused, and the suite runs', () => {
+      const v = find(stale([landRun({ record: { tree: OTHER } })], { [LAND]: OTHER }));
+      expect(v).toMatchObject({ reused: false, reason: 'tree_mismatch' });
+      expect(!v.reused && v.detail).toContain('land run 300 on gstack-land/42 tested tree');
+    });
+
+    test('nothing else on a mismatched head is a candidate: no land run, a pull_request run on the land branch, another branch, or a profile without dispatch', () => {
+      const reads: number[] = [];
+      expect(find(stale([{ id: 100 }]), reads)).toMatchObject({ reused: false, reason: 'tree_mismatch', detail: expect.stringContaining('gstack-land/42 has no workflow_dispatch run') });
+      expect(reads).toEqual([]);
+      expect(why(stale([landRun({ event: 'pull_request' })]))).toBe('tree_mismatch');
+      expect(why(stale([landRun({ branch: 'gstack-land/43' })]))).toBe('tree_mismatch');
+      const prOnly = findReuse(deps(stale([landRun()])), { repo: REPO, base: 'main', pushSha: PUSH, workflow: 'free-tests.yml', profileName: 'ci-reuse/free-tests', profile: { ...PROFILE, events: ['pull_request'] }, now: NOW });
+      expect(prOnly).toMatchObject({ reused: false, reason: 'tree_mismatch' });
+    });
   });
 
   test('a reuse record is never evidence: a run that itself reused another run is refused', () => {

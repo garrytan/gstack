@@ -279,7 +279,7 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -x "$D" ] || D=~/.claude/skills/gstack/design/dist/design
 _OUT=$("$D" generate --brief "$(cat "$BRIEF_FILE")" --output "$_DESIGN_DIR/ideal-<dimension>.png"); _RC=$?
-printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm -f "$BRIEF_FILE"
+printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm "$BRIEF_FILE"
 ```
 
 Exit 0: show the image at the printed `outputPath` via the Read tool. Exit 2 or 3: report `failures` and continue text-only. Without the designer, describe the 10/10 in text.

@@ -16,7 +16,7 @@ import type { ReviewRoundGrant } from './review-round-grant';
 export interface PrReviewHistory {
   /** /ship runs that reviewed (stubs and carries excluded). */
   runs: number;
-  /** R51 rounds: full and scoped passes plus fix-checks, every run and started stub. */
+  /** R51 rounds: full and scoped passes, every run and started stub; a fix-check is no round (fix_checks counts it). */
   rounds: number;
   full: number;
   scoped: number;
@@ -31,7 +31,7 @@ export interface PrReviewHistory {
   source: 'pr-body';
 }
 
-const roundsOf = (l: ReceiptRun['review_loop']) => (l ? (l.rounds ?? (l.passes ?? 0) + (l.fix_checks ?? 0)) : 0);
+const roundsOf = (l: ReceiptRun['review_loop']) => l?.passes ?? 0;
 
 /** Every entry the body records, oldest first: the runs block, then the current receipt. */
 function entries(body: string): ReceiptRun[] {
@@ -39,13 +39,17 @@ function entries(body: string): ReceiptRun[] {
   return [...receiptRuns(body), ...(current && typeof current.head === 'string' ? [receiptRun(current)] : [])];
 }
 
+/**
+ * A run's stub and its own receipt at the same head count once (the newer entry stands); entries at different heads always count,
+ * so a run id reused across /ship runs never hides their rounds (gstack-evals#406: three receipts of ship-406 read rounds=1).
+ */
 export function prReviewHistory(body: string): PrReviewHistory {
   const all = entries(body).filter(e => !e.mark);
   const reviewed = new Map<string, ReceiptRun>();
   const ordered: Array<ReceiptRun | string> = [];
   all.forEach((e, i) => {
-    if (e.status || e.carry_kind || e.carried_from) { ordered.push(e); return; }
-    const key = e.run ? `run:${e.run}` : `#${i}`;
+    if (e.status === 'voided' || e.carry_kind || e.carried_from) { ordered.push(e); return; }
+    const key = e.run ? `run:${e.run}@${e.head}` : `#${i}`;
     if (!reviewed.has(key)) ordered.push(key);
     reviewed.set(key, e);
   });
@@ -94,15 +98,23 @@ export const runStub = (o: { head: string; run: string; status: 'started' | 'voi
  */
 export const stopMarker = (o: { head: string; tree: string; run: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'stop', tree: o.tree });
 export const grantMarker = (o: { head: string; run: string; grant: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'grant', grant: o.grant });
+/** gstack-ship-run abandon's entry (GST-3260): who ended a run that stopped working, and why, at the head it was abandoned on. */
+export const abandonMarker = (o: { head: string; run: string; by: string; reason: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'abandoned', by: o.by, reason: o.reason });
+/** The newest receipt a run id already wrote, in the runs block or current: a run id names one /ship run (gstack-evals#406). */
+export const receiptedRun = (body: string, run: string) => entries(body).filter(e => e.run === run && !e.mark && !e.status).at(-1);
+
+/** The rows a /ship stop can follow: a full pass, a fix-check, or a Step 11 voice (#4591 stopped on its voices after a fix-check). */
+const STOP_READERS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review']);
 
 /**
- * The stop record for the newest via:ship review row of this run (at or after since), or why none binds: the row must be complete,
+ * The stop record for the newest via:ship reading row of this run (at or after since): a full pass, a fix-check or a Step 11 voice,
+ * whichever read last, so the stop binds to the head that row read (#4591). Or why none binds: the row must be complete,
  * bound to one tree from start to end (verified, or incomplete because it stopped) that is its commit's own tree, read on a clean
  * worktree, and that commit must be HEAD or an ancestor of it. A read gstack can't tie to a commit gives a grant nothing to answer.
  */
 export function stopFrom(rows: readonly Record<string, any>[], since: string, o: { treeOf: (commit: string) => string | undefined; onHead: (commit: string) => boolean }): { ok: true; head: string; tree: string } | { ok: false; why: string } {
   const sinceMs = Date.parse(since);
-  const row = rows.filter(r => r && r.via === 'ship' && r.skill === 'review' && (!Number.isFinite(sinceMs) || Date.parse(r.timestamp) >= sinceMs)).at(-1);
+  const row = rows.filter(r => r && r.via === 'ship' && STOP_READERS.has(r.skill) && (!Number.isFinite(sinceMs) || Date.parse(r.timestamp) >= sinceMs)).at(-1);
   if (!row) return { ok: false, why: `no via:ship review row at or after ${since}` };
   const b = row.review_binding, head = typeof row.commit_full === 'string' ? row.commit_full.toLowerCase() : '';
   if (row.completed !== true) return { ok: false, why: 'the stopping review is not complete (a reader is missing)' };

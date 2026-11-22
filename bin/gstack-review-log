@@ -100,6 +100,7 @@ if [ "$INPUT" = --start ]; then
       const { captureReviewStart } = await import(process.env.GSTACK_REVIEW_LIB);
       try { console.log(captureReviewStart(process.env.GSTACK_REVIEW_SKILL, process.env, process.env.GSTACK_REVIEW_FIX_RANGE === "--fix-range")); }
       catch (e) { console.error(e.message); process.exit(1); }
+      try { (await import(process.env.GSTACK_REVIEW_LIB.replace(/review-evidence\.ts$/, "ship-run-record.ts"))).beatFromReview(process.cwd()); } catch {}
     '
     exit $?
   fi
@@ -109,6 +110,7 @@ if [ "$INPUT" = --start ]; then
     const capture = () => captureReviewStart(process.env.GSTACK_REVIEW_SKILL, process.env, process.env.GSTACK_REVIEW_FIX_RANGE === "--fix-range");
     try { console.log(admitReviewStart(process.env.GSTACK_SHIP_BUDGET_MARKER, process.env.GSTACK_REVIEW_RESERVATION || undefined, capture)); }
     catch (e) { console.error(e.message); process.exit(1); }
+    try { (await import(process.env.GSTACK_REVIEW_LIB.replace(/review-evidence\.ts$/, "ship-run-record.ts"))).beatFromReview(process.cwd()); } catch {}
   '
   exit $?
 fi
@@ -149,6 +151,7 @@ if (!rec || Array.isArray(rec) || typeof rec !== 'object') { console.error('gsta
 try {
   console.log(JSON.stringify(bindReview(rec, process.env.GSTACK_REVIEW_TOKEN, process.env, process.env.GSTACK_REVIEW_FINDINGS || undefined)));
 } catch (e) { console.error(e.message); process.exit(1); }
+if (process.env.GSTACK_REVIEW_TOKEN) try { (await import(process.env.GSTACK_REVIEW_LIB.replace(/review-evidence\\.ts$/, 'ship-run-record.ts'))).beatFromReview(process.cwd()); } catch {}
 ") || exit 1
 
 echo "$STAMPED" >> "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"

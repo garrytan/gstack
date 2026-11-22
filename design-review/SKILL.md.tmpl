@@ -189,7 +189,7 @@ Then substitute the printed name for `<brief-file-name>`:
 BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
 [ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }
 _OUT=$($D generate --brief "$(cat "$BRIEF_FILE")" --output "$REPORT_DIR/screenshots/finding-NNN-target.png"); _RC=$?
-printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm -f "$BRIEF_FILE"
+printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm "$BRIEF_FILE"
 ```
 
 Record the printed `outputPath` for this finding (images are never overwritten, so it may be bumped); later steps use that path. Exit 2: no mockup was saved; skip it for this finding.

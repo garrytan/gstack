@@ -97,7 +97,7 @@ case "<platform>" in
   github) gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$BODY_FILE" --assignee "<github-username>" ;;
   gitlab) glab issue create -t "$(cat "$TITLE_FILE")" -d "$(cat "$BODY_FILE")" -a "<gitlab-username>" ;;
   *) echo "Not sent: no GitHub or GitLab remote. Files: $TITLE_FILE $BODY_FILE" >&2; false ;;
-esac && rm -f "$TITLE_FILE" "$BODY_FILE"
+esac && rm "$TITLE_FILE" "$BODY_FILE"
 \`\`\`
 
 - If neither CLI is available or \`--assignee\`/\`-a\` fails (user not in org, etc.), create the issue without assignee and note who should look at it in the body.

@@ -1,0 +1,1 @@
+**The weekly test health check passes again.** It fails when more than five free test files have no recorded run time, and the recorded times had fallen behind as new tests landed (16 files missing on 11-16, 7 on main today). The times are re-recorded for all 1,739 files, and two files that now run past the 60-second limit are listed with a follow-up to split them.

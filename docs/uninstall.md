@@ -159,7 +159,7 @@ disable gstack-start`, then delete
 
 ## Clean up CLAUDE.md
 
-The uninstall script does not edit CLAUDE.md. In each project where gstack was added, remove the `## gstack` and `## Skill routing` sections.
+The uninstall script does not edit CLAUDE.md. In each project where gstack was added, remove the `## gstack` section, and the `## Skill routing` section if an older gstack added one.
 
 ## Playwright
 

@@ -57,7 +57,7 @@ if ! gbrain init --pglite --json "$@"; then
   # Restore on failure
   mv "$BACKUP" "$HOME/.gbrain/config.json"
   echo "gbrain init failed. Your previous config was restored at $HOME/.gbrain/config.json." >&2
-  echo "PGLite directory at ~/.gbrain/pglite/ may be in a partial state — \`rm -rf ~/.gbrain/pglite\` if needed before retrying." >&2
+  echo "PGLite directory at ~/.gbrain/pglite/ may be in a partial state — \`rm -r ~/.gbrain/pglite\` if needed before retrying." >&2
   exit 1
 fi
 echo "Switched to local PGLite. Previous config saved at $BACKUP — review before deleting."

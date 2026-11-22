@@ -197,9 +197,11 @@ fi
 RESULT=$(EVENTS_JSON="$EVENTS_JSON" DISTILL_PROMPT="$DISTILL_PROMPT" \
          PROPOSAL_FILE_PATH="$PROPOSAL_FILE" LOG_FILE_PATH="$LOG_FILE" \
          ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+         GSTACK_EGRESS_LIB="$ROOT_DIR/lib/egress-receipt.ts" GSTACK_SECURITY_DIR="$GSTACK_HOME/security" \
          bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" --cwd "$ROOT_DIR" -e '
   const fs = require("fs");
   const Anthropic = require("@anthropic-ai/sdk").default;
+  const { writeReceipt, writeOutcome } = require(process.env.GSTACK_EGRESS_LIB);
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   const events = JSON.parse(process.env.EVENTS_JSON);
@@ -215,11 +217,38 @@ RESULT=$(EVENTS_JSON="$EVENTS_JSON" DISTILL_PROMPT="$DISTILL_PROMPT" \
   const distillModel = process.env.GSTACK_EVAL_MODEL_DISTILL
     || process.env.GSTACK_EVAL_MODEL
     || "claude-haiku-4-5-20251001";
-  const resp = await client.messages.create({
-    model: distillModel,
-    max_tokens: 4096,
-    messages: [{ role: "user", content: prompt }],
-  });
+
+  // Egress receipt BEFORE the send, fail-closed: the typed answers of the
+  // user leave the machine here, and skipping one distill costs nothing (the
+  // events stay undistilled for the next run). The SDK builds the request
+  // body, so the receipt is content-free with sha256 null.
+  let receipt;
+  try {
+    receipt = writeReceipt({
+      sink: "distill-free-text",
+      host: new URL(client.baseURL).host,
+      payloadClass: "plan-tune-free-text count=" + events.length + " prompt_bytes=" + Buffer.byteLength(prompt) + " (request body built by the Anthropic SDK)",
+      bytes: 0,
+      sha256: null,
+      consent: "user ran the /plan-tune dream cycle (gstack-distill-free-text) with ANTHROPIC_API_KEY set",
+    });
+  } catch (e) {
+    process.stderr.write("gstack: distill-free-text NOT sent: EGRESS_RECEIPT_FAILED (" + (e && e.message ? e.message : e) + "). Fix: chmod -R u+w " + process.env.GSTACK_SECURITY_DIR + " (or check GSTACK_HOME). gstack records everything it ATTEMPTS to send off-machine; see gstack-egress.\n");
+    process.exit(3);
+  }
+
+  let resp;
+  try {
+    resp = await client.messages.create({
+      model: distillModel,
+      max_tokens: 4096,
+      messages: [{ role: "user", content: prompt }],
+    });
+  } catch (e) {
+    try { writeOutcome({ receipt: receipt.id, status: "error:" + (e && e.status ? e.status : "transport") }); } catch {}
+    throw e;
+  }
+  try { writeOutcome({ receipt: receipt.id, status: "ok" }); } catch {}
 
   const text = resp.content.map((b) => (b.type === "text" ? b.text : "")).join("");
 

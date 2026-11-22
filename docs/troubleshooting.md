@@ -712,32 +712,33 @@ fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tre
 `review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
 
 <a id="ship-preflight-run-open"></a>
-### `STOP: /ship run <id> is open on this checkout and past its preflight (<marker>; open until its finish or for 120 minutes) ...`
+### `STOP: /ship run <id> is open on this checkout and past its preflight (<record>; state …, beat_age …; …) ...`
 
 **Meaning.** A full `gstack-ship-preflight` (Steps 1-3) ran on a checkout where a
 /ship run already passed them and has not finished. A full preflight merges the
 base into the working tree, and that run's review readers diff this tree, so the
 merge would void their pass (gbrain-evals#317). /ship passes `--run <id>` (Step 1:
 the preamble's `SESSION_ID`; `ship/DRIVER.md` Phase 2: the run dir's name). Once
-Steps 1-3 succeed, preflight records the run in the checkout's git dir
-(`gstack-ship-run`) and opens it on the checkout's own lease
-(`<git dir>/gstack-leases`, so the driver needs no workflow lease). The run
-counts as open while the marker exists, which `gstack-ship-release finish` removes
-when Steps 15-16 pass, and while `bin/gstack-lease open` says so: under 120
-minutes old and its holder (the harness that ran preflight) alive. A finished,
-aged-out or dead run never blocks, and /ship's own first preflight (or a rerun
-after a Step 3 STOP) is never refused. A different `--run` from the open run's
-holder replaces it: that is a new /ship after one that stopped before finish.
-The holder is the first non-shell process above preflight: the Claude Code
-session, or on Capy the machine's one `capy-server`, so there only the same id or
-a missing `--run` is refused. The same id, no `--run`, or an open run held by
-another live process (another session) stops.
+Steps 1-3 succeed, preflight opens the run in the checkout's run record (the
+git dir's `gstack-ship-run`, [ship-policy.md](ship-policy.md#what-ends-a-run)).
+The run stays open until a gstack command ends it: `gstack-ship-release finish`
+removes the record, `gstack-ship-receipt stop` marks it stopped,
+`gstack-skill-end` marks it finished, and `gstack-ship-run abandon` ends a run
+that stopped working. No timer ends it, so a run that has waited two hours on CI
+still blocks (GST-3260). A stopped, finished or abandoned record of another run
+never blocks: the new run replaces it. A bare marker an older gstack wrote
+(state `legacy`) and a record gstack can't read (state `unreadable`) block as
+open. /ship's own first preflight, or a rerun after a Step 3 STOP, is never
+refused. A `--run` the record already names stops with `/ship run <id> already
+ended on this checkout` (or `already stopped`): a run id names one /ship run.
 
 **What is kept.** Nothing ran: no fetch, no merge, the tree is untouched.
 
 **Fix.** Rerun Step 5 with `gstack-ship-preflight --tests-only`, which never
-merges, or let that /ship finish. If that run is no longer running (it stopped
-before finish), remove the marker the STOP names (`rm <marker>`), then rerun.
+merges, or let that /ship finish. If that run is no longer working, end it with
+the `gstack-ship-run abandon` command the STOP prints, from the earliest time it
+prints ([ship-run-abandon-refused](#ship-run-abandon-refused)), then rerun. A
+reused `--run` id needs a new id.
 
 **Expected result.** The preflight continues to `STATUS:` and `MERGE:`.
 
@@ -3842,6 +3843,14 @@ a typo never silently means "default".
 **Fix.** `gstack-ship-policy validate` lists every problem;
 `gstack-ship-policy init --explain` prints each key, its meaning and default.
 
+When the invalid file is the base branch's and its only errors are in
+`review_exclude_paths` or `review_content_patterns` (for example `more than 64
+patterns`), /ship does not stop: `gstack-review-plan` prints `REVIEW_EXCLUDE:
+fallback (WARNING: …)`, reviews every file and applies the base's other keys,
+so open a PR that corrects the list and ship it as usual
+([review_exclude_paths](ship-policy.md#review-exclude-paths)). Any other error
+on the base stops the plan and the merge step until a PR fixes it.
+
 <a id="policy-containment"></a>
 ### `POLICY_CONTAINMENT`
 
@@ -4133,7 +4142,9 @@ removing files under a pattern, pass that run's `--docs-post <audit-id>-post.jso
 `--docs-pre` as well instead of rerunning the review; the refusal's `the docs-audit exception does not apply:` clause says why when it cannot
 ([ship-policy.md](ship-policy.md#review-exclude-paths), GST-1429). When the run audited twice (a re-audit after a base merge),
 pass the last audit's pair; its post snapshot must carry the earlier audit (`--carry <earlier -post.json>`, GST-1616), or the
-earlier audit's files stay in the selection and write refuses as before.
+earlier audit's files stay in the selection and write refuses as before. The last audit may have edited nothing: write still binds
+through the audits it carries, ignores docs files only the merged base changed, and accepts a base policy that gained a pattern
+in that merge (GST-3260).
 
 Write, carry and the queue bind a digest that differs (`recorded=none`, written before the base
 gained `review_exclude_paths`, or a digest from an older policy) when the recorded selection and
@@ -4220,16 +4231,37 @@ and ask a person with the log file.
 ### `REVIEW_PLAN_STOPPED`
 
 **Meaning.** `gstack-review-plan` did not finish inside its limit, so it printed
-no plan, or `gstack-review-dispatch pass`, which runs it before it writes a
-manifest, stopped without dispatching a reader (exit 1 either way). The line
-names the step (the plan command), `reason=timeout` with `timeout_ms` (180,000
-ms; `GSTACK_REVIEW_PLAN_TIMEOUT_MS` sets it in milliseconds), `reason=signal` with the signal when something else
-killed it, or `reason=spawn` when it could not start. Before this line existed, a
-plan that ran past the limit was killed with no output (GST-1442).
+no plan, or `gstack-review-dispatch pass` (which runs it before it writes a
+manifest) or `gstack-review-dispatch render` (which runs it for the base
+policy's `review_exclude_paths` before it writes a brief) stopped without
+dispatching a reader (exit 1 either way). The line names the step (the plan
+command), `reason=timeout` with `timeout_ms`, `reason=signal` with the signal
+when something else killed it, or `reason=spawn` when it could not start. Before
+this line existed, a plan that ran past the limit was killed with no output
+(GST-1442).
 
-**Fix.** Rerun once unchanged. If it stops again, report the line and the
-repository's file count (`git ls-files | wc -l`) to your Captain. For
-`reason=signal`, check the machine's free memory first.
+**The limit.** 180,000 ms (3 minutes) by default. Set
+`GSTACK_REVIEW_PLAN_TIMEOUT_MS` to a whole number of milliseconds to change it,
+for example `GSTACK_REVIEW_PLAN_TIMEOUT_MS=600000` for 10 minutes. The plan run
+by itself, `gstack-review-dispatch pass` and `render`, and
+`gstack-ship-preflight` all read the same variable, so set it once in the
+environment /ship runs in. An empty value, `0`, a negative number or anything
+that is not a number is ignored and the 180,000 ms default applies; a fraction
+is rounded down. `timeout_ms` in the line shows the limit that was actually used,
+so `timeout_ms=180000` after you set the variable means it did not reach the
+process.
+
+**Large repositories should set it.** The plan's time grows with the number of
+tracked files: on a 301,669-file repository it took 255 to 316 seconds on a
+2-core machine, so every /ship there stopped at the default before any reviewer
+ran (GST-3398). If `git ls-files | wc -l` is in the hundreds of thousands, set
+the limit to about twice the plan's measured time (`time gstack-review-plan
+--base <base>` with the variable set high) before running /ship.
+
+**Fix.** Rerun once unchanged. If it stops again with `reason=timeout` on a large
+repository, set `GSTACK_REVIEW_PLAN_TIMEOUT_MS` as above and rerun; otherwise
+report the line and the repository's file count (`git ls-files | wc -l`) to your
+Captain. For `reason=signal`, check the machine's free memory first.
 
 <a id="review-required-no-readers"></a>
 ### `gstack-review-plan: not run (commits after the reviewed head would ship with no reviewer ...) (review_required_no_readers)`
@@ -4276,6 +4308,10 @@ returned output or PR text. `verify` prints `FETCH_VIOLATION:` and refuses
 until the stage has rerun and swept clean. A test run's fixtures (a root
 carrying `.gstack-test-fixture`, or a repository whose remote resolves to a local
 path through `url.<base>.insteadOf`) print `FETCH_IGNORED:` and never count.
+Capy's `~/.capy/drive` is never walked, and the drive sync database under
+`~/.capy/drive-engine` (`state.db` and its `-wal`, `-shm` and `-journal` files)
+is ignored, so that database growing past 100 MB is not a violation. Any other
+new big file or repository under `~/.capy/drive-engine` still is.
 
 **Fix.** Nothing to rerun by hand: the pass plans one fresh attempt per slot
 (`RERUN:`, readers named `<reader>#2`; not a review round) and the pass program
@@ -4585,6 +4621,90 @@ file name no root has, a sha a shallow clone lacks) prints
 **Fix.** Open the file and cite the line that holds the evidence. When the
 evidence lives in another checkout, run `check` with `--root <dir>` for it
 (repeatable; the default is the git top level of the working directory).
+
+## Vendored upstream files (gstack-vendored-verify)
+
+<a id="vendored-mismatch"></a>
+### `VENDORED_MISMATCH`
+
+**Meaning.** A file the manifest pins is not the upstream's file at the pinned
+commit: its git blob id (git's hash of the exact bytes) differs. The line names
+the local path, the upstream, the commit and the upstream path. The file is not
+treated as vendored.
+
+**Fix.** Rebuild the file from the pinned commit. If the change is deliberate,
+remove the file from the manifest so it is reviewed as the repo's own code.
+
+<a id="vendored-absent-upstream"></a>
+### `VENDORED_ABSENT_UPSTREAM`
+
+**Meaning.** The upstream path an entry names does not exist at the pinned
+commit. A manifest maps files by prefix, so a file cannot be renamed on the way
+in: `vendor/lib/tests/conftest.py` only matches an upstream `tests/conftest.py`.
+
+**Fix.** Correct the entry's `upstream_prefix`, file path or commit.
+
+<a id="vendored-absent-local"></a>
+### `VENDORED_ABSENT_LOCAL`
+
+**Meaning.** The manifest lists a file that is not in the commit being checked.
+
+**Fix.** Add the file, or remove the entry. The repo's build writes both, so
+rebuild them together.
+
+<a id="vendored-mode"></a>
+### `VENDORED_MODE`
+
+**Meaning.** The file is an executable, a symlink or a submodule, here or
+upstream. Only plain files (mode `100644` on both sides) count as vendored.
+
+**Fix.** Clear the executable bit when the upstream file is a plain file, or
+remove the entry so the file is reviewed.
+
+<a id="vendored-unreachable"></a>
+### `VENDORED_UNREACHABLE`
+
+**Meaning.** The pinned commit is not on the upstream's default branch, a tag,
+or a branch the base policy names for that upstream. GitHub serves a fork's
+commits and pull request heads through the original repository's URL, so a
+commit that merely exists there proves nothing. Merge-queue branches and
+force-pushed commits fail the same way.
+
+**Fix.** Pin a commit on the default branch or a release tag. When the upstream
+ships from another branch, add it to that upstream's `branches` in
+`review_vendored` on the base branch, as its own PR.
+
+<a id="vendored-not-allowlisted"></a>
+### `VENDORED_NOT_ALLOWLISTED`
+
+**Meaning.** The manifest pins files to an upstream the base branch's
+`review_vendored.upstreams` does not list. The list is read from the base
+only, so a branch cannot trust a new upstream for itself.
+
+**Fix.** Add the upstream's URL on the base branch as its own PR, then bring the
+base into the branch and rerun.
+
+<a id="vendored-fetch-failed"></a>
+### `VENDORED_FETCH_FAILED`
+
+**Meaning.** The upstream could not be fetched anonymously over https: it was
+deleted, renamed, made private, redirected, or the network failed or timed out
+(`GSTACK_VENDORED_FETCH_TIMEOUT_MS`, default 180,000). `--offline` reports it
+for a pin no earlier run cached. Its files stay in review.
+
+**Fix.** Rerun once; a fetch has no side effects. If it fails again, check the
+URL opens without signing in and does not redirect, and update
+`review_vendored.upstreams` on the base if the repository moved.
+
+<a id="vendored-manifest-invalid"></a>
+### `VENDORED_MANIFEST_INVALID`
+
+**Meaning.** A manifest the base policy lists is missing at the commit being
+checked, or breaks the `gstack-vendored/v1` format; the line names the field.
+Nothing is checked until it is fixed.
+
+**Fix.** Fix the field ([the manifest](vendored-code.md#the-manifest)), usually
+by rerunning the build that writes it.
 
 ## Pre-gate: generated-file registry, gstack-pregate, issue links
 
@@ -5185,7 +5305,8 @@ a `why:` line, and when a `## Diagnostics` declaration is malformed. The
 result checks add two more (`decisions:` and `scoring:` in the message):
 `## Decisions` needs two or more `if <result>: <action>` lines with different
 actions, and `## Scoring` needs a `judge:` line, a model judge from another
-model family than every arm with `labels:` of 40 or more and `agreement:` of
+model family than every arm with `labels:` of 100 or more (40 for a plan
+frozen before 2026-11-22) and `agreement:` of
 0.6 or more, and with two or more arms `paired: yes`, `interval: 95%` and
 `mdd:`. A `frozen:` date before 2026-11-15 exempts both
 ([docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks)). The
@@ -5239,7 +5360,8 @@ in [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#no-gstack-arm).
 
 **Meaning.** The preregistration's `## Scoring` names a model judge, and
 `gstack-eval-plan judge --check` or `results --check` found no `--labels`
-file, fewer labelled outputs than the preregistered count (at least 40), labels
+file, fewer labelled outputs than the preregistered count (at least 100, or 40 for a
+plan frozen before 2026-11-22), labels
 that are all one class (agreement is undefined), a repeated id, or a Cohen's
 kappa between the hand labels and the judge below the preregistered bar (at
 least 0.6). With `per-arm: yes` in `## Scoring`, it also refuses a label row
@@ -5921,11 +6043,17 @@ edit `.gstack/eval-models.json` in a reviewed PR.
 <a id="eval-model-old-generation"></a>
 ### `EVAL_MODEL_OLD_GENERATION`
 
-**Meaning.** The rules declare `families` (newest first), and an arm uses an id
-that is not the first one in its family.
+**Meaning.** One of two rules refused a model. R116: a preregistration's arm,
+judge, reader or simulator, or a dry-run or pilot arm, is gpt-4o (any variant or
+snapshot) or a model `lib/pricing.ts` marks `superseded_by`; the
+`MODEL_GENERATION:` line names the model, its role and the replacement. Or the
+eval model rules declare `families` (newest first), and an arm uses an id that
+is not the first one in its family.
 
-**Fix.** Use the family's newest id, which the `EVAL_MODEL:` line names. If the
-order is wrong, fix `families` in a reviewed PR.
+**Fix.** Use the replacement the `MODEL_GENERATION:` or `EVAL_MODEL:` line names.
+A competitor system tested as its vendor ships it keeps its built-in model with a
+`vendor-default: <model> <system>` line in `## Models`; the results must name it.
+If the `families` order is wrong, fix it in a reviewed PR.
 
 <a id="eval-model-generation-unresolved"></a>
 ### `EVAL_MODEL_GENERATION_UNRESOLVED`
@@ -6360,9 +6488,11 @@ receipt's `gate_dispositions`, or the PR body's `Gate disposition:` lines, diffe
 from the store (`ready` refuses those too). Nothing was merged. The
 `GATE_DISPOSITION:` lines above the refusal are what the store holds at the pin;
 the receipt and the body aren't trusted for this, because the lane writes them.
-A receipt id the store lacks usually means this lander reads another
-`GSTACK_STATE_ROOT` or approvals mirror than the owner recorded into, or that the row
-was removed after the receipt was written. A pin missing from the clone, a shallow
+Land also reads the signed non-security rows `ready` copied into the READY note at
+the pin, under the same checks. A receipt id the store lacks usually means this
+lander reads another `GSTACK_STATE_ROOT` or approvals mirror than the owner recorded
+into (security-class rows never go in the note), or that the row was removed after
+the receipt was written. A pin missing from the clone, a shallow
 clone that can't prove whether a row's head is in the pin's history, and any other
 git error while checking a head also refuse here. In a full clone, a row whose head
 commit is gone after a rewrite and gc just doesn't apply.
@@ -6391,13 +6521,24 @@ the lane fixes it at a new head (a flaky case gets its one rerun under rule
 ### `QUEUE_LAND_MERGED_CHECKS`
 
 **Meaning.** `origin/main` moved since the pin's merge base, and a
-`land.merged_checks` command failed on the pin merged onto main's tip. The
-message names the command, its exit and its last output lines. Nothing was
-merged.
+`land.merged_checks` command or the `land.merged_ci` run failed on the pin merged
+onto main's tip. The message names the command, its exit and its last output
+lines, or the CI run and its conclusion. Nothing was merged. When the message
+says the checks changed files land's later git and gh calls read (the
+checkout's git config, hooks, `commondir` or `gitdir` files, its `.git`, a config
+file git includes, the global git config, gh's config, or the pinned `git` or
+`gh`), land made no further git or gh call, pushed no lock release, and a
+`LOCK: warn` line says the land lock stays held.
 
-**Fix.** The lane merges `origin/main` into the branch, fixes what the
-command names, pushes, waits for the required checks, runs /ship and `ready`
-at the new head, and sends a new READY.
+**Fix.** For changed files, hold: nothing goes back to the lane yet. Inspect
+each named path and restore it from a trusted copy (delete a hook the checks
+added) before any git command in that checkout, then release the lock without
+running the checks with `gstack-ship-queue land --pr <n> --pin <sha>` (no
+`--allow-repo-commands`), and find out why the PR's checks wrote there before it
+lands. For a failed command or a red CI run, read the output or the failed job;
+a flaky case gets one rerun of land, and a real failure goes back to the lane,
+which merges `origin/main` into the branch, fixes it, pushes, waits for the
+required checks, runs /ship and `ready` at the new head, and sends a new READY.
 
 <a id="queue-land-not-clean"></a>
 ### `QUEUE_LAND_NOT_CLEAN`
@@ -7477,8 +7618,9 @@ closes a gate finding, and nothing the lane writes on its review row does either
 
 **Fix.** When the owner approved the gate change, record the owner's answer at the
 stop head the review read, with the `fingerprint` and `gate_id` from the review row,
-while no /ship run is open on that branch in any worktree (a parked run's marker stops
-counting once its 120-minute lease ends, as it does for preflight):
+while no /ship run is open on that branch in any worktree (a parked run's record
+counts until `gstack-ship-run abandon` or another gstack command ends it, as it does
+for preflight; [ship-policy.md](ship-policy.md#what-ends-a-run)):
 
 ```bash
 gstack-approvals gate --finding '<fingerprint>' --gate-id <gate_id> --head <stop head> \
@@ -7751,14 +7893,44 @@ is refused) ([review-policy.md](review-policy.md#rounds-per-pull-request)).
 ### `STOP_UNBOUND`
 
 **Meaning.** `gstack-ship-receipt stop` found no review of this run that
-gstack can tie to one commit: the newest `via:ship` review row since
-`--since` is missing, didn't finish, read a tree that moved or wasn't
-committed, or its commit isn't HEAD or under it. It recorded no stop record, so
+gstack can tie to one commit: the newest `via:ship` reading row since
+`--since` (a full pass, a fix-check or a Step 11 voice, whichever read last,
+#4591) is missing, didn't finish, read a tree that moved or wasn't committed,
+or its commit isn't HEAD or under it. It recorded no stop record, so
 no fix-check grant can buy that review's fix round.
 
 **Fix.** Nothing for a grant to answer. The lane's Captain ships with the open
 notes listed or parks; a fresh `/ship` run gives the head its review
 ([review-policy.md](review-policy.md#rounds-per-pull-request)).
+
+<a id="ship-run-abandon-refused"></a>
+### `SHIP_RUN_ABANDON_REFUSED`
+
+**Meaning.** `gstack-ship-run abandon` left the run record as it was. Either
+the run beat (preflight, a review start or finish, stub, stop or claim) in the
+last 60 minutes, so it may still be working; or the record names another run,
+or already ended (finished or abandoned); or the record is unreadable and the
+`--sha256` given isn't its digest. `--by` naming gstack itself is a usage error.
+
+**Fix.** Run `gstack-ship-run status`. It prints the run, its state, its
+`beat_age` and the exact abandon command. Wait until the earliest abandon time
+when the run may still be working, and pass the run the record names. Abandon
+completes in one call: after `RUN_ABANDONED` the record is ended, so never
+rerun it, even when `RUN_ABANDON_PR` says the PR body entry was skipped or not
+recorded (add that entry with `gstack-ship-receipt abandoned` instead).
+
+<a id="ship-run-record-unreadable"></a>
+### `SHIP_RUN_RECORD_UNREADABLE`
+
+**Meaning.** This checkout's /ship run record (the git dir's `gstack-ship-run`)
+is neither a run record nor a bare run id. Every guard reads it as an open run
+(it fails closed), so preflight, round grants, rulings without `--owner-ref`,
+gate dispositions and lane exceptions stop until it is ended.
+
+**Fix.** If no /ship run is working on this checkout, run the command
+`gstack-ship-run status` prints once:
+`gstack-ship-run abandon --run unknown --sha256 <digest> --by <lane or Captain> --reason "<one line>"`.
+The digest binds the abandon to the bytes you inspected.
 
 <a id="grant-spent"></a>
 ### `GRANT_SPENT`

@@ -53,11 +53,11 @@ case "$REDACT_CODE" in
     exit 2 ;;
   3)
     printf '%s\\n' "$REDACT_JSON"
-    rm -f "$REDACT_FILE"
+    rm "$REDACT_FILE"
     echo 'HIGH redaction finding: outside dispatch and downstream persistence blocked. Redact at source and rescan; no skip.' >&2
     exit 3 ;;
   *)
-    rm -f "$REDACT_FILE"
+    rm "$REDACT_FILE"
     echo "Redaction scan failed (exit $REDACT_CODE); refusing outside dispatch and downstream persistence." >&2
     exit 1 ;;
 esac` : `${scan}\nREDACT_CODE=$?`;
@@ -109,7 +109,7 @@ ${outsideGate ? 'The shell has already stopped on HIGH, MEDIUM, or scanner failu
    one-line FYI (never blocks).
 
 ${outsideGate ? 'After the approved sink consumes the file, or when the user cancels, clean up (never before dispatch reads the scanned bytes):\n\n' : ''}\`\`\`bash
-rm -f "$REDACT_FILE"
+rm "$REDACT_FILE"
 \`\`\`
 
 Guardrail, not airtight enforcement — direct \`gh\`/\`git\` bypass it; it catches accidents.`;

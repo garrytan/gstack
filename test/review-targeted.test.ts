@@ -407,7 +407,7 @@ describe('the /ship commands carry the targeted record to the receipt (GST-464)'
     expect(section('handoff')).toContain(`When Step 11 saved \`${recordPath}\`, add \`--review-targeted @${recordPath}\` to that write.`);
     expect(fs.readFileSync(path.join(ROOT, 'ship', 'DRIVER.md'), 'utf8')).toContain('[--review-targeted @<f>] --body <body>');
     const entry = /Every entry also runs\n`([^`]+)`/.exec(section('review-army'))?.[1];
-    expect(entry).toContain(`rm -f ${recordPath}`);
+    expect(entry).toContain(`rm ${recordPath} 2>/dev/null || true`);
 
     const repo = makeFixtureRepo({ prefix: 'targeted-wire-' });
     repos.push(repo);

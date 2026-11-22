@@ -138,63 +138,182 @@ export const CONSUMER_SCAN_CAP = 2000;
 export const CONSUMER_SCAN_DEPTH = 4;
 /**
  * One consumer scan's whole budget, every git grep in it (GSTACK_CONSUMER_SCAN_TIMEOUT_MS overrides it); past it the scan fails
- * closed. One scan stays a minute under the 180 s gstack-review-dispatch and gstack-ship-preflight give all of gstack-review-plan;
+ * closed. One scan stays a minute under the default 180 s (REVIEW_PLAN_TIMEOUT_MS) every caller gives all of gstack-review-plan;
  * a plan that also scans a fix range (--range-base) runs a second scan and can still reach that limit, which fails the plan.
  */
 export const CONSUMER_SCAN_TIMEOUT_MS = 120_000;
-/** How long one gstack-review-plan run may take, by itself or under gstack-review-dispatch pass (GSTACK_REVIEW_PLAN_TIMEOUT_MS overrides it); past it the run stops with REVIEW_PLAN_STOPPED. */
+/** How long one gstack-review-plan run may take, by itself or under gstack-review-dispatch pass and render or gstack-ship-preflight (GSTACK_REVIEW_PLAN_TIMEOUT_MS overrides it through reviewPlanTimeoutMs, which every caller reads); past it the run stops with REVIEW_PLAN_STOPPED. */
 export const REVIEW_PLAN_TIMEOUT_MS = 180_000;
 /** Pathspec bytes per git grep call: a long list of files to search splits across calls instead of growing one command line. */
 export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
 /** Output bytes one consumer grep may return across all its calls, the buffer the single whole-tree call had; past it the scan fails closed. */
 export const CONSUMER_SCAN_OUTPUT_BYTES = 256 * 1024 * 1024;
+/** Blob bytes one `git cat-file --batch` call reads for the consumer scan, so a commit's hit files are held a batch at a time. */
+const CONSUMER_SCAN_BLOB_BATCH_BYTES = 64 * 1024 * 1024;
 
-export function reviewPlanTimeoutMs(): number {
-  const v = Number(process.env.GSTACK_REVIEW_PLAN_TIMEOUT_MS);
-  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : REVIEW_PLAN_TIMEOUT_MS;
+/** A whole number of at least 1 from the environment variable `name`, rounded down; anything else (unset, empty, zero, negative, not a number) is `fallback`. */
+function positiveEnv(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : fallback;
 }
 
-export function consumerScanTimeoutMs(): number {
-  const v = Number(process.env.GSTACK_CONSUMER_SCAN_TIMEOUT_MS);
-  return Number.isFinite(v) && v >= 1 ? Math.floor(v) : CONSUMER_SCAN_TIMEOUT_MS;
-}
+export const reviewPlanTimeoutMs = (): number => positiveEnv('GSTACK_REVIEW_PLAN_TIMEOUT_MS', REVIEW_PLAN_TIMEOUT_MS);
+export const consumerScanTimeoutMs = (): number => positiveEnv('GSTACK_CONSUMER_SCAN_TIMEOUT_MS', CONSUMER_SCAN_TIMEOUT_MS);
+/** CONSUMER_SCAN_CAP, or GSTACK_REVIEW_CONSUMER_SCAN_CAP: more data candidates than this skip the scan and count every one as consumed (code). */
+export const consumerScanCap = (): number => positiveEnv('GSTACK_REVIEW_CONSUMER_SCAN_CAP', CONSUMER_SCAN_CAP);
 
 export type GrepFailure = { timedOut: boolean; status: number | null; err: string };
+/** What one scan has listed at a rev ('' for the working tree): the extensions its -l passes covered and the kept files holding one, as scratch-index entries (`blob`: read from its object; `disk`: from the working tree) or names left to git (`git`). */
+export type ScanMemo = { exts: Set<string>; blob: string[]; disk: string[]; git: string[]; listing?: string[] };
+
+type Hit = { name: string; sha?: string };
+
+/** One `git grep -l` of `patterns` over a scratch index holding `entries` (`--cached` reads their blobs, otherwise the working tree), kept under the git dir as patch-id diffs are, so an unwritable TMPDIR cannot fail the scan; a spot it cannot write is a named scan failure. */
+function grepIndex(root: string, entries: readonly string[], each: readonly string[], cached: boolean, deadline: number): string[] | GrepFailure {
+  if (!entries.length) return [];
+  const at = path.resolve(root, gitUntil(root, ['rev-parse', '--git-path', 'gstack-consumers'], deadline).out.trim() || '.git/gstack-consumers');
+  let dir: string;
+  try { fs.mkdirSync(at, { recursive: true }); dir = fs.mkdtempSync(path.join(at, 'scan-')); } catch (e) { return { status: null, err: `cannot create a scratch index under ${at} (${(e as Error).message.split('\n')[0]}); make that directory writable`, timedOut: false }; }
+  try {
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') };
+    const run = (args: string[], input?: string) => spawnSync('git', args, { cwd: root, env, input, encoding: 'utf8', timeout: Math.max(1, deadline - Date.now()), maxBuffer: CONSUMER_SCAN_OUTPUT_BYTES });
+    const failed = (r: ReturnType<typeof run>): GrepFailure => ({ status: r.status ?? null, err: (r.stderr ?? '').trim() || ((r.error as NodeJS.ErrnoException | undefined)?.code ?? ''), timedOut: r.status === null && Date.now() >= deadline });
+    const index = run(['update-index', '-z', '--index-info'], entries.join('\0') + '\0');
+    if (index.status !== 0) return failed(index);
+    const hit = run(['-c', 'core.quotePath=false', 'grep', ...(cached ? ['--cached'] : []), '-I', '-F', '-l', '-z', '--no-color', ...each]);
+    if (hit.status !== 0 && hit.status !== 1) return failed(hit);
+    return hit.stdout.split('\0').filter(Boolean);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
 
 /**
  * The lines `git grep -I -F -o --null` prints for `patterns` at `rev` ('' is the working tree with untracked files), for
- * the files `keep` accepts, in some order. Every pattern holds its own extension, so a `-l` pass for the extensions alone
- * lists every file that can match; the full pattern list then reads only those files, CONSUMER_SCAN_PATHSPEC_BYTES of
- * paths per call under --literal-pathspecs, CONSUMER_SCAN_OUTPUT_BYTES of output in all (an inherited GIT_GLOB_PATHSPECS makes git refuse, which fails closed). A listed name
- * that is not valid UTF-8 cannot be passed back as a path, so then one grep reads the whole tree, as the scan did before GST-544. Each call gets what is left of `deadline` (epoch ms).
+ * the files `keep` accepts, in some order. git's own -o retries every pattern after each match, so its time grew with patterns
+ * times matches per line (HARN-98: 80 basenames over one 16 MB trials file of harness-evals#551 took 220 s, and the plan timed out
+ * at 1,703 s). Every pattern holds its own extension, so one `-l` pass for the extensions per scan (`memo`) lists every file
+ * that can match; the kept ones go into scratch indexes that `git grep -l` reads per pattern list without walking the whole
+ * tree, and only the files that hold a pattern are read, one at a time from disk or in `git cat-file --batch` calls of at most
+ * CONSUMER_SCAN_BLOB_BATCH_BYTES (a file larger than the output cap goes to git's -o by pathspec instead), and their matches listed here the way git's -o picks them: the earliest start, the longest pattern there,
+ * then on from its end. In the working tree every tracked file is read from disk, as `git grep --untracked` reads it even when
+ * it is skip-worktree or assume-unchanged, and an untracked, unmerged or non-regular file goes back to git by pathspec under --literal-pathspecs (an inherited
+ * GIT_GLOB_PATHSPECS makes git refuse, which fails closed), as does any hit that is not a plain file when read.
+ * CONSUMER_SCAN_OUTPUT_BYTES of lines in all; past it the scan fails closed. A listed name that is not valid UTF-8, or a pattern
+ * holding a newline (several patterns to git), sends the whole tree through one -o grep, as the scan did before GST-544. Each
+ * call gets what is left of `deadline` (epoch ms).
  */
-export function grepConsumers(root: string, patterns: readonly string[], rev: string, keep: (file: string) => boolean, deadline: number, chunkBytes = CONSUMER_SCAN_PATHSPEC_BYTES, outputBytes = CONSUMER_SCAN_OUTPUT_BYTES): string[] | GrepFailure {
+export function grepConsumers(root: string, patterns: readonly string[], rev: string, keep: (file: string) => boolean, deadline: number, chunkBytes = CONSUMER_SCAN_PATHSPEC_BYTES, outputBytes = CONSUMER_SCAN_OUTPUT_BYTES, memo: Map<string, ScanMemo> = new Map()): string[] | GrepFailure {
   const where = rev ? [rev, '--'] : ['--untracked', '--'];
-  const exts = [...new Set(patterns.map(b => b.slice(b.lastIndexOf('.'))))].flatMap(e => ['-e', e]);
-  const listed = gitUntil(root, ['grep', '-I', '-F', '-l', '-z', '--no-color', ...exts, ...where], deadline);
-  if (listed.status !== 0 && listed.status !== 1) return listed;
-  const names = listed.out.split('\0').filter(Boolean).map(f => (rev ? f.slice(rev.length + 1) : f));
-  const flags = ['--literal-pathspecs', 'grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...patterns.flatMap(b => ['-e', b]), ...where];
-  if (names.some(f => f.includes('\uFFFD'))) {
-    const whole = gitUntil(root, flags, deadline);
-    return whole.status !== 0 && whole.status !== 1 ? whole : whole.out.split('\n');
+  const each = patterns.flatMap(b => ['-e', b]);
+  const flags = ['--literal-pathspecs', 'grep', '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', ...each, ...where];
+  const whole = () => { const w = gitUntil(root, flags, deadline); return w.status !== 0 && w.status !== 1 ? w : w.out.split('\n'); };
+  if (patterns.some(b => b.includes('\n'))) return whole();
+  const seen = memo.get(rev) ?? memo.set(rev, { exts: new Set(), blob: [], disk: [], git: [] }).get(rev)!;
+  const exts = [...new Set(patterns.map(b => b.slice(b.lastIndexOf('.'))))].filter(e => !seen.exts.has(e));
+  if (exts.length) {
+    const listed = gitUntil(root, ['grep', '-I', '-F', '-l', '-z', '--no-color', ...exts.flatMap(e => ['-e', e]), ...where], deadline);
+    if (listed.status !== 0 && listed.status !== 1) return listed;
+    const names = new Set(listed.out.split('\0').filter(Boolean).map(f => (rev ? f.slice(rev.length + 1) : f)));
+    if ([...names].some(f => f.includes('\uFFFD'))) return whole();
+    if (!seen.listing) {
+      const ls = gitUntil(root, rev ? ['ls-tree', '-r', '-z', '--full-tree', rev] : ['ls-files', '-s', '-z'], deadline);
+      if (ls.status !== 0) return ls;
+      seen.listing = ls.out.split('\0').filter(Boolean);
+    }
+    const have = new Set([...seen.blob, ...seen.disk].map(e => e.slice(e.indexOf('\t') + 1)).concat(seen.git));
+    const tracked = new Set<string>();
+    for (const e of seen.listing) {
+      const tab = e.indexOf('\t');
+      const file = e.slice(tab + 1);
+      if (tab < 0 || !names.has(file)) continue;
+      tracked.add(file);
+      if (have.has(file) || !keep(file)) continue;
+      have.add(file);
+      const meta = e.slice(0, tab).split(' ');
+      if (rev) { if (meta[1] === 'blob') seen.blob.push(`${meta[0]} ${meta[2]}\t${file}`); continue; }
+      const [mode, sha, stage] = meta;
+      if (stage !== '0' || (mode !== '100644' && mode !== '100755')) seen.git.push(file);
+      else seen.disk.push(`${mode} ${sha} ${stage}\t${file}`);
+    }
+    if (!rev) for (const file of names) if (!tracked.has(file) && !have.has(file) && keep(file)) { have.add(file); seen.git.push(file); }
+    for (const e of exts) seen.exts.add(e);
   }
-  const files = names.filter(keep);
+  const found: Hit[] = [];
+  const shas = new Map(seen.blob.map(e => [e.slice(e.indexOf('\t') + 1), e.slice(e.indexOf(' ') + 1).split(/[ \t]/)[0]!]));
+  for (const [entries, cached] of [[seen.blob, true], [seen.disk, false]] as const) {
+    const hits = grepIndex(root, entries, each, cached, deadline);
+    if (!Array.isArray(hits)) return hits;
+    for (const name of hits) found.push(cached ? { name, sha: shas.get(name) } : { name });
+  }
+  for (let i = 0; i < seen.git.length;) {
+    const chunk: string[] = [];
+    for (let bytes = 0; i < seen.git.length && (!chunk.length || bytes + seen.git[i]!.length <= chunkBytes); i++) { chunk.push(seen.git[i]!); bytes += seen.git[i]!.length; }
+    const hit = gitUntil(root, ['--literal-pathspecs', 'grep', '-I', '-F', '-l', '-z', '--no-color', ...each, ...where, ...chunk], deadline);
+    if (hit.status !== 0 && hit.status !== 1) return hit;
+    for (const name of hit.out.split('\0').filter(Boolean)) found.push({ name: rev ? name.slice(rev.length + 1) : name });
+  }
+  const needles = patterns.map(b => Buffer.from(b));
   const lines: string[] = [];
   let total = 0;
-  for (let i = 0; i < files.length;) {
-    const chunk: string[] = [];
-    for (let bytes = 0; i < files.length; i++) {
-      const spec = files[i]!;
-      if (chunk.length && bytes + spec.length > chunkBytes) break;
-      chunk.push(spec);
-      bytes += spec.length;
+  const enobufs: GrepFailure = { status: null, err: 'ENOBUFS', timedOut: false };
+  for (let i = 0; i < found.length;) {
+    const chunk: Hit[] = [];
+    for (let bytes = 0; i < found.length; i++) {
+      if (chunk.length && bytes + found[i]!.name.length > chunkBytes) break;
+      chunk.push(found[i]!);
+      bytes += found[i]!.name.length;
     }
-    const r = gitUntil(root, [...flags, ...chunk], deadline);
-    if (r.status !== 0 && r.status !== 1) return r;
-    total += Buffer.byteLength(r.out);
-    if (total > outputBytes) return { status: null, err: 'ENOBUFS', timedOut: false };
-    for (const line of r.out.split('\n')) lines.push(line);
+    let over = false;
+    const add = (line: string) => { total += Buffer.byteLength(line) + 1; if (total > outputBytes) over = true; else lines.push(line); return !over; };
+    const unread: string[] = [];
+    const blobs: Hit[] = [];
+    const match = (body: Buffer, h: Hit) => {
+      const at: Array<[number, number]> = [];
+      needles.forEach((needle, k) => { for (let x = body.indexOf(needle); x >= 0; x = body.indexOf(needle, x + 1)) at.push([x, k]); });
+      at.sort((x, y) => x[0] - y[0] || needles[y[1]]!.length - needles[x[1]]!.length);
+      const shown = rev ? `${rev}:${h.name}` : h.name;
+      for (let cur = 0, j = 0; j < at.length; j++) if (at[j]![0] >= cur) { if (!add(`${shown}\0${patterns[at[j]![1]]}`)) return; cur = at[j]![0] + needles[at[j]![1]]!.length; }
+    };
+    for (const h of chunk) {
+      if (rev || h.sha) { blobs.push(h); continue; }
+      let body: Buffer | null = null;
+      try { const st = fs.lstatSync(path.join(root, h.name)); if (st.isFile() && st.size <= outputBytes) body = fs.readFileSync(path.join(root, h.name)); } catch { body = null; }
+      if (body) match(body, h); else unread.push(h.name);
+      if (over) return enobufs;
+    }
+    if (blobs.length) {
+      const want = blobs.map(h => h.sha ?? `${rev}:${h.name}`);
+      if (want.some(w => !w || w.includes('\n'))) return whole();
+      const cat = (mode: string, specs: string[], maxBuffer: number) => spawnSync('git', ['cat-file', mode], { cwd: root, input: specs.join('\n') + '\n', timeout: Math.max(1, deadline - Date.now()), maxBuffer });
+      const failed = (c: ReturnType<typeof cat>): GrepFailure => ({ status: c.status ?? null, err: (c.stderr?.toString() ?? '').trim() || ((c.error as NodeJS.ErrnoException | undefined)?.code ?? ''), timedOut: c.status === null && Date.now() >= deadline });
+      const check = cat('--batch-check', want, CONSUMER_SCAN_OUTPUT_BYTES);
+      if (check.status !== 0 || !Buffer.isBuffer(check.stdout)) return failed(check);
+      const sizes = check.stdout.toString().split('\n').slice(0, want.length).map(l => l.split(' '));
+      const bad = sizes.findIndex(s => s[1] !== 'blob' || !/^\d+$/.test(s[2] ?? ''));
+      if (sizes.length < want.length || bad >= 0) return { status: null, err: `git cat-file --batch-check could not read ${blobs[bad < 0 ? sizes.length : bad]!.name}`, timedOut: false };
+      const size = (k: number) => Number(sizes[k]![2]);
+      for (let k = 0; k < blobs.length;) {
+        if (size(k) > outputBytes) { unread.push(blobs[k++]!.name); continue; }
+        const batch: number[] = [];
+        for (let bytes = 0; k < blobs.length && size(k) <= outputBytes && (!batch.length || bytes + size(k) <= Math.min(outputBytes, CONSUMER_SCAN_BLOB_BATCH_BYTES)); k++) { batch.push(k); bytes += size(k); }
+        const b = cat('--batch', batch.map(n => want[n]!), batch.reduce((s, n) => s + size(n) + 128, 0));
+        if (b.status !== 0 || !Buffer.isBuffer(b.stdout)) return failed(b);
+        for (let at = 0, j = 0; j < batch.length; j++) {
+          const nl = b.stdout.indexOf(10, at);
+          const [, type, got] = b.stdout.subarray(at, nl < 0 ? at : nl).toString().split(' ');
+          if (nl < 0 || type !== 'blob' || got !== String(size(batch[j]!))) return { status: null, err: `git cat-file --batch could not read ${blobs[batch[j]!]!.name}`, timedOut: false };
+          match(b.stdout.subarray(nl + 1, nl + 1 + size(batch[j]!)), blobs[batch[j]!]!);
+          if (over) return enobufs;
+          at = nl + 2 + size(batch[j]!);
+        }
+      }
+    }
+    if (unread.length) {
+      const r = gitUntil(root, [...flags, ...unread], deadline);
+      if (r.status !== 0 && r.status !== 1) return r;
+      for (const line of r.out.split('\n')) if (line && !add(line)) break;
+    }
+    if (Date.now() >= deadline) return { status: null, err: '', timedOut: true };
+    if (over) return enobufs;
   }
   return lines;
 }
@@ -208,19 +327,23 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
  */
 export function scanConsumers(root: string, paths: readonly string[], revs: readonly string[], live: boolean, classRoot: string | readonly string[], errors: DepthError[], timeoutMs = consumerScanTimeoutMs()): string[] | 'all' {
   const candidates = [...new Set(paths)].filter(p => dataCandidate(p, classRoot) || svgCandidate(p, classRoot)).sort();
-  if (candidates.length > CONSUMER_SCAN_CAP) return 'all';
+  if (candidates.length > consumerScanCap()) return 'all';
   const deadline = Date.now() + timeoutMs;
   const base = (p: string) => p.slice(p.lastIndexOf('/') + 1);
   const read = (file: string) => !scratch(file) && classifyPath(file, classRoot) !== 'docs';
   const named = new Map<string, Set<string>>();
   const direct = new Set<string>();
   const probed = new Set<string>();
+  const readable = new Map<string, boolean>();
+  const memo = new Map<string, ScanMemo>();
   let probe = candidates;
   for (let depth = 0; probe.length && depth < CONSUMER_SCAN_DEPTH; depth++) {
     const patterns = [...new Set(probe.map(base))];
     const next = new Set<string>();
+    const probing = new Set(probe);
+    const credits = new Map<string, string[]>();
     for (const at of [...revs, ...(live ? [''] : [])]) {
-      const r = grepConsumers(root, patterns, at, read, deadline);
+      const r = grepConsumers(root, patterns, at, read, deadline, CONSUMER_SCAN_PATHSPEC_BYTES, CONSUMER_SCAN_OUTPUT_BYTES, memo);
       if (!Array.isArray(r)) {
         const detail = r.timedOut ? `timed out: the scan's ${timeoutMs / 1000} s deadline passed (GSTACK_CONSUMER_SCAN_TIMEOUT_MS)` : `git grep exited ${r.status}${r.err ? `: ${r.err}` : ''} (deadline ${timeoutMs / 1000} s)`;
         errors.push({ code: 'consumer_scan_failed', detail: oneLine(detail), input: `git grep -F <data basenames> ${at || '--untracked'}`, repair: r.timedOut ? 'raise GSTACK_CONSUMER_SCAN_TIMEOUT_MS (milliseconds) or run the git grep by hand to see why it is slow' : 'run the git grep by hand and fix what git reports' });
@@ -232,12 +355,15 @@ export function scanConsumers(root: string, paths: readonly string[], revs: read
         const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
         if (!where || !match) continue;
         const file = at ? where.slice(at.length + 1) : where;
-        if (!read(file)) continue;
-        for (const p of probe) {
-          if (file === p || !match.includes(base(p))) continue;
-          if (!dataCandidate(file, classRoot)) { direct.add(p); continue; }
+        if (!(readable.get(file) ?? readable.set(file, read(file)).get(file))) continue;
+        const credited = credits.get(match) ?? credits.set(match, probe.filter(p => match.includes(base(p)))).get(match)!;
+        if (!credited.length) continue;
+        const data = dataCandidate(file, classRoot);
+        for (const p of credited) {
+          if (file === p) continue;
+          if (!data) { direct.add(p); continue; }
           (named.get(file) ?? named.set(file, new Set()).get(file)!).add(p);
-          if (!probed.has(file) && !probe.includes(file)) next.add(file);
+          if (!probed.has(file) && !probing.has(file)) next.add(file);
         }
       }
     }

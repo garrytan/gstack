@@ -417,6 +417,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-ship-preflight, gstack-ci-carry, gstack-evidence and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-ci-carry.test.ts, which windows-latest fails at the first bin spawn (windows-scoped-shard, run 41607840098)',
   },
   {
+    file: 'test/ship-preflight-carry-bound-and-deps.test.ts',
+    reason: 'drives bin/gstack-ship-preflight, gstack-ship-release, gstack-ci-carry, gstack-evidence and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-preflight-carry-stop.test.ts, which windows-latest fails at the first bin spawn (windows-scoped-shard, run 41607840098)',
+  },
+  {
     file: 'test/ship-rereview-triggers.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-release.test.ts; windows-latest fails every bin case at the first spawn (windows-free-shard 6, run 41193336209)',
   },
@@ -459,6 +463,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/capy-host-publish.test.ts',
     reason: 'drives bin/gstack-ship-receipt, gstack-post, gstack-approvals and gstack-review-log (shebangs) plus a #!/bin/sh gh shim through test/helpers/ship-bin-fixture.ts and restamp-fixture.ts, like test/round-cap-granted-stop.test.ts',
+  },
+  {
+    file: 'test/ship-run-record.test.ts',
+    reason: 'drives bin/gstack-ship-preflight, gstack-ship-run, gstack-ship-receipt, gstack-approvals, gstack-review-log, gstack-lease and gstack-skill-end (shebangs) through test/helpers/ship-bin-fixture.ts like test/round-cap-granted-stop.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
   },
   {
     file: 'test/round-cap-granted-stop.test.ts',

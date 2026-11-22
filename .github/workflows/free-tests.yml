@@ -22,7 +22,9 @@ name: Free Tests
 # uploads a `tested-tree` record (tree.json) only after strict verification
 # passes. A push to main first runs `reuse`: when the merged pull request's
 # head has the pushed tree and a green pull_request or workflow_dispatch run of
-# this workflow verifies (lib/run-evidence.ts), every suite job is skipped and
+# this workflow verifies (lib/run-evidence.ts), or when land's newest dispatch
+# run on gstack-land/<pr> verifies with the pushed tree as its tested tree (a
+# stale-base land, docs/pregate.md#ci-reuse), every suite job is skipped and
 # the aggregate links that run instead. A pull request run reuses too, but
 # only a run the pull request cannot control: a green push or dispatch run on
 # main, or a dispatch run on its own branch, at the merge commit's exact tree,

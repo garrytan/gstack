@@ -1,0 +1,1 @@
+**The release gate's live /autoplan guard test keeps its Claude Haiku 4.5 actor.** On Haiku 5.5 the actor ran ahead of the background reviewer's completion notice, so the test never reached the path it checks and failed the release gate 8 times out of 8; the other four canaries and the eval defaults stay on Haiku 5.5.

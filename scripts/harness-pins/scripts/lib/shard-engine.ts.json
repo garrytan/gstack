@@ -1,1 +1,1 @@
-{"blob":"77f0039e555cf695bdda02e123b4d6af6d378682","since":6,"nonBehavioral":"CAPY_LAUNCH_MARKERS gains GSTACK_PREFERENCES_FILE and GSTACK_LOADOUT_SKILL_ROOT, which the shard sandbox strips from fixture children; CI never sets either, so no case there sees a different input or verdict, and a Capy machine stops leaking the owner's settings into fixtures"}
+{"blob":"77f0039e555cf695bdda02e123b4d6af6d378682","since":7}

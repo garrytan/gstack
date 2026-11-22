@@ -27,7 +27,11 @@
  *     gpt-6.1-sol); a call with no namespace may carry either. One whose output
  *     names no id for its namespace (it failed, or it has no output), or a
  *     same-named tool in any other namespace, stays a plain spawn_agent call,
- *     so it is not a dispatch.
+ *     so it is not a dispatch. The dispatch also carries the started agent's
+ *     task name (the last part of its "/root/<name>" result, else the call's
+ *     task_name), and sealed when its message is ciphertext: Codex encrypts the
+ *     multi_agents_v2 message for OpenAI models (openai/codex#26210), so the
+ *     brief's text is in neither rollout.
  *   - any other call: a tool_use under its own name. Call outputs are
  *     tool_results; a shell output that exited non-zero is an error.
  * Records of other types (event_msg, turn_context, reasoning and the rest)
@@ -46,6 +50,7 @@ const READ_PROGRAM = /(?:^|[\s;|&(`'"])(?:cat|sed|head|tail|nl|less|more|bat|awk
 const READ_FAILURE = /No such file|cannot open|can't read|cannot access|Permission denied|Is a directory|Cannot find path/i;
 const SHELL_TOOLS = new Set(['exec_command', 'shell', 'shell_command', 'local_shell']);
 const EXIT_CODE = /(?:^|\n)Process exited with code (\d+)/;
+const CIPHERTEXT = /^gAAAAA[A-Za-z0-9_-]{20,}={0,2}$/;
 
 /** Whether text is a Codex rollout: its first JSON object line is a session_meta record. */
 export function isCodexRollout(text: string): boolean {
@@ -156,17 +161,18 @@ const exitedNonZero = (output: string | undefined) => {
   return !!code && code[1] !== '0';
 };
 
-const startedAgent = (output: string | undefined, namespace: unknown) => {
-  if (output === undefined) return false;
+/** A spawn_agent output that names the agent it started, for the call's namespace, or null. */
+const startedAgent = (output: string | undefined, namespace: unknown): Record<string, any> | null => {
+  if (output === undefined) return null;
   try {
     const parsed: unknown = JSON.parse(output);
-    if (!isObject(parsed)) return false;
+    if (!isObject(parsed)) return null;
     const ids = namespace === 'multi_agent_v1' ? [parsed.agent_id]
       : namespace === 'collaboration' ? [parsed.task_name]
       : namespace === undefined ? [parsed.agent_id, parsed.task_name] : [];
-    return ids.some(id => typeof id === 'string' && id !== '');
+    return ids.some(id => typeof id === 'string' && id !== '') ? parsed : null;
   } catch {
-    return false;
+    return null;
   }
 };
 
@@ -228,6 +234,7 @@ export function parseCodexRollout(text: string): Transcript {
       const id = String(p.call_id ?? '');
       const input = args(p.type === 'custom_tool_call' ? { input: p.input } : p.arguments, line);
       const command = SHELL_TOOLS.has(p.name) ? shellLine(input) : null;
+      const started = p.name === 'spawn_agent' ? startedAgent(outputs.get(id), p.namespace ?? undefined) : null;
       if (command !== null) {
         events.push({ kind: 'tool_use', line, id, name: 'Bash', input: { command } });
         const reads = shellSkillReads(command);
@@ -237,10 +244,16 @@ export function parseCodexRollout(text: string): Transcript {
           events.push({ kind: 'load', line, skill: read.skill, via: 'read' });
           lastLoad = read.skill;
         }
-      } else if (p.name === 'spawn_agent' && startedAgent(outputs.get(id), p.namespace ?? undefined)) {
+      } else if (started) {
         const prompt = [input.message, ...(Array.isArray(input.items) ? input.items.map((i: unknown) => (isObject(i) ? i.text : undefined)) : [])]
           .filter(v => typeof v === 'string').join('\n');
-        events.push({ kind: 'tool_use', line, id, name: 'Agent', input: { prompt, ...(typeof input.agent_type === 'string' ? { subagent_type: input.agent_type } : {}) } });
+        const taskName = [started.task_name, input.task_name].find(v => typeof v === 'string' && v !== '')?.split('/').pop();
+        events.push({ kind: 'tool_use', line, id, name: 'Agent', input: {
+          prompt,
+          ...(typeof input.agent_type === 'string' ? { subagent_type: input.agent_type } : {}),
+          ...(taskName ? { task_name: taskName } : {}),
+          ...(typeof input.message === 'string' && CIPHERTEXT.test(input.message) ? { sealed: true } : {}),
+        } });
       } else {
         events.push({ kind: 'tool_use', line, id, name: p.name, input });
       }

@@ -34,6 +34,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { renderModelGenerations, modelGenerationProblems } from '../lib/eval-plan-checks';
 import { armIdentities, armModel, checkPrereg, DEFAULT_TOKENS, dryRun, pilotReport, preregTemplate, quickLookTemplate, priceGate, releasePilot, renderArms, renderDryRun, renderGatePrice, renderPilotReport, renderPreregDiagnostics, resolveArms, resolvePlanSource, runPreregDiagnostics, settlePilot, startPilot } from '../lib/eval-plan';
 import { checkResults } from '../lib/eval-plan-report';
 import { checkJudgeLabels, renderJudgeLabels } from '../lib/eval-plan-checks';
@@ -49,10 +50,12 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
                                      the required sections exist and are filled: Bars, Decisions, Arms, Comparison, Scoring,
                                      Decoys, Stop rules, Held-out exposure, and No-gstack arm when the Comparison says stack: loaded;
                                      Decisions needs two or more "if <result>: <action>" lines with different actions; Scoring a
-                                     judge (none, or another model family with labels >= 40 and agreement >= 0.6) and, with two or
+                                     judge (none, or another model family with labels >= 100, 40 if frozen before 2026-11-22, and agreement >= 0.6) and, with two or
                                      more arms, paired: yes, interval: 95% and mdd:; a frozen: date before 2026-11-15 skips both;
                                      an optional Diagnostics section's summarizer runs on its synthetic fixture only with
-                                     --allow-repo-commands (else it is listed and exit 3) and every count must match
+                                     --allow-repo-commands (else it is listed and exit 3) and every count must match;
+                                     no arm, judge, reader or simulator is gpt-4o or a superseded_by row (R116, MODEL_GENERATION
+                                     lines; a frozen: date before 2026-11-21 keeps its models); vendor-default lines print MODEL_EXCEPTION
   prereg --init <file> [--title <t>] [--quick] write the template (--quick: a quick look)
   arms [--arms m,m] [--policy-doc f] [--input-tokens N] [--output-tokens N] [--json]
                                      arms from \`gstack-models resolve --role eval-arms\`, else the repo policy doc, each priced per item
@@ -60,7 +63,8 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
                                      stub model over the real rows; checklist: price table, output budget, retry prompt text,
                                      and with --cap reservation-fits-cap (one call: largest row + output budget, priced);
                                      frontier: refuses a plan whose every arm is Haiku or Sonnet unless --tier-question
-                                     names what it asks about that tier, and re-costs the plan on frontier prices (R54)
+                                     names what it asks about that tier, and re-costs the plan on frontier prices (R54);
+                                     model-generation: refuses an arm that is gpt-4o or a lib/pricing.ts superseded_by row (R116)
   pilot start --out dir --cap usd --arms m,m#no-gstack --dry-run dry-run.json [--n 3] [--seat-metered arm,...]
                                      --seat-metered: arms on a subscription with no incremental charge; they reserve $0,
                                      settle unknown, and sit outside the cap and the projection until one settles a charge
@@ -136,12 +140,14 @@ function doPrereg(rest: string[]): number {
   const run = runnable && allowed ? runPreregDiagnostics(d, repoRoot) : null;
   if (rest.includes('--json')) process.stdout.write(JSON.stringify({ file, ...r, diagnostics_run: run }) + '\n');
   else {
-    process.stdout.write(`PREREG: ${r.ok ? 'ok' : 'incomplete'} present=${r.present.length}/${r.present.length + r.missing.length + r.empty.length}${r.missing.length ? ` missing=${r.missing.join(',')}` : ''}${r.empty.length ? ` empty=${r.empty.join(',')}` : ''}${r.comparison.stack ? ` stack=${r.comparison.stack}` : ''}${r.no_gstack.required ? ` no_gstack_arm=${r.no_gstack.ok ? 'ok' : r.no_gstack.problems[0] === 'missing section' ? 'missing' : 'incomplete'}` : ''}${d ? ` diagnostics=${d.errors.length ? 'invalid' : d.expected.length}` : ''}${r.quick ? ` kind=quick-look cap=${r.quick.cap ?? 'missing'}` : ''}${r.loop.interim_required ? ' interim_look=required' : ''}${r.grandfathered ? ` frozen=${r.frozen} result_checks=exempt` : ''}${r.loop_grandfathered ? `${r.grandfathered ? '' : ` frozen=${r.frozen}`} loop_checks=exempt` : ''} file=${file}\n`);
+    process.stdout.write(`PREREG: ${r.ok ? 'ok' : 'incomplete'} present=${r.present.length}/${r.present.length + r.missing.length + r.empty.length}${r.missing.length ? ` missing=${r.missing.join(',')}` : ''}${r.empty.length ? ` empty=${r.empty.join(',')}` : ''}${r.comparison.stack ? ` stack=${r.comparison.stack}` : ''}${r.no_gstack.required ? ` no_gstack_arm=${r.no_gstack.ok ? 'ok' : r.no_gstack.problems[0] === 'missing section' ? 'missing' : 'incomplete'}` : ''}${d ? ` diagnostics=${d.errors.length ? 'invalid' : d.expected.length}` : ''}${r.quick ? ` kind=quick-look cap=${r.quick.cap ?? 'missing'}` : ''}${r.loop.interim_required ? ' interim_look=required' : ''}${r.models.ok ? '' : ' models=refused'}${r.grandfathered ? ` frozen=${r.frozen} result_checks=exempt` : ''}${r.loop_grandfathered ? `${r.grandfathered ? '' : ` frozen=${r.frozen}`} loop_checks=exempt` : ''} file=${file}\n`);
     if (runnable && !allowed) process.stdout.write(`PREREG_COMMAND: summarizer=${JSON.stringify(d.summarizer)} fixture=${d.fixture} cwd=${repoRoot}\n`);
     if (run) process.stdout.write(renderPreregDiagnostics(run));
+    process.stdout.write(renderModelGenerations(r.models));
   }
   const incomplete = [...r.missing.map(m => `missing ${m}`), ...r.empty.map(e => `empty ${e}`), ...r.comparison.errors.map(e => `comparison: ${e}`), ...r.decisions.errors.map(e => `decisions: ${e}`), ...r.scoring.errors.map(e => `scoring: ${e}`), ...r.loop.errors.map(e => `${e.section.toLowerCase()}: ${e.message}`), ...(r.quick?.errors ?? []).map(e => `quick look: ${e}`), ...(d?.errors ?? []).map(e => `diagnostics: ${e}`)];
   if (incomplete.length) process.stderr.write(resultLine('gstack-eval-plan prereg', 'PREREG_INCOMPLETE', incomplete.join('; ')) + '\n');
+  if (!r.models.ok) process.stderr.write(resultLine('gstack-eval-plan prereg', 'EVAL_MODEL_OLD_GENERATION', modelGenerationProblems(r.models).join('; ')) + '\n');
   if (!r.no_gstack.ok) process.stderr.write(resultLine('gstack-eval-plan prereg', 'PREREG_NO_GSTACK_ARM', `no-gstack arm: ${r.no_gstack.problems.join('; ')}`) + '\n');
   if (run && !run.ok) process.stderr.write(resultLine('gstack-eval-plan prereg', 'PREREG_DIAGNOSTIC_UNTESTED', run.error ?? run.rows.filter(row => row.status !== 'ok').map(row => `${row.name} ${row.status} (expected ${row.expected ?? 'undeclared'}, got ${row.got ?? 'none'})`).join('; ')) + '\n');
   if (!r.ok || (run && !run.ok)) return EXIT.fail;
@@ -201,7 +207,7 @@ function doDryRun(rest: string[]): number {
   if (rest.includes('--json')) process.stdout.write(JSON.stringify(r) + '\n'); else process.stdout.write(renderDryRun(r));
   if (out) process.stdout.write(`DRY_RUN_RECORD: ${path.join(out, 'dry-run.json')}\n`);
   if (!r.pass) {
-    const why = [r.rows === 0 ? 'no rows' : '', r.bad_rows.length ? `${r.bad_rows.length} bad rows` : '', !r.checks.price_table.ok ? `price missing: ${r.checks.price_table.missing.join(',') || 'no arms'}` : '', !r.checks.output_budget.ok ? 'output budget below the reasoning floor' : '', !r.checks.retry_prompt.ok ? 'retry prompt missing' : '', r.checks.reservation_fits_cap && !r.checks.reservation_fits_cap.ok ? `one call exceeds --cap $${r.checks.reservation_fits_cap.cap}` : '', r.checks.model_rules && !r.checks.model_rules.ok ? 'model rules refused an arm (EVAL_MODEL lines above)' : '', !r.checks.frontier.ok ? 'every arm is Haiku or Sonnet (R54; CHECK: frontier above)' : ''].filter(Boolean).join('; ');
+    const why = [r.rows === 0 ? 'no rows' : '', r.bad_rows.length ? `${r.bad_rows.length} bad rows` : '', !r.checks.price_table.ok ? `price missing: ${r.checks.price_table.missing.join(',') || 'no arms'}` : '', !r.checks.output_budget.ok ? 'output budget below the reasoning floor' : '', !r.checks.retry_prompt.ok ? 'retry prompt missing' : '', r.checks.reservation_fits_cap && !r.checks.reservation_fits_cap.ok ? `one call exceeds --cap $${r.checks.reservation_fits_cap.cap}` : '', r.checks.model_rules && !r.checks.model_rules.ok ? 'model rules refused an arm (EVAL_MODEL lines above)' : '', !r.checks.frontier.ok ? 'every arm is Haiku or Sonnet (R54; CHECK: frontier above)' : '', !r.checks.generation.ok ? 'an arm is gpt-4o or an older generation (R116; CHECK: model-generation above)' : ''].filter(Boolean).join('; ');
     process.stderr.write(resultLine('gstack-eval-plan dry-run', r.checks.price_table.ok ? 'EVAL_DRY_RUN_FAILED' : 'EVAL_PRICE_MISSING', why) + '\n');
     return EXIT.fail;
   }

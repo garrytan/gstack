@@ -14,8 +14,8 @@ describe("resolveEvalModel", () => {
   });
   test("defaults per kind", () => {
     expect(resolveEvalModel("capture", null, {} as never)).toBe(CLAUDE_CAPTURE_EVAL_MODEL);
-    expect(resolveEvalModel("warmup", null, {} as never)).toBe("claude-haiku-4-5");
-    expect(resolveEvalModel("distill", null, {} as never)).toBe("claude-haiku-4-5-20251001");
+    expect(resolveEvalModel("warmup", null, {} as never)).toBe("claude-haiku-5-5");
+    expect(resolveEvalModel("distill", null, {} as never)).toBe("claude-haiku-5-5");
     expect(resolveEvalModel("judge", null, {} as never)).toBe(CLAUDE_JUDGE_EVAL_MODEL);
   });
   test("unknown kind throws instead of silently defaulting", () => {

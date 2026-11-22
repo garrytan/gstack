@@ -58,7 +58,6 @@
     "lib/repo-state-clean.ts",
     "lib/review-selection.ts",
     "lib/review-sweep.ts",
-    "lib/ruled-notes.ts",
     "lib/ship-clock.ts",
     "lib/stamp-only.ts",
     "make-pdf/src/pdftotext.ts",

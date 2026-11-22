@@ -39,7 +39,7 @@ import { lineTags, swallowsAcrossLines, tagHunk } from './gate-diff/tags';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
 import { scan } from './redact-engine';
 import { shannonEntropy } from './redact-patterns';
-import { KEY_NAME, RESULTS_TREE, SECRET_LINE, secretPath } from './review-risk';
+import { KEY_NAME, RESULTS_TREE, SECRET_LINE, hashManifest, secretPath } from './review-risk';
 import { secretExcerpt } from './review-secret-excerpt';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
@@ -71,6 +71,7 @@ export interface ActiveExclusion {
 export type Exclusion =
   | { state: 'none' }
   | { state: 'head-only'; patterns: string[]; source: string }
+  | { state: 'fallback'; source: string; errors: string[] }
   | { state: 'refused'; code: 'POLICY_SOURCE_UNAVAILABLE' | 'POLICY_INVALID' | 'REVIEW_DIFF_UNREADABLE' | 'REVIEW_EXCLUDE_KEEP_TOO_LARGE'; lines: string[] }
   | ActiveExclusion;
 
@@ -373,12 +374,15 @@ const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: s
     || (!!i.declared?.has(f) && (!!i.keptDeclared?.has(f) || mode === '100755' || mode === '120000')));
 
 /**
- * An uncapped `git grep -F -o -f` of fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
+ * An uncapped search for fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
  * holding it; null when git could not list a tree, a consumer's name did not survive UTF-8 decoding, or git could not build
  * the scratch index or grep it (a timeout included). Each tree's file list is filtered to consumers first, so the data under
  * the patterns is never read (GST-1435: a whole-tree grep for 4,354 candidate paths through 30 MB of receipts ran 278 s), and
  * the consumers go into a scratch index that one git grep reads, so the git calls stay fixed however many files there are
- * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). On a live tree, an entry git reads from its blob
+ * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). `git grep -l` lists the consumers holding any string, and
+ * only those are read and searched here: git's -o grew with the number of strings (HARN-64: 2,140 candidate paths in one
+ * 464 KB pins.sha256 ran past git's 120 s bound, so every candidate stayed in review). A consumer that is a hash or pin
+ * manifest (every line a digest and a path, lib/review-risk.ts) names files without reading them, so it keeps none. On a live tree, an entry git reads from its blob
  * (skip-worktree or assume-unchanged) goes into a second index grepped with --cached, as git grep itself would read it.
  */
 function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
@@ -408,14 +412,28 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
         if (!entries.length) continue;
         const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, `index-${n++}`) };
         if (!git(i.root, ['update-index', '-z', '--index-info'], entries.join('\0') + '\0', env).ok) return null;
-        const r = git(i.root, ['grep', ...flags, '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', '-f', list], undefined, env);
-        if (r.status !== 0 && r.status !== 1) return null;
-        for (const line of r.out.split('\n')) {
-          const parts = line.split('\0');
-          const file = parts[0];
-          const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
-          if (!file || !match) continue;
-          (found.get(match) ?? found.set(match, new Set()).get(match)!).add(file);
+        const hits = git(i.root, ['grep', ...flags, '-I', '-F', '-l', '-z', '--no-color', '-f', list], undefined, env);
+        if (hits.status !== 0 && hits.status !== 1) return null;
+        const files = hits.out.split('\0').filter(Boolean);
+        const bodies = new Map<string, string>();
+        if (flags.length && files.length) {
+          const shas = new Map(entries.map(e => [e.slice(e.indexOf('\t') + 1), e.slice(0, e.indexOf('\t')).split(' ')[1]!]));
+          const want = files.map(f => shas.get(f));
+          if (want.some(s => !s)) return null;
+          const b = spawnSync('git', ['cat-file', '--batch'], { cwd: i.root, input: want.join('\n') + '\n', timeout: 120_000, maxBuffer: MAX_BUFFER });
+          if (b.status !== 0 || !b.stdout) return null;
+          let at = 0;
+          for (const f of files) {
+            const nl = b.stdout.indexOf(10, at);
+            const size = Number(b.stdout.subarray(at, nl).toString().split(' ')[2]);
+            if (nl < 0 || !Number.isInteger(size)) return null;
+            bodies.set(f, b.stdout.subarray(nl + 1, nl + 1 + size).toString('utf8'));
+            at = nl + 2 + size;
+          }
+        } else for (const f of files) try { bodies.set(f, fs.readFileSync(path.join(i.root, f), 'utf8')); } catch { return null; }
+        for (const [file, body] of bodies) {
+          if (hashManifest(body.split('\n'))) continue;
+          for (const s of strings) if (body.includes(s)) (found.get(s) ?? found.set(s, new Set()).get(s)!).add(file);
         }
       }
     }
@@ -425,7 +443,8 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
 
 /**
  * The base policy's exclusion for one range. `none` when neither side declares a pattern (callers then print and change
- * nothing); `head-only` when only the head does (a notice, never applied); `refused` when the base policy cannot be read or
+ * nothing); `head-only` when only the head does (a notice, never applied); `fallback` when the base policy fails only on its
+ * exclusion keys, which finish (lib/ship-policy.ts) then sets aside so every file is reviewed; `refused` when the base policy cannot be read or
  * does not validate, or git cannot list the matches; `active` otherwise. Named-by-code keeps a file only when a kept code
  * file names its full repository path (never its basename: receipt trees reuse result.json thousands of times); a git grep
  * failure keeps every candidate (consumer-scan-unavailable), and so does an unknown gate scan (gate-scan-unavailable) or a
@@ -439,6 +458,7 @@ export function reviewExclude(i: ExcludeInput): Exclusion {
   if (load.errors.length) {
     return { state: 'refused', code: 'POLICY_INVALID', lines: load.errors.map(e => `${i.context}: the base policy ${source}:${SHIP_POLICY_PATH} does not validate, so its review_exclude_paths cannot be read (${e.path || SHIP_POLICY_PATH}: ${e.message}); fix: run ` + '`' + `gstack-ship-policy validate --policy-from base --base ${base}` + '`' + ` and fix the file on ${base} with its own PR; nothing was planned (${e.code})`) };
   }
+  if (load.setAside) return { state: 'fallback', source, errors: load.setAside.map(e => `${e.path}: ${e.message}`) };
   const patterns = load.policy.review_exclude_paths;
   if (!patterns.length) { const head = headPatterns(i); return head.length ? { state: 'head-only', patterns: head, source } : { state: 'none' }; }
   const sel = select(i, patterns);
@@ -519,10 +539,16 @@ function excludedBytes(i: ExcludeInput, excluded: readonly string[], files: Read
   return r.out.split('\n').reduce((n, l) => n + (Number(l) || 0), 0);
 }
 
+/** The loud line for a base policy whose exclusion keys were set aside: what failed, that every file is reviewed, and the fix. */
+export function fallbackLine(x: Extract<Exclusion, { state: 'fallback' }>, base: string): string {
+  return `REVIEW_EXCLUDE: fallback (WARNING: the base policy ${x.source} does not validate: ${x.errors.join('; ')}; its review_exclude_paths and review_content_patterns are set aside and every file is reviewed, as with no exclusion; every other key applies as committed; fix: correct the list on ${base} with its own PR, which this plan reviews in full; docs/ship-policy.md#review-exclude-paths)`;
+}
+
 /** The plan's lines for an exclusion: none prints nothing, so a repository without the key plans byte for byte as before. */
 export function excludeLines(x: Exclusion, base: string): string[] {
   if (x.state === 'none' || x.state === 'refused') return [];
   if (x.state === 'head-only') return [`REVIEW_EXCLUDE: none (head sets review_exclude_paths; it applies after it lands on ${base}) patterns=${x.patterns.length} source=${x.source}`];
+  if (x.state === 'fallback') return [fallbackLine(x, base)];
   const r = x.record;
   const out = [`REVIEW_EXCLUDE: patterns=${r.applied.length}/${r.patterns.length} excluded=${r.excluded} bytes=${r.excluded_bytes} kept=${r.kept} content=${Object.entries(x.content).filter(([, n]) => n).map(([k, n]) => `${k}:${n}`).join(',') || 'none'} source=${r.source} digest=${r.digest}${r.unmatched.length ? ` unmatched=${r.unmatched.join(',')}` : ''}`];
   for (const k of x.kept.slice(0, 20)) out.push(`REVIEW_EXCLUDE_KEPT: ${k.reason} ${k.path}`);
@@ -672,5 +698,6 @@ export function ceilingContext(root: string, base: string, known?: PlanExclude):
   const floor = read?.policy.min_gstack_version ?? null;
   if (!x) return { state: 'none', base: b, source, floor };
   if (x.state === 'head-only') return { state: 'head-only', base: b, source, floor, headPatterns: x.patterns ?? [] };
+  if (x.state !== 'active') return { state: 'none', base: b, source, floor };
   return { state: 'active', base: b, source, floor, record: { patterns: x.patterns ?? [], excluded: x.excluded ?? 0 } };
 }

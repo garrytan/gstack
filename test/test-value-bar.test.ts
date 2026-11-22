@@ -171,7 +171,7 @@ describe('ship parent decision rules', () => {
 
   test('the rejection step removes new rejected files and reports tracked ones for a hunk revert', () => {
     const start = shipSection.indexOf('   REJECTED_FILE="$(git rev-parse');
-    const end = shipSection.indexOf('   rm -f "$REJECTED_FILE"\n', start) + '   rm -f "$REJECTED_FILE"\n'.length;
+    const end = shipSection.indexOf('   rm -- "$REJECTED_FILE"\n', start) + '   rm -- "$REJECTED_FILE"\n'.length;
     const block = shipSection.slice(start, end).split('\n').map(line => line.replace(/^ {3}/, '')).join('\n');
     expect(block).toContain('<rejected-file-name>');
     expect(block).toContain('done < "$REJECTED_FILE"');

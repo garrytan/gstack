@@ -91,7 +91,10 @@ incomplete coverage, which blocks until the reviewer is rerun.
    classifies with `--range-base`. Only a blocking finding in that range or in
    the diff is `fix`; every below-floor finding is a `note`.
 3. **Two rounds is the cap** (R51): a full pass, a scoped pass
-   ([below](#scoped-pass)) or a fix-check is a round. After round 2 the run
+   ([below](#scoped-pass)) or a fix-check is a round of this table. The counters
+   (`review_loop.rounds`, `PR_REVIEW_HISTORY: rounds=`) count passes only: a
+   fix-check reads only a round's fixes, and R51 counts a re-check of only what
+   changed as no round, so it shows as `fix_checks=`. After round 2 the run
    finishes with its open notes listed in the PR body and receipt (an owner-ruled
    note is closed and listed: [ruled notes](ship-policy.md#ruled-notes)), or stops for
    the owner when a blocking finding is open, or was fixed in round 2 and is
@@ -148,8 +151,8 @@ caught 22 of 24 planted faults but none of 8 real faults that full rounds had
 caught on another crew's PRs.
 
 1. **Count.** `gstack-ship-receipt history --pr <n>` adds up the rounds the body
-   records (full passes, scoped passes and fix-checks; a run listed twice counts
-   once) and prints `PR_REVIEW_HISTORY:`, the flag line `PR_REVIEW_FLAGS:
+   records (full and scoped passes; a fix-check is no round and shows as
+   `fix_checks=`; a run listed twice counts once) and prints `PR_REVIEW_HISTORY:`, the flag line `PR_REVIEW_FLAGS:
    --prior-rounds <rounds> --prior-full <full rounds>` and `PR_REVIEW_ROUTE:`.
    `/ship` Step 1 prints all three. A re-check that carried a receipt before
    this rule adds no round. The count fails open when the history can't be
@@ -185,7 +188,8 @@ caught on another crew's PRs.
    full rounds to this run's full passes; fix-checks stay the in-run table's
    call, and `--prior-rounds` is printed as `pr_rounds=`. The per-PR cap counts
    full passes only, by design (`lib/review-depth.ts` `prCapped`): earlier runs'
-   fix-checks and scoped passes show in `pr_rounds=` but don't count against it,
+   scoped passes show in `pr_rounds=` but don't count against it, fix-checks
+   show in neither,
    because each run's own fix round is the in-run table's call. A full pass past two
    stops with `PR_ROUND_CAP` and says how to record the stop and its grant
    (item 6); a below-floor fix at the cap finishes with its notes listed. The stop is the lane's or Captain's call, never an owner ask
@@ -232,7 +236,12 @@ caught on another crew's PRs.
    gstack writes for itself, `gstack` or `gstack no-stop default (K1)`, matched
    whole and case-insensitively, so "gstack-evals Captain" or "GStack Minder" can
    grant) and a grant from inside an open `/ship` run are refused, and `add`
-   refuses the scope. `--by` is otherwise the caller's own text, recorded and
+   refuses the scope. A stopped run (state `stopped` in its run record,
+   [what ends a run](ship-policy.md#what-ends-a-run)) may record the fix-check grant
+   for its own stop, once per run; any other grant on that checkout, a second fix
+   round included, is the lane's relay of its Captain's grant: `--owner-ref <thread
+   code>:<message id or timestamp> --words <their exact words>`, the same relay
+   `gstack-approvals rule` takes, which the row keeps as `relayed:<ref>` (#4531). `--by` is otherwise the caller's own text, recorded and
    not checked: a lane that records a grant (or a ruling) from another checkout
    under its Captain's name can't be told apart from the Captain doing it, so the
    Captain's check of the receipt's `review_round_grants` and the PR body's lines
@@ -408,15 +417,29 @@ function but a same-file `url(#id)`, which closes `@import`, `image-set()`,
 `href` a same-file `#` reference or an inline raster image, no event handler and no
 entity declaration, and no DOCTYPE but a bare `<!DOCTYPE svg>` or W3C's own SVG DTD, read after character references are decoded. A `<style>` element's text is read as written. Any `&` in it keeps the SVG code, its comments are read as CSS, an opening tag it cannot read as quoted `name="value"` pairs keeps the SVG code, and only ASCII whitespace may come before the `>` of either tag, so no character-reference `</style>`, comment that only an HTML parser ends early, quoted `>` or Unicode space can hide CSS. A non-ASCII character in an element or attribute name, such as a `gé:` prefix, keeps the SVG code too (GST-940); anything else, a
 script or `foreignObject` included, keeps it code. More than
-2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
+2,000 data paths keep every one code (`GSTACK_REVIEW_CONSUMER_SCAN_CAP` raises the count, a whole
+number; an empty, zero, negative or non-numeric value keeps 2,000), and the plan then prints a
+`CONSUMER_SCAN: skipped:` line naming both ways out: raise the cap or move the data into its own PR.
+The cap is read from the environment, not recorded in the receipt, so a raised cap must also be set
+wherever depth is recomputed (`gstack-ship-receipt carry` and the merge queue); without it they read
+2,000, find a deeper depth than the receipt's and refuse it (`RECEIPT_CARRY_REFUSED`).
+The cap counts files before `review_exclude_paths` applies, because the exclusion's own name scan reads
+the depth this scan decides, and it changes only depth: excluded files still stay out of the readers' diffs; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. The scan first lists the files that contain a candidate's
 extension and then searches only those, docs files left out, so a large data tree
-costs one cheap pass. Each scan gets one 120-second deadline, set in milliseconds with
+costs one cheap pass. That extension pass runs once per scan at each commit and in the working
+tree; the files it keeps go into a scratch index, `git grep -l` lists the ones that hold a
+name, and the scan picks each such file's matches itself the way `git grep -o` does
+(earliest start, longest name there, then on from its end), so its results are
+byte-identical to the -o grep. git's own -o retries every name after each match and took
+220 s on one 16 MB trials file with 80 names (HARN-98, harness-evals #551); on that PR's
+304,000-file tree the whole scan now takes about 40 s on a 4-core machine, where it used to
+run past its deadline. Each scan gets one 120-second deadline, set in milliseconds with
 `GSTACK_CONSUMER_SCAN_TIMEOUT_MS`; a scan that runs past it, or whose matches pass
 256 MB, is also `consumer_scan_failed`, and its detail says what stopped it and names
 the deadline. One scan fits a minute inside the 180 seconds /ship gives
 `gstack-review-plan`; a plan that also scans a fix range runs two scans, and if they
-pass that limit the plan, run by itself or under `gstack-review-dispatch pass`, stops with
+pass that limit the plan, run by itself or under `gstack-review-dispatch pass` or `render`, stops with
 [`REVIEW_PLAN_STOPPED`](troubleshooting.md#review-plan-stopped) before any reader
 runs (`GSTACK_REVIEW_PLAN_TIMEOUT_MS` sets the limit in milliseconds). Only `classifyDiff` applies the rule (`lib/review-collect.ts`
 finds the consumers, `gstack-ship-preflight`'s `RUNTIME_LINES` reads the same
@@ -792,7 +815,11 @@ The rule is enforced per stage. Before a stage's readers start, the pass program
 runs `gstack-review-dispatch sweep --phase start`, an inventory of git
 repositories and files of 100 MB or more under the workspace, home and the temp
 dir (bounded at depth 6, 200,000 entries and 20 seconds; past a bound the sweep
-is `partial`, a note). After the stage's last reader is collected,
+is `partial`, a note). On Capy it never walks `~/.capy/drive` (the mounted
+drives), and under `~/.capy/drive-engine` it ignores only the drive sync
+engine's own database files (`state.db` and its `-wal`, `-shm` and `-journal`
+files), which grow on their own and once crossed 100 MB mid-stage. Everything
+else there, `~/.capy/work` and every other path are walked. After the stage's last reader is collected,
 `--phase end` diffs against it. A new repository with a network remote, or a
 new big file, is a violation. Every reader of that stage is quarantined (reply
 under `<out>/quarantine/`, findings out of `merged.jsonl`, never shown to the
@@ -849,7 +876,7 @@ Findings bind by id first (GST-1168). A row finding that came from a dispatched 
 | `review_loop.fixed` | findings fixed in this PR |
 | `review_loop.scope` | the `review_scope` the loop ran under |
 | `review_loop.fix_checks` | fix-checks this ship ran (never passes): the larger of the `review-fix-check` rows and the ledgers holding a fix-check reader's review. When fix-checks ran without their rows, a blocker no row disposes counts as fixed once a later fix-check ledger followed it (decision 3.5 runs one only after the fixes) |
-| `review_loop.rounds` | passes plus fix-checks (R51 caps it at 2; the queue's `REVIEW_DEPTH:` line prints it) |
+| `review_loop.rounds` | full and scoped passes; a fix-check is no round under R51, so `fix_checks` counts it apart (the queue's `REVIEW_DEPTH:` line prints it) |
 | `review_loop.dispatches` | reviewer dispatches by role: `specialist`, `red-team`, `adversarial-native`, `outside-voice`, `fix-check`, `targeted` |
 | `review_loop.est_input_tokens` | prompt plus diff bytes the dispatches read, divided by 4: a relative estimate for comparing runs, not a bill |
 | `review_targeted` | the [targeted pass](#targeted-pass-on-money-gate-auth-and-secret-code): the `classes` it covered, `rules`, `brief_sha`, the receipt's own `product_patch_id`, `status` (`done` only with its brief sent verbatim and its output collected on a committed diff, else `failed`; `write` refuses a record when a change after its read commit carries a targeted class or the read commit is not an ancestor, or when its product patch differs and the change is more than release stamps and plain docs (no binary file and no numeric, results, prereg, eval, money, security, secret or auth claim; GST-1195, GST-1689), and refuses to write without a record when the head needs a class), `findings` and `raised_by`; a carry keeps it while the product patch is unchanged |
@@ -1218,6 +1245,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    machine starts in the machine's working directory, so it is told to `cd` there on every
    command, to give every file tool an absolute path under it, and to start its reply with
    the `REVIEWED_TREE: <HEAD^{tree}> <toplevel>` line the step's command outputs there. The
+   paragraph also tells the reader never to stop or signal a process it did not start (no
+   `pkill`, `killall` or kill by name, pattern or foreign pid), because other runs share the
+   machine (`PROCESS_RULE`, GST-3360). The
    step comes first because a reader following a findings-only format skipped the request
    when it only closed the brief (GST-897). The section's render sits between the two,
    byte for byte. `collect` and `mark --state collected`

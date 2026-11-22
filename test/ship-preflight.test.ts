@@ -262,8 +262,8 @@ describe('gstack-ship-preflight', () => {
     fs.writeFileSync(path.join(f.root, 'body.json'), JSON.stringify({ body }));
     f.gh(`case "$*" in *"pr view"*) cat '${path.join(f.root, 'body.json')}';; *) echo 7;; esac`);
     const r = f.run(PREFLIGHT, ['--base', 'main']);
-    expect(lineOf(r.stdout, 'PR_REVIEW_HISTORY')).toMatch(/^PR_REVIEW_HISTORY: pr=#7 rounds=4 cap=2 full=2 /);
-    expect(lineOf(r.stdout, 'PR_REVIEW_FLAGS')).toBe('PR_REVIEW_FLAGS: --prior-rounds 4 --prior-full 2');
+    expect(lineOf(r.stdout, 'PR_REVIEW_HISTORY')).toMatch(/^PR_REVIEW_HISTORY: pr=#7 rounds=2 cap=2 full=2 /);
+    expect(lineOf(r.stdout, 'PR_REVIEW_FLAGS')).toBe('PR_REVIEW_FLAGS: --prior-rounds 2 --prior-full 2');
     expect(lineOf(r.stdout, 'PR_REVIEW_ROUTE')).toMatch(/^PR_REVIEW_ROUTE: read-only \(the PR had 2 full review rounds; this head gets one read-only full review/);
     expect(r.stdout).not.toMatch(/--recheck|drift_lines|recheck_blocked/);
   });
@@ -453,7 +453,6 @@ describe('gstack-ship-preflight Step 5 pregate: head policy and timeout_s (GST-4
 
 describe('gstack-ship-preflight during an open /ship run (GST-1204)', () => {
   const CHECKOUT = { GSTACK_LEASE_DIR: '' };
-  const leaseFile = (f: ShipFx) => path.join(f.work, '.git', 'gstack-leases', String(process.pid));
   const wtree = (f: ShipFx) => f.run(path.join(path.dirname(RELEASE), 'gstack-wtree'), [], CHECKOUT).stdout.trim();
   /** Steps 12-16 in the fixture: the version bump, the docs snapshot and finish (the step that ends the run's hold on the base merge). */
   const finish = (f: ShipFx) => {
@@ -469,9 +468,9 @@ describe('gstack-ship-preflight during an open /ship run (GST-1204)', () => {
     const tracked = f.git('rev-parse', 'origin/main').stdout.trim();
     const r = f.run(PREFLIGHT, args, CHECKOUT);
     expect(r.status).toBe(3);
-    expect(r.stdout).toContain(`STOP: /ship run ${run} is open on this checkout and past its preflight (`);
+    expect(r.stdout).toMatch(new RegExp(`STOP: /ship run ${run} (is open on this checkout and past its preflight \\(\\S+gstack-ship-run; state |already ended on this checkout \\(state finished)`));
     expect(r.stdout).toContain('rerun Step 5 with --tests-only');
-    expect(r.stdout).toMatch(/if it is no longer running, rm \S+gstack-ship-run, then rerun/);
+    expect(r.stdout).toMatch(new RegExp(`gstack-ship-run abandon --run ${run} --by |start the new /ship with a new --run id`));
     expect(r.stdout).not.toContain('MERGE:');
     expect(f.git('rev-parse', 'HEAD').stdout.trim()).toBe(head);
     expect(f.git('rev-parse', 'origin/main').stdout.trim()).toBe(tracked);
@@ -508,12 +507,19 @@ describe('gstack-ship-preflight during an open /ship run (GST-1204)', () => {
     expect(lineOf(repair.stdout, 'LANE')).toMatch(/^LANE: tests pass exit=0 tests_ran=3/);
   });
 
-  // Value: protects=finish ends the run's hold, and a run past the 120-minute window (GST-1205's fresh rule) no longer blocks the next preflight;
-  //   fails_when=a marker left by an earlier /ship refuses every later preflight on the checkout; why_new=GST-1204 negative control; seam=finish clears the marker, gstack-lease fresh; no_claim=dead or reused holders, covered in test/gstack-lease.test.ts
-  test('a finished or aged-out /ship run does not block a full preflight', () => {
+  // Value: protects=finish ends the run's hold, and a run abandoned after 60 minutes without a beat no longer blocks the next preflight (GST-3260: no timer
+  //   ends a run, so the 120-minute lease no longer does); fails_when=a record left by an earlier /ship refuses every later preflight on the checkout;
+  //   why_new=GST-1204 negative control; seam=finish removes the record, gstack-ship-run abandon ends it; no_claim=dead or reused holders
+  test('a finished or abandoned /ship run does not block a full preflight', () => {
+    const record = (f: ShipFx) => path.join(f.work, '.git', 'gstack-ship-run');
     const ends: Record<string, (f: ShipFx) => void> = {
       finished: finish,
-      'aged out': f => fs.writeFileSync(leaseFile(f), fs.readFileSync(leaseFile(f), 'utf8').replace(/^(run \S+ )(\d+)$/m, (_, p, t) => `${p}${Number(t) - 7300}`)),
+      abandoned: f => {
+        const r = JSON.parse(fs.readFileSync(record(f), 'utf8'));
+        fs.writeFileSync(record(f), JSON.stringify({ ...r, beat_at: new Date(Date.now() - 61 * 60_000).toISOString() }) + '\n');
+        const end = f.run(path.join(path.dirname(PREFLIGHT), 'gstack-ship-run'), ['abandon', '--run', 'ship-run-7', '--by', 'Captain GStack Minder (GSTA-36)', '--reason', 'the run stopped answering'], CHECKOUT);
+        expect(end.status, end.stderr).toBe(0);
+      },
     };
     for (const [why, end] of Object.entries(ends)) {
       const f = fx();
