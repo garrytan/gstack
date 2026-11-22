@@ -84,7 +84,7 @@ export function autoCarry(ctx: PregateContext): string | null {
     receipts.push(v.receipt);
   }
   if (!runs.length) return none(refusals.join(' | '));
-  ctx.fromRun = { ref: runs[0]!.ref, check, runs };
+  ctx.fromRun = { ref: (runs.find(r => check.gateRuns?.profiles.includes(r.profile)) ?? runs[0]!).ref, check, runs };
   return `CI_CARRY: accepted ${receipts.join(' + ')}`;
 }
 
@@ -133,8 +133,7 @@ function carryGate(ctx: PregateContext, file: PregateFile): string | null {
   const check = ctx.fromRun.check as RunCheck;
   if (!check.gateRuns) return null;
   const view: PregateFile = { ...file, requires_remote: file.requires_remote!.map(r => (r === gate ? { ...r, tests: [...new Set([...carried, ...r.tests])] } : r)) };
-  const gateRefs = (ctx.fromRun.runs ?? []).filter(r => check.gateRuns!.profiles.includes(r.profile)).map(r => r.ref);
-  const d = clearByRuns(view, REMOTE_GATE_LANE, gateRefs.length ? gateRefs : [ctx.fromRun.ref], check, ctx.repoRoot, undefined, ctx.allowRepoCommands);
+  const d = clearByRuns(view, REMOTE_GATE_LANE, [ctx.fromRun.ref], check, ctx.repoRoot, undefined, ctx.allowRepoCommands);
   if (!('receipt' in d)) return `CI_CARRY: ${REMOTE_GATE_LANE} stays uncleared (${d.message})`;
   clearObligation(file, REMOTE_GATE_LANE, d.receipt, 'ci-carry', d.substitution);
   return `CI_CARRY: cleared ${REMOTE_GATE_LANE} ${d.receipt}`;
