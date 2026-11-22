@@ -13,7 +13,7 @@ import { baseInputs, sha256 } from '../context';
 import { isTestFile, listRepoFiles, scansLiterals } from '../import-graph';
 import type { CheckDef, CheckResult, PregateContext } from '../types';
 
-export interface ChangedLiteral { name: string; old: string; new: string; file: string; gained?: true }
+export interface ChangedLiteral { name: string; old: string; new: string; file: string }
 /** A consumer line a `pregate-literal:` marker waived; `added` when the merge-base file lacks the marker. */
 export interface LiteralWaiver { at: string; reason: string; added: boolean }
 
@@ -64,17 +64,10 @@ export function callLiteralsIn(text: string): Map<string, string[]> {
   return out;
 }
 
-/** A quoted space-separated list that only gained items (`"investigate"` → `"investigate verify"`): every old item is still a member, so consumersOf counts only a statement that names the constant (#4593). */
-function onlyGainedItems(old: string, now: string): boolean {
-  if (!/^['"`]/.test(old) || !/^['"`]/.test(now)) return false;
-  const was = unquote(old).split(/\s+/).filter(Boolean); const is = unquote(now).split(/\s+/).filter(Boolean);
-  return was.length > 0 && is.length > was.length && was.every(w => is.includes(w));
-}
-
 export function changedLiterals(file: string, oldText: string, newText: string): ChangedLiteral[] {
   const out: ChangedLiteral[] = [];
   const oldC = constantsIn(oldText); const newC = constantsIn(newText);
-  for (const [name, old] of oldC) { const now = newC.get(name); if (now !== undefined && now !== old) out.push({ name, old, new: now, file, ...(onlyGainedItems(old, now) ? { gained: true as const } : {}) }); }
+  for (const [name, old] of oldC) { const now = newC.get(name); if (now !== undefined && now !== old) out.push({ name, old, new: now, file }); }
   const oldCall = callLiteralsIn(oldText); const newCall = callLiteralsIn(newText);
   for (const [name, olds] of oldCall) {
     if (oldC.has(name)) continue;
@@ -140,7 +133,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   const dts = jsLike ? '(?:d\\.)?' : '';
   const moduleRe = new RegExp(`(?:^|[/\\\\])${escape(stem)}(?=[^\\w.-]|$|\\.${dts}(?:${exts})(?![\\w.-])|\\.(?!\\w))|(?<![\\w-])${escape(base)}(?![\\w-]|\\.\\w)`, 'm');
   const nameRe = new RegExp(`\\b${escape(change.name)}\\b`);
-  const nameRequired = value.length < 2 || change.gained === true;
+  const nameRequired = value.length < 2;
   const shortNumber = !nameRequired && /^-?\d{1,2}$/.test(value);
   const callSite = !/^[A-Z]/.test(change.name);
   const comment = (l: string) => /^\s*(?:\/\/|#|\*|\/\*|<!--)/.test(l);
