@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { hunksDigest } from '../lib/review-evidence';
 
 const ROOT = path.join(import.meta.dir, '..');
 const dirs: string[] = [];
@@ -54,8 +55,10 @@ describe('decision 3.5\'s touched hunks include a file the fix created (Part B)'
     expect(text).toContain('diff --git a/src/guard.ts b/src/guard.ts');
     expect(text).toContain('+export const guard = true;');
     expect(text).toContain('+export const a = 2;');
+    expect(hunksDigest(text).paths).toEqual(['src/a.ts', 'src/guard.ts']);
     fx.git('add', '-A'); fx.git('commit', '-qm', 'fix');
     expect(text).toBe(fx.git('diff', fx.passHead, 'HEAD'));
+    expect(hunksDigest(text).sha256).toBe(hunksDigest(fx.git('diff', fx.passHead, 'HEAD')).sha256);
   });
 
   // Value: protects=rule 15's packet replay: with no untracked file the hunks are byte-identical to plain git diff $PASS_HEAD;

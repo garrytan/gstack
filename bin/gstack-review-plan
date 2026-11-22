@@ -192,6 +192,7 @@ function main(): number {
     const chained = has('--post-review') && last === 'fix-check';
     const named = row && passHead ? (`${row.ask} ${row.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).flatMap(s => git(['rev-parse', '--verify', '--quiet', `${s}^{commit}`])?.trim() || []) : [];
     const rows = row && !chained && last !== 'none' ? reviewRows() : null;
+    if (row && !chained && last !== 'none' && !rows) { process.stderr.write(`gstack-review-plan: --grant ${grant}: gstack-review-read failed, so whether this grant's fix-check already ran is unknown; no plan is safer than a fix-check or a review the grant may not buy\n`); return EXIT.fail; }
     const spent = (l: 'fix-check' | 'full') => !!rows && !!row && grantFixChecked(rows, { approval: grant, at: row.recorded_at }, l);
     let stopHead = named.find(s => ancestor(passHead!, s) && ancestor(s, 'HEAD') && !(chained && s === passHead));
     if (!stopHead && last === 'full' && spent('full')) stopHead = named.find(s => ancestor(s, passHead!) && ancestor(s, 'HEAD'));
@@ -220,6 +221,7 @@ function main(): number {
     if (g && g.kind === 'fix-check' && (stop !== g.head || (pr !== undefined && String(g.pr) !== pr))) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant}: the fix-check grant names the stop at ${g.head.slice(0, 12)} for PR #${g.pr}, not --stop ${(flag('--stop') ?? '').slice(0, 12)}${pr ? ` and PR #${pr}` : ''}; a grant buys the fix round of the one stop it names (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }
     if (g?.kind === 'fix-check') grantedStop = g.approval;
     const stopRows = g?.kind === 'fix-check' && last !== 'none' ? reviewRows() : null;
+    if (g?.kind === 'fix-check' && last !== 'none' && !stopRows) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant}: gstack-review-read failed, so whether this grant's fix-check already ran is unknown; no plan is safer than a fix-check or a review the grant may not buy\n`); return EXIT.fail; }
     grantUnspent = last === 'fix-check' && !!stopRows && !grantSpent(stopRows, g!);
     spentGrant ||= !!stopRows && last !== 'none' && grantFixChecked(stopRows, g!, last);
     const atOrBefore = !!g && !!at && (g.head === at || git(['merge-base', '--is-ancestor', g.head, at]) !== null);

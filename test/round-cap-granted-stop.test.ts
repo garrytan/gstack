@@ -75,6 +75,10 @@ describe('R51: a clean granted fix-check that changed runtime lines is followed 
     const fc = { fullPasses: 0, last: 'fix-check', fixChecks: 1, priorFull: 3, grantedStop: 'a-1', grantFixChecked: true, rangeRuntimeLines: 4 } as const;
     expect(nextStep(fc as any)).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
     expect(nextStep({ ...fc, rangeRuntimeLines: 0 } as any).step).toBe('done');
+    // Value: protects=an unread fix range (uncommitted or untracked edits) never skips the final review as if it were docs only;
+    //   fails_when=rangeRuntimeLines null reads as 0 and the plan is done; seam=nextStep
+    expect(nextStep({ ...fc, rangeRuntimeLines: null } as any)).toMatchObject({ step: 'stop', reason: expect.stringContaining('commit the fix, then ask again') });
+    expect(nextStep({ fullPasses: 2, last: 'fix-check', fixChecks: 1, granted: 'a-3', grantFixChecked: true, rangeRuntimeLines: null } as any).step).toBe('stop');
     expect(nextStep({ ...fc, blockingOpen: true } as any).reason).toStartWith('PR_ROUND_CAP');
     const full = { ...fc, fullPasses: 1, last: 'full' } as const;
     expect(nextStep(full as any).step).toBe('done');
