@@ -1388,10 +1388,34 @@ function requireReportingTime(report: RunReportV3): void {
   if (Date.now() >= Date.parse(report.deadline))
     throw new CsoError('DEADLINE', 'Audit deadline reached; no further evidence can be accepted');
 }
+const REFUSED_SUBMISSION = 'submission-refused.json';
 function submit(args: string[]) {
   const { dir } = run(args);
   if (args.length !== 1) throw new CsoError('INVALID_ARGUMENT', 'submit requires one JSON file');
-  const rawInput = object(readInput(args[0]), 'submission');
+  try {
+    return acceptSubmission(dir, args[0]);
+  } catch (error) {
+    if (error instanceof CsoError) recordRefusedSubmission(dir, error);
+    throw error;
+  }
+}
+function recordRefusedSubmission(dir: string, error: CsoError): void {
+  try {
+    withLock(dir, () => {
+      const report = loadReport(dir);
+      if (report.status === 'running' && Date.now() < Date.parse(report.deadline))
+        writeHelperJson(join(dir, REFUSED_SUBMISSION), {
+          at: new Date().toISOString(),
+          code: error.code,
+          message: error.message,
+        });
+    });
+  } catch {
+    return;
+  }
+}
+function acceptSubmission(dir: string, file: string) {
+  const rawInput = object(readInput(file), 'submission');
   rejectUnexpected(
     rawInput,
     ['application', 'findings', 'coverage', 'gaps', 'modelUsage', 'recheck'],
@@ -1503,6 +1527,7 @@ function submit(args: string[]) {
     // leaves closure evidence behind.
     saveReport(dir, report);
     if (recheckClaim) writeHelperJson(join(dir, 'recheck-claim.json'), recheckClaim);
+    fs.rmSync(join(dir, REFUSED_SUBMISSION), { force: true });
     return { runId: report.runId, findings: report.findings.length, completeness: report.completeness };
   });
 }
@@ -1513,6 +1538,16 @@ function finish(args: string[]) {
     const report = loadReport(dir),
       manifest = readSnapshotManifest(dir);
     assertSnapshot(dir, manifest);
+    const refused = join(dir, REFUSED_SUBMISSION);
+    if (report.status === 'running' && fs.existsSync(refused)) {
+      const { message } = readJson(refused);
+      if (Date.now() < Date.parse(report.deadline))
+        throw new CsoError(
+          'PREREQUISITE',
+          `The last submit was refused (${message}); correct it and submit again. finish closes the audit without that evidence only after the audit deadline (${report.deadline}).`,
+        );
+      report.gaps.push(`A refused submission was never resubmitted: ${message}`);
+    }
     reclaimDeadAttemptScratch(dir);
     for (const c of report.coverage)
       if (
