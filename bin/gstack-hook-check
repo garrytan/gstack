@@ -181,11 +181,17 @@ if [ -n "$ENTRIES" ] && ! command -v "$BUN" >/dev/null 2>&1; then
 fi
 BUILD_RC=0
 if [ -n "$ENTRIES" ]; then
-  # Bun reports native spellings; shellPath maps them back to the keys looked
-  # up below (lib/path-spelling.ts shellPath; test/path-spelling.test.ts keeps
-  # the two equal).
+  # Bun gets the entries in cygpath -m spelling under the test that picks
+  # GSTACK_BUN_CONFIG: Git Bash leaves a /c/x argument holding ' ` [ ] (or
+  # every one, under MSYS_NO_PATHCONV=1) unconverted, and bun.exe cannot open
+  # /c/x (#4386). Bun reports native spellings; shellPath maps them back to the
+  # keys looked up below (lib/path-spelling.ts shellPath;
+  # test/path-spelling.test.ts keeps the two equal).
+  BUN_ENTRIES=$ENTRIES
+  # shellcheck disable=SC2086 # newline-split list (IFS is a newline)
+  case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then BUN_ENTRIES=$(set -f; cygpath -m $ENTRIES); fi ;; esac
   # shellcheck disable=SC2086 # newline-split list (IFS is set to a newline below)
-  (cd "$ROOT" && IFS=$NL && "$BUN" --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
+  (cd "$ROOT" && IFS=$NL && set -f && "$BUN" --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e '
     const shellPath = (value) => process.platform === "win32"
       ? String(value).replace(/\\/g, "/").replace(/^([A-Za-z]):(?=\/|$)/, (_, drive) => `/${drive.toLowerCase()}`)
       : String(value);
@@ -198,7 +204,7 @@ if [ -n "$ENTRIES" ]; then
         const at = log.position ? `${shellPath(log.position.file)}:${log.position.line}` : key;
         console.log(`${key}\tfail\t${at}\t${String(log.message ?? log).split("\n")[0]}`);
       }
-    }' $ENTRIES) > "$BUILT" 2>/dev/null || BUILD_RC=$?
+    }' $BUN_ENTRIES) > "$BUILT" 2>/dev/null || BUILD_RC=$?
 fi
 TS_UNCHECKED=0
 if [ "$BUILD_RC" -gt 128 ]; then

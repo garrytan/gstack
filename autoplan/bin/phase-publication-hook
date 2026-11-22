@@ -10,6 +10,7 @@ _autoplan_backstop() {
 }
 trap _autoplan_backstop EXIT
 _AUTOPLAN_HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then _AUTOPLAN_HOOK_DIR="$(cygpath -m "$_AUTOPLAN_HOOK_DIR")"; fi ;; esac
 _AUTOPLAN_RESULT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$_AUTOPLAN_HOOK_DIR/phase-publication-hook.ts")"
 test -n "$_AUTOPLAN_RESULT"
 printf '%s\n' "$_AUTOPLAN_RESULT"

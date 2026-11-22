@@ -7,5 +7,6 @@
 # FAIL-OPEN: every failure path — bun missing, script crash — still exits 0.
 GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 HERE="$(cd "$(dirname "$0")" && pwd -P)" || exit 0
+case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then HERE="$(cygpath -m "$HERE")"; fi ;; esac
 GSTACK_HOOK_HOST=codex bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$HERE/codex-skill-route-hook.ts" || true
 exit 0

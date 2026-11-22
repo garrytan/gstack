@@ -246,7 +246,7 @@ _backup_skill_md() {
 # Helper: remove an OLD skill entry from the opposite prefix mode. Only entries
 # we can prove are ours are removed; anything else is reported and kept.
 _cleanup_skill_entry() {
-  local entry="$1" skill="${2:-}" e dest src
+  local entry="$1" skill="${2:-}" whole="${3:-whole}" e dest src
   [ -e "$entry" ] || [ -L "$entry" ] || return 0
   # Unclaimed dir (no SKILL.md, no marker): nothing of ours to clean.
   if [ -d "$entry" ] && [ ! -L "$entry" ] && [ ! -e "$entry/SKILL.md" ] && [ ! -L "$entry/SKILL.md" ] && [ ! -f "$entry/.gstack-owned" ]; then
@@ -266,8 +266,9 @@ _cleanup_skill_entry() {
     # the marker (we created the dir) while the skill's source still exists, or
     # a directory holding nothing but links. A retired skill's marked entry
     # takes the path below, so a real SKILL.md is backed up and the user's
-    # files stay.
-    if { [ -f "$entry/.gstack-owned" ] && { [ -z "$skill" ] || [ -f "$src" ]; }; } || { [ -L "$entry/SKILL.md" ] && _dir_only_links "$entry"; }; then
+    # files stay. A third argument other than "whole" (an alias entry, whose
+    # marked directory may still hold the user's files) always takes that path.
+    if { [ "$whole" = whole ] && [ -f "$entry/.gstack-owned" ] && { [ -z "$skill" ] || [ -f "$src" ]; }; } || { [ -L "$entry/SKILL.md" ] && _dir_only_links "$entry"; }; then
       rm -rf "$entry"
     else
       # Otherwise only what is ours goes: the SKILL.md, the marker, and our
@@ -400,6 +401,15 @@ for skill_dir in "$INSTALL_DIR"/*/; do
     *" ${skill#gstack-} "*)
       _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill"
       case "$skill" in gstack-*) ;; *) _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" "$skill" ;; esac
+      # setup's rewritten-copy alias of this skill goes with it (#4308); the loop
+      # above skips the alias's symlinked source dir, and a checkout made without
+      # symlinks has none. The next ./setup writes it back once the skill is on.
+      # Only the generated SKILL.md goes: an edited one is backed up, and the
+      # user's other files stay.
+      if [ "$skill" = open-gstack-browser ]; then
+        _cleanup_skill_entry "$SKILLS_DIR/connect-chrome" "$skill" files
+        _cleanup_skill_entry "$SKILLS_DIR/gstack-connect-chrome" "$skill" files
+      fi
       case "$DISABLED" in *" ${skill#gstack-} "*) DISABLED_COUNT=$((DISABLED_COUNT + 1)) ;; esac
       continue ;;
   esac

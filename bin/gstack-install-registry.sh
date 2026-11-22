@@ -277,7 +277,7 @@ _gstack_status_rows() {
     cur="$(cat "$src/VERSION" 2>/dev/null || true)"
     note=""
     if [ ! -e "$root" ] && [ ! -L "$root" ]; then
-      result=missing; note="install root $root is gone; the next setup or upgrade drops this row"
+      result=missing; note="install root $root is gone; ./setup --refresh-registered (which /gstack-upgrade runs) drops this row"
     elif [ -z "$cur" ]; then
       result=missing; cur="-"; note="source checkout $src is gone; reinstall from a fresh clone with ./setup --host $host"
     elif [ "$cur" = "$ver" ]; then
@@ -299,6 +299,9 @@ ROWS
     seen="$seen$root|"
     src="$(_gstack_install_source "$root")"
     [ -n "$src" ] || continue
+    case "$root" in */.agents/skills/gstack)
+      [ "$(cd "${root%/.agents/skills/gstack}" 2>/dev/null && pwd -P)" = "$src" ] && continue ;;
+    esac
     cur="$(cat "$src/VERSION" 2>/dev/null || echo '-')"
     note="installed before the registry; register it: cd $src && ./setup --host $host"
     if [ "$scope" = global ] && [ "$host" != claude ] && _gstack_vendored_source "$src"; then

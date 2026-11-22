@@ -132,6 +132,32 @@ describe.skipIf(process.platform === 'win32')('setup installs production depende
     expect(stub3.calls()).toEqual(['install --frozen-lockfile', 'install']);
   });
 
+  // #4288: setup runs under umask 077 for its own state and logs. Bun extracts
+  // packages into its shared cache with the caller's umask, and later installs of
+  // unrelated projects hardlink those files, so the installs run under 022.
+  test('install_runtime_deps installs under umask 022 on every branch while setup keeps 077 (#4288)', () => {
+    const umaskBun = (base: string) => {
+      const log = path.join(base, 'umasks');
+      const bun = path.join(base, 'umask-bun');
+      fs.writeFileSync(bun, `#!/usr/bin/env bash\numask >> ${JSON.stringify(log)}\nexec ${JSON.stringify(stubBun(base).bun)} "$@"\n`, { mode: 0o755 });
+      return { bun, umasks: () => fs.readFileSync(log, 'utf-8').trim().split('\n') };
+    };
+    const run = (base: string, env: Record<string, string>) => {
+      const stub = umaskBun(base);
+      const r = runBashScript(`umask 077\n${script(stub.bun, 'install_runtime_deps')}\necho "after=$(umask)"\n`, { cwd: base, env: { ...process.env, ...env } });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain('after=0077');
+      return stub.umasks();
+    };
+    expect(run(tempBase(), { FROZEN_RC: '0' })).toEqual(['0022']);
+    expect(run(tempBase(), { FROZEN_RC: '1' })).toEqual(['0022', '0022', '0022']);
+    const contributor = tempBase();
+    markContributor(contributor);
+    fs.mkdirSync(path.join(contributor, 'node_modules', 'typescript'), { recursive: true });
+    expect(run(contributor, { FROZEN_RC: '1' })).toEqual(['0022', '0022']);
+    expect(setup).toMatch(/\(\n\s+umask 022\n\s+cd "\$SOURCE_GSTACK_DIR"\n\s+if \[ -n "\$_PLAYWRIGHT_PLATFORM_OVERRIDE" \]/);
+  });
+
   test('every bun install in setup goes through install_runtime_deps', () => {
     const body = setup.replace(sliceFunction(setup, 'install_runtime_deps'), '');
     const directInstall = /(?:^|[\s;&|(])(?:bun_cmd|"?\$\{?BUN_CMD\}?"?|bun)\s+install\b/;
