@@ -75,6 +75,9 @@ export function parseGeminiStreamJson(raw: string): GeminiStreamParse {
   return { output, tokens: { input, output: out }, toolCalls, modelUsed };
 }
 
+/** The model a run is labelled and priced as when the Gemini CLI reports none (its own default is not passed to us). */
+export const GEMINI_UNREPORTED_MODEL = 'gemini-4-argon';
+
 /**
  * Map a raw stream-json dump to a RunResult, including the empty-success
  * hardening from #2159. Exported so adapter e2e can exercise the full
@@ -85,7 +88,7 @@ export function resultFromGeminiStream(
   opts: { model?: string; durationMs?: number } = {},
 ): RunResult {
   const parsed = parseGeminiStreamJson(raw);
-  const modelUsed = parsed.modelUsed || opts.model || 'gemini-2.5-pro';
+  const modelUsed = parsed.modelUsed || opts.model || GEMINI_UNREPORTED_MODEL;
   const durationMs = opts.durationMs ?? 0;
   if (!parsed.output.trim()) {
     return {
@@ -180,7 +183,7 @@ export class GeminiAdapter implements ProviderAdapter {
   }
 
   estimateCost(tokens: { input: number; output: number; cached?: number }, model?: string): number {
-    return estimateCostUsd(tokens, model ?? 'gemini-2.5-pro');
+    return estimateCostUsd(tokens, model ?? GEMINI_UNREPORTED_MODEL);
   }
 
   private emptyResult(durationMs: number, error: RunResult['error'], model?: string): RunResult {
@@ -189,7 +192,7 @@ export class GeminiAdapter implements ProviderAdapter {
       tokens: { input: 0, output: 0 },
       durationMs,
       toolCalls: 0,
-      modelUsed: model ?? 'gemini-2.5-pro',
+      modelUsed: model ?? GEMINI_UNREPORTED_MODEL,
       error,
     };
   }

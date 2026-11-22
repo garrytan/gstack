@@ -59,6 +59,17 @@ const HEADING = /^(?:#{1,6}\s|\*\*[^*]+\*\*:?$)/;
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
 /** A numbered finding heading ("**1. …**", "### 2) …", GST-1031) or a finding lead that names its number ("**Finding 1 (FIXABLE): …**", GST-1657). */
 const NUMBERED_HEAD = /^(?:#{1,6}\s+|\*\*\s*)(?:\d+[.)]\s|Finding\s+\d+\b)/;
+/**
+ * A severity word that names something in the code under review rather than rating a finding (GSTA-711: "the redact-doc HIGH and
+ * scanner-failure branches", "runs after the HIGH branch"): in capitals, as code spells a constant, after "the" and at most one
+ * qualifier, and before a noun (after an optional "and X") that is not a word for a finding or its rating. CRITICAL never counts, so
+ * "reaches the CRITICAL write path" and "the HIGH and CRITICAL write paths" still block until judged: X is a name only when it is
+ * HIGH, MEDIUM or LOW. nameUses gives each such word's index; a line whose every label is one
+ * collects at INFORMATIONAL, kept on record without a severity it never stated.
+ */
+const RATING_NOUN = '(?:findings?|fix(?:es)?|issues?|severity|severities|risks?|priority|impact|bugs?|defects?|problems?|concerns?|blockers?|items?|notes?|regressions?|ones?|levels?|rating|labels?|bar|floor|threshold|confidence|vulnerabilit(?:y|ies)|chances?|likelihood|probability|exposures?)';
+const NAME_USE = new RegExp(`(?<![A-Za-z0-9])[Tt]he\\s+(?:[\\w.\\x60-]+\\s+)?(HIGH|MEDIUM|LOW)(?:\\s+(?:and|or)\\s+(?:(HIGH|MEDIUM|LOW)|[\\w.\\x60-]+))?\\s+(?!${RATING_NOUN}(?![\\w-]))[a-z][\\w-]*`, 'dg');
+const nameUses = (t: string) => new Set([...t.matchAll(NAME_USE)].flatMap(m => [m.indices![1]![0], m.indices![2]?.[0] ?? -1]));
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */
 const BLOCKS_YES = /(?<![A-Za-z0-9])Blocks:?\**:?\s*\**\s*yes(?![A-Za-z0-9])/i;
@@ -207,6 +218,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
   const strongest = (t: string) => strongestOf([...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)));
+  const namesOnly = (t: string) => { const at = nameUses(t); const ms = [...t.matchAll(ALL_LABELS)]; return ms.length > 0 && ms.every(m => at.has(m.index!)); };
   const fieldOf = (t: string) => { const ls = [...t.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!); return ls.length === 1 && (fixableRaises || role !== 'adversarial-native' || rank(ls[0]!)) ? ls[0] : undefined; };
   const critical = (t: string) => BLOCKS_YES.test(t) || (fixableRaises && role === 'adversarial-native' && /(?<![A-Za-z0-9])FIXABLE(?![A-Za-z0-9])/.test(t));
   const leadOf = (t: string) => { const l = LEAD_LABEL.exec(t)?.[1]; return l === undefined || !fixableRaises ? l : named(l); };
@@ -216,7 +228,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
     const summary = continued ? undefined : closingSummary(led && !ANY_LABEL.test(led[1]!) ? led[2]! : t);
     if (summary) return strongestOf([...summary.labels.map(named), summary.prose ? 'INFORMATIONAL' : undefined]);
     const field = fieldOf(t);
-    if (field === undefined) return strongest(t);
+    if (field === undefined) return namesOnly(t) && !critical(t) ? 'INFORMATIONAL' : strongest(t);
     return critical(t) ? 'CRITICAL' : strongestOf([leadOf(t), field])!;
   };
   const push = (label: string, raw: string, fields: string[] = [], lead?: string): Finding => { const f = { label, raw, fields: new Set(fields), list: LIST_ITEM.test(raw), lead }; out.push(f); return f; };
