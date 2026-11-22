@@ -21,10 +21,10 @@
  * test stage starts with what is left (its runner can still run past it).
  */
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { slugFromEnvironment } from './bin-context';
+import { spawnSync } from './spawn-sync';
 import { resolveStateRoot } from './state-root';
 import { gbrainConfigDir } from './gbrain-exec';
 import { wtreeFingerprint } from './script-invocation';
