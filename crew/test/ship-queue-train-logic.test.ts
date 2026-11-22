@@ -11,7 +11,7 @@ import { DEFAULT_POLICY, TRAIN_KEYS_VERSION, validatePolicy } from '../../lib/sh
 import { fillDue, orderSlots, parseOrder, parsePins, prsArgs } from '../lib/ship-queue-train';
 import { gstackPaidSelection, skillOwnCases, touchedSkills } from '../lib/ship-queue-train-ready';
 import { normalizeRemoteUrl, repoIdentity, type TrainSlot } from '../lib/ship-queue-train-record';
-import { INFRA_REDISPATCH, REBUILD_ONCE, classifyBisect, classifyGate } from '../lib/ship-queue-train-verdict';
+import { INFRA_REDISPATCH, REBUILD_ONCE, classifyBisect, classifyGate, redCasesOutsidePlan } from '../lib/ship-queue-train-verdict';
 import { EVAL_POLICY } from '../../test/helpers/periodic-exclude-data';
 import { COMPLETE, FAIL, PASS, TRAIN_BLOCK } from '../../test/helpers/ship-queue-train-fixture';
 import { spawnSync } from 'node:child_process';
@@ -268,5 +268,27 @@ describe("eval-bg nonce key: purpose and screen policy", () => {
   test('every dispatch input name lives in DISPATCH_INPUTS, and the lane plans still send the same inputs', () => {
     expect(DISPATCH_INPUTS).toMatchObject({ cases: 'cases', prefixShas: 'prefix_shas', screenPr: 'screen_pr', screenMergeSha: 'screen_merge_sha', screenPolicy: 'screen_policy' });
     expect(dispatchPlan('gate', { sha: SHA, baseRef: 'main', baseSha: base, nonce: 'n' })).toEqual([{ workflow: 'evals.yml', inputs: { evals_all: 'true', expected_sha: SHA, nonce: 'n' } }]);
+  });
+});
+
+// Value: protects=train bisect takes a red case by the id the gate's panels carry, with the id rule the CI route already applies;
+//   fails_when=a judge case whose id holds a space ("<skill>/SKILL.md workflow") is refused as outside the plan, or an id the
+//   dispatch input cannot carry (empty, a comma, a newline, over 128 characters) is let through; why_new=no test fed bisect a red
+//   judge case (#3580); seam=redCasesOutsidePlan
+describe('bisect red cases: the ids the gate plan holds', () => {
+  const JUDGE = 'setup-browser-cookies/SKILL.md workflow';
+
+  test('a red judge case whose id holds a space is in the plan', () => {
+    expect(redCasesOutsidePlan({ red_cases: [JUDGE], panels: [PASS('c1'), { ...FAIL(JUDGE), kind: 'judge' }] })).toBeNull();
+  });
+
+  test('an id the dispatch input cannot carry is refused even when a panel holds it', () => {
+    for (const id of ['', 'a,b', 'a\nb', 'x'.repeat(129)]) {
+      expect(redCasesOutsidePlan({ red_cases: [id], panels: [FAIL(id)] })).toContain("is not in the gate's plan");
+    }
+  });
+
+  test('a red id no panel holds is refused', () => {
+    expect(redCasesOutsidePlan({ red_cases: ['c2'], panels: [FAIL('c1')] })).toBe("red case c2 is not in the gate's plan");
   });
 });
