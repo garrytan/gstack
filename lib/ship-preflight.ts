@@ -60,14 +60,15 @@ const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 /**
  * GST-1204, GST-3260: a full preflight merges the base, so it stops while another /ship run's record on this checkout is open, legacy
  * (a bare marker) or unreadable: that run's readers diff this tree, and no timer ends it (lib/ship-run-record.ts). A stopped, finished
- * or abandoned record of another run is replaced once Steps 1-3 pass. A record that already names this --run stops too: a run id is
+ * or abandoned record of another run is replaced once Steps 1-3 pass; a preflight with no --run stops on a stopped one, which it
+ * could not replace. A record that already names this --run stops too: a run id is
  * one /ship run (gstack-evals#406). A --run is still opened on the checkout's lease, before the fetch, for the upgrade guard alone, and
  * one that cannot be is a STOP, never an unprotected run.
  */
 function shipRunClear(cwd: string, base: string, run: string | undefined, r: Report): boolean {
   const read = readRunRecord(cwd);
   const open = openRun(read);
-  if (open && open.state !== 'stopped') {
+  if (open && (open.state !== 'stopped' || !run)) {
     r.stop(`/ship run ${open.run} is open on this checkout and past its preflight (${read.file}; ${open.detail}): a full preflight would merge origin/${base} into the tree its review readers diff; rerun Step 5 with --tests-only, or let that /ship finish`);
     return false;
   }
