@@ -24,6 +24,7 @@ import { mergeChangelogs } from '../../lib/changelog-check';
 import { ensureTmpExcluded, restamp, versionFiles } from '../../lib/restamp';
 import type { ResultCodeName } from '../../lib/result-codes';
 import type { ShipPolicy } from '../../lib/ship-policy';
+import { toolPath } from '../../lib/tool-path';
 
 export const QUEUE_DIR_REL = '.gstack/tmp/ship-queue';
 export const GATE_AHEAD_DIR_REL = `${QUEUE_DIR_REL}/gate-ahead`;
@@ -44,7 +45,7 @@ export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv, input?
   const base = env ?? process.env;
   const n = Number(base.GIT_CONFIG_COUNT) || 0;
   const noHooks = { GIT_CONFIG_COUNT: String(n + 2), [`GIT_CONFIG_KEY_${n}`]: 'core.hooksPath', [`GIT_CONFIG_VALUE_${n}`]: '/dev/null', [`GIT_CONFIG_KEY_${n + 1}`]: 'core.fsmonitor', [`GIT_CONFIG_VALUE_${n + 1}`]: 'false' };
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 120_000, env: { ...base, ...noHooks }, input, maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync(toolPath('git', base.PATH), args, { cwd, encoding: 'utf8', timeout: 120_000, env: { ...base, ...noHooks }, input, maxBuffer: 64 * 1024 * 1024 });
   return { ok: r.status === 0, out: (r.stdout ?? '').replace(/\n$/, ''), err: (r.stderr ?? '').trim(), status: r.status };
 }
 
