@@ -16,7 +16,7 @@ GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v 
 
 usage() {
   cat <<'EOF'
-Usage: gstack-learnings-search [--type TYPE] [--query WORDS] [--limit N=10] [--cross-project]
+Usage: gstack-learnings-search [--type TYPE] [--query WORDS] [--limit N=10 | --all] [--cross-project]
        gstack-learnings-search --stats
        gstack-learnings-search --help
 
@@ -24,6 +24,7 @@ Prints this project's learnings, latest entry per key+type, grouped by type.
   --type TYPE       only one type: pattern pitfall preference architecture tool operational investigation
   --query WORDS     entries matching any word in key, insight or files, best match first
   --limit N         at most N entries (default 10)
+  --all             every entry, no limit (what /learn prune reads)
   --cross-project   also read up to 5 other projects' user-stated learnings
   --stats           counts for this project: TOTAL, UNIQUE, RAW_ENTRIES, BY_TYPE, BY_SOURCE,
                     AVG_CONFIDENCE, or NO_LEARNINGS when nothing is recorded
@@ -47,10 +48,11 @@ while [[ $# -gt 0 ]]; do
     --type) TYPE="$2"; shift 2 ;;
     --query) QUERY="$2"; shift 2 ;;
     --limit) [[ "$2" =~ ^[1-9][0-9]*$ ]] || usage_error "--limit needs a positive integer, got '$2'"; LIMIT="$2"; shift 2 ;;
+    --all) LIMIT=0; shift ;;
     --cross-project) CROSS_PROJECT=true; shift ;;
     --stats) STATS=true; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) usage_error "unknown argument '$1'; valid: --type --query --limit --cross-project --stats --help" ;;
+    *) usage_error "unknown argument '$1'; valid: --type --query --limit --all --cross-project --stats --help" ;;
   esac
 done
 
@@ -141,7 +143,7 @@ const now = Date.now();
 const type = process.env.GSTACK_SEARCH_TYPE || '';
 const queryRaw = (process.env.GSTACK_SEARCH_QUERY || '').toLowerCase();
 const queryTokens = queryRaw.split(/\s+/).filter(Boolean);
-const limit = parseInt(process.env.GSTACK_SEARCH_LIMIT || '10', 10);
+const limit = parseInt(process.env.GSTACK_SEARCH_LIMIT || '10', 10) || Infinity;
 
 const entries = [];
 for (const taggedLine of lines) {

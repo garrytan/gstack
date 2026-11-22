@@ -203,6 +203,18 @@ describe('B6: rank by matched tokens and disclose truncation', () => {
     expect(runIn(rankCwd, ['--limit', '3']).stdout).not.toContain('more matched');
   });
 
+  // Value: protects=/learn prune reads every learning, so an old entry that decay pushed past any limit still gets checked;
+  //   fails_when=--all is refused or still cuts the list at a limit; why_new=prune read --limit 100 and silently skipped the
+  //   rest of a larger store (#4215); seam=none
+  test('--all prints every entry, past the default limit', () => {
+    const unique = Number(/^UNIQUE: (\d+)/m.exec(runIn(rankCwd, ['--stats']).stdout)![1]);
+    expect(unique).toBeGreaterThan(10);
+    const r = runIn(rankCwd, ['--all']);
+    expect(r.status).toBe(0);
+    expect(keys(r.stdout)).toHaveLength(unique);
+    expect(r.stdout).toContain(`LEARNINGS: ${unique} loaded`);
+  });
+
   test('a stored internal field cannot hijack the no-query ranking', () => {
     const ranked = keys(runIn(rankCwd, ['--limit', '3']).stdout);
     expect(ranked).toHaveLength(3);
