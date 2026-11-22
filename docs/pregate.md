@@ -280,6 +280,34 @@ Two stages with separate clocks, both printed:
   or `limit` is an ordinary word, so for it the file must also name the changed
   module, whatever the old value's length: a test that only uses the word is not
   a consumer, and a test that imports the module still is.
+  When another file in the repository has the module's name (two `config.ts`
+  files), a path fragment or file name alone is ambiguous, so a file counts
+  through the module only when one of its references resolves to the changed
+  file: a relative import, a tsconfig/jsconfig `paths` alias or `baseUrl`
+  import, a quoted repository path or a `join()` of segments, the same
+  resolution lane selection uses. A test importing the other `config.ts` is not
+  a consumer (gbrain#10078: 17 false hits). An alias import counts even when the
+  name is unique. A test that reaches the module only through another module
+  (a barrel or a caller) is not found this way; it needs the constant's name.
+  A JSON file has no comments, so it can't carry a waiver; instead, an old value
+  in it counts only where the JSON ties it to the constant: the value of a key
+  named after the constant, or anything inside a record whose string value is
+  the constant's name (`{ "name": "LIMIT_MS", "signature": ["2000"] }`). An equal
+  value under another name in a golden is not a consumer; a golden that pins the
+  changed constant still is. A JSON file that doesn't parse counts only on lines
+  that name the constant.
+  A quoted one-item list that keeps its item and gains more
+  (`"investigate"` → `"investigate verify"`, every item a bare word) leaves its
+  member valid, so a line holding the old item counts only when it asserts the
+  whole old value: as the whole argument of `toBe`, `toEqual`, `toStrictEqual`
+  or an `equal`/`strictEqual`/`deepEqual` style assert (alone or as a one-item
+  array), beside `==`/`===`/`!=`/`!==`, or as an assignment's value; or in a
+  statement that names the constant or a binding taken from the module or the
+  constant (an alias such as `modes`), unless that line only checks membership
+  (`toContain`, `includes`, `indexOf`, `has`, `in`). Words inside strings
+  don't make a binding. A list that had several items, or a value that is prose
+  (`"file not found"`), keeps the ordinary rule, because its quoted old value is
+  the whole value wherever it appears.
   A test that keeps the old value on purpose, such as the refused input after a
   minimum version goes up, marks that one line with a comment on it or on the
   comment line directly above it:
