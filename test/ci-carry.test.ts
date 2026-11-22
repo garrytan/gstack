@@ -137,6 +137,15 @@ describe('waitForRun', () => {
     expect((await o([run(4, { status: 'in_progress', conclusion: null })])).state).toBe('running');
     expect((await o([])).state).toBe('none');
   });
+
+  // Value: protects=the wait agrees with verifyRun (GST-3514): a newer skipped run leaves the green dispatch green; fails_when=the skipped run is read as red
+  test('a newer skipped run is passed over for the run before it; a lone skipped run is still red', async () => {
+    const o = (runs: ApiRun[]) => waitForRun(source(runs).deps, { workflow: 'free-tests.yml', events: PROFILE.events, head: HEAD, timeoutMs: 60_000, intervalMs: 20_000, ...clockAt() });
+    const skipped = run(5, { event: 'pull_request', conclusion: 'skipped', created_at: run(4).created_at });
+    expect(await o([run(4), skipped])).toMatchObject({ state: 'green', run: { id: 4 } });
+    expect((await o([run(4, { conclusion: 'failure' }), skipped])).state).toBe('red');
+    expect(await o([skipped])).toMatchObject({ state: 'red', run: { id: 5 } });
+  });
 });
 
 describe('ship_lanes_from config and the ci_carried receipt field', () => {
