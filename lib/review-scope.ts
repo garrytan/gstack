@@ -314,7 +314,7 @@ export interface ReviewLoopSummary {
  * writer fills `timestamp` by hand, so a date-only or guessed value could otherwise
  * sort a real pass before `--since` and leave the receipt without a loop to record.
  */
-function rowTime(row: Record<string, any>): number {
+export function rowTime(row: Record<string, any>): number {
   for (const value of [row.review_binding?.started_at, row.timestamp]) {
     const ms = typeof value === 'string' ? Date.parse(value) : NaN;
     if (Number.isFinite(ms)) return ms;

@@ -72,6 +72,16 @@ describe('summary warns when a run\'s readers ran but it logged no rows (HARN-10
     expect(r.err).toContain('fc');
   });
 
+  // Value: protects=a pass whose review row was never logged is named even when a Step 11 voice row was; fails_when=any
+  //   via:ship row counts as the pass's row; seam=summary; no_claim=-
+  test('a pass ledger with no review row warns beside a logged voice row', () => {
+    const repo = branchWith([{ skill: 'adversarial-review', via: 'ship', timestamp: at(20), status: 'clean', findings: [] }]);
+    const run = path.join(repo.root, 'run');
+    ledger(path.join(run, 'p1'), 'security');
+    const r = summary(repo, run);
+    expect(r.err).toContain('REVIEW_ROWS_MISSING: readers ran (ledger p1)');
+  });
+
   // Value: protects=no warning when every reader's row is logged (negative control); fails_when=the warning fires on a
   //   normal run; seam=summary; no_claim=-
   test('a run that logged its pass and fix-check rows gets no warning', () => {
