@@ -149,7 +149,9 @@ function outputsOf(all: readonly string[], globs: readonly string[]): string[] {
 /**
  * Tracked files outside Markdown that mention `file`'s name without its final extension anywhere, where the import graph cannot
  * see: a curation list, a durations manifest, a script, a workflow, an extensionless path (`node test/alpha.test`), a dotted
- * module (`tests.test_alpha`), or an escaped or encoded path (`\talpha.test.js`, `test%2Falpha.test.js`).
+ * module (`tests.test_alpha`), or an escaped or encoded path (`\talpha.test.js`, `test%2Falpha.test.js`). A file whose every mention sits under
+ * another directory's path (`packages/b/alpha.test`) does not count, nor does `.gstack/pregate.json` when its only mentions are `dependencies` keys
+ * or listed tests beside another test that still exists.
  */
 function namedBy(ctx: PregateContext, file: string): string[] {
   const base = path.posix.basename(file);
@@ -157,13 +159,22 @@ function namedBy(ctx: PregateContext, file: string): string[] {
   const r = spawnSync('git', ['grep', '--untracked', '-l', '-F', '-e', stem, '--', '.', ':(exclude)*.md', ':(exclude)*.mdx'], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024, env: ctx.env });
   if (r.status === 1) return [];
   if (r.status !== 0) return ['(git grep failed)'];
+  const dir = path.posix.dirname(file);
   return (r.stdout ?? '').split('\n').filter(Boolean).filter(n => {
-    if (n !== PREGATE_CONFIG_PATH) return true;
-    try {
-      const policy = JSON.parse(fs.readFileSync(path.join(ctx.repoRoot, n), 'utf8'));
-      const deps = policy?.dependencies;
-      return !deps || typeof deps !== 'object' || Array.isArray(deps) || JSON.stringify({ ...policy, dependencies: undefined }).includes(stem);
-    } catch { return true; }
+    let text: string;
+    try { text = fs.readFileSync(path.join(ctx.repoRoot, n), 'utf8'); } catch { return true; }
+    if (n === PREGATE_CONFIG_PATH) {
+      try {
+        const { dependencies: deps, ...rest } = JSON.parse(text);
+        if (deps && typeof deps === 'object' && !Array.isArray(deps) && !JSON.stringify(rest).includes(stem)) {
+          return Object.values(deps).some(list => JSON.stringify(list).includes(stem) && !(Array.isArray(list) && list.some(t => typeof t === 'string' && !t.includes(stem) && fs.existsSync(path.join(ctx.repoRoot, t)))));
+        }
+      } catch { return true; }
+    }
+    return text.split(stem).slice(0, -1).some(before => {
+      const q = /([\w.@-]+\/)+$/.exec(before)?.[0];
+      return !q || q.startsWith('./') || q.startsWith('../') || `/${dir}/`.endsWith(`/${q}`) || `/${q}`.endsWith(`/${dir}/`);
+    });
   });
 }
 

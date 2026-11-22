@@ -1081,7 +1081,8 @@ describe('nested JS packages run their own runner from their own directory', () 
 
   // Value: protects=a spec that takes `test` from a local fixtures module built on @playwright/test (Playwright's documented fixtures pattern),
   //   directly, aliased, through a re-export or an index module, or through a .js specifier naming a .ts source, runs through `playwright test`,
-  //   while a unit test that imports some other Playwright-based helper keeps its runner and a module outside the repo is never followed;
+  //   or an `export *` barrel, while a unit test that imports some other Playwright-based helper, or takes `test` from a vitest fixture that
+  //   uses Playwright's request API, keeps its runner and a module outside the repo (`../../x` or `../..`) is never followed;
   //   fails_when=only a direct @playwright/test import marks a spec again (#4347: the spec went to vitest, which found no test files);
   //   why_new=no case covered fixtures modules; seam=none; no_claim=a real Playwright run (plan only)
   test('a spec taking test from a local Playwright fixtures module runs through playwright test; other helpers keep the unit runner (#4347)', () => {
@@ -1096,10 +1097,16 @@ describe('nested JS packages run their own runner from their own directory', () 
     write(repo.work, 'test/helper.ts', "import { chromium } from '@playwright/test';\nexport const launch = () => chromium;\nexport const test = 1;\n");
     write(repo.work, 'test/unit.test.ts', "import { expect, test } from 'vitest';\nimport { launch } from './helper';\ntest('unit', () => expect(launch).toBeTruthy());\n");
     write(repo.work, 'test/outside.test.ts', "import { test } from '../../outside/base';\ntest('outside', () => {});\n");
-    const plan = planRuns(ctx, ['e2e/direct.spec.ts', 'e2e/aliased.spec.ts', 'e2e/js-specifier.spec.ts', 'test/unit.test.ts', 'test/outside.test.ts']);
+    write(repo.work, 'e2e/barrel/index.ts', "export * from '../base';\n");
+    write(repo.work, 'e2e/star.spec.ts', "import { test } from './barrel';\ntest('star', () => {});\n");
+    write(repo.work, 'test/api-fixture.ts', "import { test as base } from 'vitest';\nimport { request } from '@playwright/test';\nexport const test = base.extend({ api: async ({}, use) => use(await request.newContext()) });\n");
+    write(repo.work, 'test/api.test.ts', "import { test } from './api-fixture';\ntest('api', () => {});\n");
+    write(repo.work, '../index.ts', "import { test as base } from '@playwright/test';\nexport const test = base;\n");
+    write(repo.work, 'test/up.test.ts', "import { test } from '../..';\ntest('up', () => {});\n");
+    const plan = planRuns(ctx, ['e2e/direct.spec.ts', 'e2e/aliased.spec.ts', 'e2e/js-specifier.spec.ts', 'e2e/star.spec.ts', 'test/unit.test.ts', 'test/outside.test.ts', 'test/api.test.ts', 'test/up.test.ts']);
     expect(plan.groups).toEqual([
-      { runner: 'npx vitest run {files}', cwd: '', files: ['test/unit.test.ts', 'test/outside.test.ts'] },
-      { runner: 'npx playwright test --reporter=list {files}', cwd: '', files: ['e2e/direct.spec.ts', 'e2e/aliased.spec.ts', 'e2e/js-specifier.spec.ts'] },
+      { runner: 'npx vitest run {files}', cwd: '', files: ['test/unit.test.ts', 'test/outside.test.ts', 'test/api.test.ts', 'test/up.test.ts'] },
+      { runner: 'npx playwright test --reporter=list {files}', cwd: '', files: ['e2e/direct.spec.ts', 'e2e/aliased.spec.ts', 'e2e/js-specifier.spec.ts', 'e2e/star.spec.ts'] },
     ]);
   });
 
