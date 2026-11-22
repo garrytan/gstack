@@ -1,5 +1,5 @@
 /**
- * The /verify skill-eval fixtures (test/fixtures/skill-evals/verify) checked for free: each seeded variant gives
+ * The /build-check skill-eval fixtures (test/fixtures/skill-evals/build-check) checked for free: each seeded variant gives
  * gstack-checks the verdict its task is about, a correct fix passes check.sh, and the two decoy agents the plan
  * names (one that disables a check, one that claims green without fixing anything) fail it.
  */
@@ -11,8 +11,8 @@ import * as path from 'node:path';
 import { runScriptSync } from '../lib/script-invocation';
 import { BIN } from './helpers/pregate-fixture';
 
-const FIX = path.join(import.meta.dir, 'fixtures', 'skill-evals', 'verify');
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-eval-'));
+const FIX = path.join(import.meta.dir, 'fixtures', 'skill-evals', 'build-check');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'build-check-eval-'));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GSTACK_'))) as Record<string, string>;
 
@@ -33,7 +33,7 @@ const edit = (work: string, rel: string, from: string, to: string) => {
   fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(from, to));
 };
 
-describe('/verify eval fixtures', () => {
+describe('/build-check eval fixtures', () => {
   // Value: protects=each eval task starts from the red (or green) it is named for, and check.sh passes a real fix;
   //   fails_when=a seed drifts so the task tests nothing, or check.sh fails a correct session; why_new=the fixtures are new;
   //   seam=the real gstack-checks on the seeded repo; no_claim=how a model behaves on them (the paid run)

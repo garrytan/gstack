@@ -14,6 +14,7 @@ Conventions:
 - [/benchmark](benchmark/SKILL.md): Web performance regression detection.
 - [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.
 - [/browse](browse/SKILL.md): Drive a real browser through Aside: open a page, read it, click through a flow, take screenshots, check console errors.
+- [/build-check](build-check/SKILL.md): Use when coding: run the checks and tests /ship picks until green.
 - [/canary](canary/SKILL.md): Post-deploy canary monitoring.
 - [/captain](captain/SKILL.md): Run a crew of coding agents from one controller (also /crew): lanes send READY blocks and never merge; the controller merges through trains, keeps the digest, relays approvals, fixes flakes daily.
 - [/careful](careful/SKILL.md): Safety guardrails for destructive commands.
@@ -71,7 +72,6 @@ Conventions:
 - [/test-audit](test-audit/SKILL.md): Find low-value or duplicate tests and the test-only code they keep alive.
 - [/ubicloud](ubicloud/SKILL.md): Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs, a reaper, quota preflight and a hang watchdog.
 - [/unfreeze](unfreeze/SKILL.md): Clear the freeze boundary set by /freeze, allowing edits to all directories again.
-- [/verify](verify/SKILL.md): Use when coding: run the checks and tests /ship picks until green.
 - [/write-skill](write-skill/SKILL.md): Write a new agent skill or improve one without bloat: the edit ladder, levels, drift and size checks, full diets.
 
 ## Browse Commands

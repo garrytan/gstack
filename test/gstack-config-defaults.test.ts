@@ -322,21 +322,19 @@ describe('design_detector (auto|off, rejecting validator)', () => {
   });
 });
 
-describe('verify_before_commit (on|off, rejecting validator)', () => {
-  // Value: protects=a typo cannot silently leave /verify's pre-commit pass on, and list/defaults show the switch; fails_when=the
-  //   validator or a KEY loop entry is dropped; why_new=the key is new (GST-3150); seam=none; no_claim=gstack-checks' reading of it
-  test('rejects a typo, round-trips on/off and is listed', () => {
+describe('verify_before_commit (retired, #4593)', () => {
+  // Value: protects=an old script or config that sets the retired key still works and is told nothing changes, and list/defaults
+  //   stop showing it; fails_when=set errors, stores the value silently, or the key is listed again; why_new=/verify became
+  //   /build-check, so nothing runs the pre-commit pass on its own (#4593); seam=none; no_claim=Claude Code's commit instruction
+  test('set succeeds with a retirement note, stores nothing, and the key is no longer listed', () => {
     const run = (...args: string[]) => spawnSync('bash', [CONFIG_BIN, ...args], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
-    expect(get('verify_before_commit')).toEqual({ out: 'on', code: 0 });
-    const bad = run('set', 'verify_before_commit', 'of');
-    expect(bad.status).toBe(1);
-    expect(bad.stderr).toContain("verify_before_commit 'of' not recognized");
-    expect(get('verify_before_commit').out).toBe('on');
-    for (const verb of ['list', 'defaults']) expect(run(verb).stdout).toMatch(/verify_before_commit:\s+on/);
-    expect(run('set', 'verify_before_commit', 'off').status).toBe(0);
-    expect(get('verify_before_commit').out).toBe('off');
-    expect(run('set', 'verify_before_commit', 'on').status).toBe(0);
-    expect(get('verify_before_commit').out).toBe('on');
+    for (const value of ['off', 'on', 'of']) {
+      const r = run('set', 'verify_before_commit', value);
+      expect(r.status).toBe(0);
+      expect(r.stderr).toContain('verify_before_commit is retired and has no effect');
+    }
+    expect(get('verify_before_commit')).toEqual({ out: '', code: 1 });
+    for (const verb of ['list', 'defaults']) expect(run(verb).stdout).not.toContain('verify_before_commit');
   });
 });
 

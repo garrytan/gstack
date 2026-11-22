@@ -29,7 +29,7 @@ CLIs (`gstack-ios-qa-daemon`, `gstack-ios-qa-mint`, `gstack-ios-qa-regen`) are i
 | `/test-audit` | build + review |
 | `/codex` | build + review |
 | `/claude-code` | build + review |
-| `/verify` | build + review |
+| `/build-check` | build + review |
 | `/design-review` | build + review |
 | `/design-shotgun` | build + review |
 | `/design-html` | build + review |

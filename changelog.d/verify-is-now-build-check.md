@@ -1,0 +1,4 @@
+---
+bump: minor
+---
+**`/verify` is now `/build-check`, so typing `/verify` opens Claude Code's own built-in `/verify` again (#4593).** Claude Code ships a skill named `verify` that checks a change by running your app, and gstack's skill of the same name hid it. Since Claude Code 2.1.286 that name alone also told the model to run gstack's skill before every commit, loading its full instructions each time. Upgrading removes gstack's old `verify` entry (and `gstack-verify` on other hosts or with `--prefix`), but never a `verify` skill of your own. Use `/build-check` for gstack's build-and-check loop, and `/build-check quick` for the check-only pass. Nothing starts that pass before a commit on its own any more, so the `verify_before_commit` setting is retired. Setting it prints a note and changes nothing, and a config file that still has it keeps working. If you turned the skill off with `gstack-config set disabled_skills verify`, change that entry to `build-check`.

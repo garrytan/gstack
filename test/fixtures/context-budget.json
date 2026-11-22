@@ -7,6 +7,7 @@
     "benchmark-models": 4454,
     "browse": 9311,
     "browser-skills/hackernews-frontpage": 371,
+    "build-check": 3282,
     "canary": 7750,
     "captain": 7282,
     "capy/skill/gstack": 5847,
@@ -68,7 +69,6 @@
     "test-audit": 4636,
     "ubicloud": 4059,
     "unfreeze": 423,
-    "verify": 3282,
     "write-skill": 2386
   }
 }

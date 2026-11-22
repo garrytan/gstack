@@ -1,11 +1,10 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
- * gstack-checks — the build-and-verify loop's checks for /verify, and /health's tool detection. Logic: lib/checks.ts.
+ * gstack-checks — the build-and-verify loop's checks for /build-check, and /health's tool detection. Logic: lib/checks.ts.
  */
 import { spawnSync } from 'node:child_process';
 import { cancelActive } from '../lib/pregate/supervise';
 import { MAX_FAIL_LINES, TESTS, healthDimensions, isTrusted, ledgerPath, load, nothingToRun, quickLine, readLedger, recordTrust, runChecks, status, type Loaded } from '../lib/checks';
-import { readConfigKey } from '../lib/state-root';
 
 const USAGE = `Usage: gstack-checks <detect|trust|run|status|quick> [options]
 
@@ -20,8 +19,8 @@ const USAGE = `Usage: gstack-checks <detect|trust|run|status|quick> [options]
   status                 READY_FOR_SHIP when the last run passed every check at this tree, else NOT_READY;
                          runs nothing
   quick [--timeout <s>]  the pre-commit pass: run's checks and tests with no consent prompt, ending with one line,
-                         VERIFY PASS|FAIL|skipped: <what>; untrusted commands, no pregate context or
-                         verify_before_commit=off skip instead of stopping; exit 1 only on FAIL, and a TIMEOUT
+                         VERIFY PASS|FAIL|skipped: <what>; untrusted commands or no pregate context
+                         skip instead of stopping; exit 1 only on FAIL, and a TIMEOUT
                          is a FAIL; --timeout (default 540) is one budget the checks share, and the test
                          stage starts with what is left
 
@@ -52,7 +51,6 @@ const QUICK_RED_LINES = 10;
 async function quick(root: string | null, args: string[], timeoutMs: number): Promise<number> {
   const deadline = Date.now() + timeoutMs;
   const skip = (why: string) => { process.stdout.write(`VERIFY skipped: ${why}\n`); return 0; };
-  if (readConfigKey('verify_before_commit') === 'off') return skip('verify_before_commit is off (gstack-config set verify_before_commit on)');
   if (!root) return skip('not inside a git repository');
   const l = load(root, flag(args, '--base'), timeoutMs);
   if ('refused' in l) {
@@ -61,7 +59,7 @@ async function quick(root: string | null, args: string[], timeoutMs: number): Pr
     return skip(`${ref ? `no ${ref} to compare against (no remote, or it is not fetched)` : l.refused.replace(/^gstack-checks: /, '').split(':')[0]}, so no checks ran${code ? ` (${code})` : ''}`);
   }
   if (nothingToRun(l)) return skip('the repo declares no checks or tests');
-  if (!isTrusted(root, l.set)) return skip("the repo's check commands are not trusted yet; type /verify once to review them");
+  if (!isTrusted(root, l.set)) return skip("the repo's check commands are not trusted yet; type /build-check once to review them");
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => { cancelActive(); process.exit(signal === 'SIGINT' ? 130 : 143); });
   const { outcomes } = await runChecks(l, { root, timeoutMs, deadline });
   const { line, red } = quickLine(outcomes);

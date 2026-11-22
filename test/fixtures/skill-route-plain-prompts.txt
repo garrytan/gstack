@@ -1,4 +1,4 @@
-# Plain prompts that fit none of the routed skills (/review, /qa, /verify) and are not bug reports.
+# Plain prompts that fit none of the routed skills (/review, /qa, /build-check) and are not bug reports.
 # test/skill-route.test.ts routes every line and expects no route; the last six use defect words
 # (error, exception, failed) in requests that are features, not bugs.
 Add a dark mode toggle to the settings page and remember the choice in localStorage.

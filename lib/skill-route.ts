@@ -413,7 +413,7 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
  * installed skill that lists triggers routes too (GST-3123): no host but gstack reads `triggers:`, so a skill
  * that writes them is asking gstack to route it.
  */
-export const ROUTED_SKILLS = ['review', 'qa', 'verify'];
+export const ROUTED_SKILLS = ['review', 'qa', 'build-check'];
 const isRouted = (s: InstalledSkill) => !isGstackSkill(s) || ROUTED_SKILLS.includes(baseName(s.name));
 
 /**

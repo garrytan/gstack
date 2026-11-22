@@ -1,5 +1,5 @@
 ---
-name: verify
+name: build-check
 preamble-tier: 1
 version: 0.1.0
 description: |
@@ -23,13 +23,11 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-## Right before a commit: the quick pass
+## Quick pass: `/build-check quick`
 
-Use only this section when you started /verify yourself because you are about
-to run `git commit` (Claude Code asks for /verify before every commit), and the
-user has not typed /verify or asked you to verify or run the checks in this
-conversation. The arguments `quick` or `pre-commit` mean the same. When the
-user typed /verify, skip this section and run the full skill below.
+Use only this section when the arguments are `quick` or `pre-commit`, for
+example when you were asked to run `/build-check quick` before a commit.
+Otherwise skip it and run the full skill below.
 
 Skip the preamble and everything after this section: edit nothing, add no
 tests, ask nothing. Run one command with a Bash timeout of 10 minutes:
@@ -39,13 +37,13 @@ tests, ask nothing. Run one command with a Bash timeout of 10 minutes:
 ```
 
 It ends with one line. `VERIFY PASS: …` or `VERIFY skipped: <reason>`: go on
-with the commit, and mention /verify only by quoting that line. `VERIFY FAIL:
+with the commit and quote that line. `VERIFY FAIL:
 …` (exit 1): don't commit over it; quote the line and the failing output to
 the user and ask whether to fix it first or commit anyway.
 
 {{PREAMBLE}}
 
-# /verify — build, check, fix, repeat
+# /build-check — build, check, fix, repeat
 
 Use this while building, before /ship. It runs checks and fixes code. It never
 reviews, bumps a version, pushes, or opens a PR: that is /ship. A changelog entry
@@ -62,7 +60,7 @@ C="{{RUNTIME_ROOT}}/bin/gstack-checks"; "$C" detect
 `detect` reads files only. It lists each check with its source, the pregate
 test selection, and `TRUST trusted|untrusted`. `CHECKS: none` means the repo declares no check,
 pregate policy or test file: there is nothing to run, so say so and stop. Never invent a
-command the repo does not declare. Report "No checks declared; /verify ran nothing": `run`
+command the repo does not declare. Report "No checks declared; /build-check ran nothing": `run`
 exits 3 and `status` stays `NOT_READY`, so this never reaches `READY_FOR_SHIP`. A command you
 run yourself is your own result, not a gstack check. Offer once to declare one with a
 `gstack:verify: <command>` line in the repo's CLAUDE.md.
