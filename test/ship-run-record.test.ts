@@ -113,6 +113,43 @@ describe('a /ship run stays open until a gstack command ends it (GST-3260)', () 
     expect(own.status, own.stderr).toBe(0);
   });
 
+  // Value: protects=the own-stop exemption buys one fix round per run: once the run claimed it, a later stop needs the lane's
+  //   relayed grant; fails_when=a run loops stop, self-grant, claim past R51's cap; seam=gstack-approvals round-grant, run record claim
+  test('a stopped run grants itself one fix round: after its claim, another stop needs a relayed grant', () => {
+    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    expect(preflight(f, 'ro').status).toBe(0);
+    const s = head(f);
+    logStoppingReview(f);
+    const body = path.join(f.root, 'body.md');
+    fs.writeFileSync(body, 'Fixes a thing.\n');
+    expect(run(f, 'gstack-ship-receipt', ['stop', '--body', body, '--pr', '7', '--run', 'ro', '--since', '2000-01-01T00:00:00Z']).status).toBe(0);
+    const g = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(grant(f, 'fix-check').stdout)?.[1];
+    expect(g).toBeDefined();
+    expect(run(f, 'gstack-ship-receipt', ['claim', '--body', body, '--run', 'ro', '--grant', g!]).status).toBe(0);
+    fs.writeFileSync(recordFile(f), JSON.stringify({ ...record(f), state: 'stopped' }) + '\n');
+    const again = grant(f, 'fix-check', [], s);
+    expect(again.status).toBe(2);
+    expect(again.stderr).toContain("this run already spent its own stop's fix-check grant (" + g + ')');
+  });
+
+  // Value: protects=a stopped record of another run is replaced by a new --run, while a preflight with no --run stops on it;
+  //   fails_when=a bare preflight merges the base under the stopped run's stop head; seam=lib/ship-preflight.ts shipRunClear
+  test('a stopped record of another run: a new --run replaces it, a preflight with no --run stops', () => {
+    const f = fx();
+    expect(preflight(f, 'ro').status).toBe(0);
+    const s = head(f);
+    fs.writeFileSync(recordFile(f), JSON.stringify({ ...record(f), state: 'stopped', stop: { head: s, tree: f.git('rev-parse', 'HEAD^{tree}').stdout.trim() } }) + '\n');
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    const bare = preflight(f);
+    expect(bare.status).toBe(3);
+    expect(bare.stdout).toContain('STOP: /ship run ro is open on this checkout and past its preflight (');
+    expect(bare.stdout).not.toContain('MERGE:');
+    const next = preflight(f, 'r2');
+    expect(next.status, next.stdout).toBe(0);
+    expect(lineOf(next.stdout, 'MERGE')).toMatch(/^MERGE: merged origin\/main at /);
+    expect(record(f)).toMatchObject({ run: 'r2', state: 'open' });
+  });
+
   // Value: protects=stop and claim upgrade a bare marker that names their run, and claim writes the grant it spends into the record;
   //   fails_when=a legacy marker stays bare after stop, or the claim lives only in the PR body; seam=gstack-ship-receipt stop/claim
   test('stop and claim upgrade a legacy marker naming their run; claim records the grant and reopens the run', () => {
@@ -269,6 +306,25 @@ describe('finish removes only the run record the PR body names (amendment F)', (
     expect(preflight(f, 'run-c').status).toBe(0);
     expect(finishRun(f.work, null)).toMatchObject({ removed: true });
     expect(fs.existsSync(recordFile(f))).toBe(false);
+  });
+
+  // Value: protects=two untested transitions: finish keeps an unreadable record, and abandon ends a stopped run past 60 minutes;
+  //   fails_when=finish deletes a record it cannot read, or a stopped run can never be abandoned; seam=finishRun, gstack-ship-run abandon
+  test('finish keeps an unreadable record; abandon ends a stopped run past 60 minutes', async () => {
+    const { finishRun } = await import('../lib/ship-run-record');
+    const f = fx();
+    fs.writeFileSync(recordFile(f), '{"v":1,"run":\n');
+    expect(finishRun(f.work, null)).toMatchObject({ removed: false, line: expect.stringContaining('RUN_RECORD: kept (') });
+    expect(fs.readFileSync(recordFile(f), 'utf8')).toBe('{"v":1,"run":\n');
+    fs.rmSync(recordFile(f));
+    expect(preflight(f, 'ro').status).toBe(0);
+    fs.writeFileSync(recordFile(f), JSON.stringify({ ...record(f), state: 'stopped' }) + '\n');
+    age(f, 61);
+    const body = path.join(f.root, 'body.md');
+    fs.writeFileSync(body, 'Fixes a thing.\n');
+    const end = run(f, 'gstack-ship-run', ['abandon', '--run', 'ro', '--by', CAPTAIN, '--reason', 'stopped and never resumed', '--body', body]);
+    expect(end.status, end.stderr).toBe(0);
+    expect(record(f)).toMatchObject({ run: 'ro', state: 'abandoned', ended_by: CAPTAIN });
   });
 });
 

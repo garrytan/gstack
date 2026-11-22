@@ -87,7 +87,7 @@ export function readRunRecord(cwd: string, file = runRecordPath(cwd)): RunRead {
 /** The run a record names: its own, a legacy marker's text, or none for an unreadable file. */
 export const recordRun = (read: RunRead) => read.kind === 'record' ? read.record.run : read.kind === 'legacy' ? read.run : undefined;
 
-export interface OpenRun { run: string; state: RunState | 'legacy' | 'unreadable'; stop?: RunRecord['stop']; detail: string; line: string }
+export interface OpenRun { run: string; state: RunState | 'legacy' | 'unreadable'; stop?: RunRecord['stop']; claim?: RunRecord['claim']; detail: string; line: string }
 /**
  * The run every guard must respect: an open, stopped, legacy or unreadable record; none once it finished or was abandoned. `detail` is what
  * each refusal prints: the state, beat_age, the earliest time abandon takes it and the exact command.
@@ -103,7 +103,7 @@ export function openRun(read: RunRead, now = Date.now()): OpenRun | undefined {
     ? `gstack-ship-run abandon --run unknown --sha256 ${read.sha256 ?? '<its digest: the file is unreadable, so fix its permissions first>'} --by <lane or Captain> --reason "<one line>"`
     : `gstack-ship-run abandon --run ${run} --by <lane or Captain> --reason "<one line>"`;
   const detail = `state ${state}, beat_age ${age}; ${read.kind === 'unreadable' ? `${read.file} ${read.why}; ` : ''}once it has stopped working, end it from ${from} with ${command}`;
-  return { run, state, ...(read.kind === 'record' && read.record.stop ? { stop: read.record.stop } : {}), detail, line: `/ship run ${run} is open on this checkout (${detail})` };
+  return { run, state, ...(read.kind === 'record' && read.record.stop ? { stop: read.record.stop } : {}), ...(read.kind === 'record' && read.record.claim ? { claim: read.record.claim } : {}), detail, line: `/ship run ${run} is open on this checkout (${detail})` };
 }
 
 /** Run `fn` holding the repository's gate-disposition lock (a directory in the git common dir; one older than a minute is stale). */
@@ -158,15 +158,14 @@ export function changeRunRecord(cwd: string, cmd: RunCommand, run: string, patch
 }
 
 /**
- * gstack-review-log --start/--finish beat the run that owns this checkout's open or stopped record: the /ship token cap's budget run
- * when its marker names one (it must be the record's), else the record's own. A beat never fails the review log.
+ * gstack-review-log --start/--finish beat the run that owns this checkout's open or stopped record. The token cap's budget marker
+ * names a budget run id (lib/ship-budget.ts), never the /ship run id, so it cannot pick the run. A beat never fails the review log.
  */
-export function beatFromReview(cwd: string, budgetMarker?: string): void {
+export function beatFromReview(cwd: string): void {
   try {
     const read = readRunRecord(cwd);
     if (read.kind !== 'record' || !openRun(read)) return;
-    const budgetRun = budgetMarker && fs.existsSync(budgetMarker) ? JSON.parse(fs.readFileSync(budgetMarker, 'utf8')).run : undefined;
-    changeRunRecord(cwd, 'beat', typeof budgetRun === 'string' ? budgetRun : read.record.run, {}, { waitMs: 2_000 });
+    changeRunRecord(cwd, 'beat', read.record.run, {}, { waitMs: 2_000 });
   } catch { /* a beat is advisory */ }
 }
 
