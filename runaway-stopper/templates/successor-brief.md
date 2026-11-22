@@ -8,7 +8,7 @@ table, and tell your Captain they are in place (<old code>
 stays unarchived until every PR it opened or carries is merged or closed, R91); then pick up the table in order.
 Work rules for this role (from /runaway-stopper, Step 4): one wait on all pending operations; a wake with nothing to
 decide ends without a message; no acknowledgment or progress messages to your Captain; compact program returns;
-one /ship subagent per PR head; at most 2 review rounds per PR. When you pass 250M own tokens or 3 days active,
+run /ship in this thread, never in a subagent; at most 2 review rounds per PR. When you pass 250M own tokens or 3 days active,
 write your own rotation handoff and tell your Captain.
 
 Report to your Captain only with a READY, a decision you need, a blocker or your final report.

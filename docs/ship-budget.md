@@ -3,7 +3,7 @@
 `/ship --token-cap 25M` (or `GSTACK_SHIP_TOKEN_CAP=25M`) bounds what one /ship run spends, and
 long runs hand their heavy segments to fresh-context children. The helper is
 `bin/gstack-ship-budget`; the skill's procedure is `ship/sections/budget-handoff.md`.
-There is one default cap: an observe-mode /ship subagent that meters its own task row (`--reading-from task`,
+There is one default cap: an observe-mode run that meters one row of a root thread's `tasks` (`--reading-from task`,
 below) and names no cap gets 50M, the line where /runaway-stopper stops a subagent, and prints
 `BUDGET_DEFAULT_CAP: 50M`; `--token-cap none` turns it off. Without a cap, /ship meters usage when it can and prints it, and
 nothing else changes.
@@ -140,7 +140,9 @@ one program measure nothing: Capy books a call after its program ends.
 
 A jam's own counter includes its own subagents, outside voices too (measured 2026-10-30: +10.92M
 across a six-reader dispatch with two ~0.35M parent calls between). `"this"` is the root thread,
-whose counter also holds every sibling tree. A subagent running /ship cannot read its own jam id. When its brief names its title
+whose counter also holds every sibling tree. /ship runs in the thread that owns the pull request, never in a subagent,
+so on Capy it reads that thread's own jam id: a crew thread is a root thread, and its counter holds its reviewers. A
+reading taken inside a subagent is different, because a subagent cannot read its own jam id. When its brief names its title
 (`GSTACK_SHIP_TASK_TITLE=<title>`), it reads `cost` from its own row of the root thread's `tasks` (the row whose `title` matches; its subtree, exact)
 and starts with `--reading-from task`; every later reading in the run comes from that same row, and the title carries a
 nonce so a rerun at the same head can't match a finished row. Otherwise it

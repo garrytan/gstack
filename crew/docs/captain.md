@@ -203,7 +203,7 @@ cheap:
   A status read in between counts and does not restart the 30 minutes. A wait expected to run
   longer sleeps on its operations alone. For short lane waits this overrides "waits go on
   operations, never on polling wakes" ([unattended.md](../../docs/unattended.md#report-length)). The
-  controller never warm-waits, and a lane still sleeps while /ship runs
+  controller never warm-waits, and a lane running /ship follows the waits in `ship/DRIVER.md`
   ([the lane's /ship sequence](#the-lanes-ship-sequence-before-ready)).
 - **Batched reads.** Independent reads (files, greps, pull request and thread state) go in
   one parallel program, not one call each. Each call returns 4k characters or less; long
@@ -237,8 +237,8 @@ cheap:
   because the subagent re-reads its own brief and context on every step and its tree's
   spend adds to the lane's: subagent trees were about a quarter of one day's crew spend.
   The brief names the compact result the subagent returns, such as a verdict line, a file
-  path or a short list, and nothing else comes back. /ship keeps its own subagent until
-  gstack's trial of /ship without one reports.
+  path or a short list, and nothing else comes back. /ship is the lane's own procedure, so
+  the lane runs it in its own thread; only /ship's reviewers are subagents.
 
 ## New threads join the crew
 
@@ -519,32 +519,28 @@ a push included. The sequence that works unattended on Capy (steps 3 to 8 run in
    `/ship --resume <record>`; no READY goes out on the conditional receipt,
    except on a train with `gates` ([Merge trains for other repos](#merge-trains-for-other-repos)).
 9. READY: `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen|--no-screen`;
-   send the printed block. The lane runs this on /ship's completion wake, below.
+   send the printed block. The lane runs this once /ship prints its receipt, below.
 10. After the slot call, the stamp commit keeps the pin's receipt; re-READY with the same
     receipt, no second /ship.
 
-When /ship runs in a subagent, the lane sleeps while it runs. After dispatching /ship, the
-lane ends its turn and wakes only on /ship's completion: one wake to relay READY, because the
-controller hears READY from the lane, never from its subagent. So the lane holds no pull request watch of its own
-while /ship runs: /ship opens the pull request, and on a re-READY the lane cancels the watch
-it already holds before it dispatches. Every READY duty has one owner, so `train build`
+The lane runs /ship itself, in its own thread: one call per `ship/DRIVER.md` phase, with every
+reviewer started as the lane's own subagent. It never hands /ship to a subagent: gstack's trial of
+/ship without one (GST-3003, 30 paired runs) found the same cost and the same catches, so the extra
+layer goes. Every READY duty has one owner, so `train build`
 never refuses the pin with `QUEUE_NOT_READY` for a step nobody ran:
 
 | READY duty | Owner |
 |---|---|
 | The ship receipt (`SHIP_RECEIPT:`) and the pregate record behind the `PREGATE:` line (steps 4, 7 and 8) | /ship |
-| `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen\|--no-screen` at the pin, with its notes pushed to origin `refs/notes/gstack-trains` (step 9; /ship runs on the lane's machine, or the lane copies its `pregate.json` over first) | the lane |
+| `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen\|--no-screen` at the pin, with its notes pushed to origin `refs/notes/gstack-trains` (step 9, on the lane's machine, where /ship ran) | the lane |
 | The decision-trail audit and the READY's `Attention` section, when the crew keeps a trail ([unattended.md](../../docs/unattended.md#the-decision-trail)) | the lane |
 
-On the completion wake the lane subscribes to the pull request's check and review notices,
-reads its checks and comments once (a notice that landed while /ship ran went to /ship, or to nobody on a re-READY),
-stops the /ship subagent, runs `ready`, audits its trail, writes `Attention` and sends the
-READY. A completion that ends `SHIP_PAUSED: base-red` follows step 8 instead: the lane
+When /ship prints its receipt, the lane reads the pull request's checks and comments once,
+runs `ready`, audits its trail, writes `Attention` and sends the READY. A run that ends
+`SHIP_PAUSED: base-red` follows step 8 instead: the lane
 registers the base-red wait, tells the controller, and sends no READY. From then on the lane handles the pull request's events as before: red checks, human
-review, the slot stamp and re-READY of step 10, and any receipt carry. It does that work
-itself or sends it to the subagent as an explicit instruction. The tradeoff: a red check
-that lands while /ship runs waits for /ship to finish instead of being fixed in parallel.
-In exchange, the lane stops re-reading its whole context on every notice during /ship. On
+review, the slot stamp and re-READY of step 10, and any receipt carry. A red check that
+lands while /ship runs waits for /ship to finish instead of being fixed mid-run. On
 Capy the mechanics are in [the gstack skill](../../capy/skill/gstack/SKILL.md#plan-approve-ship).
 
 When the base moves under a reviewed branch, merge it in; never rebase. A merge that

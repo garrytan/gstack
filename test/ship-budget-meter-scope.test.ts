@@ -172,11 +172,13 @@ describe('meter scope (GST-467)', () => {
     expect(fs.readFileSync(path.join(ROOT, 'docs/troubleshooting.md'), 'utf8')).toContain(`<a id="${RESULT_CODES.METER_SCOPE_PARENT.anchor}"></a>`);
   });
 
-  // Value: protects=the /ship brief tells a subagent to meter tree-scoped and the docs say where exact cost comes from; fails_when=the Capy skill or docs/ship-budget.md drops --meter-scope tree or the root-replay pointer;
-  //   why_new=GST-467; seam=none; no_claim=agent compliance
-  test('the Capy skill and docs/ship-budget.md tell a subagent to pass --meter-scope tree; exact per-run cost comes from root replay threads', () => {
+  // Value: protects=the Capy skill has the thread that owns the PR run /ship and read its own counter, and the docs say how a subagent's reading is scoped and where exact cost comes from; fails_when=the skill drops the own-thread reading, sends /ship back to a subagent, or docs/ship-budget.md drops --meter-scope tree or the root-replay pointer;
+  //   why_new=GST-467, GST-3466 (the G1 trial: /ship runs in the calling thread); seam=none; no_claim=agent compliance
+  test('the Capy skill has the thread running /ship read its own counter and start no /ship subagent; docs/ship-budget.md keeps the tree scope and root replay pointer', () => {
     const skill = fs.readFileSync(path.join(ROOT, 'capy/skill/gstack/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
-    expect(skill).toContain('--subagent --reading-from this --meter-scope tree');
+    expect(skill).toContain('tools.thread.get({ thread_id: "<your own jam id>" })` (the thread running /ship, its reviewers included)');
+    expect(skill).toContain('never start a subagent to run /ship');
+    expect(skill).not.toContain('--reading-from this --meter-scope tree');
     const doc = fs.readFileSync(path.join(ROOT, 'docs/ship-budget.md'), 'utf8').replace(/\s+/g, ' ');
     expect(doc).toContain('--meter-scope tree');
     expect(doc).toContain(TREE);
