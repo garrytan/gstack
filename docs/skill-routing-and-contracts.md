@@ -53,6 +53,7 @@ The hook scores the prompt against the `triggers:` list in each installed `SKILL
 - When a trigger ties with another of the same skill on score and words, a whole-phrase match wins.
 - A prompt longer than 5,000 characters is scored on its first 4,000 and last 1,000 characters, where the request usually sits; a log pasted between them is not scored, so its words cannot match everything. Until GST-3110 such prompts (over 8,000 characters) were never routed.
 - Prompts that start with `/` (you already picked a skill) are never routed.
+- Messages no person typed are never routed: Claude Code also runs the hook on a message from another session (`<cross-session-message …>`) and on a background agent's or command's hand-back (`<task-notification>`), and a peer's report full of "tests" and "review" would otherwise route to /verify or /review (#4423). Its payload has no field that marks such a turn, so the hook reads the wrapper at the start of the text and logs `reason=agent-message`.
 - The injected line names its source and its off switch, and asks the model to tell you in one sentence that gstack routed the request.
 
 The hook replaces the `## Skill routing` section gstack used to offer for your project's CLAUDE.md. In a preregistered test on Claude Opus 5.5 (gstack-evals#415), the hook alone got the bug-fix skill loaded in 45 of 60 and 48 of 60 unattended sessions, past the 39 of 60 the CLAUDE.md section managed, so gstack stopped offering the section. A section an older gstack added keeps working; gstack never edits it, and you can delete it.

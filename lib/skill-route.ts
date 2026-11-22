@@ -492,10 +492,18 @@ function bugFixRoute(skills: InstalledSkill[], candidates: RouteCandidate[]): Ro
 
 export type RouteDecision =
   | { route: RouteCandidate; routes: RouteCandidate[]; candidates: RouteCandidate[]; bugReport: boolean }
-  | { route: null; reason: 'slash-command' | 'skill-mention' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
+  | { route: null; reason: 'slash-command' | 'skill-mention' | 'agent-message' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
 
 /**
- * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. A bug
+ * The wrappers Claude Code puts around a turn no person typed: a message from another session (`<cross-session-message from=…>`)
+ * and a background agent's or command's hand-back (`<task-notification>`). UserPromptSubmit fires for both, and its payload has no
+ * field that tells them from a typed prompt (anthropics/claude-code#94675), so the wrapper is the sign (#4423).
+ */
+const AGENT_MESSAGE = /^<(?:cross-session-message|task-notification)[\s>]/;
+
+/**
+ * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. Nor is a message
+ * another agent or session sent (AGENT_MESSAGE): it reports work, and asks the person's session for nothing. A bug
  * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
  * it holds every word of one of /review's or /qa's own triggers within EVERYDAY_SPAN words ("review this pr for bugs",
  * "find bugs on my site") and never asks for a fix: finding bugs is not fixing one. With no such skill installed, a report
@@ -510,6 +518,7 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (!trimmed) return { route: null, reason: 'empty', candidates: [] };
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
+  if (AGENT_MESSAGE.test(trimmed)) return { route: null, reason: 'agent-message', candidates: [] };
   const routed = skills.filter(isRouted);
   const candidates = scorePrompt(prompt, routed);
   const window = promptWindow(splitCode(prompt).prose);
