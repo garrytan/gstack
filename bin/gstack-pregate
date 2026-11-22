@@ -6,7 +6,7 @@
  *                  [--allow-repo-commands] [--policy-from base|head] [--out <pregate.json>]
  *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
  *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, every registered check, no fail/incomplete, obligations cleared
- *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --run <id|url> [--run …] [--allow-repo-commands] | --bundle-lane <label> | --receipt <file> [--out <pregate.json>]
+ *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --run <id|url> [--run …] [--allow-repo-commands] | --bundle-lane <label> | --receipt <file> [--base <branch>] [--out <pregate.json>]
  *                  [--flaky-exception "<test file>::<case>" … --pr <n> [--grant <approval id>]]   a run with failures, under the owner's grant
  *   gstack-pregate lanes [--explain]                             the lane list and platform tiers read from .github/workflows
  *   gstack-pregate validate | init [--explain] [--force]         the working-tree .gstack/pregate.json
@@ -58,7 +58,8 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
                   differs from pregate.json's only in the base branch's stamp rule is accepted and recorded as a
                   substitution, docs/pregate.md#remote-gate-stamp-only); a
                   test_backend/<backend> run URL is recorded as attested, not validated. --run <id|url> (repeatable)
-                  verifies GitHub Actions runs against the base branch's run_profiles instead (docs/pregate.md#run-evidence):
+                  verifies GitHub Actions runs against run_profiles instead (docs/pregate.md#run-evidence), read from the base
+                  pregate.json was recorded against (a --base naming another branch refuses, base_mismatch):
                   one run of the profile named after the lane, or for pregate.json/remote_gate one run per
                   remote_gate_runs profile covering the gate's inventory (needs --allow-repo-commands); where a lane has a
                   profile, --run-url is verified the same way. --flaky-exception "<test file>::<case>" (at most 3) --pr <n>
@@ -126,7 +127,7 @@ function flag(args: string[], name: string): string | undefined { const i = args
 const VERB_FLAGS: Record<string, [string[], string[]]> = {
   run: [['--stage', '--only', '--base', '--policy-from', '--out', '--timeout', '--stall-timeout', '--spend-cap', '--run', '--from-run'], ['--allow-repo-commands', '--explain', '--json', '--remote', '--no-ci-carry']],
   verify: [['--out'], ['--json']],
-  clear: [['--remote', '--run-url', '--run', '--bundle-lane', '--receipt', '--out', '--flaky-exception', '--pr', '--grant'], ['--allow-repo-commands']],
+  clear: [['--remote', '--run-url', '--run', '--bundle-lane', '--receipt', '--out', '--flaky-exception', '--pr', '--grant', '--base'], ['--allow-repo-commands']],
   lanes: [[], ['--explain', '--json']],
   validate: [[], ['--json']],
   init: [[], ['--explain', '--force']],
@@ -270,10 +271,11 @@ function cmdClear(root: string, rest: string[]): number {
   const runs = rest.flatMap((a, i) => a === '--run' ? [rest[i + 1]!] : []);
   const runUrl = flag(rest, '--run-url');
   const bundleLane = flag(rest, '--bundle-lane');
-  const checked = runs.length || runUrl || bundleLane ? buildRunCheck(root, lane, rest.includes('--allow-repo-commands')) : undefined;
+  const base = resolveBaseBranch(root, flag(rest, '--base') ?? baseBranchOf(read.file.base) ?? undefined);
+  const checked = runs.length || runUrl || bundleLane ? buildRunCheck(root, lane, rest.includes('--allow-repo-commands'), base) : undefined;
   if (checked && 'error' in checked && (runs.length || checked.profiled)) { process.stderr.write(`gstack-pregate clear: ${checked.error}${checked.profiled ? `; ${lane} may have a run profile on the base branch, so it clears only with a verified --run` : ''}\n`); return EXIT.fail; }
   const evidence = checked && !('error' in checked) ? checked : undefined;
-  const decision = clearDecision(read.file, lane, { runUrl, runs, bundleLane, receiptPath: flag(rest, '--receipt'), evidence, flaky, allowRepoCommands: rest.includes('--allow-repo-commands') }, root);
+  const decision = clearDecision(read.file, lane, { runUrl, runs, bundleLane, receiptPath: flag(rest, '--receipt'), evidence, flaky, allowRepoCommands: rest.includes('--allow-repo-commands'), base }, root);
   if ('refused' in decision) {
     if (decision.refused === 'usage') { process.stderr.write(`gstack-pregate clear: ${decision.message}\n`); return EXIT.usage; }
     process.stderr.write(`gstack-pregate clear: receipt refused — ${decision.message}; fix: ${decision.fix ?? RESULT_CODES.PREGATE_RECEIPT_INVALID.fix} ${resultCodeSuffix('PREGATE_RECEIPT_INVALID')}\n`);
