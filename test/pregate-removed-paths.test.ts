@@ -229,6 +229,58 @@ describe('removed paths in lanes (#3529)', () => {
       expect(r.removed[0]).toContain('files naming it run: test/curation.test.js');
     });
 
+    const RETRY_TEST = "const test = require('node:test');\nconst assert = require('node:assert');\ntest('retry', () => assert.ok(true));\n";
+    const withDeps = (deps: Record<string, string[]>) => ({ ...BASE_PREGATE, dependencies: { ...BASE_PREGATE.dependencies, ...deps } });
+    // Value: protects=a removed test that already maps to another test (a dependencies entry or a remaining test that names its path) still
+    //   runs the tests of the files that name it, so a stale curation entry fails loudly instead of passing; fails_when=the mapped-test early
+    //   return skips the files-naming-it check again (#3536: pregate exited 0 running only the mapped test); why_new=#3534 covered only
+    //   unmapped removals; seam=none; no_claim=Markdown namers (excluded as before)
+    test.each([
+      ['deleted test mapped by a dependencies entry', { 'test/util.test.js': ['test/retry.test.js'] }, {}, (repo: FixtureRepo) => commit(repo, { 'test/util.test.js': null })],
+      ['deleted test named by a remaining test', {}, { 'test/retry.test.js': RETRY_TEST + "const OLD = 'test/util.test.js';\n" }, (repo: FixtureRepo) => commit(repo, { 'test/util.test.js': null })],
+      ['test renamed to a test whose old name a dependencies entry maps', { 'test/util.test.js': ['test/retry.test.js'] }, {}, (repo: FixtureRepo) => move(repo, 'test/util.test.js', 'test/util2.test.js')],
+    ])('a %s still runs the tests of the files that name it (#3536)', (_how, deps, files, change) => {
+      const repo = fixture({ pregate: withDeps(deps), baseFiles: { 'scripts/curation.js': CURATION, 'test/curation.test.js': CURATION_TEST, 'test/retry.test.js': RETRY_TEST, ...files } });
+      change(repo);
+      const r = lanes(repo);
+      expect(r.ran).toContain('test/curation.test.js');
+      expect(r.ran).toContain('test/retry.test.js');
+      expect(r.check.status).toBe('fail');
+    });
+
+    test('a mapped removed test that an untested file still names fails closed; its dependencies key alone is not a namer (#3536)', () => {
+      const repo = fixture({ pregate: withDeps({ 'test/util.test.js': ['test/retry.test.js'] }), baseFiles: { 'test/retry.test.js': RETRY_TEST, 'ci/skip-list.txt': 'test/util.test.js\n' } });
+      commit(repo, { 'test/util.test.js': null });
+      const r = lanes(repo);
+      expect(r.check.code).toBe('PREGATE_NO_LANE');
+      expect(r.check.detail).toContain('test/util.test.js');
+      const control = fixture({ pregate: withDeps({ 'test/util.test.js': ['test/retry.test.js'] }), baseFiles: { 'test/retry.test.js': RETRY_TEST } });
+      commit(control, { 'test/util.test.js': null });
+      const c = lanes(control);
+      expect(c.check.status).toBe('pass');
+      expect(c.ran).toContain('test/retry.test.js');
+    });
+
+    // Value: protects=.gstack/pregate.json still counts as naming a removed test it lists as the only test of a dependencies entry, while a
+    //   listed test beside a surviving one, or a list naming another directory's same-named test, does not refuse the deletion;
+    //   fails_when=the dependencies map is dropped wholesale from the namer check, or any same-basename path counts as a mention;
+    //   why_new=only the key-only case was covered; seam=none; no_claim=other policy keys
+    test.each([
+      ['the only listed test of a dependencies entry', { 'scripts/build.js': ['test/util.test.js'] }, {}, 'fail', 'test/util.test.js'],
+      ['a listed test beside one that still exists', { 'scripts/build.js': ['test/util.test.js', 'test/retry.test.js'] }, {}, 'pass', 'test/util.test.js'],
+      ['a same-named test in another directory', {}, { 'ci/skip-list.txt': 'packages/b/util.test.js\n' }, 'pass', 'test/util.test.js'],
+      ['the only listed test of an entry, under another directory', { 'scripts/build.js': ['packages/b/util.test.js'] }, {}, 'pass', 'test/util.test.js'],
+      ['its own path in a directory with a space', {}, { 'ci/skip-list.txt': 'test/e2e suite/util.test.js\n' }, 'fail', 'test/e2e suite/util.test.js'],
+      ['its own path in a $-named directory', {}, { 'ci/skip-list.txt': 'test/$id/util.test.js\n' }, 'fail', 'test/$id/util.test.js'],
+    ] as [string, Record<string, string[]>, Record<string, string>, string, string][])('a mapped removed test named as %s', (_how, deps, files, status, gone) => {
+      const repo = fixture({ pregate: withDeps({ [gone]: ['test/retry.test.js'], ...deps }), baseFiles: { 'test/retry.test.js': RETRY_TEST, [gone]: RETRY_TEST, ...files } });
+      commit(repo, { [gone]: null });
+      const r = lanes(repo);
+      expect(r.check.status).toBe(status);
+      if (status === 'fail') expect(r.check.code).toBe('PREGATE_NO_LANE');
+      else expect(r.ran).toContain('test/retry.test.js');
+    });
+
     test.each([
       ['an extensionless path in package.json', 'test/util.test.js', { 'package.json': '{ "name": "fixture", "scripts": { "smoke": "node --test test/util.test" } }\n' }],
       ['a dotted module name in a Makefile', 'tests/test_alpha.py', { 'tests/__init__.py': '', 'tests/test_alpha.py': 'import unittest\nclass T(unittest.TestCase):\n    def test_a(self):\n        pass\n', 'Makefile': 'smoke:\n\tpython3 -m unittest tests.test_alpha\n' }],

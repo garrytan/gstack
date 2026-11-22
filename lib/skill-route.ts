@@ -333,20 +333,6 @@ const SPECIFIC_WORD = /^(?!(?:what|which|where|whose)$)[a-z0-9]{5,}$/;
 /** How close, in words, a trigger made only of everyday words must sit when it matches out of order. */
 export const EVERYDAY_SPAN = 8;
 
-/** True when the phrase's words appear in text in order, with only stopwords added between them: "find bugs on my site" holds "find bugs on site". */
-function holdsPhrase(text: string, phrase: string): boolean {
-  const want = tokens(phrase);
-  const seq = words(text);
-  return want.length > 0 && seq.some((_, start) => {
-    let k = 0;
-    for (let j = start; j < seq.length && k < want.length; j++) {
-      if (concept(stem(seq[j])) === want[k]) k++;
-      else if (k === 0 || !STOPWORDS.has(seq[j])) return false;
-    }
-    return k === want.length;
-  });
-}
-
 /**
  * True when the phrase's content words appear in text in order with only stopwords between them, and a gap the phrase
  * fills with stopwords is filled with stopwords: "review my PR" holds "review this pr", but "the test site" does not hold
@@ -429,6 +415,18 @@ export function scorePrompt(prompt: string, skills: InstalledSkill[]): RouteCand
  */
 export const ROUTED_SKILLS = ['review', 'qa', 'verify'];
 const isRouted = (s: InstalledSkill) => !isGstackSkill(s) || ROUTED_SKILLS.includes(baseName(s.name));
+
+/**
+ * A trigger that claims bug reports: the defect and fixing it, and nothing else, as "fix this bug" and "reproduce the bug in a
+ * test" do. The hook names no skill on one (gstack-evals#426: naming the bug-fix skill on bug reports fixed no more bugs); a
+ * trigger that names its own target ("fix lint errors", "fix postgres bugs") claims only that kind of fix and still routes.
+ */
+const FIX_VERBS = ['fix', 'debug', 'repair', 'reproduce'];
+const GENERIC_CLAIM_WORDS = new Set(['bug', 'test', ...FIX_VERBS]);
+const claimsBugReports = (trigger: string) => {
+  const content = contentTokens(trigger);
+  return content.includes('bug') && content.some(w => FIX_VERBS.includes(w)) && content.every(w => GENERIC_CLAIM_WORDS.has(w));
+};
 
 /**
  * Signs that a prompt reports a defect (bugReport). One strong sign is enough: a word for what went wrong, an exception
@@ -527,32 +525,8 @@ export function bugReport(prompt: string): boolean {
   return defect || fix;
 }
 
-/**
- * A trigger that claims bug reports: the defect and fixing it, and nothing else, as "fix this bug" and "reproduce the bug
- * in a test" do. A trigger that names its own target ("fix lint errors", "fix postgres bugs") claims only that kind of fix.
- */
-const FIX_VERBS = ['fix', 'debug', 'repair', 'reproduce'];
-const GENERIC_CLAIM_WORDS = new Set(['bug', 'test', ...FIX_VERBS]);
-const claimsBugReports = (trigger: string) => {
-  const content = contentTokens(trigger);
-  return content.includes('bug') && content.some(w => FIX_VERBS.includes(w)) && content.every(w => GENERIC_CLAIM_WORDS.has(w));
-};
-
-/**
- * On a bug report, the installed skill that claims bug reports, named alone: one with a claiming trigger that is not
- * gstack's own (gstack's routed skills only check work), the best-scoring first, then by name. Null when none is installed.
- */
-function bugFixRoute(skills: InstalledSkill[], candidates: RouteCandidate[]): RouteCandidate | null {
-  const score = (s: InstalledSkill) => candidates.find(c => c.skill === s.name)?.score ?? 0;
-  const fixer = skills.filter(s => !isGstackSkill(s) && s.triggers.some(claimsBugReports))
-    .sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name))[0];
-  if (!fixer) return null;
-  const trigger = fixer.triggers.find(claimsBugReports)!;
-  return { skill: fixer.name, score: 1, matched: contentTokens(trigger).length, trigger, file: fixer.file, gstack: false };
-}
-
 export type RouteDecision =
-  | { route: RouteCandidate; routes: RouteCandidate[]; candidates: RouteCandidate[]; bugReport: boolean }
+  | { route: RouteCandidate; routes: RouteCandidate[]; candidates: RouteCandidate[] }
   | { route: null; reason: 'slash-command' | 'skill-mention' | 'agent-message' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
 
 /**
@@ -564,16 +538,12 @@ const AGENT_MESSAGE = /^<(?:cross-session-message|task-notification)[\s>]/;
 
 /**
  * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. Nor is a message
- * another agent or session sent (AGENT_MESSAGE): it reports work, and asks the person's session for nothing. A bug
- * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
- * it holds one of /review's or /qa's own triggers as a phrase (holdsPhrase: "review this pr for bugs", "find bugs on my site")
- * and never asks for a fix: finding bugs is not fixing one. With no such skill installed, a report
- * of a defect is still not a request to find bugs, so /review and /qa are not named for it unless it holds one of their triggers'
- * words in order (holdsWords: "review my PR, the login page is broken") (GSTA-759: three long reports that
- * said "test the site" or "find" and "broken" went to /qa); "test the site and fix what you find" reports no defect. Any other prompt goes to the skills whose triggers reach the threshold, and the installed skill that
- * claims bug reports leads when it is one of them: an agent runs the first skill named (GEVA-562: /verify named before
- * prove-it on 7 bug tasks, and Sol loaded /verify on all 7). All of this reads the prompt's prose, never its Markdown code
- * (splitCode), except that an exception name in code reports a bug.
+ * another agent or session sent (AGENT_MESSAGE): it reports work, and asks the person's session for nothing. Another installed
+ * skill's trigger that claims bug reports (claimsBugReports) routes nothing. A report of a defect is not a request to find bugs, so /review and /qa are not named for it unless it holds one of their triggers'
+ * words in order and never asks for a fix (holdsWords: "review my PR, the login page is broken") (GSTA-759: three long reports
+ * that said "test the site" or "find" and "broken" went to /qa); "test the site and fix what you find" reports no defect. Any
+ * other prompt goes to the skills whose triggers reach the threshold. All of this reads the prompt's prose, never its Markdown
+ * code (splitCode), except that an exception name in code reports a bug.
  */
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD, host: HookHost = 'claude'): RouteDecision {
   const trimmed = prompt.trim();
@@ -581,20 +551,16 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
   if (AGENT_MESSAGE.test(trimmed)) return { route: null, reason: 'agent-message', candidates: [] };
-  const routed = skills.filter(isRouted);
+  const routed = skills.filter(isRouted).map(s => isGstackSkill(s) ? s : { ...s, triggers: s.triggers.filter(t => !claimsBugReports(t)) });
   const candidates = scorePrompt(prompt, routed);
   const window = promptWindow(splitCode(prompt).prose);
-  const asks = (holds: (text: string, phrase: string) => boolean) => !words(window).some(w => FIX_WORD.test(w))
-    && routed.some(s => isGstackSkill(s) && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => holds(window, t)));
-  const findsBugs = asks(holdsPhrase);
-  const signs = reportSigns(prompt);
-  const fixer = !findsBugs && (signs.defect || signs.fix) ? bugFixRoute(routed, candidates) : null;
-  if (fixer) return { route: fixer, routes: [fixer], candidates, bugReport: true };
-  const findsOnly = (c: RouteCandidate) => !asks(holdsWords) && signs.defect && c.gstack && ['review', 'qa'].includes(baseName(c.skill));
-  const claimsBugs = (c: RouteCandidate) => skills.some(s => s.name === c.skill && !isGstackSkill(s) && s.triggers.some(claimsBugReports));
+  const asks = () => !words(window).some(w => FIX_WORD.test(w))
+    && routed.some(s => isGstackSkill(s) && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => holdsWords(window, t)));
+  const defect = reportSigns(prompt).defect;
+  const findsOnly = (c: RouteCandidate) => !asks() && defect && c.gstack && ['review', 'qa'].includes(baseName(c.skill));
   const routes = candidates.filter((c, i) => c.score >= threshold && !findsOnly(c) && candidates.findIndex(o => o.skill === c.skill) === i)
-    .sort((x, y) => Number(claimsBugs(y)) - Number(claimsBugs(x))).slice(0, MAX_ROUTES);
-  return routes.length ? { route: routes[0], routes, candidates, bugReport: false } : { route: null, reason: 'below-threshold', candidates };
+    .slice(0, MAX_ROUTES);
+  return routes.length ? { route: routes[0], routes, candidates } : { route: null, reason: 'below-threshold', candidates };
 }
 
 export type HintVariant = 'name' | 'step' | 'contract';

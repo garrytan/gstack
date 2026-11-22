@@ -383,7 +383,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   if (fs.existsSync(pregateFile)) {
     const read = readPregateFile(pregateFile);
     if (read.file) {
-      const v = verifyPregate(ctx.repoRoot, read.file, treeNow);
+      const v = verifyPregate(ctx.repoRoot, read.file, treeNow, ctx.base);
       pregateOk = v.ok;
       if (v.ok) accepted = read.file;
       useMirror = !v.ok && v.code !== 'PREGATE_LANE_FAILED' && v.code !== 'PREGATE_INCOMPLETE' && v.code !== 'PREGATE_ENVIRONMENT';

@@ -33,7 +33,7 @@ function commit(repo: FixtureRepo, rel: string, text: string): string {
  * base as `baseRefName` (default the branch). With failBaseLookup, gh fails the bin's own `pr view --json baseRefName` lookup and
  * answers every other call.
  */
-function prIntoWip(o: { branch?: string; baseRefName?: string; failBaseLookup?: boolean } = {}) {
+function prIntoWip(o: { branch?: string; baseRefName?: string; failBaseLookup?: boolean; recordBase?: string } = {}) {
   const branch = o.branch ?? WIP;
   const repo = makeFixtureRepo({ prefix: 'gstack-ready-pr-base-', policy: BASE_POLICY });
   repos.push(repo);
@@ -44,7 +44,8 @@ function prIntoWip(o: { branch?: string; baseRefName?: string; failBaseLookup?: 
   repo.git('checkout', '-q', '-b', 'pr-2', `origin/${branch}`);
   const head = commit(repo, 'feature.txt', 'feature\n');
   const pregate = path.join(repo.root, 'pregate.json');
-  fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS }));
+  const recorded = o.recordBase ? { base: `origin/${o.recordBase}@${repo.git('rev-parse', `origin/${o.recordBase}`).slice(0, 12)}` } : {};
+  fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree: runBin(repo, 'gstack-wtree', []).out.trim(), head, verdict: 'pass', checks: FULL_CHECKS, ...recorded }));
   const ready = (receiptBase: string, extra: string[] = []) => {
     const shim = ghQueueShim(repo, { prs: { '2': { headRefOid: head, url: 'https://github.com/o/r/pull/2', baseRefName: o.baseRefName ?? branch, isCrossRepository: false, headRefName: 'pr-2', body: shippedBody('2', head, { base: receiptBase }) } }, checks: { [head]: green } });
     if (!o.failBaseLookup) return runBin(repo, 'gstack-ship-queue', ['ready', '--pr', '2', '--pregate', pregate, ...extra], shim);
@@ -96,5 +97,17 @@ describe('ready binds the receipt to the PR base, not the default branch (GST-34
     expect(stripped.status).toBe(EXIT.refused);
     expect(stripped.err).toContain('#2 targets origin/foo, not foo');
     expect(stripped.err).toContain('QUEUE_NOT_READY');
+  }, 180_000);
+
+  // Value: protects=ready and land accept a pregate.json only for the base the PR targets (GST-3493);
+  //   fails_when=ready verifies the checkout's own record without the base, so a record taken against main READYs a PR into another
+  //   branch (or one retargeted after finish); why_new=the by-tree mirror already checked its base, the local record did not;
+  //   seam=lib/ship-queue.ts ready()'s verifyPregate; no_claim=a record with no base field, which has nothing to compare
+  test('a pregate.json taken against another base is not current for the PR; one taken against its base is', () => {
+    const other = prIntoWip({ recordBase: 'main' }).ready(WIP);
+    expect(other.status).toBe(EXIT.refused);
+    expect(other.out).toMatch(new RegExp(`^PREGATE: pass .* pregate\\.json was recorded against origin/main, but this ships against origin/${WIP}; .*\\(PREGATE_STALE\\)$`, 'm'));
+    const same = prIntoWip({ recordBase: WIP }).ready(WIP);
+    expect([same.status, same.err]).toEqual([EXIT.ok, '']);
   }, 180_000);
 });

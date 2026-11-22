@@ -6,8 +6,7 @@
  *
  *   stdin (<= 256 KiB, 500 ms) -> switch on? -> JSON object with a prompt?
  *     -> not a /command -> score its head and tail windows against installed triggers
- *     -> a bug report with a skill installed that claims bug reports: one line naming that skill alone -> exit 0
- *     -> else at or above ROUTE_THRESHOLD: one additionalContext line naming up to MAX_ROUTES skills -> exit 0
+ *     -> at or above ROUTE_THRESHOLD: one additionalContext line naming up to MAX_ROUTES skills -> exit 0
  *
  * CONTRACT
  *   - Always exits 0 and never exits 2: it can never block a prompt. Any error
@@ -85,7 +84,6 @@ async function main(host: HookHost): Promise<void> {
   await new Promise<void>(resolve => process.stdout.write(out, () => resolve()));
   trace({
     event: 'routed', skill: route.skill, score: route.score, source: route.gstack ? 'gstack' : route.file, variant: hintVariant(),
-    ...(decision.bugReport ? { bug_report: true } : {}),
     ...(also ? { also: also.skill, also_score: also.score, also_source: also.gstack ? 'gstack' : also.file } : {}), ...hostField,
   });
 }

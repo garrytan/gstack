@@ -8,7 +8,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { parseAddedLineNumbers, parseAddedLines, secretsCheck } from '../lib/pregate/checks/secrets';
+import { diffHeaderPath, displayPath, parseAddedLineNumbers, parseAddedLines, parsePostimages, secretsCheck } from '../lib/pregate/checks/secrets';
 import type { PregateContext } from '../lib/pregate/types';
 import { cleanup, commit, makeFixtureRepo, runBin, BASE_PREGATE, type FixtureRepo } from './helpers/pregate-fixture';
 
@@ -66,6 +66,48 @@ describe('pregate secrets: source context and diff integrity', () => {
     const diff = ['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', '@@ -0,0 +1,2 @@', '+one', '+++two', 'diff --git a/b.env b/b.env', '--- /dev/null', '+++ b/b.env', '@@ -0,0 +1 @@', '+three'].join('\n');
     expect([...parseAddedLines(diff)]).toEqual([['a.ts', ['one', '++two']], ['b.env', ['three']]]);
   });
+
+  // Value: protects=path-scoped rules read files git quotes or tab-ends in the diff header; fails_when=a quoted or spaced path reaches the scanner as added.txt; why_new=GST-3528 had no test; seam=pure parser; no_claim=git's quoting rules beyond C-style escapes
+  test('a quoted or space-holding +++ path is read as the file git names (GST-3528)', () => {
+    const diff = ['diff --git "a/src/cl\\303\\251.rs" "b/src/cl\\303\\251.rs"', '+++ "b/src/cl\\303\\251.rs"', '@@ -0,0 +1 @@', '+one', 'diff --git a/src/my file.rs b/src/my file.rs', '+++ b/src/my file.rs\t', '@@ -0,0 +1 @@', '+two', 'diff --git "a/q\\"t\\\\x.ts" "b/q\\"t\\\\x.ts"', '+++ "b/q\\"t\\\\x\\ty.ts"', '@@ -0,0 +1 @@', '+three'].join('\n');
+    const files = ['src/clé.rs', 'src/my file.rs', 'q"t\\x\ty.ts'];
+    expect([...parseAddedLines(diff).keys()]).toEqual(files);
+    expect([...parseAddedLineNumbers(diff).keys()]).toEqual(files);
+    expect([...parsePostimages(diff).keys()]).toEqual(files);
+  });
+
+  test('a decoded name holding a control character is printed quoted, never raw (GST-3528 review)', () => {
+    const name = diffHeaderPath('+++ "b/a\\033[2Kb.rs"');
+    expect(name).toBe('a\x1b[2Kb.rs');
+    expect(displayPath(name)).toBe('"a\\u001b[2Kb.rs"');
+    expect(displayPath('src/my file.rs')).toBe('src/my file.rs');
+    expect(displayPath('a\u009bb\u202ec.rs')).toBe('"a\\u009bb\\u202ec.rs"');
+  });
+
+  test('a quoted .ts file reports at least what main reported when it read the file as added.txt (GST-3528 grant)', () => {
+    const body = 'const cfg = {\n  token: credentials.token,\n  apiKey: settings.apiKey,\n};\n';
+    const r = repo({ 'src/clé.ts': body }).secrets();
+    expect({ status: r.status, rows: r.lines.filter((l) => l.includes('src/clé.ts')).length > 0 }).toEqual({ status: 'fail', rows: true });
+    expect(repo({ 'src/cle.ts': body }).secrets()).toMatchObject({ status: 'pass' });
+  }, 60_000);
+
+  test.skipIf(process.platform !== 'linux')('a long name of invalid UTF-8 bytes is still scanned, never stopping the check (GST-3528 grant)', () => {
+    const secret = ['sk-live-FAKE-', 'Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');
+    const f = repo({ 'README.md': 'base\n' });
+    const name = Buffer.concat([Buffer.from('src/'), Buffer.alloc(120, 0xff), Buffer.from('.rs')]);
+    fs.mkdirSync(path.join(f.dir, 'src'), { recursive: true });
+    fs.writeFileSync(Buffer.concat([Buffer.from(f.dir + '/'), name]), 'fn c() {\n    let token = "' + secret + '";\n}\n');
+    f.git('add', '-A');
+    f.git('commit', '-qm', 'long name');
+    const r = f.secrets();
+    expect({ status: r.status, rust: r.lines.some((l) => l.includes('env.kv.rust')) }).toEqual({ status: 'fail', rust: true });
+  }, 60_000);
+
+  test('a Rust key in a file whose name git quotes or ends with a tab still fails, naming the file (GST-3528)', () => {
+    const secret = ['sk-live-FAKE-', 'Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');
+    const r = repo({ 'src/clé.rs': 'fn c() {\n    let token = "' + secret + '";\n}\n', 'src/my file.rs': 'fn d() {\n    let token = "' + secret + '";\n}\n' }).secrets();
+    expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv.rust')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('(src/clé.rs, added line 2)'), expect.stringContaining('(src/my file.rs, added line 2)')] });
+  }, 60_000);
 
   test('a Python call that reads key.json is code; the same key name holding a literal key still fails (GST-1064)', () => {
     expect(repo({ 'attach.py': 'import json\nkey = json.loads(files.get("key.json", ""))\n' }).secrets().status).toBe('pass');

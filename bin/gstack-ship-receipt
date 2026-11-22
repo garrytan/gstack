@@ -287,7 +287,7 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
   let pregate: PregateField | undefined;
   const pregateFile = flag(rest, '--pregate');
   if (pregateFile) {
-    const read = pregateFieldFor(repoRoot, pregateFile, head);
+    const read = pregateFieldFor(repoRoot, pregateFile, head, flag(rest, '--base'));
     if (!read.ok) { for (const e of read.errors) process.stderr.write(resultLine('gstack-ship-receipt write', e.code, `${e.message}; nothing written`) + '\n'); return EXIT.fail; }
     pregate = read.field;
   }
@@ -588,10 +588,10 @@ function gitVersionBelow(repoRoot: string, minimum: string): string | null {
 
 type PregateField = { pregate: string; requires_remote?: string[]; flaky_exception?: ShipReceipt['flaky_exception'] };
 /** A pregate result file → the receipt's pregate field, verified current for this checkout's tree (shared by write and carry). */
-function pregateFieldFor(repoRoot: string, file: string, head: string): { ok: true; field: PregateField } | { ok: false; errors: Array<{ code: string; message: string }> } {
+function pregateFieldFor(repoRoot: string, file: string, head: string, base?: string): { ok: true; field: PregateField } | { ok: false; errors: Array<{ code: string; message: string }> } {
   const read = readPregateFile(file);
   if (!read.file) return { ok: false, errors: read.errors.map(e => ({ code: e.code, message: `${e.message} at ${e.path}` })) };
-  const v = verifyPregate(repoRoot, read.file);
+  const v = verifyPregate(repoRoot, read.file, undefined, base);
   if (!v.ok) return { ok: false, errors: [{ code: v.code!, message: v.message ?? 'pregate is not current' }] };
   const foreign = exceptionConsumerProblem(read.file, head);
   if (foreign) return { ok: false, errors: [{ code: 'PREGATE_REMOTE_UNCLEARED', message: foreign }] };
@@ -845,7 +845,7 @@ function cmdCarry(rest: string[], json: boolean): number {
   if (pregateFile) {
     const local = git(['rev-parse', 'HEAD'], repoRoot)?.trim();
     if (local !== head) return refused('RECEIPT_CARRY_PREGATE_STALE', `--pregate verifies this checkout's tree, but the checkout is at ${local?.slice(0, 12) ?? 'no commit'}, not the carried head ${head.slice(0, 12)}; check out ${head.slice(0, 12)} and run gstack-pregate there`);
-    const read = pregateFieldFor(repoRoot, pregateFile, head);
+    const read = pregateFieldFor(repoRoot, pregateFile, head, flag(rest, '--base'));
     if (!read.ok) return refused('RECEIPT_CARRY_PREGATE_STALE', `--pregate ${pregateFile}: ${read.errors[0]?.code ?? 'invalid'} ${read.errors[0]?.message ?? ''}`.trim());
     pregateField = read.field;
   } else if (receipt.pregate && !rest.includes('--dry-run')) {

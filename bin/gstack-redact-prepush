@@ -47,7 +47,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { normalizeWithMap, scan, type Finding, type ScanOptions } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
-import { scannableReadings } from "../lib/pregate/checks/secrets";
+import { diffHeaderPath, displayPath, gitMangledPath, scannableReadings } from "../lib/pregate/checks/secrets";
 import { resolveStateRoot } from "../lib/state-root";
 import { evaluateSealed, publishedCommits, renderSealed, sealedErrorReport, type SealedReport } from "../lib/sealed-guard";
 
@@ -354,7 +354,7 @@ function collectAddedLines(diff: string, commit?: string): AddedFile[] {
       nextLine = Number(/ \+(\d+)(?:,\d+)? @+/.exec(line)?.[1] ?? 0);
       continue;
     }
-    if (!inHunk && line.startsWith("+++ ")) { file = line.startsWith("+++ b/") ? line.slice(6) : ""; continue; }
+    if (!inHunk && line.startsWith("+++ ")) { file = diffHeaderPath(line); continue; }
     if (!inHunk && (line.startsWith("+++") || line.startsWith("---"))) continue;
     const inResult = inHunk && !line.startsWith("\\") && !line.slice(0, parents).includes("-");
     const lineNumber = inResult ? nextLine++ : 0;
@@ -601,7 +601,7 @@ function committedAllowlist(sha: string): string[] {
 /** File line (and commit) of a finding. Never the matched value. */
 function findingWhere(f: Finding, part: AddedFile): string {
   const line = part.lines[f.line - 1];
-  return `${part.file || "(unknown file)"}${line ? `:${line}` : ""}` +
+  return `${part.file ? displayPath(part.file) : "(unknown file)"}${line ? `:${line}` : ""}` +
     (part.commit ? ` in commit ${part.commit.slice(0, 12)}` : "");
 }
 
@@ -710,8 +710,10 @@ function main() {
   const findingKey = (f: Finding) => `${f.id}:${f.line}:${f.col}`;
   // The readings of one binary file share its line list: a token every reading keeps is reported once.
   const reported = new Map<number[], Set<string>>();
-  for (const { part, allowlist } of parts) {
-    const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) };
+  // A name git quotes or tab-ends was read as no file before GST-3528, so it is
+  // also scanned without its path: the decoded name never reports less than that.
+  for (const { part, allowlist } of parts) for (const pathless of part.file && gitMangledPath(part.file) && !/\.(?:dart|pyi?)$/i.test(part.file) ? [false, true] : [false]) {
+    const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file && !pathless && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) };
     const findings = scanAddedLines(part.text, opts);
     const kept = allowlist.length
       ? new Set(scanAddedLines(part.text, { ...opts, allowlist }).map(findingKey))
