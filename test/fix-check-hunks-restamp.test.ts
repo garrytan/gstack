@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { hunksDigest, readFixCheckHunks, recordFixCheckHunks } from '../lib/review-evidence';
+import { fixListNames, hunksDigest, readFixCheckHunks, recordFixCheckHunks } from '../lib/review-evidence';
 
 const BIN = path.resolve(import.meta.dir, '..', 'bin', 'gstack-review-dispatch');
 const HUNKS = 'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n@@ -1 +1 @@\n-a\n+b\n';
@@ -57,4 +57,10 @@ test('hunks edited after the render, a repeated start or another skill restamp n
   const s3 = later();
   expect(other.mark('pass:review-fix-check', 't-3').stdout).not.toContain('FIX_CHECK_HUNKS');
   expect(readFixCheckHunks(other.root, s3)).toBeUndefined();
+});
+
+// Value: protects=a grant whose findings are approval ids (ruled notes) keeps them in the recorded fix list (GST-3523, gbrain#10063,
+//   grant a-b306fda9cc20); fails_when=fixListNames drops a-… ids, so the fix list is empty and clearByGrant closes nothing; seam=recordFixCheckHunks
+test('the fix list keeps approval ids beside ledger ids and fingerprints, and nothing else', () => {
+  expect(fixListNames('fix a-b306fda9cc20, p2/outside-voice#1 and src/x.ts:3:testing (see a-short, the a-b306fda9cc20 note).')).toEqual(['a-b306fda9cc20', 'p2/outside-voice#1', 'src/x.ts:3:testing']);
 });

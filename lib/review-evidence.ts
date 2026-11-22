@@ -496,9 +496,9 @@ const hunksFile = (cwd: string) => {
   return r.status === 0 && r.stdout.trim() ? resolve(cwd, r.stdout.trim()) : '';
 };
 
-/** The ledger ids and path:line:category fingerprints a fix list names: the only grant ids its clean fix-check can close. */
+/** The ledger ids, path:line:category fingerprints and a-… approval ids a fix list names: the only grant ids its clean fix-check can close. */
 export function fixListNames(text: string): string[] {
-  return [...new Set(text.split(/[\s`'"(),;]+/).map(t => t.replace(/[.:]+$/, '')).filter(t => t.includes('#') || /:\d+:/.test(t)))].sort();
+  return [...new Set(text.split(/[\s`'"(),;]+/).map(t => t.replace(/[.:]+$/, '')).filter(t => t.includes('#') || /:\d+:/.test(t) || /^a-[0-9a-f]{12}$/.test(t)))].sort();
 }
 
 /** gstack-review-plan --fix-check-prompt and the pass program's fix-check render record the hunks and fix list they rendered from; a failed write only leaves the row without hunks, so it closes nothing. */
