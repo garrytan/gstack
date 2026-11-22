@@ -41,7 +41,7 @@ import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
 import { adapterFor, readRange, STALL_IDLE, supervise, type Counter, type Supervised } from '../supervise';
-import { ranFiles, runReceiptFields, verifyFromRun, type RunProfile } from '../../run-evidence';
+import { ranFiles, runChanged, runReceiptFields, verifyFromRun, type RunProfile } from '../../run-evidence';
 import { matchesAny } from '../../ship-policy';
 import { testFileArgs } from '../../test-paths';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
@@ -741,6 +741,10 @@ function fromRun(ctx: PregateContext, sel: Selection): { line: string; passed: s
   const ok = verdicts.flatMap(v => (v.ok ? [v.evidence] : []));
   const v = verdicts[0]!;
   if (!ok.length && !v.ok) return { line: `REUSE: refused reason=${v.reason} — ${v.detail}; every selected test runs here`, passed: [] };
+  let changed: string | null = null;
+  try { for (const e of ok.length > 1 ? ok : []) changed ??= runChanged(check.deps, e.run_id, e.run_attempt); }
+  catch (err) { changed = `reading the runs again failed: ${String((err as Error)?.message ?? err).slice(0, 200)}`; }
+  if (changed) return { line: `REUSE: refused reason=run_changed — ${changed}; every selected test runs here`, passed: [] };
   const ran = new Set(ok.flatMap(ranFiles));
   const passed = sel.localTests.filter(t => ran.has(t));
   const skipped = sel.localTests.filter(t => !ran.has(t) && ok.some(e => e.skipped?.includes(t))).length;

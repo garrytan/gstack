@@ -1179,8 +1179,10 @@ remote gate obligation. It prints `CI_CARRY: accepted <receipt> + <receipt>…`
 `--no-ci-carry` skips the lookup.
 
 When files are left over, the remote gate obligation still clears from the
-carried runs whose profiles the base's `remote_gate_runs` names:
-the runs must pass every `clear --run` check, with the carried files counted
+carried run under the profile the base's `remote_gate_runs` names (a
+`remote_gate_runs` that names two profiles is refused here, since one carried
+run is offered; clear it with `clear --run`, one run per profile): the run
+must pass every `clear --run` check, with the carried files counted
 as selected files. So a remainder of only files the gate's `skipped` command
 names (gstack's paid evals, which the gate itself reports as
 `PREGATE_REMOTE_PAID_ONLY` with `tests=0`) clears with `skipped=<n>` in the

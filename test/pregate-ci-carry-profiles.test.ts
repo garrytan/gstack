@@ -40,8 +40,8 @@ function fixture(): FixtureRepo {
 }
 
 interface Run { id: number; workflow: string; job: string; artifact: string; files: string[]; conclusion?: string; tree?: string }
-/** A gh on PATH answering the Actions reads ghRunDeps makes, for `runs` at HEAD. */
-function ghShim(repo: FixtureRepo, runs: Run[]): void {
+/** A gh on PATH answering the Actions reads ghRunDeps makes, for `runs` at HEAD; `flip` moves run `run` to a red attempt 2 once run `after`'s tree.json has been downloaded `downloads` times. */
+function ghShim(repo: FixtureRepo, runs: Run[], flip?: { run: number; after: number; downloads: number }): void {
   const head = repo.git('rev-parse', 'HEAD');
   const tree = repo.git('rev-parse', 'HEAD^{tree}');
   const at = new Date(Date.now() - 600_000).toISOString();
@@ -53,18 +53,20 @@ function ghShim(repo: FixtureRepo, runs: Run[]): void {
   }]));
   const dir = path.join(repo.root, 'gh-shim');
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify(data));
+  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify({ runs: data, flip: flip ?? null, dir }));
   fs.writeFileSync(path.join(dir, 'gh'), [
     '#!/usr/bin/env node',
     `const d = require(${JSON.stringify(path.join(dir, 'data.json'))}); const a = process.argv.slice(2); const fs = require('fs');`,
     'const p = a.find(x => x.startsWith(\'repos/fx/fx/actions/\')) || \'\'; const lines = xs => { for (const x of xs) console.log(JSON.stringify(x)); process.exit(0); };',
     'const id = (/\\/runs\\/(\\d+)/.exec(p) || [])[1];',
-    'if (a[0] === \'run\' && a[1] === \'download\' && d[a[2]]) { fs.writeFileSync(a[a.indexOf(\'--dir\') + 1] + \'/tree.json\', JSON.stringify(d[a[2]].tree)); process.exit(0); }',
+    'const count = n => { try { return Number(fs.readFileSync(d.dir + \'/dl-\' + n, \'utf8\')); } catch { return 0; } };',
+    'if (d.flip && count(d.flip.after) >= d.flip.downloads) d.runs[d.flip.run].run = { ...d.runs[d.flip.run].run, run_attempt: 2, conclusion: \'failure\' };',
+    'if (a[0] === \'run\' && a[1] === \'download\' && d.runs[a[2]]) { fs.writeFileSync(d.dir + \'/dl-\' + a[2], String(count(a[2]) + 1)); fs.writeFileSync(a[a.indexOf(\'--dir\') + 1] + \'/tree.json\', JSON.stringify(d.runs[a[2]].tree)); process.exit(0); }',
     'const wf = (/\\/workflows\\/([^/]+)\\/runs\\?/.exec(p) || [])[1];',
-    'if (wf) lines(Object.values(d).filter(r => r.run.path === \'.github/workflows/\' + wf).map(r => r.run));',
-    'if (id && d[id] && p === \'repos/fx/fx/actions/runs/\' + id) { console.log(JSON.stringify(d[id].run)); process.exit(0); }',
-    'if (id && d[id] && p.includes(\'/jobs?\')) lines(d[id].jobs);',
-    'if (id && d[id] && p.includes(\'/artifacts?\')) lines([{ id: Number(id), name: d[id].artifact, size_in_bytes: 200, expired: false }]);',
+    'if (wf) lines(Object.values(d.runs).filter(r => r.run.path === \'.github/workflows/\' + wf).map(r => r.run));',
+    'if (id && d.runs[id] && p === \'repos/fx/fx/actions/runs/\' + id) { console.log(JSON.stringify(d.runs[id].run)); process.exit(0); }',
+    'if (id && d.runs[id] && p.includes(\'/jobs?\')) lines(d.runs[id].jobs);',
+    'if (id && d.runs[id] && p.includes(\'/artifacts?\')) lines([{ id: Number(id), name: d.runs[id].artifact, size_in_bytes: 200, expired: false }]);',
     'console.error(\'gh shim: unsupported \' + a.join(\' \')); process.exit(1);',
     '',
   ].join('\n'), { mode: 0o755 });
@@ -96,6 +98,18 @@ describe.skipIf(process.platform === 'win32')('the CI carry unions every verifie
     expect(lanes.from_run?.receipt).toMatch(/ tests=8 runs=100\/1,101\/1 profiles=ci-reuse\/free-tests,ci-reuse\/e2e /);
     expect(ran).not.toContain('test/retry.test.js');
     expect(lanes.status).toBe('pass');
+  }, 120_000);
+
+  // Value: protects=the kept runs are read again once the union is built, as findCarry does (docs/pregate.md run evidence);
+  //   fails_when=the Test run moves to a red attempt while the E2E run is verified and its stale files still count;
+  //   why_new=GST-3381 cross-family trail read on #4671; seam=runPregate with a gh shim that flips run 100 after run 101's second download
+  test('a run that moves to a new attempt while the other is verified refuses the union, and everything runs here', async () => {
+    const repo = fixture();
+    ghShim(repo, [TEST_RUN, E2E_RUN], { run: 100, after: 101, downloads: 2 });
+    const { lanes, ran } = await carried(repo);
+    expect(lanes.lines).toContainEqual(expect.stringMatching(/^REUSE: refused reason=run_changed — run 100 .*; every selected test runs here$/));
+    expect(lanes.from_run).toBeUndefined();
+    expect([ran.includes('test/util.test.js'), ran.includes('test/retry.test.js')]).toEqual([true, true]);
   }, 120_000);
 
   // Value: protects=only a verified run at this tree adds coverage; fails_when=a red run or a run of another tree shortens the remainder
