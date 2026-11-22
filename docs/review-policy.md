@@ -1144,6 +1144,12 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    field `Blocks: no` (colon required, and no `Blocks: yes`) is not counted as a blocker by the ledger count, nor by the
    review-log count or classify when the finding carries `stated` (GST-1031); lead judgment that raises such a line above
    its label counts it again.
+   A capitalized HIGH, MEDIUM or LOW that names something in the code rather than rating a finding ("the HIGH branch",
+   "the redact-doc HIGH and scanner-failure branches", "the MEDIUM and LOW tiers": after "the" and at most one qualifier,
+   before a noun that is not a word for a finding or its rating) is a name, not a label (GSTA-711). A prose line with no
+   `Severity` field whose every label is such a name collects at INFORMATIONAL, so the reviewer's own fields decide.
+   CRITICAL never counts as a name, so "the HIGH and CRITICAL write paths" still collects at CRITICAL, and `Blocks: yes`
+   still raises the line.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`
