@@ -17,7 +17,7 @@ export type RunState = 'open' | 'stopped' | 'finished' | 'abandoned';
 export interface RunRecord {
   v: 1; run: string; state: RunState; pr?: number; head: string; started_at: string; beat_at: string;
   stop?: { head: string; tree: string };
-  claim?: { grant: string; stop_run?: string; stop_head: string; findings: string[] };
+  claim?: { grant: string; stop_run?: string; stop_head: string; findings: string[]; pr?: number };
   ended_by?: string; reason?: string;
 }
 export type RunRead =

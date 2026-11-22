@@ -18,6 +18,7 @@ import { AgentModelError, resolveAgentModel } from './agent-model';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, sliceDiff, sliceNote, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
+import { recordFixCheckHunks } from './fix-check-clearing';
 import { policySelection, selectFor } from './review-selection';
 import { diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
@@ -244,6 +245,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       const read = (f: string | undefined, what: string) => { if (!f) return undefined; try { return fs.readFileSync(f, 'utf8'); } catch { throw new BriefError(`cannot read the fix-check ${what} ${f}`); } };
       const fc = m.fix_check!;
       Object.assign(slots, { fix_list: read(fc.fix_list, 'fix list'), hunks: read(fc.hunks, 'hunks'), tests: read(fc.tests, 'tests'), callers: read(fc.callers, 'callers') });
+      recordFixCheckHunks(process.cwd(), slots.hunks ?? '', m.ledger);
     }
     let targeted = {};
     if (role === 'targeted' || (role === 'adversarial-native' && r.classes?.length)) {

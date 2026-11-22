@@ -245,6 +245,26 @@ caught on another crew's PRs.
    Captain's check of the receipt's `review_round_grants` and the PR body's lines
    is the control. The receipt lists grants under `review_round_grants`.
 
+<a id="what-closes-a-finding"></a>
+### What closes a finding (GST-3260)
+
+A fix-check that a grant bought and that read the fix clean closes exactly the
+findings the grant names, with no owner ruling. `gstack-ship-receipt write`
+checks it from records gstack's tools wrote, never from the `--review-loop`
+file (`lib/fix-check-clearing.ts`): the grant answers the newest stop record
+for this PR; the PR body's first claim of it is this run's; exactly one
+`review-fix-check` row carries it, and `gstack-review-log` stamped that row from
+the claim (`fix_check_base`, `run`, `grant`, `pr`) with the digest of the hunks
+its reader was given; the row read the stop's head to the receipt head (or a
+head that only merges the base in) on one committed tree, with nothing open at
+any severity; and the stop, the claim and the row's start were recorded in that
+order. Each grant id closes the one open blocker carrying that id; a fingerprint
+shared by two blockers closes neither. Anything less closes nothing, and write
+says why on a `FIX_CHECK_CLEAR:` line. The receipt records `cleared_by_grant`,
+and the Agent notes section gets one `Closed by grant …` line. finish counts the same
+stamped row, anchored on the grant's stop rather than the newest reviewed tree
+(#4612).
+
 <a id="transitions"></a>
 ### Transitions
 

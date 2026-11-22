@@ -4,6 +4,8 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFi
 import { join, resolve } from 'node:path';
 import { deriveReviewStatus, isCriticalFinding, isOpenByAction, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
+import { readFixCheckHunks } from './fix-check-clearing';
+import { readRunRecord } from './ship-run-record';
 
 const DIFF_REVIEWS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
 const SHARED_LIBS_COVERAGE_VERSION = 1;
@@ -203,6 +205,7 @@ export function captureReviewStart(skill: string, env = process.env, fixRange = 
     throw new Error('cannot capture a diff review without a working-tree fingerprint');
   }
   const fixBase = fixRange ? fixRangeBase(skill, env) : undefined;
+  const claimed = skill === 'review-fix-check' ? (r => (r.kind === 'record' && r.record.state === 'open' ? r.record : undefined))(readRunRecord(env.GSTACK_REVIEW_REPO)) : undefined;
   const dir = join(env.GSTACK_REVIEW_DIR!, '.review-starts');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const token = crypto.randomUUID();
@@ -210,6 +213,7 @@ export function captureReviewStart(skill: string, env = process.env, fixRange = 
     skill, repo: env.GSTACK_REVIEW_REPO, branch: env.GSTACK_REVIEW_BRANCH,
     wtree: env.GSTACK_STAMP_WTREE, started_at: new Date().toISOString(),
     ...(fixBase ? { scope: 'fix-range', fix_base: fixBase } : {}),
+    ...(claimed?.claim ? { fix_check: { base: claimed.claim.stop_head, run: claimed.run, grant: claimed.claim.grant, pr: claimed.claim.pr ?? claimed.pr } } : {}),
   }), { mode: 0o600, flag: 'wx' });
   return fixBase ? `${token}\nFIX_BASE=${fixBase}` : token;
 }
@@ -301,6 +305,11 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
     } catch (error: any) {
       if (error.code !== 'ENOENT') console.error(`gstack-review-log: cannot consume review start: ${error.message}`);
     }
+  }
+  if (rec.skill === 'review-fix-check') {
+    for (const key of ['fix_check_base', 'run', 'grant', 'pr', 'hunks']) delete rec[key];
+    const fc = start?.fix_check;
+    if (fc) Object.assign(rec, { fix_check_base: fc.base, run: fc.run, grant: fc.grant, ...(fc.pr ? { pr: fc.pr } : {}), ...(h => (h ? { hunks: h } : {}))(readFixCheckHunks(env.GSTACK_REVIEW_REPO!, start.started_at)) });
   }
   const end = env.GSTACK_STAMP_WTREE;
   const state = !start || !end ? 'uncaptured'
