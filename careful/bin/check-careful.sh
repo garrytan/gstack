@@ -505,12 +505,12 @@ _careful_push_scan() {
   while [ "$j" -lt "$na" ]; do
     t="${a[$j]}"; j=$((j + 1))
     if [ "$val" -eq 1 ]; then val=0; continue; fi
-    # git reads the word after -o as its push-option value, so it never undoes -n.
+    # git reads the word after -o as its push-option value, so it never starts a
+    # dry run: the value keeps the dry-run state before it. Its other effects
+    # still count, since an option or redirect before -o can take -o itself.
     pw=0
     if [ "$pov" -eq 1 ]; then
       pov=0
-      case "$t" in --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) continue ;; esac
-      # Nor does it start a dry run: the value keeps the dry-run state before it.
       pw=1; d0=$dry; e0=$dd
     fi
     case "$t" in
@@ -933,7 +933,7 @@ case "$CMD" in
     _RX_BUILD_NAMES='(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage)'
     _RX_BUILD_Q="([A-Za-z0-9_./@+,:%=-]*/)?${_RX_BUILD_NAMES}"
     _RX_BUILD_T="(([^[:space:];&|#(${_BT}]*/)?${_RX_BUILD_NAMES}|\"${_RX_BUILD_Q}\"|'${_RX_BUILD_Q}')"
-    if grep -qE "^[[:space:]]*rm[[:space:]]+(-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+|--recursive[[:space:]]+)(${_RX_BUILD_T}[[:space:]]*)+\$" <<< "$CMD" 2>/dev/null; then
+    if grep -qE "^[[:space:]]*rm[[:space:]]+(-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+|--recursive[[:space:]]+)${_RX_BUILD_T}([[:space:]]+${_RX_BUILD_T})*[[:space:]]*\$" <<< "$CMD" 2>/dev/null; then
       echo '{}'
       exit 0
     fi
