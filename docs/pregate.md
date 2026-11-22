@@ -489,7 +489,8 @@ from a `--only` or `--stage preflight|tests` run that is missing checks is
 `PREGATE_INCOMPLETE` ("pregate.json holds checks=1 of 8 (missing: …)"): run
 `gstack-pregate --allow-repo-commands` with neither flag at that tree. The ship
 receipt then carries `pregate` and `requires_remote`. `gstack-pregate verify`
-runs the same check standalone.
+runs the same check standalone; with `--base <branch>` it also refuses a record
+taken against another base branch (`PREGATE_STALE`).
 
 <a id="same-tree-checks"></a>
 **A staged rerun keeps the rest.** A `--only` or `--stage preflight|tests` run
