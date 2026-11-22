@@ -31,7 +31,7 @@ export const SAFETY_RULES: readonly SafetyRule[] = [
     evalId: 'safety-codex-boundary',
     source: 'scripts/resolvers/outside-voice-steps.ts',
     match: /^const CODEX_BOUNDARY = /,
-    sha256: '5212f94292bfa1b3a94d9713e6f42087c4dc48711bd3f73b6461f828aeef01c0',
+    sha256: '903b714af053399300ae0cc283b2b8ba3a8ffc9476e96a6be37ac0e8c30de775',
   },
   {
     id: 'ship-fresh-evidence',

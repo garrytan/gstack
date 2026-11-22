@@ -20,7 +20,7 @@ import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
 import { recordFixCheckHunks } from './review-evidence';
 import { policySelection, selectFor } from './review-selection';
-import { diffCommand, type Dispatch } from './review-depth';
+import { SPECIALISTS, diffCommand, type Dispatch } from './review-depth';
 import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from './review-targeted';
 import type { FetchHit } from './review-fetch';
 import type { EffectiveReaders } from './ship-policy-readers';
@@ -198,6 +198,12 @@ export function specialistFindings(mergedFile: string): string {
   return lines.length ? lines.join('\n') + '\n' : '';
 }
 
+/** The file a plan's checklist name reads: the design specialist's is the generated review/design-checklist.md (#4410), every other one review/specialists/<name>.md. */
+export function checklistFile(root: string, name: string): string {
+  if (name !== 'red-team' && !(SPECIALISTS as readonly string[]).includes(name)) throw new BriefError(`checklist not found: ${name} is none of ${SPECIALISTS.join(', ')}, red-team`);
+  return path.join(root, name === 'design' ? 'review/design-checklist.md' : `review/specialists/${name}.md`);
+}
+
 /** Render every planned reader of a stage. The Red Team renders only after every earlier reader is collected. */
 export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor: (base: string, r: PassReader) => string): PassReader[] {
   const open = m.readers.filter(r => (r.stage === 'first' || r.stage === 'specialists') && r.state !== 'collected');
@@ -220,10 +226,10 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     }
     const role = r.role!;
     const slots: Slots = { name: r.name, diff_base: r.diff_base ?? m.diff_base, exclude: r.exclude, stack: m.stack, test_fw: m.test_fw, learnings: m.learnings ?? undefined,
-      checklists: r.checklists?.map(n => path.join(m.checklist_root, 'review/specialists', `${n}.md`)).join(','),
+      checklists: r.checklists?.map(n => checklistFile(m.checklist_root, n)).join(','),
       policy_exclude: r.policy_exclude, ...(m.disclosure ? { disclosure: m.disclosure, keep: r.keep?.map(shellQuote).join(' ') } : {}),
       ...(m.disclosure && r.excerpt_file ? { excerpt_file: r.excerpt_file.file, excerpt_bytes: String(r.excerpt_file.bytes), excerpt_sha256: r.excerpt_file.sha256, excerpt_files: String(r.excerpt_file.files) } : {}) };
-    if (role === 'specialist') slots.checklist = path.join(m.checklist_root, 'review/specialists', `${r.name}.md`);
+    if (role === 'specialist') slots.checklist = checklistFile(m.checklist_root, r.name ?? '');
     if (r.read_only) slots.read_only = '1';
     let findingsSha: string | undefined;
     if (role === 'red-team') {
