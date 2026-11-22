@@ -13,7 +13,8 @@ We also learned that a plain review prompt with no gstack caught 16 of 30 plante
 
 Preregistration: [ship-conductor-fold-prereg.md](ship-conductor-fold-prereg.md), frozen 2026-11-17 and amended four
 times before any counted run. Every interval below is the plan's paired interval by case, with the end-of-run critical
-value t = 2.291 (10 cases).
+value t = 2.291 (10 cases), except where a row says otherwise: the 9-case sensitivity row uses t = 2.336, and the
+real-problem figures, which cover the 6 cases that have a real problem, use t = 2.609.
 
 ## What worked
 
@@ -66,7 +67,7 @@ value t = 2.291 (10 cases).
 |---|---|---|---|
 | Cost a run | +$0.07 (-$1.42 to +$1.57), pass | same, pass | +$0.01 (-$1.62 to +$1.64), pass |
 | Planted-bug catch rate | +0.03 (-0.18 to +0.24), pass | same, pass | -0.04 (-0.39 to +0.32), not assessable: one F run left (a miss); no preregistered failure |
-| Real-problem catch rate (6 cases, t = 2.609) | -0.03 (-0.37 to +0.32), pass; frozen script's t: -0.33 to +0.27 | same, pass | -0.03 (-0.37 to +0.32), pass; frozen script's t: -0.34 to +0.28 |
+| Real-problem catch rate (6 cases, t = 2.609) | -0.03 (-0.37 to +0.32), pass; at t = 2.291: -0.33 to +0.27 | same, pass | -0.03 (-0.37 to +0.32), pass; at t = 2.336: -0.34 to +0.28 |
 | Reader fidelity | 30 of 30, pass | 29 of 30, fails | pass under the ruling |
 | Decision | conductor goes | conductor stays, one FIX-METHOD cycle | not a decision row |
 
@@ -246,9 +247,11 @@ decision does not depend on it.
   then corrected: real-problem F minus C -0.003 (-0.21 to +0.20), now -0.03 (-0.37 to +0.32) over 6 cases instead
   of 10; arm means C 0.24, F 0.23, N 0.40, now 0.26, 0.23 and 0.19; N minus F +0.17 (-0.19 to +0.53), now -0.04
   (-0.31 to +0.23); sensitivity row -0.04 (-0.25 to +0.17), now -0.03 (-0.37 to +0.32). These intervals use the
-  critical value for the 6 cases that remain (t = 2.609 at the plan's end-of-run p of 0.047704). The plan's frozen
-  script keeps its 10-case value (t = 2.291) whatever the number of cases, which gives narrower intervals for the
-  same data (F minus C -0.33 to +0.27, N minus F -0.27 to +0.20, sensitivity -0.34 to +0.28); the bars table shows both.
+  critical value for the 6 cases that remain (t = 2.609 at the plan's end-of-run p of 0.047704). The frozen
+  script's method takes the critical value from the number of cases in the whole comparison (10, or 9 in the
+  sensitivity row), not from the 6 cases with a real problem, which gives narrower intervals for the same data: F
+  minus C -0.33 to +0.27 and N minus F -0.27 to +0.20 at t = 2.291, and the sensitivity row -0.34 to +0.28 at
+  t = 2.336. The bars table shows both.
   Under either, the bar still passes with no structural loss, and the conductor decision does not change.
 - **Exposure.** Every C and F run was audited for reads of crew notes, this plan, the label file, and history or
   diffs against `origin/main` on the planted path. Nine F runs are flagged: F2t1 and F5t1 saw only file names, line
