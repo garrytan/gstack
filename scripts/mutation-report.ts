@@ -1,7 +1,8 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
  * mutation-report — the weekly, report-only mutation trial (docs/TESTING_INTERNALS.md#mutation-report).
- * StrykerJS plants small wrong edits (mutants) in the lib files agents change most and runs the tests
+ * StrykerJS plants small wrong edits (mutants) in the lib files with the most landings on main in the last
+ * 30 days (a file no test imports is listed and skipped for the next one) and runs the tests
  * that import each file; a mutant no test fails on "survived" and is listed in the report. Nothing here
  * gates a merge: the script exits 0 whatever it finds, and 1 only when it cannot run.
  *
@@ -12,10 +13,12 @@
  * so the script refuses a dirty tree and needs --throwaway-checkout; it restores the tree with git after
  * every file. --stryker-dir holds the exact-pinned install below (npm install --prefix, never package.json).
  *
- * Before Stryker runs on a file, a positive control plants a throw at the top of the file and runs the
- * selected tests: they must fail. If they still pass, those tests never load the file in-process (for
- * example they only spawn it), every mutant would show as a false survivor, and the file is reported as
- * "control survived" without a mutation run.
+ * Before Stryker runs on a file, the selected tests must pass unedited; then a positive control plants a
+ * throw at the top of the file and the same tests must fail with that throw's message. If they don't, the
+ * tests never load the file in-process (for example they only spawn it), every mutant would show as a
+ * false survivor, and the file is reported as "control survived" without a mutation run. Stryker runs
+ * under `timeout`, which kills its whole process group at the file budget, and the report is rewritten
+ * after every file so a job that hits its own limit still leaves the finished files.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -23,19 +26,22 @@ import { spawnSync } from '../lib/spawn-sync';
 import { buildGraph, isTestFile, testsFor } from '../lib/pregate/import-graph';
 
 export const STRYKER_PACKAGES = ['@stryker-mutator/core@10.1.1', '@hughescr/stryker-bun-runner@1.6.0'];
-export const CONTROL_LINE = "throw new Error('mutation-report positive control');\n";
+export const CONTROL_MESSAGE = 'mutation-report positive control';
+export const CONTROL_LINE = `throw new Error('${CONTROL_MESSAGE}');\n`;
+const CONTROL_MS = 5 * 60_000;
+const FREE_TEST_TIMEOUT_MS = 30_000;
 const MAX_TESTS = 20;
 const SURVIVORS_SHOWN = 15;
 
 export interface Churn { file: string; commits: number }
 export interface Mutant { id?: string; mutatorName: string; replacement?: string; status: string; location: { start: { line: number; column: number } } }
 export interface FileResult {
-  file: string; commits: number; tests: string[]; testSource: 'direct' | 'transitive' | 'none';
+  file: string; commits: number; tests: string[]; testsFound: number; testSource: 'direct' | 'transitive' | 'none';
   outcome: 'scored' | 'no tests' | 'control survived' | 'unfinished' | 'failed';
   detail?: string; counts?: Record<string, number>; score?: number; survivors?: Mutant[]; minutes?: number;
 }
 
-/** Rank existing, non-test lib TypeScript files by commits in `git log --format= --name-only` output. */
+/** Rank existing, non-test lib TypeScript files by landings in `git log --first-parent --format= --name-only` output. */
 export function rankChurn(nameLog: string, exists: (file: string) => boolean, n: number): Churn[] {
   const counts = new Map<string, number>();
   for (const line of nameLog.split('\n')) {
@@ -65,15 +71,15 @@ const cell = (s: string) => '`' + s.replace(/\s+/g, ' ').slice(0, 80).replace(/[
 export function renderMarkdown(results: FileResult[], meta: { sinceDays: number; head: string; packages: string[] }): string {
   const lines = [
     '## Mutation report (report-only)', '',
-    `Top ${results.length} lib files by commits in the last ${meta.sinceDays} days at ${meta.head.slice(0, 12)}; ${meta.packages.join(', ')}.`,
+    `The lib files with the most landings in the last ${meta.sinceDays} days at ${meta.head.slice(0, 12)}; ${meta.packages.join(', ')}. A file no test imports is listed as "no tests" and the next file takes its place; at most ${MAX_TESTS} test files run per file.`,
     'A survivor is a small wrong edit that every selected test still passed. Nothing here blocks a merge.', '',
-    '| file | commits | tests | outcome | killed | survived | no coverage | timeout | score | minutes |',
+    '| file | landings | tests | outcome | killed | survived | no coverage | timeout | score | minutes |',
     '|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of results) {
     const c = r.counts ?? {};
     const n = (k: string) => (r.counts ? String(c[k] ?? 0) : '-');
-    lines.push(`| ${cell(r.file)} | ${r.commits} | ${r.tests.length} (${r.testSource}) | ${r.outcome}${r.detail ? ': ' + r.detail.replace(/[|\n]/g, ' ').slice(0, 120) : ''} | ${n('Killed')} | ${n('Survived')} | ${n('NoCoverage')} | ${n('Timeout')} | ${r.score === undefined ? '-' : (r.score * 100).toFixed(1) + '%'} | ${r.minutes ?? '-'} |`);
+    lines.push(`| ${cell(r.file)} | ${r.commits} | ${r.tests.length}${r.testsFound > r.tests.length ? ` of ${r.testsFound}` : ''} (${r.testSource}) | ${r.outcome}${r.detail ? ': ' + r.detail.replace(/[|\n]/g, ' ').slice(0, 120) : ''} | ${n('Killed')} | ${n('Survived')} | ${n('NoCoverage')} | ${n('Timeout')} | ${r.score === undefined ? '-' : (r.score * 100).toFixed(1) + '%'} | ${r.minutes ?? '-'} |`);
   }
   for (const r of results) {
     if (!r.survivors?.length) continue;
@@ -101,25 +107,28 @@ function restoreTree(): void {
   if (git(['status', '--porcelain', '--untracked-files=no']).trim()) fail('the tree is still dirty after restoring it; stopping');
 }
 
-function selectTests(graph: ReturnType<typeof buildGraph>, file: string): Pick<FileResult, 'tests' | 'testSource'> {
+function selectTests(graph: ReturnType<typeof buildGraph>, file: string): Pick<FileResult, 'tests' | 'testsFound' | 'testSource'> {
   const direct = [...new Set((graph.reverse.get(file) ?? []).map(e => e.from).filter(f => graph.tests.has(f) && f.startsWith('test/')))].sort();
-  if (direct.length) return { tests: direct.slice(0, MAX_TESTS), testSource: 'direct' };
-  const transitive = testsFor(graph, file).tests.filter(f => f.startsWith('test/')).sort();
-  return transitive.length ? { tests: transitive.slice(0, MAX_TESTS), testSource: 'transitive' } : { tests: [], testSource: 'none' };
+  const found = direct.length ? direct : testsFor(graph, file).tests.filter(f => f.startsWith('test/')).sort();
+  return { tests: found.slice(0, MAX_TESTS), testsFound: found.length, testSource: direct.length ? 'direct' : found.length ? 'transitive' : 'none' };
 }
 
-function mutateFile(c: Churn, graph: ReturnType<typeof buildGraph>, o: { strykerDir: string; outDir: string; budgetMs: number; concurrency: number }): FileResult {
+function runTests(tests: string[]) {
+  return spawnSync(process.execPath, ['test', ...tests.map(t => './' + t), `--timeout=${FREE_TEST_TIMEOUT_MS}`],
+    { encoding: 'utf-8', timeout: CONTROL_MS, maxBuffer: 256 * 1024 * 1024 });
+}
+
+function mutateFile(c: Churn, sel: Pick<FileResult, 'tests' | 'testsFound' | 'testSource'>, o: { strykerDir: string; outDir: string; budgetMs: number; concurrency: number }): FileResult {
   const started = Date.now();
-  const sel = selectTests(graph, c.file);
-  const base: FileResult = { ...c, ...sel, outcome: 'no tests' };
-  if (!sel.tests.length) return base;
-  const original = fs.readFileSync(c.file, 'utf-8');
-  fs.writeFileSync(c.file, plantControl(original));
-  const control = spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', 'test', ...sel.tests.map(t => './' + t)],
-    { encoding: 'utf-8', timeout: 20 * 60_000, maxBuffer: 256 * 1024 * 1024 });
+  const base: FileResult = { ...c, ...sel, outcome: 'failed' };
+  const baseline = runTests(sel.tests);
+  if (baseline.error || baseline.status !== 0) return { ...base, detail: `the selected tests fail before any edit (${baseline.error?.message ?? `exit ${baseline.status}`})` };
+  fs.writeFileSync(c.file, plantControl(fs.readFileSync(c.file, 'utf-8')));
+  const control = runTests(sel.tests);
   restoreTree();
-  if (control.error) return { ...base, outcome: 'failed', detail: `positive control did not finish: ${control.error.message}` };
-  if (control.status === 0) return { ...base, outcome: 'control survived', detail: 'the selected tests pass with the file throwing on load' };
+  if (control.error) return { ...base, detail: `positive control did not finish: ${control.error.message}` };
+  if (control.status === 0 || !`${control.stdout}${control.stderr}`.includes(CONTROL_MESSAGE))
+    return { ...base, outcome: 'control survived', detail: 'the selected tests did not fail on the planted throw' };
 
   const slug = c.file.replace(/[^a-zA-Z0-9]+/g, '-');
   const reportFile = path.join(o.outDir, `${slug}.json`);
@@ -131,15 +140,21 @@ function mutateFile(c: Churn, graph: ReturnType<typeof buildGraph>, o: { stryker
     reporters: ['progress-append-only', 'json'], jsonReporter: { fileName: reportFile },
     concurrency: o.concurrency, timeoutMS: 30_000, tempDirName: '.stryker-tmp',
   }, null, 2));
-  const run = spawnSync('node', [path.join(o.strykerDir, 'node_modules/@stryker-mutator/core/bin/stryker.js'), 'run', configFile],
-    { encoding: 'utf-8', timeout: o.budgetMs, maxBuffer: 512 * 1024 * 1024 });
+  const budgetS = Math.round(o.budgetMs / 1000);
+  const run = spawnSync('timeout', ['--kill-after=60', String(budgetS), 'node', path.join(o.strykerDir, 'node_modules/@stryker-mutator/core/bin/stryker.js'), 'run', configFile],
+    { encoding: 'utf-8', timeout: o.budgetMs + 120_000, maxBuffer: 512 * 1024 * 1024 });
   fs.writeFileSync(path.join(o.outDir, `${slug}.log`), (run.stdout ?? '') + (run.stderr ?? ''));
   restoreTree();
   const minutes = Math.round((Date.now() - started) / 60_000);
-  if (run.error) return { ...base, outcome: 'unfinished', detail: `stopped at the ${Math.round(o.budgetMs / 60_000)}-minute file budget`, minutes };
-  if (run.status !== 0 || !fs.existsSync(reportFile)) return { ...base, outcome: 'failed', detail: `stryker exit ${run.status}: ${(run.stderr || run.stdout || '').trim().split('\n').pop()}`, minutes };
-  const report = JSON.parse(fs.readFileSync(reportFile, 'utf-8')) as { files: Record<string, { mutants: Mutant[] }> };
-  const mutants = Object.values(report.files).flatMap(f => f.mutants);
+  if (run.status === 124 || run.status === 137) return { ...base, outcome: 'unfinished', detail: `stopped at the ${Math.round(budgetS / 60)}-minute file budget`, minutes };
+  if (run.error || run.status !== 0 || !fs.existsSync(reportFile))
+    return { ...base, detail: `stryker ${run.error ? run.error.message : `exit ${run.status}`}: ${(run.stderr || run.stdout || '').trim().split('\n').pop()}`, minutes };
+  let mutants: Mutant[];
+  try {
+    mutants = Object.values((JSON.parse(fs.readFileSync(reportFile, 'utf-8')) as { files: Record<string, { mutants: Mutant[] }> }).files).flatMap(f => f.mutants);
+  } catch (error) {
+    return { ...base, detail: `unreadable Stryker report: ${String(error).slice(0, 120)}`, minutes };
+  }
   return { ...base, outcome: 'scored', ...summarize(mutants), minutes };
 }
 
@@ -161,31 +176,38 @@ function intArg(argv: string[], name: string, fallback: number): number {
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   if (!argv.includes('--throwaway-checkout')) fail('Stryker edits files in place; pass --throwaway-checkout and run only in a disposable checkout');
-  const strykerDir = arg(argv, '--stryker-dir'), outDir = arg(argv, '--out-dir'), summaryFile = arg(argv, '--summary-file');
+  const strykerDir = arg(argv, '--stryker-dir'), outDir = arg(argv, '--out-dir'), summaryFile = arg(argv, '--summary-file'), only = arg(argv, '--only');
   if (!strykerDir || !outDir) fail('--stryker-dir and --out-dir are required');
-  const files = intArg(argv, '--files', 5), sinceDays = intArg(argv, '--since-days', 90);
-  const budgetMs = intArg(argv, '--file-budget-min', 50) * 60_000, concurrency = intArg(argv, '--concurrency', 4);
+  const files = intArg(argv, '--files', 5), sinceDays = intArg(argv, '--since-days', 30);
+  const budgetMs = intArg(argv, '--file-budget-min', 45) * 60_000, concurrency = intArg(argv, '--concurrency', 4);
   process.chdir(git(['rev-parse', '--show-toplevel']).trim());
   if (git(['status', '--porcelain', '--untracked-files=no']).trim()) fail('the checkout has uncommitted changes; use a clean disposable checkout');
   const resolvedOut = path.resolve(outDir);
-  if (!path.relative(process.cwd(), resolvedOut).startsWith('..')) fail('--out-dir must be outside the checkout');
+  const rel = path.relative(process.cwd(), resolvedOut);
+  if (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep)) fail('--out-dir must be outside the checkout');
   fs.mkdirSync(resolvedOut, { recursive: true });
   const head = git(['rev-parse', 'HEAD']).trim();
-  const only = arg(argv, '--only');
-  const ranked = rankChurn(git(['log', `--since=${sinceDays} days ago`, '--format=', '--name-only', 'HEAD', '--', 'lib']), f => fs.existsSync(f), only ? Number.MAX_SAFE_INTEGER : files);
+  const ranked = rankChurn(git(['log', '--first-parent', `--since=${sinceDays} days ago`, '--format=', '--name-only', 'HEAD', '--', 'lib']), f => fs.existsSync(f), Number.MAX_SAFE_INTEGER);
   const churn = only ? ranked.filter(c => c.file === only) : ranked;
-  if (only && !churn.length) fail(`--only ${only} is not a lib file changed in the last ${sinceDays} days`);
-  if (!churn.length) fail(`no lib files changed in the last ${sinceDays} days (is this a shallow clone?)`);
+  if (only && !churn.length) fail(`--only ${only} is not a lib file landed in the last ${sinceDays} days`);
+  if (!churn.length) fail(`no lib files landed in the last ${sinceDays} days (is this a shallow clone?)`);
   const graph = buildGraph(process.cwd());
   const results: FileResult[] = [];
+  const write = () => {
+    const md = renderMarkdown(results, { sinceDays, head, packages: STRYKER_PACKAGES });
+    fs.writeFileSync(path.join(resolvedOut, 'mutation-report.md'), md);
+    fs.writeFileSync(path.join(resolvedOut, 'mutation-report.json'), JSON.stringify({ head, sinceDays, packages: STRYKER_PACKAGES, results }, null, 2));
+    return md;
+  };
   for (const c of churn) {
-    const r = mutateFile(c, graph, { strykerDir: path.resolve(strykerDir), outDir: resolvedOut, budgetMs, concurrency });
+    if (results.filter(r => r.outcome !== 'no tests').length >= files) break;
+    const sel = selectTests(graph, c.file);
+    const r = sel.tests.length ? mutateFile(c, sel, { strykerDir: path.resolve(strykerDir), outDir: resolvedOut, budgetMs, concurrency }) : { ...c, ...sel, outcome: 'no tests' as const };
     results.push(r);
+    write();
     process.stdout.write(`MUTATION_FILE: file=${r.file} outcome=${r.outcome.replace(/ /g, '_')} tests=${r.tests.length} survived=${r.counts?.Survived ?? '-'} score=${r.score === undefined ? '-' : r.score.toFixed(3)}\n`);
   }
-  const md = renderMarkdown(results, { sinceDays, head, packages: STRYKER_PACKAGES });
-  fs.writeFileSync(path.join(resolvedOut, 'mutation-report.md'), md);
-  fs.writeFileSync(path.join(resolvedOut, 'mutation-report.json'), JSON.stringify({ head, sinceDays, packages: STRYKER_PACKAGES, results }, null, 2));
+  const md = write();
   if (summaryFile) fs.appendFileSync(summaryFile, md);
   process.stdout.write(md);
 }

@@ -2,20 +2,20 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { CONTROL_LINE, STRYKER_PACKAGES, plantControl, rankChurn, renderMarkdown, summarize, type Mutant } from '../scripts/mutation-report';
+import { CONTROL_LINE, CONTROL_MESSAGE, STRYKER_PACKAGES, plantControl, rankChurn, renderMarkdown, summarize, type Mutant } from '../scripts/mutation-report';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const mutant = (status: string, line: number, replacement = 'false'): Mutant => ({ mutatorName: 'BooleanLiteral', replacement, status, location: { start: { line, column: 1 } } });
 
 describe('mutation-report', () => {
-  test('ranks existing non-test lib files by commit count', () => {
+  test('ranks existing non-test lib files by landings', () => {
     const log = ['lib/a.ts', 'lib/b.ts', '', 'lib/a.ts', 'lib/gone.ts', 'lib/gone.ts', 'lib/gone.ts', 'test/a.test.ts', 'lib/x.test.ts', 'lib/types.d.ts', 'bin/tool', 'lib/b.ts', 'lib/c.ts'].join('\n');
     expect(rankChurn(log, f => f !== 'lib/gone.ts', 2)).toEqual([{ file: 'lib/a.ts', commits: 2 }, { file: 'lib/b.ts', commits: 2 }]);
   });
 
   test('the positive control throws before the file body runs', () => {
     expect(plantControl('export const x = 1;\n')).toBe(CONTROL_LINE + 'export const x = 1;\n');
-    expect(CONTROL_LINE).toMatch(/^throw new Error\(/);
+    expect(CONTROL_LINE).toBe(`throw new Error('${CONTROL_MESSAGE}');\n`);
   });
 
   test('scores killed and timed-out mutants against survivors and uncovered ones', () => {
@@ -28,11 +28,13 @@ describe('mutation-report', () => {
 
   test('renders a table row per file and escapes mutant text', () => {
     const md = renderMarkdown([
-      { file: 'lib/a.ts', commits: 7, tests: ['test/a.test.ts'], testSource: 'direct', outcome: 'scored', ...summarize([mutant('Killed', 1), mutant('Survived', 2, 'a | `b`')]), minutes: 3 },
-      { file: 'lib/b.ts', commits: 5, tests: ['test/b.test.ts'], testSource: 'direct', outcome: 'control survived', detail: 'the selected tests pass with the file throwing on load' },
+      { file: 'lib/a.ts', commits: 7, tests: ['test/a.test.ts'], testsFound: 1, testSource: 'direct', outcome: 'scored', ...summarize([mutant('Killed', 1), mutant('Survived', 2, 'a | `b`')]), minutes: 3 },
+      { file: 'lib/b.ts', commits: 5, tests: ['test/b.test.ts'], testsFound: 1, testSource: 'direct', outcome: 'control survived', detail: 'the selected tests did not fail on the planted throw' },
+      { file: 'lib/c.ts', commits: 4, tests: Array.from({ length: 20 }, (_, i) => `test/c${i}.test.ts`), testsFound: 31, testSource: 'transitive', outcome: 'unfinished', detail: 'stopped at the 45-minute file budget', minutes: 46 },
     ], { sinceDays: 90, head: 'abcdef0123456789', packages: STRYKER_PACKAGES });
     expect(md).toContain('| `lib/a.ts` | 7 | 1 (direct) | scored | 1 | 1 | 0 | 0 | 50.0% | 3 |');
-    expect(md).toContain('| `lib/b.ts` | 5 | 1 (direct) | control survived: the selected tests pass with the file throwing on load | - | - | - | - | - | - |');
+    expect(md).toContain('| `lib/b.ts` | 5 | 1 (direct) | control survived: the selected tests did not fail on the planted throw | - | - | - | - | - | - |');
+    expect(md).toContain('| `lib/c.ts` | 4 | 20 of 31 (transitive) | unfinished: stopped at the 45-minute file budget | - | - | - | - | - | 46 |');
     expect(md).toContain('- line 2: BooleanLiteral → `a ? ?b?`');
   });
 
