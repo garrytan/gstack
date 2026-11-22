@@ -18,13 +18,14 @@
  */
 import { MIN_POLL_MS, pollDelayMs } from './gh-poll';
 import { mergedChecksFor } from './land-docs-only';
-import { runMergedChecks } from './land-merged-checks';
+import { landMergedCi } from './land-merged-ci';
+import { changedCheckouts, mergedCommit, runMergedChecks, type MergedRun } from './land-merged-checks';
 import { landPlan } from './plan-record';
 import { classifyRelease, RELEASE_BRANCH } from './release-stamp';
 import { versionAtRef } from './restamp';
 import type { ShipPolicy } from './ship-policy';
 import { ciAtHead, loadBasePolicy, type QueueContext, type StepOutput } from './ship-queue';
-import { git, type QueueFailure } from '../crew/lib/ship-queue-gate';
+import { git, queueHooksOff, type QueueFailure } from '../crew/lib/ship-queue-gate';
 import { acquireLandLock, lockLabel, ownsLock, readLock, type HeldLandLock, type LandLock } from '../crew/lib/ship-queue-land-lock';
 import * as os from 'node:os';
 import { activeFreeze, loadReady, persist, rebuildFromNotes, repoIdentity, type FreezeRecord } from '../crew/lib/ship-queue-train-record';
@@ -159,6 +160,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   const run = 'none';
   const now = o.now ?? (() => new Date());
   const fail = (lines: string[], failure: QueueFailure): StepOutput => ({ ok: false, lines, failure, run });
+  queueHooksOff();
   if (!git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return fail([], { code: 'QUEUE_NOT_READY', message: `cannot fetch origin/${ctx.base}; land reads the policy and the required checks from the current base`, fix: 'fix the fetch, then rerun land' });
   const loaded = loadBasePolicy(ctx);
   if ('message' in loaded) return fail([], loaded);
@@ -172,6 +174,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   if (info.baseRefName && info.baseRefName !== ctx.base) return fail(lines, { code: 'QUEUE_NOT_READY', message: `#${o.pr} targets ${info.baseRefName}, not ${ctx.base}`, fix: `retarget it to ${ctx.base}, or land its parent first` });
   const remote = ctx.remote ?? 'origin';
   const journal = `land-pin:${o.pin}`;
+  const unlock = `LOCK: warn land.merged_checks changed the checkout's git directory, so land pushed no lock release and the land lock stays held; once every path it names is restored from a trusted copy, release the lock without running the checks: gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} (without --allow-repo-commands)`;
   const takeLock = () => acquireLandLock({
     root, remote, holder: `${os.hostname()}:${process.pid}`, owner: { pr: o.pr }, journal, now, phase: () => 'merging', breakLock: o.breakLock,
     takeover: (held: LandLock) => !held.train && held.pr === o.pr && held.journal.startsWith('land-pin:') ? `LOCK: taking over #${o.pr}'s land lock that an earlier land --pin run left (${held.journal}, since ${held.started_at})` : null,
@@ -180,6 +183,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     lines.push(`#${o.pr} is already merged as ${info.mergeCommit!.oid.slice(0, 12)}; checking the tree`);
     if (o.dryRun) return { ok: true, run, lines: [...lines, 'DRY-RUN: nothing verified (a rerun without --dry-run runs the tree check and writes the land note)'] };
     const out = verifyMerge(ctx, root, o.pr, o.pin, info.mergeCommit!.oid, lines, run, now(), RELEASE_BRANCH.test(info.headRefName) ? 'pin-parent' : undefined, { checks: mergedChecksFor(root, policy.land, `origin/${ctx.base}`, o.pin), allow: o.allowRepoCommands });
+    if (changedCheckouts.has(root)) return { ...out, lines: [...out.lines, unlock] };
     const left = readLock(root, remote);
     if (left.state !== 'held' || !ownsLock(left.lock, { pr: o.pr }, journal)) return out;
     const got = takeLock();
@@ -255,14 +259,27 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
     if (staleRelease) return fail(lines, staleRelease);
     if (mergeBase !== tip) {
       const moved = `origin/${ctx.base} moved to ${tip.slice(0, 12)} since the pin's merge base ${mergeBase.slice(0, 12)}, so the checks at the pin never ran on the tree that would land`;
-      if (!checks.length) lines.push(`STALE_BASE: warn ${moved}; no land.merged_checks configured, so land merges it untested`);
-      else if (o.dryRun) lines.push(`DRY-RUN: land.merged_checks not run (repo commands never run under --dry-run); a real land with --allow-repo-commands runs ${checks.length} on the pin merged onto ${tip.slice(0, 12)}`);
-      else if (!o.allowRepoCommands) return fail(lines, { code: 'REPO_COMMANDS_NOT_ALLOWED', message: `${moved}, so land must run land.merged_checks on the pin merged onto it; they are repo commands (the merged tree's package.json decides what they run), so nothing ran and nothing merged`, fix: `rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} --allow-repo-commands` });
+      const ci = current.policy.land?.merged_ci;
+      const refuse = (mc: Extract<MergedRun, { ok: false }>): StepOutput => {
+        if (mc.setup) return fail(lines, { code: 'QUEUE_NOT_READY', message: `${moved}, and land could not run land.merged_checks on the pin merged onto it: ${mc.detail}; nothing merged`, fix: `if the checkout is the problem, fix it and rerun land; if the dependencies changed, the lane merges origin/${ctx.base} into the branch, waits for the required checks, runs /ship and ready at the new head` });
+        if (mc.conflict) return fail(lines, { code: 'QUEUE_LAND_NOT_CLEAN', message: `${moved}: ${mc.detail}`, fix: `the lane merges origin/${ctx.base} into the branch, resolves, runs /ship and ready at the new head` });
+        if (mc.tampered) return fail(lines, { code: 'QUEUE_LAND_MERGED_CHECKS', message: `${moved}; on the pin merged onto it, ${mc.detail}`, fix: 'hold and inspect: a person restores every path named from a trusted copy before any git command in this checkout and releases the land lock as the LOCK line says; nothing goes back to the lane until then, and the PR does not land until its checks are understood' });
+        return fail(lines, { code: 'QUEUE_LAND_MERGED_CHECKS', message: `${moved}; on the pin merged onto it, ${mc.detail}`, fix: `merge the base into the branch (git merge origin/${ctx.base}), fix what the failing check names, push, wait for the required checks at the new head, run /ship and gstack-ship-queue ready --pr ${o.pr} there, then land the new pin` });
+      };
+      if (!checks.length && !ci) lines.push(`STALE_BASE: warn ${moved}; no land.merged_checks configured, so land merges it untested`);
+      else if (o.dryRun) {
+        if (checks.length) lines.push(`DRY-RUN: land.merged_checks not run (repo commands never run under --dry-run); a real land with --allow-repo-commands runs ${checks.length} on the pin merged onto ${tip.slice(0, 12)}`);
+        if (ci) lines.push(`DRY-RUN: land.merged_ci not dispatched; a real land runs ${ci.workflow} on the pin merged onto ${tip.slice(0, 12)} and waits for it`);
+      } else if (checks.length && !o.allowRepoCommands) return fail(lines, { code: 'REPO_COMMANDS_NOT_ALLOWED', message: `${moved}, so land must run land.merged_checks on the pin merged onto it; they are repo commands (the merged tree's package.json decides what they run), so nothing ran and nothing merged`, fix: `rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} --allow-repo-commands` });
       else {
-        const mc = runMergedChecks(root, tip, o.pin, checks);
-        if (!mc.ok && mc.setup) return fail(lines, { code: 'QUEUE_NOT_READY', message: `${moved}, and land could not run land.merged_checks on the pin merged onto it: ${mc.detail}; nothing merged`, fix: `if the checkout is the problem, fix it and rerun land; if the dependencies changed, the lane merges origin/${ctx.base} into the branch, waits for the required checks, runs /ship and ready at the new head` });
-        if (!mc.ok) return fail(lines, mc.conflict ? { code: 'QUEUE_LAND_NOT_CLEAN', message: `${moved}: ${mc.detail}`, fix: `the lane merges origin/${ctx.base} into the branch, resolves, runs /ship and ready at the new head` } : { code: 'QUEUE_LAND_MERGED_CHECKS', message: `${moved}; on the pin merged onto it, ${mc.detail}`, fix: `merge the base into the branch (git merge origin/${ctx.base}), fix what the failing check names, push, wait for the required checks at the new head, run /ship and gstack-ship-queue ready --pr ${o.pr} there, then land the new pin` });
-        lines.push(`MERGED_CHECKS: pass tree=${mc.tree} base=${tip} pin=${o.pin.slice(0, 12)} checks: ${checks.join('; ')}`);
+        const built = checks.length ? runMergedChecks(root, tip, o.pin, checks) : mergedCommit(root, tip, o.pin);
+        if (!built.ok) return refuse(built);
+        if (checks.length) lines.push(`MERGED_CHECKS: pass tree=${built.tree} base=${tip} pin=${o.pin.slice(0, 12)} checks: ${checks.join('; ')}`);
+        if (ci) {
+          const r = landMergedCi(ctx, { remote, tip, pr: o.pr, pin: o.pin, commit: built.commit, tree: built.tree, ci, moved });
+          if ('failure' in r) return fail(lines, r.failure);
+          lines.push(r.line);
+        }
       }
     }
     const msg = landMessage(root, { pr: o.pr, title: info.title ?? '', prBody: info.body ?? '', mergeBase, pin: o.pin, tip, policy, override: o.body ?? (release ? sectionText(info.body ?? '', 'Release notes') || undefined : undefined) });
@@ -298,6 +315,7 @@ export function landDirect(ctx: QueueContext, o: DirectOptions): StepOutput {
   };
   let out: StepOutput;
   let released = true;
-  try { out = locked(); } finally { if (held) released = held.release(); }
+  try { out = locked(); } finally { if (held) released = !changedCheckouts.has(root) && held.release(); }
+  if (changedCheckouts.has(root)) return { ...out, lines: [...out.lines, unlock] };
   return released ? out : { ...out, lines: [...out.lines, `LOCK: warn the land lock release push failed, so the lock stays held; rerun gstack-ship-queue land --pr ${o.pr} --pin ${o.pin} to resume and release it`] };
 }
