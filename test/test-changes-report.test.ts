@@ -91,6 +91,14 @@ describe('test-changes report over a fetched, never checked-out pull request', (
     expect(r.stdout).toMatch(/^TEST_CHANGES: tagged=\{\} tests_added=1 tests_removed=0 gate_files=0 /);
   });
 
+  test('a test file that git reads as binary is named as unread, never counted as a quiet pass', () => {
+    const { dir, base, head } = repo({ 'test/math.test.ts': "import { test } from 'bun:test';\n\0\n" });
+    const summary = path.join(tmp('gstack-test-changes-out-'), 'summary.md');
+    const r = run(REPORT, dir, ['--base', base, '--head', head, '--summary-file', summary]);
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(summary, 'utf8')).toContain('Not read as text, so tests removed in them are not counted: `test/math.test.ts` (binary).');
+  });
+
   test('--commit reads one commit the same way', () => {
     const { dir, head } = repo({ 'test/math.test.ts': "import { test } from 'bun:test';\n" });
     const r = run(REPORT, dir, ['--commit', head]);

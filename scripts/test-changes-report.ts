@@ -29,7 +29,7 @@ const WATCHED = [/^\.github\/workflows\//, /^\.gstack\//, /^package\.json$/, /^b
 const COUNTED = ['RH-1', 'RH-13', 'RH-14', 'RH-15'];
 const DATA_FILE = /\.(?:json|jsonl|ndjson|csv|tsv|log|out|md|mdx|txt)(?:\.tmpl)?$/i;
 
-interface Hunk { id: string; path: string; old_path?: string; tags: string[]; old: string[]; new: string[] }
+interface Hunk { id: string; path: string; old_path?: string; tags: string[]; old: string[]; new: string[]; unsupported?: string }
 
 function fail(msg: string): never {
   process.stderr.write(`test-changes-report: ${msg}\n`);
@@ -82,6 +82,8 @@ if (summaryFile) {
   const md = ['## Test changes (flags never fail this check)', '',
     `Tests added: ${added}. Tests removed: ${removed}. Hunks that remove or skip a test (RH-1), add a suppression (RH-13), bypass a gate (RH-14) or relax a gate value (RH-15): ${flagged.length}.`];
   if (+summary[1] > 0) md.push('', `Partial read: ${summary[1]} eligible hunks past the reading cap were not tagged.`);
+  const unreadable = hunks.filter((h) => h.unsupported);
+  if (unreadable.length) md.push('', `Not read as text, so tests removed in them are not counted: ${unreadable.map((h) => `${cell(h.path)} (${h.unsupported})`).join(', ')}.`);
   if (gateFiles.length) md.push('', '**This pull request edits files that run or define its own checks:**', '', ...gateFiles.map((p) => `- ${cell(p)}`));
   if (flagged.length) md.push('', '| Hunk | Path | Tags |', '|---|---|---|', ...flagged.map((h) => `| ${cell(h.id)} | ${cell(h.path)} | ${h.tags.join(', ')} |`));
   md.push('', 'Each flag needs a reason in the pull request, or a reviewer ruling. See docs/ship-policy.md#test-changes.', '');
