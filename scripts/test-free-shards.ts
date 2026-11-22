@@ -382,6 +382,26 @@ export function loadFreeTestDurations(rootDir = ROOT): Record<string, number> | 
   return Object.keys(seed.durations).length === 0 ? null : seed.durations;
 }
 
+export const WINDOWS_FREE_TEST_DURATIONS_FILE = 'scripts/free-test-durations-windows.json';
+
+/** A windows-free-shard job stops at 15 minutes; its planned work may fill 80% of that (GST-3440). */
+export const WINDOWS_SHARD_BUDGET_MS = 15 * 60_000 * 0.8;
+
+/**
+ * Windows plans pack by Windows-recorded time. A file the Windows seed lacks
+ * falls back to its Linux time instead of the Windows 99th percentile (161 s),
+ * which once packed 27 such files as phantom load and left one shard with
+ * 946 s of real Windows work against a 900 s job (GST-3440).
+ */
+export function loadWindowsFreeTestDurations(rootDir = ROOT): Record<string, number> {
+  const read = (file: string) => {
+    const seed = readDurationSeed(path.join(rootDir, file), FREE_LANE_POLICY.acceptsSeedDuration);
+    if (seed.status === 'corrupt') console.error(`[test:free] WARNING: corrupt durations seed ${file} (${seed.error.message})`);
+    return seed.status === 'ok' ? seed.durations : {};
+  };
+  return { ...read(FREE_TEST_DURATIONS_FILE), ...read(WINDOWS_FREE_TEST_DURATIONS_FILE) };
+}
+
 export interface PackedShards {
   shards: string[][];
   /** Predicted total per shard, aligned with `shards` — feeds walls + logs. */
@@ -491,6 +511,20 @@ export function createFreeCiPlan(files: string[], count: number, durations: Reco
   });
   const body = { version: 1 as const, revision, shards };
   return { ...body, id: planDigest(body) };
+}
+
+/**
+ * The Windows plan with the fewest shards, from `minimum` up to twice it, whose
+ * every shard predicts at most WINDOWS_SHARD_BUDGET_MS. Needing more than that
+ * means a stale Windows seed, so the plan fails instead of growing further.
+ */
+export function createWindowsCiPlan(files: string[], minimum: number, durations: Record<string, number>, revision: string, shardJobs = 1): FreeCiPlan {
+  for (let count = minimum; count <= minimum * 2; count += 1) {
+    const plan = createFreeCiPlan(files, count, durations, revision, shardJobs);
+    if (plan.shards.every(shard => shard.predictedMs <= WINDOWS_SHARD_BUDGET_MS)) return plan;
+  }
+  throw new Error(`No Windows plan of ${minimum} to ${minimum * 2} shards keeps every shard within ${WINDOWS_SHARD_BUDGET_MS / 1000} s.`
+    + ` Refresh ${WINDOWS_FREE_TEST_DURATIONS_FILE} with a record_durations dispatch of windows-free-tests.yml.`);
 }
 
 /**
@@ -2047,14 +2081,21 @@ async function main(): Promise<number> {
       fs.renameSync(temporary, file);
     };
     if (options.ciPlan) {
-      const durations = loadFreeTestDurations() ?? {};
+      const durations = curation ? loadWindowsFreeTestDurations() : loadFreeTestDurations() ?? {};
       if (curation) {
         const line = windowsCurationLine(curation);
         console.error(`[test:free] ${line}`);
         appendStepSummary(line);
       }
       warnUnseededFreeFiles(ciFiles, durations);
-      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs, options.jobSetupSeconds);
+      const plan = curation
+        ? createWindowsCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs)
+        : createFreeCiPlan(ciFiles, options.shardCount, durations, revision, options.shardJobs, options.jobSetupSeconds);
+      if (curation) {
+        const line = `Windows plan: ${plan.shards.length} shards, heaviest ${Math.round(Math.max(...plan.shards.map(shard => shard.predictedMs)) / 1000)} s of a ${WINDOWS_SHARD_BUDGET_MS / 1000} s budget`;
+        console.error(`[test:free] ${line}`);
+        appendStepSummary(line);
+      }
       validateFreeCiPlan(plan, ciFiles, revision);
       const matrix = ciPlanMatrix(plan, options.jobSetupSeconds);
       if ('include' in matrix) {
