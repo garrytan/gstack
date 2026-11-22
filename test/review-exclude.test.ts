@@ -915,7 +915,7 @@ describe('the receipt binds the selection the reviewers read', () => {
     //   snapshot --run --pre --carry, then gstack-ship-receipt write --review-exclude --docs-post --docs-pre; no_claim=a live /ship run
     test('the #9975 shape: a no-edit re-audit after a base merge that adds docs files and a pattern binds through the carried audit', () => {
       const FIVE = ['docs/**', 'test/fixtures/goldens/**', 'receipts/**', 'data/**', 'vendor/**'];
-      const merged = (after: Record<string, string>) => {
+      const merged = (after: Record<string, string>, reaudit = true) => {
         const repo = makeFixtureRepo({ prefix: 'gstack-exclude-merged-', baseFiles: { '.gstack/ship-policy.json': policyText(FIVE), 'docs/guides/setup.md': '# setup\n', 'lib/index.js': "exports.k = 'docs/key-files.md';\n" } });
         repos.push(repo);
         commit(repo, BRANCH);
@@ -931,8 +931,8 @@ describe('the receipt binds the selection the reviewers read', () => {
         const post1 = snapshot('a1', 'a1-post.json', ['--pre', pre1]);
         commit(repo, {}, 'docs audit a1');
         onBase(repo, { '.gstack/ship-policy.json': policyText([...FIVE, 'assets/**']), 'docs/architecture/key-files/commands-2-continued.md': '# commands, continued\n' });
-        const pre = snapshot('a2', 'a2.json');
-        const post = snapshot('a2', 'a2-post.json', ['--pre', pre, '--carry', post1]);
+        const pre = reaudit ? snapshot('a2', 'a2.json') : pre1;
+        const post = reaudit ? snapshot('a2', 'a2-post.json', ['--pre', pre, '--carry', post1]) : post1;
         if (Object.keys(after).length) commit(repo, after, 'docs edit after the re-audit');
         return { repo, reviewed, pre, post, body: path.join(repo.root, 'body.md') };
       };
@@ -948,6 +948,10 @@ describe('the receipt binds the selection the reviewers read', () => {
       expect({ status: refused.status, written: fs.existsSync(late.body) }).toEqual({ status: EXIT.fail, written: false });
       expect(refused.err).toContain(`recorded=${late.reviewed} `);
       expect(refused.err).toContain("docs/parity.md changed after the snapshot's HEAD");
+      const both = merged({ 'docs/architecture/key-files/commands-2-continued.md': '# commands, continued\nedited by the PR after the base merge\n' }, false);
+      const refusedBoth = writeWith(both);
+      expect({ status: refusedBoth.status, written: fs.existsSync(both.body) }).toEqual({ status: EXIT.fail, written: false });
+      expect(refusedBoth.err).toContain("docs/architecture/key-files/commands-2-continued.md changed after the snapshot's HEAD");
     }, 360_000);
   });
 });
