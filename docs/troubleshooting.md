@@ -4621,6 +4621,90 @@ file name no root has, a sha a shallow clone lacks) prints
 evidence lives in another checkout, run `check` with `--root <dir>` for it
 (repeatable; the default is the git top level of the working directory).
 
+## Vendored upstream files (gstack-vendored-verify)
+
+<a id="vendored-mismatch"></a>
+### `VENDORED_MISMATCH`
+
+**Meaning.** A file the manifest pins is not the upstream's file at the pinned
+commit: its git blob id (git's hash of the exact bytes) differs. The line names
+the local path, the upstream, the commit and the upstream path. The file is not
+treated as vendored.
+
+**Fix.** Rebuild the file from the pinned commit. If the change is deliberate,
+remove the file from the manifest so it is reviewed as the repo's own code.
+
+<a id="vendored-absent-upstream"></a>
+### `VENDORED_ABSENT_UPSTREAM`
+
+**Meaning.** The upstream path an entry names does not exist at the pinned
+commit. A manifest maps files by prefix, so a file cannot be renamed on the way
+in: `vendor/lib/tests/conftest.py` only matches an upstream `tests/conftest.py`.
+
+**Fix.** Correct the entry's `upstream_prefix`, file path or commit.
+
+<a id="vendored-absent-local"></a>
+### `VENDORED_ABSENT_LOCAL`
+
+**Meaning.** The manifest lists a file that is not in the commit being checked.
+
+**Fix.** Add the file, or remove the entry. The repo's build writes both, so
+rebuild them together.
+
+<a id="vendored-mode"></a>
+### `VENDORED_MODE`
+
+**Meaning.** The file is an executable, a symlink or a submodule, here or
+upstream. Only plain files (mode `100644` on both sides) count as vendored.
+
+**Fix.** Clear the executable bit when the upstream file is a plain file, or
+remove the entry so the file is reviewed.
+
+<a id="vendored-unreachable"></a>
+### `VENDORED_UNREACHABLE`
+
+**Meaning.** The pinned commit is not on the upstream's default branch, a tag,
+or a branch the base policy names for that upstream. GitHub serves a fork's
+commits and pull request heads through the original repository's URL, so a
+commit that merely exists there proves nothing. Merge-queue branches and
+force-pushed commits fail the same way.
+
+**Fix.** Pin a commit on the default branch or a release tag. When the upstream
+ships from another branch, add it to that upstream's `branches` in
+`review_vendored` on the base branch, as its own PR.
+
+<a id="vendored-not-allowlisted"></a>
+### `VENDORED_NOT_ALLOWLISTED`
+
+**Meaning.** The manifest pins files to an upstream the base branch's
+`review_vendored.upstreams` does not list. The list is read from the base
+only, so a branch cannot trust a new upstream for itself.
+
+**Fix.** Add the upstream's URL on the base branch as its own PR, then bring the
+base into the branch and rerun.
+
+<a id="vendored-fetch-failed"></a>
+### `VENDORED_FETCH_FAILED`
+
+**Meaning.** The upstream could not be fetched anonymously over https: it was
+deleted, renamed, made private, redirected, or the network failed or timed out
+(`GSTACK_VENDORED_FETCH_TIMEOUT_MS`, default 180,000). `--offline` reports it
+for a pin no earlier run cached. Its files stay in review.
+
+**Fix.** Rerun once; a fetch has no side effects. If it fails again, check the
+URL opens without signing in and does not redirect, and update
+`review_vendored.upstreams` on the base if the repository moved.
+
+<a id="vendored-manifest-invalid"></a>
+### `VENDORED_MANIFEST_INVALID`
+
+**Meaning.** A manifest the base policy lists is missing at the commit being
+checked, or breaks the `gstack-vendored/v1` format; the line names the field.
+Nothing is checked until it is fixed.
+
+**Fix.** Fix the field ([the manifest](vendored-code.md#the-manifest)), usually
+by rerunning the build that writes it.
+
 ## Pre-gate: generated-file registry, gstack-pregate, issue links
 
 Both tools read their pin file (`.gstack/generated.json`, `.gstack/pregate.json`)

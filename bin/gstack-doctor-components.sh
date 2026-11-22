@@ -373,6 +373,14 @@ gstack_result_anchor() {
     PREGATE_HEAD_POLICY_LOOSENS) printf '%s' 'pregate-head-policy-loosens' ;;
     REVIEW_DIFF_TOO_LARGE) printf '%s' 'review-diff-too-large' ;;
     REVIEW_EXCLUDE_KEEP_TOO_LARGE) printf '%s' 'review-exclude-keep-too-large' ;;
+    VENDORED_MISMATCH) printf '%s' 'vendored-mismatch' ;;
+    VENDORED_ABSENT_UPSTREAM) printf '%s' 'vendored-absent-upstream' ;;
+    VENDORED_ABSENT_LOCAL) printf '%s' 'vendored-absent-local' ;;
+    VENDORED_MODE) printf '%s' 'vendored-mode' ;;
+    VENDORED_UNREACHABLE) printf '%s' 'vendored-unreachable' ;;
+    VENDORED_NOT_ALLOWLISTED) printf '%s' 'vendored-not-allowlisted' ;;
+    VENDORED_FETCH_FAILED) printf '%s' 'vendored-fetch-failed' ;;
+    VENDORED_MANIFEST_INVALID) printf '%s' 'vendored-manifest-invalid' ;;
     REVIEW_DIFF_UNREADABLE) printf '%s' 'review-diff-unreadable' ;;
     REVIEW_PLAN_STOPPED) printf '%s' 'review-plan-stopped' ;;
     REVIEW_EXCLUDE_REFERENCE) printf '%s' 'review-exclude-reference' ;;
