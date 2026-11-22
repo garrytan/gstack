@@ -162,6 +162,8 @@ const SCANNER_EXEMPT: Record<string, string> = {
     'git fetch appears only in the revision row\'s fix string (the command the user runs to move the checkout)',
   'bin/gstack-next-version':
     'fetches the user\'s own repo\'s base branch for version-claim freshness — a user-repo dev-workflow op, not gstack-state egress',
+  'bin/gstack-vendored-verify':
+    'git fetch appears only in the fix string of the base-resolution error; the CLI\'s own upstream fetches live in lib/review-vendored.ts (anonymous download of allowlisted public upstreams by commit, no gstack or user state sent)',
   'bin/gstack-version-bump':
     'git fetch appears only in an error-message string',
   'bin/gstack-worktree-audit':

@@ -1,0 +1,68 @@
+name: Test changes
+
+# Flag-only report of what a pull request does to its own tests and checks
+# (docs/ship-policy.md#test-changes): tests removed or skipped, suppressions,
+# gate bypasses and relaxed gate values that bin/gstack-gate-diff tags, the net
+# count of added and removed test declarations, and edits to the files that run
+# or define this repository's own checks. Flags never fail it: they exit 0. It
+# fails only when the checker itself fails, so a broken run is never read as a
+# quiet pull request; like any failed check, that holds gstack-ship-queue land
+# until the job is rerun. Not a required check.
+#
+# WHY pull_request_target: it runs the base repository's copy of this workflow,
+# of scripts/test-changes-report.ts and of bin/gstack-gate-diff, so a pull
+# request cannot edit the checker that reports on it.
+#
+# WHY this is SAFE:
+#   - The job checks out the BASE repo (no ref:) and never runs PR code. The
+#     pull request's commits are fetched as git objects and read as a diff.
+#   - The token is read-only (contents: read) and is not persisted; no secrets.
+#   - PR fields arrive only through env:; none is inlined into run:.
+#   - The report names paths, tags and hunk ids, never PR line content.
+# test/test-changes-workflow-safety.test.ts is the static tripwire for all of it.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  test-changes:
+    name: Test changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: test-changes-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      # Base repo only: trusted code. No PR-head checkout. Full history for the merge base.
+      - name: Checkout base repo (trusted)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Fetch the pull request's commits as data
+        env:
+          PR_NUM: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin "+refs/pull/$PR_NUM/head:refs/remotes/pr/head"
+          git cat-file -e "$PR_HEAD_SHA^{commit}"
+
+      - name: Report test changes
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          GSTACK_HOME="$RUNNER_TEMP/gstack-home" bun --no-env-file --config=/dev/null scripts/test-changes-report.ts \
+            --base "$(git rev-parse HEAD)" --head "$PR_HEAD_SHA" --summary-file "$GITHUB_STEP_SUMMARY"

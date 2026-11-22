@@ -238,6 +238,7 @@ export const FREE_ONLY_PR_FILES = [
   'test/helpers/auq-parallel-worker.ts',
   'test/helpers/stored-zip.ts', // Read only by the free test-health report tests.
   'scripts/free-test-durations.json',
+  'scripts/free-test-durations-windows.json', // Read only by the free Windows plan (scripts/test-free-shards.ts --windows-only --ci-plan).
   'scripts/free-test-seed-allowlist.json', // Read only by the free seed ratchet (test/free-seed-ratchet.test.ts).
   'scripts/paid-test-durations.json',
   'scripts/ubicloud/**',
@@ -279,6 +280,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/make-pdf-gate.yml',
   '.github/workflows/model-policy-freshness.yml',
   '.github/workflows/measure-journal-read.yml',
+  '.github/workflows/mutation-report.yml', // The weekly report-only mutation trial on main; no paid case reads it, and it never gates a PR.
   '.github/workflows/native-qualification.yml',
   '.github/workflows/osv-scanner.yml',
   '.github/workflows/platform-qualification.yml',
@@ -287,6 +289,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/quality-gate.yml',
   '.github/workflows/scorecard.yml',
   '.github/workflows/skill-docs.yml',
+  '.github/workflows/test-changes.yml',
   '.github/workflows/test-health.yml',
   '.github/workflows/trunk-flaky-tests.yml',
   '.github/workflows/eval-sweep.yml', // The weekly off-ship sweep on main; no PR-gate case reads it, and it never gates a PR.

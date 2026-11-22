@@ -1,0 +1,1 @@
+**The nightly Windows test run no longer loses a shard to its 15-minute limit.** Its plan packs files by their Windows-recorded time, uses a file's Linux time only when the Windows recording lacks it (instead of a 161-second guess), and adds shards beyond eight until no shard plans more than 12 minutes of work. docs/TESTING_INTERNALS.md (GST-3440)

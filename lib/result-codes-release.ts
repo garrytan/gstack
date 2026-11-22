@@ -616,6 +616,46 @@ export const RELEASE_RESULT_CODES = {
     summary: 'a review_exclude_paths pattern keeps so many matched files in review that the command readers run to read them would pass 24,000 argument bytes, so gstack-review-plan stopped instead of silently dropping the pattern; the line names the pattern, the kept count, the reasons they are kept and the bytes',
     fix: 'when the kept files are published data (reason code on .patch, MANIFEST.sha256 or extension-less files), land a review_content_patterns entry over them beside the pattern on the base as its own PR, then bring the base into the branch and rerun once; otherwise narrow the pattern or split the PR',
   },
+  VENDORED_MISMATCH: {
+    anchor: 'vendored-mismatch',
+    summary: 'a file a vendored manifest pins is not byte-for-byte the upstream file at the pinned commit (its git blob id differs), so it is not treated as vendored and stays in review',
+    fix: 'restore the upstream bytes (rebuild it from the pinned commit), or remove the entry from the manifest so the edited file is reviewed as the repo\'s own code',
+  },
+  VENDORED_ABSENT_UPSTREAM: {
+    anchor: 'vendored-absent-upstream',
+    summary: 'the upstream path a vendored manifest entry names does not exist at the pinned commit',
+    fix: 'correct the entry\'s upstream_prefix, file path or commit in the manifest so it names a file that exists upstream at that commit',
+  },
+  VENDORED_ABSENT_LOCAL: {
+    anchor: 'vendored-absent-local',
+    summary: 'a vendored manifest lists a file that is not in the commit being checked',
+    fix: 'add the file, or remove its entry from the manifest (the repo\'s build writes both, so rebuild them together)',
+  },
+  VENDORED_MODE: {
+    anchor: 'vendored-mode',
+    summary: 'a vendored file is an executable, a symlink or a submodule, here or upstream; only plain files (mode 100644 on both sides) count as vendored',
+    fix: 'clear the executable bit if the upstream file is a plain file, or remove the entry so the file is reviewed',
+  },
+  VENDORED_UNREACHABLE: {
+    anchor: 'vendored-unreachable',
+    summary: 'the pinned commit is not reachable from the upstream\'s default branch, its tags or a branch the base policy names for it (a fork\'s commit, a pull request head, a merge-queue branch or a force-pushed commit), so its files stay in review',
+    fix: 'pin a commit on the upstream\'s default branch or a release tag; if the upstream ships from another branch, add it to that upstream\'s branches in review_vendored on the base branch as its own PR',
+  },
+  VENDORED_NOT_ALLOWLISTED: {
+    anchor: 'vendored-not-allowlisted',
+    summary: 'a vendored manifest pins files to an upstream that the base branch\'s review_vendored.upstreams does not list; a branch cannot trust a new upstream for itself',
+    fix: 'add the upstream URL to review_vendored.upstreams on the base branch as its own PR, then bring the base into the branch and rerun',
+  },
+  VENDORED_FETCH_FAILED: {
+    anchor: 'vendored-fetch-failed',
+    summary: 'the upstream could not be fetched anonymously over https (deleted, renamed, private, redirected, or the network failed or timed out), so its files could not be checked and stay in review',
+    fix: 'rerun once (a fetch has no side effects); if it fails again, check the URL opens without signing in and does not redirect, and update review_vendored.upstreams on the base if the repository moved',
+  },
+  VENDORED_MANIFEST_INVALID: {
+    anchor: 'vendored-manifest-invalid',
+    summary: 'a manifest the base policy lists is missing at the commit being checked or does not follow gstack-vendored/v1 (the line names the field), so none of its files count as vendored',
+    fix: 'fix the field the line names (docs/vendored-code.md#the-manifest), usually by rerunning the repo\'s build that writes the manifest',
+  },
   REVIEW_DIFF_UNREADABLE: {
     anchor: 'review-diff-unreadable',
     summary: 'git could not read a reviewer\'s diff (reason=timeout after timeout_ms, or reason=git-exit with git\'s exit code), so /ship stopped; the full stderr, with remote URLs redacted, is in the log= file',

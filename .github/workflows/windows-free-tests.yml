@@ -18,10 +18,10 @@ name: Windows Free Tests
 # the curated files, one shard per Windows job, and an aggregate that requires
 # every strict result and exact coverage. The plan and the verify step are
 # static (file contents and the git revision), so they run on Linux. Packing
-# reads Windows-measured durations (scripts/free-test-durations-windows.json):
-# Windows-only files such as the native cookie job cost minutes there and
-# nothing on Linux. Refresh it with a `record_durations` dispatch and commit
-# the artifact.
+# reads Windows-measured durations (scripts/free-test-durations-windows.json),
+# with a file's Linux time when the Windows seed lacks it: Windows-only files
+# such as the native cookie job cost minutes there and nothing on Linux.
+# Refresh it with a `record_durations` dispatch and commit the artifact.
 #
 # Native browser qualification campaigns (Windows cookie extraction, launch
 # diagnostics) are dispatch-only in native-qualification.yml.
@@ -110,11 +110,10 @@ jobs:
           bun-version: 1.4.2
       - id: plan
         name: Curate and balance the Windows-safe free suite
-        # Eight shards: the 2026-11-16 Windows seed sums to about 96 min of
-        # per-file work, about 12 min a shard, which ran at 0.6-0.9x inside a
-        # shard, so each job lands near 10 min, under its 15-minute limit.
+        # At least eight shards, more when needed so no shard plans past 720 s,
+        # 80% of its 15-minute job (GST-3440); in-shard time ran at 0.6-0.9x
+        # recorded, plus about 70 s of job setup.
         env:
-          GSTACK_FREE_TEST_DURATIONS: scripts/free-test-durations-windows.json
           JOBS_OVERRIDE: ${{ inputs.windows_jobs }}
         run: |
           set -euo pipefail
@@ -126,7 +125,7 @@ jobs:
           if [ "$jobs" != "$WINDOWS_FREE_JOBS" ]; then
             echo "- Sub-shard experiment: $jobs sub-shards per Windows shard (default $WINDOWS_FREE_JOBS); not a PR Windows Free Tests result" >> "$GITHUB_STEP_SUMMARY"
           fi
-          matrix=$(bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 8 --shard-jobs "$jobs")
+          matrix=$(bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 8 --shard-jobs "$jobs" --shard-budget-seconds 720)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

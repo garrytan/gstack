@@ -27,7 +27,7 @@ describe('Capy pass program (fake host, real bins)', () => {
       }
       expect(res).not.toContain('STOP:');
       expect(res).toContain('COLLECT_UNAVAILABLE: reader=outside-voice');
-      expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.1-sol","outside_status":"unavailable"');
+      expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.2-sol","outside_status":"unavailable"');
       expect(res).toContain('first write this voice its own adversarial-review row with "source":"host-subagent","status":"unavailable","completed":false,"converged":false and no --finish, then the native row');
       expect(res).toContain('NEXT: judge the voices');
       if ('hang' in o) {
@@ -66,7 +66,7 @@ describe('Capy pass program (fake host, real bins)', () => {
       }
       expect(res).not.toContain('STOP:');
       expect(res).not.toContain('COLLECT_UNAVAILABLE: reader=outside-voice');
-      expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.1-sol","outside_status":"completed"');
+      expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.2-sol","outside_status":"completed"');
       expect(res).toContain('NEXT: judge the voices');
     }
   }, 600_000);
@@ -127,8 +127,8 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(astra.prompt).not.toContain('Think like an attacker');
     expect(created('outside-voice')!.prompt).toContain('Think like an attacker and a chaos engineer.');
     expect(created('outside-voice/gemini-4-carbon')).toBeUndefined();
-    expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6-astra","outside_status":"completed","outside_note":"second-family read by openai/gpt-6-astra on the read-only retry brief after cyber_policy refused openai/gpt-6.1-sol"');
-    expect(res).not.toContain('"outside_model":"openai/gpt-6.1-sol"');
+    expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6-astra","outside_status":"completed","outside_note":"second-family read by openai/gpt-6-astra on the read-only retry brief after cyber_policy refused openai/gpt-6.2-sol"');
+    expect(res).not.toContain('"outside_model":"openai/gpt-6.2-sol"');
     expect(res).toContain('NEXT: judge the voices');
     expect(verify).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
     expect(verify).toMatch(/^OUTPUT outside-voice UNAVAILABLE .*reason=".*cyber_policy/m);
@@ -150,7 +150,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(gemini.model).toEqual({ model_id: 'google/gemini-4-carbon', reasoning_mode: 'high' });
     expect(gemini.prompt).toBe(created('outside-voice')!.prompt);
     expect(h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(3);
-    expect(res).toContain('"outside_model":"google/gemini-4-carbon","outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.1-sol, openai/gpt-6-astra (read-only retry brief) and google/gemini-4-carbon"');
+    expect(res).toContain('"outside_model":"google/gemini-4-carbon","outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.2-sol, openai/gpt-6-astra (read-only retry brief) and google/gemini-4-carbon"');
     expect(res).toContain('first write this voice its own adversarial-review row');
     expect(res).toContain('NEXT: judge the voices');
     expect(verify).not.toContain('MISMATCH');
@@ -161,13 +161,13 @@ describe('Capy pass program (fake host, real bins)', () => {
   // Value: protects=on a Google-family lane the Gemini step is skipped (Step 11 refuses an outside voice of the lane's family), so two OpenAI refusals record the second-family read as missing and a resume finishes instead of stopping; fails_when=Gemini is planned beside a Google lane and familyStop stops every resume;
   //   why_new=GSTA-537 /ship outside-voice finding (lib/review-pass.ts:274), fixed under the Captain's scoped fix-check grant; seam=planCyberRetry via gstack-review-dispatch retry; no_claim=which outside voice a Google lane should use
   test('a Google-family lane skips the Gemini retry and records the second-family read missing, with no STOP on resume (R95)', async () => {
-    const lane = { laneModel: 'google/gemini-4-argon', models: { 'outside-voice': { model_id: 'openai/gpt-6.1-sol', reasoning_mode: 'medium' } } };
+    const lane = { laneModel: 'google/gemini-4-argon', models: { 'outside-voice': { model_id: 'openai/gpt-6.2-sol', reasoning_mode: 'medium' } } };
     const { res, all, h, created, base } = await refusedVoices('x45p1', t => (/outside-voice(\/astra-read-only)?$/.test(t) ? CYBER : undefined), lane);
     expect(all).not.toContain('STOP:');
     expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6-astra brief=read-only');
     expect(all).toContain('RETRY: exhausted reader=outside-voice/astra-read-only');
     expect(created('outside-voice/gemini-4-carbon')).toBeUndefined();
-    expect(res).toContain('"outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.1-sol and openai/gpt-6-astra (read-only retry brief)"');
+    expect(res).toContain('"outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.2-sol and openai/gpt-6-astra (read-only retry brief)"');
     expect(res).toContain('NEXT: judge the voices');
     const again = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
     expect(again).not.toContain('STOP:');
@@ -191,11 +191,11 @@ describe('Capy pass program (fake host, real bins)', () => {
     const failed = await refusedVoices('x42p1', t => (t.endsWith(' outside-voice') ? 'OpenAI key declined the request: invalid_api_key: Incorrect API key provided.' : undefined));
     expect(failed.res).not.toContain('STOP:');
     expect(failed.all).toContain('RETRY: none');
-    expect(failed.res).toContain('"outside_model":"openai/gpt-6.1-sol","outside_status":"unavailable"');
+    expect(failed.res).toContain('"outside_model":"openai/gpt-6.2-sol","outside_status":"unavailable"');
     expect(failed.h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(1);
     const clean = await refusedVoices('x43p1', () => undefined);
     expect(clean.all).not.toContain('RETRY:');
-    expect(clean.res).toContain('"outside_model":"openai/gpt-6.1-sol","outside_status":"completed"');
+    expect(clean.res).toContain('"outside_model":"openai/gpt-6.2-sol","outside_status":"completed"');
     expect(clean.res).not.toContain('outside_note');
     expect(clean.h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(1);
   }, 600_000);
@@ -217,7 +217,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).not.toContain('STOP:');
     expect(all).not.toContain('RETRY:');
     expect(h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(1);
-    expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.1-sol","outside_status":"completed"');
+    expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.2-sol","outside_status":"completed"');
     expect(fs.readFileSync(path.join(out, 'merged.jsonl'), 'utf8')).toContain('A guard fails open');
   }, 300_000);
 });

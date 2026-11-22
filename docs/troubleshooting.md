@@ -4142,7 +4142,9 @@ removing files under a pattern, pass that run's `--docs-post <audit-id>-post.jso
 `--docs-pre` as well instead of rerunning the review; the refusal's `the docs-audit exception does not apply:` clause says why when it cannot
 ([ship-policy.md](ship-policy.md#review-exclude-paths), GST-1429). When the run audited twice (a re-audit after a base merge),
 pass the last audit's pair; its post snapshot must carry the earlier audit (`--carry <earlier -post.json>`, GST-1616), or the
-earlier audit's files stay in the selection and write refuses as before.
+earlier audit's files stay in the selection and write refuses as before. The last audit may have edited nothing: write still binds
+through the audits it carries, ignores docs files only the merged base changed, and accepts a base policy that gained a pattern
+in that merge (GST-3260).
 
 Write, carry and the queue bind a digest that differs (`recorded=none`, written before the base
 gained `review_exclude_paths`, or a digest from an older policy) when the recorded selection and
@@ -4619,6 +4621,90 @@ file name no root has, a sha a shallow clone lacks) prints
 **Fix.** Open the file and cite the line that holds the evidence. When the
 evidence lives in another checkout, run `check` with `--root <dir>` for it
 (repeatable; the default is the git top level of the working directory).
+
+## Vendored upstream files (gstack-vendored-verify)
+
+<a id="vendored-mismatch"></a>
+### `VENDORED_MISMATCH`
+
+**Meaning.** A file the manifest pins is not the upstream's file at the pinned
+commit: its git blob id (git's hash of the exact bytes) differs. The line names
+the local path, the upstream, the commit and the upstream path. The file is not
+treated as vendored.
+
+**Fix.** Rebuild the file from the pinned commit. If the change is deliberate,
+remove the file from the manifest so it is reviewed as the repo's own code.
+
+<a id="vendored-absent-upstream"></a>
+### `VENDORED_ABSENT_UPSTREAM`
+
+**Meaning.** The upstream path an entry names does not exist at the pinned
+commit. A manifest maps files by prefix, so a file cannot be renamed on the way
+in: `vendor/lib/tests/conftest.py` only matches an upstream `tests/conftest.py`.
+
+**Fix.** Correct the entry's `upstream_prefix`, file path or commit.
+
+<a id="vendored-absent-local"></a>
+### `VENDORED_ABSENT_LOCAL`
+
+**Meaning.** The manifest lists a file that is not in the commit being checked.
+
+**Fix.** Add the file, or remove the entry. The repo's build writes both, so
+rebuild them together.
+
+<a id="vendored-mode"></a>
+### `VENDORED_MODE`
+
+**Meaning.** The file is an executable, a symlink or a submodule, here or
+upstream. Only plain files (mode `100644` on both sides) count as vendored.
+
+**Fix.** Clear the executable bit when the upstream file is a plain file, or
+remove the entry so the file is reviewed.
+
+<a id="vendored-unreachable"></a>
+### `VENDORED_UNREACHABLE`
+
+**Meaning.** The pinned commit is not on the upstream's default branch, a tag,
+or a branch the base policy names for that upstream. GitHub serves a fork's
+commits and pull request heads through the original repository's URL, so a
+commit that merely exists there proves nothing. Merge-queue branches and
+force-pushed commits fail the same way.
+
+**Fix.** Pin a commit on the default branch or a release tag. When the upstream
+ships from another branch, add it to that upstream's `branches` in
+`review_vendored` on the base branch, as its own PR.
+
+<a id="vendored-not-allowlisted"></a>
+### `VENDORED_NOT_ALLOWLISTED`
+
+**Meaning.** The manifest pins files to an upstream the base branch's
+`review_vendored.upstreams` does not list. The list is read from the base
+only, so a branch cannot trust a new upstream for itself.
+
+**Fix.** Add the upstream's URL on the base branch as its own PR, then bring the
+base into the branch and rerun.
+
+<a id="vendored-fetch-failed"></a>
+### `VENDORED_FETCH_FAILED`
+
+**Meaning.** The upstream could not be fetched anonymously over https: it was
+deleted, renamed, made private, redirected, or the network failed or timed out
+(`GSTACK_VENDORED_FETCH_TIMEOUT_MS`, default 180,000). `--offline` reports it
+for a pin no earlier run cached. Its files stay in review.
+
+**Fix.** Rerun once; a fetch has no side effects. If it fails again, check the
+URL opens without signing in and does not redirect, and update
+`review_vendored.upstreams` on the base if the repository moved.
+
+<a id="vendored-manifest-invalid"></a>
+### `VENDORED_MANIFEST_INVALID`
+
+**Meaning.** A manifest the base policy lists is missing at the commit being
+checked, or breaks the `gstack-vendored/v1` format; the line names the field.
+Nothing is checked until it is fixed.
+
+**Fix.** Fix the field ([the manifest](vendored-code.md#the-manifest)), usually
+by rerunning the build that writes it.
 
 ## Pre-gate: generated-file registry, gstack-pregate, issue links
 
@@ -6435,13 +6521,24 @@ the lane fixes it at a new head (a flaky case gets its one rerun under rule
 ### `QUEUE_LAND_MERGED_CHECKS`
 
 **Meaning.** `origin/main` moved since the pin's merge base, and a
-`land.merged_checks` command failed on the pin merged onto main's tip. The
-message names the command, its exit and its last output lines. Nothing was
-merged.
+`land.merged_checks` command or the `land.merged_ci` run failed on the pin merged
+onto main's tip. The message names the command, its exit and its last output
+lines, or the CI run and its conclusion. Nothing was merged. When the message
+says the checks changed files land's later git and gh calls read (the
+checkout's git config, hooks, `commondir` or `gitdir` files, its `.git`, a config
+file git includes, the global git config, gh's config, or the pinned `git` or
+`gh`), land made no further git or gh call, pushed no lock release, and a
+`LOCK: warn` line says the land lock stays held.
 
-**Fix.** The lane merges `origin/main` into the branch, fixes what the
-command names, pushes, waits for the required checks, runs /ship and `ready`
-at the new head, and sends a new READY.
+**Fix.** For changed files, hold: nothing goes back to the lane yet. Inspect
+each named path and restore it from a trusted copy (delete a hook the checks
+added) before any git command in that checkout, then release the lock without
+running the checks with `gstack-ship-queue land --pr <n> --pin <sha>` (no
+`--allow-repo-commands`), and find out why the PR's checks wrote there before it
+lands. For a failed command or a red CI run, read the output or the failed job;
+a flaky case gets one rerun of land, and a real failure goes back to the lane,
+which merges `origin/main` into the branch, fixes it, pushes, waits for the
+required checks, runs /ship and `ready` at the new head, and sends a new READY.
 
 <a id="queue-land-not-clean"></a>
 ### `QUEUE_LAND_NOT_CLEAN`

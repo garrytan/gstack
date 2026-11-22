@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
 import { MAX_ROUTES, PROMPT_HEAD_CHARS, PROMPT_TAIL_CHARS, ROUTED_SKILLS, ROUTE_THRESHOLD, SWITCH_DEFAULT, bugReport, firstStep, hintLine, isGstackSkill, readSkillSwitch, routePrompt, scanInstalledSkills, scorePrompt, stem } from '../lib/skill-route';
 import { ROOT, ROUTE_HOOK, SKILLS, hookEnv, runHook, skillsDir, tmpDir } from './helpers/skill-contract-fixture';
 
@@ -78,8 +77,9 @@ describe('scorer', () => {
   test('a bug report is not a QA request: words a long report shares with a /qa trigger do not route it to /qa (GST-3123)', () => {
     const routed = scanInstalledSkills(ROOT).skills.filter(s => ROUTED_SKILLS.includes(s.name));
     const bugfix = { name: 'verify', file: '', frontmatter: '', triggers: ['fix this bug', 'reproduce the bug in a test'] };
-    const reports = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-bug-reports.json'), 'utf8')) as { id: string; prompt: string }[];
-    expect(reports.map(r => r.id)).toEqual(['tox-dev__tox-3666', 'zauberzeug__nicegui-5914', 'hkuds__openharness-217']);
+    const reports = (JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-synthetic-prompts.json'), 'utf8')) as { qa_overlap: { id: string; prompt: string }[] }).qa_overlap;
+    expect(reports.length).toBe(4);
+    expect(reports.some(r => r.prompt.length > PROMPT_HEAD_CHARS + PROMPT_TAIL_CHARS)).toBe(true);
     for (const r of reports) {
       expect([r.id, routePrompt(r.prompt, routed).route?.skill ?? null]).toEqual([r.id, null]);
       expect([r.id, routePrompt(r.prompt, [bugfix]).route?.skill]).toEqual([r.id, 'verify']);
@@ -341,10 +341,9 @@ describe('installed skills beside gstack (GST-3123)', () => {
     expect(bugReport("the upload won't finish; it should")).toBe(true);
   });
 
-  test('B1 in-sample: every bug report names prove-it alone and never /verify first; plain prompts name nothing (GST-3237)', () => {
-    const b1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-b1-in-sample.json'), 'utf8')) as { prompts: { id: string; prompt_sha256: string; label: string; prompt: string }[] };
+  test('B1-shaped prompts: every bug report names prove-it alone and never /verify first; plain prompts name nothing (GST-3237)', () => {
+    const b1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'skill-route-synthetic-prompts.json'), 'utf8')) as { prompts: { id: string; label: string; prompt: string }[] };
     expect(b1.prompts.length).toBe(60);
-    for (const p of b1.prompts) expect([p.id, createHash('sha256').update(p.prompt).digest('hex')]).toEqual([p.id, p.prompt_sha256]);
     const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
     const names = (text: string) => { const d = routePrompt(text, [...routed, proveIt]); return d.route ? d.routes.map(r => r.skill) : []; };
     const bugs = b1.prompts.filter(p => p.label === 'bug');

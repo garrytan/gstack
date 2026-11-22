@@ -8,6 +8,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { FREE_FIXTURES } from './helpers/free-fixtures-data';
@@ -145,6 +146,67 @@ describe('PR selection over the W1a single-file fallbacks', () => {
       expect(['needs touchfile entry', 'add to FREE_ONLY_PR_FILES', 'real unknown dependency']).toContain(label);
       expect(fix).toContain(file);
       expect(fix).toMatch(/touchfiles-data\.ts|FREE_ONLY_PR_FILES|FREE_FIXTURES/);
+    }
+  });
+});
+
+// Every gstack install is a clone of this repository, so text under test/ sits in each user's home and in every
+// eval arm that installs gstack. A real benchmark task there contaminates any eval that uses it (GST-3402). This
+// scan fails when a file under test/ or browse/test/ names a SWE-bench-style task id (owner and repository
+// joined by two underscores, then a dash and a number, as SWE-rebench and SWE-bench write them). Router and
+// fixture tests use synthetic prompts instead, and real task material stays out of this repository.
+
+const TASK_ID = /(?<![\w.-])[A-Za-z0-9][A-Za-z0-9-]*__[A-Za-z0-9][\w.-]*-\d+(?!\d)/g;
+const MAX_BYTES = 8 * 1024 * 1024;
+
+function files(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = path.join(dir, e.name);
+    if (e.isSymbolicLink()) return [];
+    if (e.isDirectory()) return e.name === 'node_modules' || e.name === '.git' ? [] : files(p);
+    return [p];
+  });
+}
+
+/** Each file under the given roots that names a task id, with the first id it names. */
+function taskIds(root: string, dirs: string[]): string[] {
+  const hits: string[] = [];
+  for (const file of dirs.flatMap((d) => files(path.join(root, d)))) {
+    const rel = path.relative(root, file).split(path.sep).join('/');
+    if (fs.statSync(file).size > MAX_BYTES) {
+      hits.push(rel + ': too large to scan');
+      continue;
+    }
+    const text = fs.readFileSync(file, 'utf8');
+    const m = text.match(TASK_ID);
+    if (m) hits.push(rel + ': ' + m[0]);
+  }
+  return hits;
+}
+
+describe('no benchmark task ids under test/', () => {
+  test('no file under test/ or browse/test/ names a SWE-bench-style task id', () => {
+    expect(taskIds(ROOT, ['test', 'browse/test'])).toEqual([]);
+  });
+
+  test('negative control: a planted task id is caught, and dunder names, versions and plain ids are not', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-task-ids-'));
+    try {
+      const planted = ['acme-widgets', 'gizmo-4242'].join('__');
+      const suffixed = ['zz', 'sprocket-77_interface'].join('__');
+      fs.mkdirSync(path.join(dir, 'test', 'fixtures'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'test', 'fixtures', 'tasks.json'), JSON.stringify([{ id: planted }]));
+      fs.writeFileSync(path.join(dir, 'test', 'fixtures', 'suffixed.txt'), 'run ' + suffixed + '\n');
+      fs.writeFileSync(path.join(dir, 'test', 'near-misses.ts'), [
+        "path.join('__pycache__', '__init__.cpython-312.pyc')",
+        "const id = 'synthetic-bug-01';",
+        "self.__private__ = 'v1-2'",
+        "label: foo__bar",
+      ].join('\n'));
+      expect(taskIds(dir, ['test']).sort()).toEqual(['test/fixtures/suffixed.txt: ' + suffixed.replace(/_interface$/, ''), 'test/fixtures/tasks.json: ' + planted]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

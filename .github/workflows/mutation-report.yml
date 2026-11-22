@@ -1,0 +1,64 @@
+name: Mutation report
+
+# Weekly, report-only mutation trial (docs/TESTING_INTERNALS.md#mutation-report).
+# StrykerJS plants small wrong edits in the five lib files with the most commits
+# in the last 90 days and runs the tests that import each file; the step summary
+# and the artifact list every edit no test caught. It never blocks a merge: it
+# is not a required check and does not run on pull requests.
+#
+# Stryker and its Bun runner are installed at exact versions into the runner's
+# temp directory (scripts/mutation-report.ts STRYKER_PACKAGES), so package.json
+# and bun.lock do not change. Stryker edits files in place, so it runs only in
+# this job's own disposable checkout.
+
+on:
+  schedule:
+    - cron: '0 6 * * 6'  # Saturday 06:00 UTC, away from Monday's periodic census
+  workflow_dispatch:
+    inputs:
+      files:
+        description: How many of the most-changed lib files to mutate
+        type: string
+        default: '5'
+
+concurrency:
+  group: mutation-report
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-report:
+    name: Mutation report
+    runs-on: ubicloud-standard-16
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Prepare the same inputs as a free-suite shard
+        run: |
+          bash scripts/ubicloud/setup-free-suite.sh
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      - name: Install pinned Stryker outside the checkout
+        run: |
+          set -euo pipefail
+          read -ra packages <<< "$(bun --no-env-file --config=/dev/null -e 'import { STRYKER_PACKAGES } from "./scripts/mutation-report.ts"; console.log(STRYKER_PACKAGES.join(" "))')"
+          npm install --prefix "$RUNNER_TEMP/stryker" --no-save --no-audit --no-fund --ignore-scripts "${packages[@]}"
+      - name: Run the mutation report
+        env:
+          FILES: ${{ inputs.files || '5' }}
+        run: |
+          set -euo pipefail
+          GSTACK_HOME="$RUNNER_TEMP/gstack-home" xvfb-run -a bun --no-env-file --config=/dev/null scripts/mutation-report.ts \
+            --throwaway-checkout --files "$FILES" --concurrency 14 --file-budget-min 55 \
+            --stryker-dir "$RUNNER_TEMP/stryker" --out-dir "$RUNNER_TEMP/mutation" --summary-file "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: mutation-report
+          path: ${{ runner.temp }}/mutation/
+          if-no-files-found: ignore

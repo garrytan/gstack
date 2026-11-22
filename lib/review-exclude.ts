@@ -39,7 +39,7 @@ import { lineTags, swallowsAcrossLines, tagHunk } from './gate-diff/tags';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
 import { scan } from './redact-engine';
 import { shannonEntropy } from './redact-patterns';
-import { KEY_NAME, RESULTS_TREE, SECRET_LINE, secretPath } from './review-risk';
+import { KEY_NAME, RESULTS_TREE, SECRET_LINE, hashManifest, secretPath } from './review-risk';
 import { secretExcerpt } from './review-secret-excerpt';
 import { cmpVersion, parseVersion } from './version-source';
 import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
@@ -374,12 +374,15 @@ const consumer = (i: Scope, f: string, candidates: ReadonlySet<string>, mode?: s
     || (!!i.declared?.has(f) && (!!i.keptDeclared?.has(f) || mode === '100755' || mode === '120000')));
 
 /**
- * An uncapped `git grep -F -o -f` of fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
+ * An uncapped search for fixed strings at the head (or the working tree) and `revs`: string -> the consumer files
  * holding it; null when git could not list a tree, a consumer's name did not survive UTF-8 decoding, or git could not build
  * the scratch index or grep it (a timeout included). Each tree's file list is filtered to consumers first, so the data under
  * the patterns is never read (GST-1435: a whole-tree grep for 4,354 candidate paths through 30 MB of receipts ran 278 s), and
  * the consumers go into a scratch index that one git grep reads, so the git calls stay fixed however many files there are
- * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). On a live tree, an entry git reads from its blob
+ * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). `git grep -l` lists the consumers holding any string, and
+ * only those are read and searched here: git's -o grew with the number of strings (HARN-64: 2,140 candidate paths in one
+ * 464 KB pins.sha256 ran past git's 120 s bound, so every candidate stayed in review). A consumer that is a hash or pin
+ * manifest (every line a digest and a path, lib/review-risk.ts) names files without reading them, so it keeps none. On a live tree, an entry git reads from its blob
  * (skip-worktree or assume-unchanged) goes into a second index grepped with --cached, as git grep itself would read it.
  */
 function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet<string>, revs: readonly string[]): Map<string, Set<string>> | null {
@@ -409,14 +412,28 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
         if (!entries.length) continue;
         const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, `index-${n++}`) };
         if (!git(i.root, ['update-index', '-z', '--index-info'], entries.join('\0') + '\0', env).ok) return null;
-        const r = git(i.root, ['grep', ...flags, '-I', '-F', '-o', '--null', '--no-line-number', '--no-column', '--no-color', '-f', list], undefined, env);
-        if (r.status !== 0 && r.status !== 1) return null;
-        for (const line of r.out.split('\n')) {
-          const parts = line.split('\0');
-          const file = parts[0];
-          const match = parts.length > 1 ? parts[parts.length - 1] : undefined;
-          if (!file || !match) continue;
-          (found.get(match) ?? found.set(match, new Set()).get(match)!).add(file);
+        const hits = git(i.root, ['grep', ...flags, '-I', '-F', '-l', '-z', '--no-color', '-f', list], undefined, env);
+        if (hits.status !== 0 && hits.status !== 1) return null;
+        const files = hits.out.split('\0').filter(Boolean);
+        const bodies = new Map<string, string>();
+        if (flags.length && files.length) {
+          const shas = new Map(entries.map(e => [e.slice(e.indexOf('\t') + 1), e.slice(0, e.indexOf('\t')).split(' ')[1]!]));
+          const want = files.map(f => shas.get(f));
+          if (want.some(s => !s)) return null;
+          const b = spawnSync('git', ['cat-file', '--batch'], { cwd: i.root, input: want.join('\n') + '\n', timeout: 120_000, maxBuffer: MAX_BUFFER });
+          if (b.status !== 0 || !b.stdout) return null;
+          let at = 0;
+          for (const f of files) {
+            const nl = b.stdout.indexOf(10, at);
+            const size = Number(b.stdout.subarray(at, nl).toString().split(' ')[2]);
+            if (nl < 0 || !Number.isInteger(size)) return null;
+            bodies.set(f, b.stdout.subarray(nl + 1, nl + 1 + size).toString('utf8'));
+            at = nl + 2 + size;
+          }
+        } else for (const f of files) try { bodies.set(f, fs.readFileSync(path.join(i.root, f), 'utf8')); } catch { return null; }
+        for (const [file, body] of bodies) {
+          if (hashManifest(body.split('\n'))) continue;
+          for (const s of strings) if (body.includes(s)) (found.get(s) ?? found.set(s, new Set()).get(s)!).add(file);
         }
       }
     }
