@@ -175,7 +175,8 @@ const PASSING = ['success', 'skipped', 'neutral'];
 export async function waitForRun(deps: RunDeps, o: { workflow: string; events: string[]; head: string; also?: string[]; timeoutMs: number; intervalMs: number; sleep: (ms: number) => Promise<void>; clock: () => number; random?: () => number }): Promise<WaitVerdict> {
   const end = o.clock() + o.timeoutMs;
   for (;;) {
-    const newest = [o.head, ...(o.also ?? [])].flatMap(h => deps.runsForHead(o.workflow, h)).filter(r => o.events.includes(r.event)).sort(newestFirst)[0];
+    const runs = [o.head, ...(o.also ?? [])].flatMap(h => deps.runsForHead(o.workflow, h)).filter(r => o.events.includes(r.event)).sort(newestFirst);
+    const newest = runs.find(r => !(r.status === 'completed' && r.conclusion === 'skipped')) ?? runs[0];
     if (newest?.status === 'completed') {
       if (newest.conclusion === 'success') return { state: 'green', run: newest };
       const failing = deps.jobs(newest.id, newest.run_attempt).filter(j => !PASSING.includes(j.conclusion ?? '')).map(j => j.name);
