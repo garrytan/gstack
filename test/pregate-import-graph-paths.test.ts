@@ -303,3 +303,31 @@ describe('import graph: alias precedence, extends and the no-lane explanation', 
     expect(text).toContain('declare the file under dependencies in .gstack/pregate.json, or report the resolver gap');
   });
 });
+
+describe('import graph: NodeNext specifiers written with the emitted extension (#4398)', () => {
+  // Value: protects=NodeNext `./x.js` specifiers map to x.ts or x.tsx (and .jsx→.tsx, .mjs→.mts), directly and transitively, the
+  //   import resolves to the .ts source over a .js twin as in tsc (the twin keeps its literal edge), and a filesystem literal naming
+  //   a `.js` directory keeps that directory;
+  //   fails_when=the .js→.ts rewrite is removed, runs after the as-written lookup, or applies to literals;
+  //   why_new=no case covered emitted-extension imports; seam=none; no_claim=bundler-specific resolution beyond the TS rewrite
+  test('a NodeNext import written with the emitted .js extension maps to its .ts source', () => {
+    const repo = fixture();
+    commit(repo, {
+      'src/leaf.ts': 'export const leaf = 1;\n',
+      'src/mid.ts': "import { leaf } from './leaf.js';\nexport const mid = leaf;\n",
+      'src/view.tsx': 'export const View = () => null;\n',
+      'src/esm.mts': 'export const esm = 1;\n',
+      'src/both.js': 'export const both = 1;\n',
+      'src/both.ts': 'export const both = 2;\n',
+      'src/panel.tsx': 'export const Panel = () => null;\n',
+      'tests/fixtures/config.js/a.json': '{}\n',
+      'tests/fixtures/config.ts': 'export const config = 1;\n',
+      'tests/fixture.ts': "export { mid } from '../src/mid.js';\n",
+      'tests/app.test.ts': "import { readdirSync } from 'node:fs';\nimport { mid } from './fixture.js';\nimport { View } from '../src/view.jsx';\nimport { esm } from '../src/esm.mjs';\nimport { both } from '../src/both.js';\nimport { Panel } from '../src/panel.js';\nvoid [mid, View, esm, both, Panel, readdirSync('tests/fixtures/config.js')];\n",
+    });
+    const g = buildGraph(repo.work);
+    for (const f of ['tests/fixture.ts', 'src/mid.ts', 'src/leaf.ts', 'src/view.tsx', 'src/esm.mts', 'src/both.ts', 'src/both.js', 'src/panel.tsx', 'tests/fixtures/config.js/a.json']) expect(testsFor(g, f).tests).toEqual(['tests/app.test.ts']);
+    expect(testsFor(g, 'src/both.ts').provenance).toEqual(['tests/app.test.ts ← src/both.ts (import)']);
+    expect(testsFor(g, 'tests/fixtures/config.ts').tests).toEqual([]);
+  });
+});

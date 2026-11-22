@@ -324,7 +324,9 @@ Two stages with separate clocks, both printed:
 
 - `lanes`: touched files map to tests through `lib/pregate/import-graph.ts`
   (static imports ∪ repo-path string literals ∪ the `bin/<name>` →
-  `test/<name>*.test.ts` convention ∪ `dependencies`; Dart `import`/`export`/`part`
+  `test/<name>*.test.ts` convention ∪ RSpec's `[<root>/]spec/<path>_spec.rb` →
+  `[<root>/]app/<path>.rb` or `[<root>/]<path>.rb` convention, for whichever exists
+  (request and system specs name no single source file and map to none) ∪ `dependencies`; Dart `import`/`export`/`part`
   directives resolve `package:<name>/x` through every tracked `pubspec.yaml`, and
   `*_test.dart` files under a `test/` directory are tests, except under `integration_test/` and
   `test_driver/`: they need a device, so pregate never runs them, and a touched
@@ -377,6 +379,10 @@ Two stages with separate clocks, both printed:
   `baseUrl`) tries the exact path, then `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`,
   `.cjs`, `.mts`, `.cts`, then `index.ts`, `index.tsx`, `index.js`, `index.jsx`
   and `index.mjs` inside the directory; the first file that exists wins.
+  An import written with the emitted extension (NodeNext: `./x.js` for `x.ts`
+  or `x.tsx`, `.jsx` → `.tsx`, `.mjs` → `.mts`, `.cjs` → `.cts`) resolves to
+  its TypeScript source first, as tsc does, even when a compiled `.js` sits
+  beside it, then as written; a path string literal always names the file as written.
   A touched source file with no lane is `FAIL lanes — <file> has no test lane`
   once a policy that [declares lanes](#lane-requirements) exists (the base copy,
   the user-owned file or `--policy-from head`); with no policy anywhere, or one
