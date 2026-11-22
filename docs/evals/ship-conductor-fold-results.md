@@ -24,7 +24,7 @@ value t = 2.291 (10 cases).
 - **No clear difference in cost.** F minus C was +$0.07 a run (-$1.42 to +$1.57), against a planned detectable difference of
   about $7. Mean cost was $11.47 for C and $11.54 for F.
 - **No clear difference in what it caught.** Planted bugs: F minus C +0.03 (-0.18 to +0.24), 22 of 30 for F against 21 of 30 for C.
-  Real problems found by the judge: F minus C -0.03 (-0.33 to +0.27), over the 6 cases with one (corrected; see
+  Real problems found by the judge: F minus C -0.03 (-0.37 to +0.32), over the 6 cases with one (corrected; see
   below). No case was a structural loss (C catching in
   all three runs and F in none) on either measure.
 - **No clear difference in time.** Wall time F minus C was -1.9 minutes (-8.1 to +4.4), and `calls=` +0.35 (-2.8 to +3.5),
@@ -45,7 +45,7 @@ value t = 2.291 (10 cases).
   script's per-case mean counts that as a structural loss, but the frozen rule needs F to miss in all 3 runs, so
   with one F run left the case is not assessable and there is no preregistered failure; it is reported, not decided on.
 - **The no-gstack arm came close on planted bugs at a fraction of the cost.** N minus F (the better /ship arm) was
-  -0.20 on planted bugs (-0.40 to +0.004) and -0.04 on real problems (-0.27 to +0.20), at $0.83 a run. An earlier
+  -0.20 on planted bugs (-0.40 to +0.004) and -0.04 on real problems (-0.31 to +0.23), at $0.83 a run. An earlier
   version of this page said N led on real problems; that came from counting its restatements of the planted bug as
   other problems, and it does not hold (below). Its harness differs (below), so cost compares in size only.
 - **Almost no run reached the end of /ship.** Only 9 of 60 C and F runs printed a receipt (4 C, 5 F). Of the other
@@ -66,7 +66,7 @@ value t = 2.291 (10 cases).
 |---|---|---|---|
 | Cost a run | +$0.07 (-$1.42 to +$1.57), pass | same, pass | +$0.01 (-$1.62 to +$1.64), pass |
 | Planted-bug catch rate | +0.03 (-0.18 to +0.24), pass | same, pass | -0.04 (-0.39 to +0.32), not assessable: one F run left (a miss); no preregistered failure |
-| Real-problem catch rate (6 cases) | -0.03 (-0.33 to +0.27), pass | same, pass | -0.03 (-0.34 to +0.28), pass |
+| Real-problem catch rate (6 cases, t = 2.609) | -0.03 (-0.37 to +0.32), pass; frozen script's t: -0.33 to +0.27 | same, pass | -0.03 (-0.37 to +0.32), pass; frozen script's t: -0.34 to +0.28 |
 | Reader fidelity | 30 of 30, pass | 29 of 30, fails | pass under the ruling |
 | Decision | conductor goes | conductor stays, one FIX-METHOD cycle | not a decision row |
 
@@ -203,7 +203,8 @@ removes one agent layer at no measured loss. The one "Why null?" cycle:
 - **Do the tasks fit?** Partly. The cases cover /ship's review and fix phases well, but 51 of 60 runs stopped before
   the receipt, 36 of them before finish, so the release steps were barely exercised by either arm.
 - **Enough samples and headroom?** The cost interval (about plus or minus $1.50) is far tighter than the planned $7.
-  The catch-rate intervals (about plus or minus 0.2) are within the planned 35 points. Differences smaller than that
+  The catch-rate intervals (about plus or minus 0.2 for planted bugs, 0.35 for real problems) are within the planned
+  35 points. Differences smaller than that
   could not be seen. Planted-bug catch rates were 70 to 73 percent, so there was headroom.
 - **Does the frontier model already do it unaided?** Yes: that is what F measures, and it held.
 
@@ -242,11 +243,13 @@ decision does not depend on it.
   blind classification of all 59 judged-real findings by a second-model checker that saw no arm, trial or cost: 26
   are plant restatements, filling six whole groups (case 3 g4, 5 g1, 6 g1, 7 g1, 9 g1, 10 g1), and no group was
   mixed. That matches the earlier post-hoc read group for group. Planted-bug catches are unchanged. As published,
-  then corrected: real-problem F minus C -0.003 (-0.21 to +0.20), now -0.03 (-0.33 to +0.27) over 6 cases instead
+  then corrected: real-problem F minus C -0.003 (-0.21 to +0.20), now -0.03 (-0.37 to +0.32) over 6 cases instead
   of 10; arm means C 0.24, F 0.23, N 0.40, now 0.26, 0.23 and 0.19; N minus F +0.17 (-0.19 to +0.53), now -0.04
-  (-0.27 to +0.20); sensitivity row -0.04 (-0.25 to +0.17), now -0.03 (-0.34 to +0.28). The bar still passes with no
-  structural loss, and the conductor decision does not change. The intervals use the plan's 10-case critical value
-  (t = 2.291), as its frozen script does.
+  (-0.31 to +0.23); sensitivity row -0.04 (-0.25 to +0.17), now -0.03 (-0.37 to +0.32). These intervals use the
+  critical value for the 6 cases that remain (t = 2.609 at the plan's end-of-run p of 0.047704). The plan's frozen
+  script keeps its 10-case value (t = 2.291) whatever the number of cases, which gives narrower intervals for the
+  same data (F minus C -0.33 to +0.27, N minus F -0.27 to +0.20, sensitivity -0.34 to +0.28); the bars table shows both.
+  Under either, the bar still passes with no structural loss, and the conductor decision does not change.
 - **Exposure.** Every C and F run was audited for reads of crew notes, this plan, the label file, and history or
   diffs against `origin/main` on the planted path. Nine F runs are flagged: F2t1 and F5t1 saw only file names, line
   counts or a one-line changelog summary that mention this plan; F7t1-3, F9t1, F9t3, F10t1 and F10t2 looked at main's version of the planted
