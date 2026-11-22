@@ -410,7 +410,7 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
   // The profiles are one base branch's (the record's own, for gstack-pregate clear); a pregate.json recorded against another base names another authority.
   const base = profilesBase ?? resolveBaseBranch(repoRoot);
   const recorded = baseBranchOf(file.base);
-  if (recorded && recorded !== base) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=base_mismatch — pregate.json was recorded against origin/${recorded}, but run profiles come from origin/${base}; ${lane} stays uncleared`, fix: `clear without --base, which reads the record's own base origin/${recorded}; or rerun gstack-pregate --base ${base}, then clear again` };
+  if (recorded && recorded !== base) return { refused: 'PREGATE_RECEIPT_INVALID', message: `REUSE: refused reason=base_mismatch — pregate.json was recorded against origin/${recorded}, but run profiles come from origin/${base}; ${lane} stays uncleared`, fix: profilesBase ? `clear without --base, which reads the record's own base origin/${recorded}; or rerun gstack-pregate --base ${base}, then clear again` : baseMismatchFix(repoRoot, base, recorded) };
   const verdicts = new Map<string, ReturnType<typeof verifyRun>>();
   const verdict = (name: string, ref: string) => {
     const key = `${name}\0${ref}`;

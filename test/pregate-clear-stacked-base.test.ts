@@ -100,6 +100,9 @@ describe.skipIf(process.platform === 'win32')('a pregate.json recorded against a
     const other = runBin(repo, 'gstack-pregate', ['clear', '--remote', LANE, '--run', '200', '--base', 'main', '--out', copy, '--allow-repo-commands'], env);
     expect([other.status, other.err]).toEqual([EXIT.fail, expect.stringContaining('REUSE: refused reason=base_mismatch — pregate.json was recorded against origin/stack, but run profiles come from origin/main')]);
     expect(JSON.parse(fs.readFileSync(copy, 'utf8')).requires_remote[0].receipt).toBeNull();
+    const bundle = runBin(repo, 'gstack-pregate', ['clear', '--remote', LANE, '--bundle-lane', 'free', '--base', 'main', '--out', copy], env);
+    expect([bundle.status, bundle.err]).toEqual([EXIT.fail, expect.stringContaining('REUSE: refused reason=base_mismatch — pregate.json was recorded against origin/stack, but run profiles come from origin/main')]);
+    expect(JSON.parse(fs.readFileSync(copy, 'utf8')).requires_remote[0].receipt).toBeNull();
   }, 120_000);
 
   // Value: protects=accept's pregate rerun (--base <stacked base>) clears the gate from the run it carried, as on main;
