@@ -130,6 +130,15 @@ test('a lock naming this process\'s own pid is a leftover from a recycled pid an
   expect(fs.existsSync(lock)).toBe(false);
 });
 
+test('an add still runs, unlocked, when the lock cannot be written', () => {
+  const { root, lock } = repo();
+  fs.mkdirSync(`${lock}.${process.pid}`);
+  const { addWorktree } = require(LIB) as typeof import('../lib/git-worktree-lock');
+  const r = addWorktree(root, path.join(root, 'wt'), 'HEAD');
+  expect(r.ok, r.err).toBe(true);
+  expect(fs.existsSync(lock)).toBe(false);
+});
+
 test('concurrent adds of worktrees that share one basename all succeed', async () => {
   const { root } = repo();
   const procs = Array.from({ length: 6 }, (_, p) => adder(root, Array.from({ length: 8 }, (_, i) => path.join(root, `p${p}-${i}`, 'worktree'))));

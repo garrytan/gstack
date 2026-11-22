@@ -15,6 +15,9 @@
  * killed holder's pid can be reused after a restart) is stale. Only one waiter
  * at a time may remove a stale lock (the takeover directory), and it removes the
  * lock only if the file there is still the one it judged stale and still stale.
+ * The lock only narrows a race: when it cannot be taken (no hard links, an
+ * unwritable common dir, or 3 x STALE_MS of waiting) the command runs unlocked,
+ * as it did before the lock existed, instead of failing.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -65,27 +68,29 @@ export function withWorktreeLock<T>(repoRoot: string, fn: () => T): T {
   const common = git(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   if (!common.ok) return fn();
   const lock = path.join(common.out, LOCK_NAME);
+  const mine = acquire(lock);
+  if (mine === null) return fn();
+  try { return fn(); } finally {
+    try { if (fs.statSync(lock).ino === mine) fs.rmSync(lock, { force: true }); } catch { /* already gone */ }
+  }
+}
+
+function acquire(lock: string): number | null {
   const staged = `${lock}.${process.pid}`;
-  fs.writeFileSync(staged, String(process.pid));
   const giveUpAt = Date.now() + 3 * STALE_MS;
-  let mine: number;
   try {
+    fs.writeFileSync(staged, String(process.pid));
     for (;;) {
       const now = new Date();
       fs.utimesSync(staged, now, now);
-      try { fs.linkSync(staged, lock); } catch (e: any) {
-        if (e?.code !== 'EEXIST') throw e;
-        if (Date.now() >= giveUpAt) throw new Error(`${lock} has blocked this worktree command for ${(3 * STALE_MS) / 1000} s; if no gstack command is running in this repository, delete it`);
-        const held = readHeld(lock);
-        if (held && isStale(held)) takeOverStale(lock, held); else pause();
-        continue;
+      try { fs.linkSync(staged, lock); return fs.statSync(lock).ino; } catch (e: any) {
+        if (e?.code !== 'EEXIST' || Date.now() >= giveUpAt) return null;
       }
-      mine = fs.statSync(lock).ino;
-      break;
+      const held = readHeld(lock);
+      if (held && isStale(held)) takeOverStale(lock, held); else pause();
     }
-  } finally { fs.rmSync(staged, { force: true }); }
-  try { return fn(); } finally {
-    try { if (fs.statSync(lock).ino === mine) fs.rmSync(lock, { force: true }); } catch { /* already gone */ }
+  } catch { return null; } finally {
+    try { fs.rmSync(staged, { force: true }); } catch { /* not ours to remove */ }
   }
 }
 
