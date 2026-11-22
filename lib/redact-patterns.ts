@@ -1117,6 +1117,53 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
 }
 
 /**
+ * GST-3474: in Rust source, `name: Type` at the start of a line is a struct
+ * field or parameter type (`token: Option<&str>,`, `key: &RelationshipKey,`)
+ * and `Name::Variant(..) =>` is a match arm's path pattern; neither holds a
+ * value. Only a line-start match with an unquoted name and a `:` passes, and
+ * only when its code up to a trailing `//` comment is made of Rust type and
+ * pattern tokens: names, paths, lifetimes, `&`, `*`, brackets, `+`, `?`,
+ * `!`, `|`, `->`, `=>`, an array length after `;`, and one closing `,` or
+ * `;` with nothing after it. A string or char literal, an `=` assignment, a
+ * `.`, a second field, or a name that reads as random (three digit runs, a
+ * word over 20 letters, or case changes about every two letters in a name of
+ * 12 or more) still reports. Another file, a scan without a path, a comment and
+ * a `/` start are unchanged.
+ */
+const RUST_SOURCE = /\.rs$/i;
+const RUST_TYPE_TOKEN = /[ \t]+|::|->|=>|'[A-Za-z_]\w*|[A-Za-z_]\w*|\d+|[&*<>()[\]{},;:+?!|]/y;
+function readsAsRustName(name: string): boolean {
+  if ((name.match(/\d+/g) ?? []).length > 2) return false;
+  const words = name.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+/g) ?? [];
+  if (words.some((word) => word.length > 20)) return false;
+  return name.length < 12 || words.join("").length >= 3 * words.length;
+}
+function isRustTypeAnnotation(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !RUST_SOURCE.test(sourcePath)) return false;
+  if (match.index > 0 && match.input[match.index - 1] !== "\n") return false;
+  const { start } = spanBounds(match);
+  if (!/^[ +-]{0,2}[ \t]*[A-Za-z_]\w*[ \t]*:[ \t]*$/.test(match.input.slice(match.index, start))) return false;
+  const code = match.input.slice(start).split("\n", 1)[0]!.replace(/\r$/, "").replace(/[ \t]*\/\/.*$/, "");
+  let depth = 0;
+  let closed = false;
+  let previous = "";
+  for (let i = 0; i < code.length; ) {
+    RUST_TYPE_TOKEN.lastIndex = i;
+    const token = RUST_TYPE_TOKEN.exec(code)?.[0];
+    if (!token) return false;
+    i += token.length;
+    if (/^[ \t]/.test(token)) continue;
+    if (closed) return false;
+    if (/^\d/.test(token) ? previous !== ";" : /^[A-Za-z_]/.test(token) && !readsAsRustName(token)) return false;
+    if (/^[<([{]$/.test(token)) depth += 1;
+    else if (/^[>)\]}]$/.test(token)) depth = Math.max(0, depth - 1);
+    else if (depth === 0 && (token === "," || token === ";")) closed = true;
+    previous = token;
+  }
+  return true;
+}
+
+/**
  * #4209: in Python and Dart source, an unquoted dotted name chain that is the
  * whole right-hand side of an `=` assignment (`session = self.client.session`,
  * `token = request.auth`) reads an attribute; it holds no credential. Only
@@ -1736,6 +1783,7 @@ export const PATTERNS: RedactPattern[] = [
     // #2899: a function call assigned to the name is code, not a value (see
     // isCallExpression). #3048, #3630: so is a TS/JSX/Dart/Python type or expression (isSourceExpression).
     // #4209: so is a dotted attribute read assigned with = in Python or Dart (isAttributeReference).
+    // GST-3474: so is a Rust type annotation or match-arm path (isRustTypeAnnotation).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
     // GST-3004: so is a dotted field path (isDottedFieldPath, #4289), and so
@@ -1752,6 +1800,7 @@ export const PATTERNS: RedactPattern[] = [
           !isBareEnvRead(span, match) &&
           !isCallExpression(span, match) &&
           !isSourceExpression(span, match, opts?.sourcePath) &&
+          !isRustTypeAnnotation(span, match, opts?.sourcePath) &&
           !isAttributeReference(span, match, opts?.sourcePath) &&
           !isDottedFieldPath(span, match, opts?.sourcePath) &&
           !isCommentText(span, match) &&
@@ -1759,6 +1808,32 @@ export const PATTERNS: RedactPattern[] = [
           !isSchemaFieldIdentifier(span, match) &&
           !isTestFixtureLabel(span, opts?.sourcePath) &&
           shannonEntropy(span) >= 3.0)),
+  },
+  {
+    id: "env.kv.rust",
+    tier: "MEDIUM",
+    category: "secret",
+    description: "Secret-named Rust let, const or static binding with a high-entropy string literal",
+    // GST-3474 (gbrain #10028): env.kv needs the name to start its line (or
+    // follow a comment marker or `/`), so `let token = "<key>";` and
+    // `const API_KEY: &str = "<key>";` in a .rs file gave no finding while
+    // `token: "<key>"` did. This rule reads a `let`, `let mut`, `const`,
+    // `static` or `static mut` binding, with an optional `pub` or `pub(..)`,
+    // an optional type, and a string, raw or byte literal that is the value
+    // itself or the first argument of `Some`, `String::from`, `Box::new` or
+    // `Cow::Borrowed`/`Cow::Owned`, at a line start (diff markers as env.kv)
+    // or after `//`, `///`, `//!`, `/*` or `/**`. It is its own pattern so
+    // env.kv's matches, and the spans they consume, are unchanged in every
+    // file. validate keeps it to Rust: a scan with a path reports it only in a
+    // .rs file, so a JS or TS `let` or `const` reads exactly as before; a scan
+    // without a path reports it. The name and value get env.kv's checks: a
+    // credential-shaped name, no placeholder or `${` read, and 3.0 bits.
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}!?|\/\*{1,2})))[ \t]*(?:pub(?:\([a-z:_ \t]{0,40}\))?[ \t]+)?(?:let|const|static)[ \t]+(?:mut[ \t]+)?[A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)(?:[ \t]*:[^=\n]{1,120}?)?[ \t]*=[ \t]*&?[ \t]*(?:(?:Some|String::from|Box::new|Cow::Borrowed|Cow::Owned)\([ \t]*&?)?(?:b?r#{0,3}|b)?"([^\s"\\]{8,})/i,
+    validate: (span, match, opts) => {
+      if (opts?.sourcePath && !RUST_SOURCE.test(opts.sourcePath)) return false;
+      const name = /\b(?:let|const|static)[ \t]+(?:mut[ \t]+)?(\w+)/i.exec(match[0])?.[1];
+      return !!name && isCredentialShapedEnvName(`${name}=`) && !isPlaceholderSpan(span) && !/^\$\{?[A-Za-z_]/.test(span) && shannonEntropy(span) >= 3.0;
+    },
   },
   {
     id: "auth.bearer",

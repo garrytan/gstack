@@ -1958,6 +1958,15 @@ those, each with its scope and its reason:
   read from the value, never from the key's name or the file's path, and a
   secret in the same position, a literal after it on the line, or the same text
   in a config file still reports.
+- Rust (GST-3474): in a `.rs` file, a type annotation at the start of a line
+  (`token: Option<&str>,`, `key: &RelationshipKey,`,
+  `by_key: Mutex<HashMap<String, u32>>,`) and a match arm's path
+  (`Token::Char(c) => {`) are code, not credentials. A literal, an `=`, a
+  second field on the line, or a name that reads as random still reports.
+  A key bound with `let`, `let mut`, `const` or `static`
+  (`let token = "<key>";`, `const API_KEY: &str = "<key>";`) reports as
+  `env.kv.rust`; with a file path it reports only in a `.rs` file, so other
+  languages read as before.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with
