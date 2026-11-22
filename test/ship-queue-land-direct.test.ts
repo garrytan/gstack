@@ -801,6 +801,28 @@ describe('land --pin: refusals (nothing merged)', () => {
     expect(ok.status).toBe(EXIT.ok);
   }, 90_000);
 
+  // Value: protects=land --pin with no --base keeps the default base, so a stacked PR reviewed against its parent branch is refused instead of merged into that branch; fails_when=land takes its base from the PR's own baseRefName; why_new=every other land test passes --base main; seam=none; no_claim=ready's base resolution
+  test('QUEUE_NOT_READY: land --pin with no --base still refuses a stacked PR shipped against its parent branch', () => {
+    const fx = setup();
+    const { repo } = fx;
+    openPr(fx, '18');
+    repo.git('checkout', '-q', 'origin/pr-18', '-B', 'pr-181');
+    fs.writeFileSync(path.join(repo.work, 'pr-181.txt'), '181\n');
+    fs.writeFileSync(path.join(repo.work, 'changelog.d', 'pr-181.md'), '- #181 change\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'pr 181');
+    repo.git('push', '-q', '-f', 'origin', 'HEAD:refs/heads/pr-181');
+    const pin = repo.git('rev-parse', 'HEAD');
+    fx.write(d => { d.prs['181'] = { state: 'OPEN', baseRefName: 'pr-18', headRefName: 'pr-181', isCrossRepository: false, title: 'PR 181', body: shippedBody('181', pin, { base: 'pr-18' }) }; });
+    markReady(fx, '181', pin);
+    repo.git('checkout', '-q', '--detach', 'origin/main');
+    const parent = remote(fx, 'pr-18');
+    const r = runBin(fx.repo, 'gstack-ship-queue', ['land', '--pr', '181', '--pin', pin], fx.env);
+    refused(fx, r, 'QUEUE_NOT_READY');
+    expect(r.err).toContain('#181 targets pr-18, not main');
+    expect(remote(fx, 'pr-18')).toBe(parent);
+  }, 90_000);
+
   test('QUEUE_NOT_READY: no READY note at the pin', () => {
     const fx = setup();
     const pin = openPr(fx, '16', { ready: false });
