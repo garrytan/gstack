@@ -46,8 +46,8 @@ jobs:
       - name: Install pinned Stryker outside the checkout
         run: |
           set -euo pipefail
-          packages=$(bun --no-env-file --config=/dev/null -e 'import { STRYKER_PACKAGES } from "./scripts/mutation-report.ts"; console.log(STRYKER_PACKAGES.join(" "))')
-          npm install --prefix "$RUNNER_TEMP/stryker" --no-save --no-audit --no-fund --ignore-scripts $packages
+          read -ra packages <<< "$(bun --no-env-file --config=/dev/null -e 'import { STRYKER_PACKAGES } from "./scripts/mutation-report.ts"; console.log(STRYKER_PACKAGES.join(" "))')"
+          npm install --prefix "$RUNNER_TEMP/stryker" --no-save --no-audit --no-fund --ignore-scripts "${packages[@]}"
       - name: Run the mutation report
         env:
           FILES: ${{ inputs.files || '5' }}
