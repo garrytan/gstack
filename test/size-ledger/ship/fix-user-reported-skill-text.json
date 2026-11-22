@@ -1,4 +1,4 @@
 {
-  "bytes": 509,
-  "why": "User-reported fixes: the Aside probe reports a closed app (#4366), /ship checks sections gstack-post kept (#4379), and the codex boundary names agents/openai.yaml (#3924)"
+  "bytes": 419,
+  "why": "User-reported fixes: the Aside probe reports a closed app (#4366) and /ship checks sections gstack-post kept (#4379)"
 }

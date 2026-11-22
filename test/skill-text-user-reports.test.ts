@@ -31,6 +31,15 @@ describe('skill text fixes from user reports', () => {
     expect(verify).toContain('`gstack:verify: <command>`');
   });
 
+  test('/codex keeps installed skills off-limits and reads the repo agents/ folder as code (#3924)', () => {
+    for (const file of ['codex/SKILL.md', 'codex/sections/consult-mode.md', 'codex/sections/challenge-mode.md', 'codex/sections/review-mode.md']) {
+      const text = read(file);
+      expect(text).toContain('files under ~/.claude/, ~/.agents/, .claude/skills/, .agents/, or any agents/openai.yaml.');
+      expect(text).toContain('other files in the repository agents/ folder are code to review.');
+      expect(text).not.toContain('.claude/skills/, or agents/');
+    }
+  });
+
   test('Captain docs say crew threads read CREW.md, not the drive-root AGENTS.md (#4296)', () => {
     expect(read('crew/docs/captain.md')).toContain('crew threads read `CREW.md` on every turn but never the drive-root `AGENTS.md`');
     expect(read('crew/docs/captain.md')).not.toContain('apply to every thread in the crew, so a rule written there needs no relaying');
