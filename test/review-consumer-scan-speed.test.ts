@@ -59,6 +59,17 @@ describe('the consumer scan picks the same matches as git grep -o (HARN-98)', ()
     }
   }, 60_000);
 
+  // Value: protects=hit files are read a bounded batch at a time and a file past the output cap goes to git's -o, with the
+  //   same lines as the whole-tree grep at a commit and in the working tree; fails_when=a batch drops or misreads a blob, a
+  //   large file is skipped instead of sent to git, or every hit body is held at once past the cap (ENOBUFS); seam=grepConsumers
+  //   with a 4,000-byte output cap
+  test('hit files past the read batch and past the output cap give the lines git grep -o gives', () => {
+    const body = (n: number, fill: number) => Array.from({ length: n }, (_, i) => `${'x'.repeat(fill)} ${i % 2 ? 'a.json' : 'ba.json'}\n`).join('');
+    const r = repo({ 'src/one.ts': body(8, 200), 'src/two.ts': body(8, 200), 'src/three.ts': body(8, 200), 'src/big.ts': body(4, 1_500) });
+    fs.writeFileSync(path.join(r.dir, 'src/two.ts'), body(6, 300));
+    for (const at of [r.head, '']) expect(lines(grepConsumers(r.dir, ['a.json', 'ba.json'], at, () => true, Date.now() + 30_000, 16_000, 4_000))).toEqual(wholeTree(r.dir, ['a.json', 'ba.json'], at));
+  }, 60_000);
+
   // Value: protects=a results tree whose trial files name many data basenames on long lines finishes the scan in seconds;
   //   fails_when=the scan goes back to git's -o with every pattern (17.7 s on this 16 MB file on a 4-core machine, 220 s on
   //   harness-evals#551's); seam=grepConsumers with a 5-second deadline; no_claim=the scan's speed on other shapes

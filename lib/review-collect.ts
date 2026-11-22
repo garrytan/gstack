@@ -149,6 +149,8 @@ export const REVIEW_PLAN_TIMEOUT_MS = 180_000;
 export const CONSUMER_SCAN_PATHSPEC_BYTES = 16_000;
 /** Output bytes one consumer grep may return across all its calls, the buffer the single whole-tree call had; past it the scan fails closed. */
 export const CONSUMER_SCAN_OUTPUT_BYTES = 256 * 1024 * 1024;
+/** Blob bytes one `git cat-file --batch` call reads for the consumer scan, so a commit's hit files are held a batch at a time. */
+const CONSUMER_SCAN_BLOB_BATCH_BYTES = 64 * 1024 * 1024;
 
 /** A whole number of at least 1 from the environment variable `name`, rounded down; anything else (unset, empty, zero, negative, not a number) is `fallback`. */
 function positiveEnv(name: string, fallback: number): number {
@@ -189,8 +191,8 @@ function grepIndex(root: string, entries: readonly string[], each: readonly stri
  * times matches per line (HARN-98: 80 basenames over one 16 MB trials file of harness-evals#551 took 220 s, and the plan timed out
  * at 1,703 s). Every pattern holds its own extension, so one `-l` pass for the extensions per scan (`memo`) lists every file
  * that can match; the kept ones go into scratch indexes that `git grep -l` reads per pattern list without walking the whole
- * tree, and only the files that hold a pattern are read (blobs through `git cat-file --batch`, CONSUMER_SCAN_PATHSPEC_BYTES of
- * names per call) and their matches listed here the way git's -o picks them: the earliest start, the longest pattern there,
+ * tree, and only the files that hold a pattern are read, one at a time from disk or in `git cat-file --batch` calls of at most
+ * CONSUMER_SCAN_BLOB_BATCH_BYTES (a file larger than the output cap goes to git's -o by pathspec instead), and their matches listed here the way git's -o picks them: the earliest start, the longest pattern there,
  * then on from its end. In the working tree every tracked file is read from disk, as `git grep --untracked` reads it even when
  * it is skip-worktree or assume-unchanged, and an untracked, unmerged or non-regular file goes back to git by pathspec under --literal-pathspecs (an inherited
  * GIT_GLOB_PATHSPECS makes git refuse, which fails closed), as does any hit that is not a plain file when read.
@@ -258,40 +260,53 @@ export function grepConsumers(root: string, patterns: readonly string[], rev: st
       chunk.push(found[i]!);
       bytes += found[i]!.name.length;
     }
-    const bodies: Array<Buffer | null> = chunk.map(h => {
-      if (rev || h.sha) return null;
-      try { return fs.lstatSync(path.join(root, h.name)).isFile() ? fs.readFileSync(path.join(root, h.name)) : null; } catch { return null; }
-    });
-    const blobs = chunk.flatMap((h, n) => (rev || h.sha ? [n] : []));
-    if (blobs.length) {
-      const want = blobs.map(n => chunk[n]!.sha ?? `${rev}:${chunk[n]!.name}`);
-      if (want.some(w => !w || w.includes('\n'))) return whole();
-      const b = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: want.join('\n') + '\n', timeout: Math.max(1, deadline - Date.now()), maxBuffer: CONSUMER_SCAN_OUTPUT_BYTES });
-      if (b.status !== 0 || !Buffer.isBuffer(b.stdout)) return { status: b.status ?? null, err: (b.stderr?.toString() ?? '').trim() || ((b.error as NodeJS.ErrnoException | undefined)?.code ?? ''), timedOut: b.status === null && Date.now() >= deadline };
-      for (let at = 0, k = 0; k < blobs.length; k++) {
-        const nl = b.stdout.indexOf(10, at);
-        const [, type, size] = b.stdout.subarray(at, nl < 0 ? at : nl).toString().split(' ');
-        if (nl < 0 || type !== 'blob' || !/^\d+$/.test(size ?? '')) return { status: null, err: `git cat-file --batch could not read ${chunk[blobs[k]!]!.name}`, timedOut: false };
-        bodies[blobs[k]!] = b.stdout.subarray(nl + 1, nl + 1 + Number(size));
-        at = nl + 2 + Number(size);
-      }
-    }
     const out: string[] = [];
-    const unread = chunk.filter((_, n) => !bodies[n]).map(h => h.name);
-    if (unread.length) {
-      const r = gitUntil(root, [...flags, ...unread], deadline);
-      if (r.status !== 0 && r.status !== 1) return r;
-      out.push(...r.out.split('\n').filter(Boolean));
-    }
-    chunk.forEach((h, n) => {
-      const body = bodies[n];
-      if (!body) return;
+    const unread: string[] = [];
+    const blobs: Hit[] = [];
+    const match = (body: Buffer, h: Hit) => {
       const at: Array<[number, number]> = [];
       needles.forEach((needle, k) => { for (let x = body.indexOf(needle); x >= 0; x = body.indexOf(needle, x + 1)) at.push([x, k]); });
       at.sort((x, y) => x[0] - y[0] || needles[y[1]]!.length - needles[x[1]]!.length);
       const shown = rev ? `${rev}:${h.name}` : h.name;
       for (let cur = 0, j = 0; j < at.length; j++) if (at[j]![0] >= cur) { out.push(`${shown}\0${patterns[at[j]![1]]}`); cur = at[j]![0] + needles[at[j]![1]]!.length; }
-    });
+    };
+    for (const h of chunk) {
+      if (rev || h.sha) { blobs.push(h); continue; }
+      let body: Buffer | null = null;
+      try { const st = fs.lstatSync(path.join(root, h.name)); if (st.isFile() && st.size <= outputBytes) body = fs.readFileSync(path.join(root, h.name)); } catch { body = null; }
+      if (body) match(body, h); else unread.push(h.name);
+    }
+    if (blobs.length) {
+      const want = blobs.map(h => h.sha ?? `${rev}:${h.name}`);
+      if (want.some(w => !w || w.includes('\n'))) return whole();
+      const cat = (mode: string, specs: string[], maxBuffer: number) => spawnSync('git', ['cat-file', mode], { cwd: root, input: specs.join('\n') + '\n', timeout: Math.max(1, deadline - Date.now()), maxBuffer });
+      const failed = (c: ReturnType<typeof cat>): GrepFailure => ({ status: c.status ?? null, err: (c.stderr?.toString() ?? '').trim() || ((c.error as NodeJS.ErrnoException | undefined)?.code ?? ''), timedOut: c.status === null && Date.now() >= deadline });
+      const check = cat('--batch-check', want, CONSUMER_SCAN_OUTPUT_BYTES);
+      if (check.status !== 0 || !Buffer.isBuffer(check.stdout)) return failed(check);
+      const sizes = check.stdout.toString().split('\n').slice(0, want.length).map(l => l.split(' '));
+      const bad = sizes.findIndex(s => s[1] !== 'blob' || !/^\d+$/.test(s[2] ?? ''));
+      if (sizes.length < want.length || bad >= 0) return { status: null, err: `git cat-file --batch-check could not read ${blobs[bad < 0 ? sizes.length : bad]!.name}`, timedOut: false };
+      const size = (k: number) => Number(sizes[k]![2]);
+      for (let k = 0; k < blobs.length;) {
+        if (size(k) > outputBytes) { unread.push(blobs[k++]!.name); continue; }
+        const batch: number[] = [];
+        for (let bytes = 0; k < blobs.length && size(k) <= outputBytes && (!batch.length || bytes + size(k) <= Math.min(outputBytes, CONSUMER_SCAN_BLOB_BATCH_BYTES)); k++) { batch.push(k); bytes += size(k); }
+        const b = cat('--batch', batch.map(n => want[n]!), batch.reduce((s, n) => s + size(n) + 128, 0));
+        if (b.status !== 0 || !Buffer.isBuffer(b.stdout)) return failed(b);
+        for (let at = 0, j = 0; j < batch.length; j++) {
+          const nl = b.stdout.indexOf(10, at);
+          const [, type, got] = b.stdout.subarray(at, nl < 0 ? at : nl).toString().split(' ');
+          if (nl < 0 || type !== 'blob' || got !== String(size(batch[j]!))) return { status: null, err: `git cat-file --batch could not read ${blobs[batch[j]!]!.name}`, timedOut: false };
+          match(b.stdout.subarray(nl + 1, nl + 1 + size(batch[j]!)), blobs[batch[j]!]!);
+          at = nl + 2 + size(batch[j]!);
+        }
+      }
+    }
+    if (unread.length) {
+      const r = gitUntil(root, [...flags, ...unread], deadline);
+      if (r.status !== 0 && r.status !== 1) return r;
+      out.push(...r.out.split('\n').filter(Boolean));
+    }
     if (Date.now() >= deadline) return { status: null, err: '', timedOut: true };
     for (const line of out) {
       total += Buffer.byteLength(line) + 1;
