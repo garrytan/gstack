@@ -195,4 +195,22 @@ describe('dry run and pilot start', () => {
     expect(startPilot({ out: path.join(d, 'p2'), cap: 5, n: 1, arms: ['claude-opus-5-5', 'gpt-4o#mem0'], dryRun: dry2 }).error).toBeUndefined();
     expect(startPilot({ out: path.join(d, 'p3'), cap: 5, n: 1, arms: ['gpt-4o'], dryRun: dry2 }).error?.code).toBe('EVAL_MODEL_OLD_GENERATION');
   });
+
+  test('dry-run --prereg names a malformed vendor-default line instead of blaming an arm', () => {
+    const r = cli(dryArgs('claude-opus-5-5,gpt-6.2-sol', '--prereg', 'prereg.md'), files(prereg({ arms: ['claude-opus-5-5', 'gpt-6.2-sol'], models: 'vendor-default: gpt-4o' })));
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('vendor-default: gpt-4o needs the model and the competitor system');
+    expect(r.err).not.toContain('an arm is gpt-4o');
+  });
+
+  test('a frozen: date exempts only arms the plan names, in dry-run and in pilot start', () => {
+    const forged = cli(dryArgs('gpt-4o,claude-opus-5-5', '--prereg', 'p.md'), { ...files(''), 'p.md': 'frozen: 2026-11-01\n' });
+    expect(forged.code).toBe(1);
+    expect(forged.out).toContain('CHECK: model-generation refused gpt-4o (use gpt-6.2-sol)');
+    expect(forged.err).toContain('p.md does not name gpt-4o,claude-opus-5-5');
+    const d = tmp();
+    for (const [name, text] of Object.entries(files(prereg({ arms: ['claude-opus-5-5', 'claude-opus-4-7#plain'], frozen: '2026-11-20' })))) fs.writeFileSync(path.join(d, name), text);
+    expect(spawnSync(BIN, dryArgs('claude-opus-5-5,claude-opus-4-7#plain', '--prereg', 'prereg.md', '--out', 'dry'), { cwd: d, encoding: 'utf8', timeout: 60_000 }).status).toBe(0);
+    expect(startPilot({ out: path.join(d, 'pilot'), cap: 5, n: 1, arms: ['claude-opus-5-5', 'gpt-4o'], dryRun: path.join(d, 'dry', 'dry-run.json') }).error?.code).toBe('EVAL_MODEL_OLD_GENERATION');
+  });
 });

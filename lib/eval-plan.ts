@@ -454,7 +454,7 @@ export function startPilot(o: PilotStartOptions): { record: PilotRecord; error?:
   const dry = JSON.parse(fs.readFileSync(o.dryRun, 'utf8')) as DryRunResult;
   if (!dry.pass) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `${o.dryRun} did not pass; the pilot never starts on a failed dry run` } };
   if (o.arms.length && o.arms.every(a => isSmallTierModel(armModel(a))) && !dry.checks.frontier?.tier_question) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_DRY_RUN_FAILED', message: `every pilot arm is Haiku or Sonnet and ${o.dryRun} records no --tier-question (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test)` } };
-  const stale = checkModelGenerations({ arms: o.arms, models: dry.prereg?.models, frozen: dry.prereg?.frozen }).refused; if (stale.length) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_MODEL_OLD_GENERATION', message: stale.map(a => `${a.model} is an older generation; use ${a.replacement} (R116)`).join('; ') } };
+  const stale = checkModelGenerations({ arms: o.arms, models: dry.prereg?.models, frozen: o.arms.every(a => dry.arms.includes(a)) ? dry.prereg?.frozen : null }).refused; if (stale.length) return { record: null as unknown as PilotRecord, error: { code: 'EVAL_MODEL_OLD_GENERATION', message: stale.map(a => `${a.model} is an older generation; use ${a.replacement} (R116)`).join('; ') } };
   const tokens = o.tokens ?? { input: dry.rows ? Math.ceil(dry.est_input_tokens / dry.rows) : DEFAULT_TOKENS.input, output: dry.checks.output_budget.budget };
   const seat = o.seatMetered ?? [];
   const stray = seat.filter(a => !o.arms.includes(a));
