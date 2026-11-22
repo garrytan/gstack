@@ -63,11 +63,12 @@ const NUMBERED_HEAD = /^(?:#{1,6}\s+|\*\*\s*)(?:\d+[.)]\s|Finding\s+\d+\b)/;
  * A severity word that names something in the code under review rather than rating a finding (GSTA-711: "the redact-doc HIGH and
  * scanner-failure branches", "runs after the HIGH branch"): in capitals, as code spells a constant, after "the" and at most one
  * qualifier, and before a noun (after an optional "and X") that is not a word for a finding or its rating. CRITICAL never counts, so
- * "reaches the CRITICAL write path" still blocks until judged. nameUses gives each such word's index; a line whose every label is one
+ * "reaches the CRITICAL write path" and "the HIGH and CRITICAL write paths" still block until judged: X is a name only when it is
+ * HIGH, MEDIUM or LOW. nameUses gives each such word's index; a line whose every label is one
  * collects at INFORMATIONAL, kept on record without a severity it never stated.
  */
-const RATING_NOUN = '(?:findings?|fix(?:es)?|issues?|severity|severities|risks?|priority|impact|bugs?|defects?|problems?|concerns?|blockers?|items?|notes?|regressions?|ones?|levels?|rating|labels?|bar|floor|threshold|confidence)';
-const NAME_USE = new RegExp(`(?<![A-Za-z0-9])[Tt]he\\s+(?:[\\w.\\x60-]+\\s+)?(HIGH|MEDIUM|LOW)(?:\\s+(?:and|or)\\s+([\\w.\\x60-]+))?\\s+(?!${RATING_NOUN}(?![\\w-]))[a-z][\\w-]*`, 'dg');
+const RATING_NOUN = '(?:findings?|fix(?:es)?|issues?|severity|severities|risks?|priority|impact|bugs?|defects?|problems?|concerns?|blockers?|items?|notes?|regressions?|ones?|levels?|rating|labels?|bar|floor|threshold|confidence|vulnerabilit(?:y|ies)|chances?|likelihood|probability|exposures?)';
+const NAME_USE = new RegExp(`(?<![A-Za-z0-9])[Tt]he\\s+(?:[\\w.\\x60-]+\\s+)?(HIGH|MEDIUM|LOW)(?:\\s+(?:and|or)\\s+(?:(HIGH|MEDIUM|LOW)|[\\w.\\x60-]+))?\\s+(?!${RATING_NOUN}(?![\\w-]))[a-z][\\w-]*`, 'dg');
 const nameUses = (t: string) => new Set([...t.matchAll(NAME_USE)].flatMap(m => [m.indices![1]![0], m.indices![2]?.[0] ?? -1]));
 const stronger = (a: string, b: string) => ((rank(a) ?? 0) >= (rank(b) ?? 0) ? a : b);
 /** A prose voice's `Blocks: yes` (GSTA-167 normalizer v2): the finding is CRITICAL whatever its label; `Blocks: no` never lowers one. */

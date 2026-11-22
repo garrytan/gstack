@@ -52,6 +52,11 @@ describe('a severity word naming code is no severity (GSTA-711)', () => {
       ['- the High branch drops the token check', ['High']],
       ['- the HIGH branch drops the token check. Blocks: yes', ['CRITICAL']],
       ['- the MEDIUM and LOW tiers both skip the check', ['INFORMATIONAL']],
+      ['- the HIGH and CRITICAL write paths drop the auth check (store.ts:40)', ['CRITICAL']],
+      ['- the HIGH and P0 paths skip validation at store.ts:40', ['P0']],
+      ['- The HIGH and CRITICAL vulnerabilities remain unresolved', ['CRITICAL']],
+      ['- the HIGH vulnerability in auth.ts:9 is still open', ['HIGH']],
+      ['- There is the HIGH chance of a torn write that loses data at store.ts:40', ['HIGH']],
     ] as const) expect([line, label(line)]).toEqual([line, [...want]]);
   });
 });

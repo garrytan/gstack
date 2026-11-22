@@ -15,11 +15,10 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const current = (model: string) => [model, hasPricing(model), currentReplacement(model)];
 
 describe('defaults gstack chooses are the current generation (R116)', () => {
-  test('the design prototype takes its models from design/src/models.ts, never a literal such as gpt-4o', () => {
+  test('the design prototype builds its request with design/src/models.ts, never a literal such as gpt-4o', () => {
     const src = fs.readFileSync(path.join(ROOT, 'design', 'prototype.ts'), 'utf8');
-    expect(src).toContain('designModel("image")');
-    expect(src).toContain('model: imageToolModel()');
-    expect(src.match(/model:\s*["'`]/g) ?? []).toEqual([]);
+    expect(src).toContain('imageRequestBody(brief.prompt');
+    expect(src).not.toMatch(/gpt-4o|model:/);
   });
 
   test('a Gemini run whose CLI reports no model is labelled and priced as a current model', () => {
