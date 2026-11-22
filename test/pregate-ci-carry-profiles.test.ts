@@ -14,9 +14,11 @@ import { BASE_PREGATE, cleanup, commit, makeFixtureRepo, type FixtureRepo } from
 
 const repos: FixtureRepo[] = [];
 const savedPath = process.env.PATH;
+const savedRoot = process.env.GSTACK_STATE_ROOT;
 afterEach(() => {
   while (repos.length) cleanup(repos.pop()!);
   process.env.PATH = savedPath;
+  if (savedRoot === undefined) delete process.env.GSTACK_STATE_ROOT; else process.env.GSTACK_STATE_ROOT = savedRoot;
 });
 
 const LOCAL_OS = process.platform === 'darwin' ? 'macOS' : 'Linux';
@@ -29,6 +31,7 @@ const E2E_WORKFLOW = 'name: E2E\non: [workflow_dispatch]\njobs:\n  e2e:\n    run
 function fixture(): FixtureRepo {
   const repo = makeFixtureRepo({ pregate: { ...BASE_PREGATE, run_profiles: PROFILES }, baseFiles: { '.github/workflows/e2e.yml': E2E_WORKFLOW } });
   repos.push(repo);
+  process.env.GSTACK_STATE_ROOT = repo.home;
   commit(repo, { 'lib/util.js': 'exports.add = (a, b) => a + b + 0;\n', 'lib/retry.js': 'exports.MAX_RETRIES = 3;\nexports.TIMEOUT_MS = 5000;\nexports.retry = (fn) => fn();\nexports.touched = true;\n' }, 'touch two subjects');
   repo.git('push', '-q', 'origin', 'feature');
   repo.git('remote', 'set-url', 'origin', 'https://github.com/fx/fx.git');
