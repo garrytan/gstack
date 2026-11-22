@@ -394,3 +394,22 @@ describe('the docs bridge line prints only when the fix-check counts (GST-2294 a
     expect([r.status, lineOf(r.stdout, 'FIX_CHECK_DOCS_BRIDGE'), lineOf(r.stdout, 'FIX_CHECK')], r.stdout).toEqual([3, '', 'FIX_CHECK: not counted (no approved review_loop_grant names a stop head inside its range_base..commit)']);
   });
 });
+
+describe('a path a counted fix-check read does not stale the docs audit (GST-3560)', () => {
+  // Value: protects=HARN-64: the docs audit ran at the reviewed head, the fix after it changed a path the audit hashed, and a clean
+  //   granted fix-check read that fix at the current head; fails_when=finish stops on DOCS: stale (src/x.ts), though stage 2 routes
+  //   the path as fix_checked; seam=finish's docsFresh carry
+  test('a fix-checked path carries as fix_checked, and a change no fix-check read still refuses', () => {
+    const { f, t, reviewed, reviewedBase } = reviewedShape();
+    const post = path.join(f.root, 'post.json');
+    expect(run(f, 'gstack-docs-candidate', ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
+    edit(f, { 'src/x.ts': 'export const x = 3;\n' }, 'fix the round-2 blocker');
+    link(f, t, CLEAN);
+    const args = ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--reviewed-base', reviewedBase, '--lane', LANE];
+    const r = f.run(RELEASE, args);
+    expect([r.status, lineOf(r.stdout, 'ROUTE'), lineOf(r.stdout, 'DOCS')], r.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* fix_checked=1$/), expect.stringMatching(/^DOCS: fresh .*carried: tests=0 base=0 requested=0 fix_checked=1\)/)]);
+    edit(f, { 'src/y.ts': 'export const y = 2;\n' }, 'an unread change');
+    const s = f.run(RELEASE, args);
+    expect([s.status, stopLine(s.stdout)]).toEqual([3, `${STOP}src/y.ts)`]);
+  });
+});

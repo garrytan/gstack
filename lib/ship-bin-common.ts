@@ -198,14 +198,17 @@ export function mappedLanes(cwd: string, base: string, list: { label: string; co
  * tree stands in (`remoteGate`, lib/remote-gate-stand-in.ts, GST-1688); or why neither held (`carryNone`), so the caller runs it.
  */
 export function carryLane(cwd: string, base: string, l: { label: string; command: string }, timeoutS = recordCiTimeout(shipPolicy(cwd, base), base).seconds): LaneResult {
-  const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--remote-gate-stands-in', '--', l.command], timeoutS * 1000);
+  const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--bound-s', String(timeoutS), '--remote-gate-stands-in', '--', l.command], (timeoutS + LOCAL_RUNS_ALLOWANCE_S) * 1000);
   const got = recordCiResult(rec.stderr);
   if (rec.status === 0 && got.remoteGate) return { label: l.label, exit: 0, testsRan: got.tests!, log: '-', remoteGate: got.remoteGate, standIn: got.standIn ?? 'not carried' };
   if (rec.status === 0 && got.runs) return { label: l.label, exit: 0, testsRan: got.files ? `${got.tests} (files)` : got.tests!, log: '-', carried: got.runs, ...(got.treeSource ? { treeSource: got.treeSource } : {}), ...(got.notOwed ? { notOwed: got.notOwed } : {}), ...(got.here ? { here: got.here } : {}), ...(got.exception ? { exception: got.exception } : {}), ...(got.reused ? { reused: got.reused } : {}), ...(got.from ? { from: got.from } : {}) };
   return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: got.none ?? `record_failed: ${firstLine(rec.stderr)}`, ...(got.diagnosis ? { diagnosis: got.diagnosis } : {}) };
 }
 
-/** The bound on one record-ci, in accept, finish and preflight alike (GST-1606, GST-3360): the base policy's `ci_record_timeout_s`, 600 s by default, clamped to 3600 s. */
+/** How much longer than its bound a record-ci may run for the local runs of its per_file remainder or exception preflight, which the bound does not count (GST-3560). */
+const LOCAL_RUNS_ALLOWANCE_S = 3600;
+
+/** The bound on one record-ci's finding and verifying of the CI run, in accept, finish and preflight alike (GST-1606, GST-3360, GST-3560): the base policy's `ci_record_timeout_s`, 600 s by default, clamped to 3600 s. */
 export function recordCiTimeout(policy: Record<string, any> | null, base: string): { seconds: number; line: string } {
   const set = policy?.ci_record_timeout_s;
   if (typeof set !== 'number' || set === DEFAULT_POLICY.ci_record_timeout_s) return { seconds: DEFAULT_POLICY.ci_record_timeout_s, line: `CI_RECORD_TIMEOUT: ${DEFAULT_POLICY.ci_record_timeout_s}s (default)` };

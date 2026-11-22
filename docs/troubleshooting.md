@@ -8013,8 +8013,12 @@ The digest binds the abandon to the bytes you inspected.
 ### `GRANT_SPENT`
 
 **Meaning.** `gstack-ship-receipt claim` found another `/ship` run's grant
-record for this round grant in the PR body's runs block. A grant buys one round,
-and a voided run's claim still spends it. Within the run that claimed it, a
+record for this round grant in the PR body's runs block, or, for a fix-check
+grant, a counted fix-check in the review log that already read under it: a row
+carrying the grant, or one logged after the grant was recorded. The second case
+catches a fix-check that ran with no claim (an owner's `review_loop_grant` row or
+a round grant planned through `gstack-review-plan --grant`). A grant buys one
+round, and a voided run's claim still spends it. Within the run that claimed it, a
 fix-check row that doesn't count (`converged:false`, partial hunks) spends
 nothing: log a correct row in the same run instead of asking for a new grant
 ([review-policy.md](review-policy.md#one-grant-path)).
