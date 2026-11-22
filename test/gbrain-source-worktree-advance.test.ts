@@ -164,6 +164,31 @@ describe('brain-sync --once advance wiring (#2516, #4179)', () => {
     }
   });
 
+  test('a drain whose push the transcript consent refuses leaves the worktree where it was', () => {
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'wtree-adv-remote-'));
+    try {
+      spawnSync('git', ['init', '--bare', '-q', '-b', 'main', bare], { timeout: 30_000 });
+      expect(run(['gstack-artifacts-init', '--remote', bare]).status).toBe(0);
+      run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+      const head = git(['rev-parse', 'HEAD'], tmpHome).stdout;
+      git(['worktree', 'add', '--detach', worktreePath(), head], tmpHome);
+      fs.mkdirSync(path.join(tmpHome, 'transcripts'), { recursive: true });
+      fs.writeFileSync(path.join(tmpHome, 'transcripts/session.md'), 'a transcript page\n');
+      git(['add', '-f', 'transcripts/session.md'], tmpHome);
+      git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'transcript'], tmpHome);
+      fs.mkdirSync(path.join(tmpHome, 'projects', 'p'), { recursive: true });
+      fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'), '{"skill":"x","insight":"y","ts":"2026-11-22T10:00:00Z"}\n');
+      run(['gstack-brain-enqueue', 'projects/p/learnings.jsonl']);
+      expect(run(['gstack-brain-sync', '--once']).status).toBe(0);
+      const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+      expect(status.message).toContain('outside your transcript consent');
+      expect(git(['log', '-1', '--format=%s'], tmpHome).stdout).toMatch(/^sync: 1 file/);
+      expect(git(['rev-parse', 'HEAD'], worktreePath()).stdout).toBe(head);
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
   test('a refused advance holds retries for 24h; a later success clears the hold', () => {
     const { head } = makeArtifactsRepoWithWorktree();
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'artifacts-only']);

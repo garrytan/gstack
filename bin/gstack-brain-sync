@@ -668,7 +668,9 @@ guard_unpublished_range() {
   if [ "$rc" -eq 2 ]; then
     echo "BRAIN_SYNC: push blocked: unpushed commits hold transcript pages and bun is not on PATH to check them against your transcript consent" >&2
   fi
-  [ "$rc" -eq 0 ]
+  [ "$rc" -eq 0 ] && return 0
+  BRAIN_ADVANCE_ARMED=0
+  return 1
 }
 
 # Finalize the drain: delete exactly the spool record files this drain
@@ -877,6 +879,7 @@ validate_outgoing_paths() {
   if ! out=$(python3 "$SCRIPT_DIR/gstack-brain-sync-index.py" --outgoing "$GSTACK_HOME"); then
     ST_CASE_NAMES=${out%$'\r'}
     write_status "error" "outgoing artifact path validation refused: a local commit adds a path that differs only by letter case from a path on the remote; local commits and queue preserved. Repair: https://github.com/garrytan/gstack/blob/main/docs/troubleshooting.md#artifact-case-collision"
+    BRAIN_ADVANCE_ARMED=0
     return 1
   fi
   out=${out%$'\r'}
@@ -1235,7 +1238,9 @@ subcmd_publish_removals() {
 # up-to-date worktree costs two rev-parses. An advance that leaves the worktree
 # behind (a failure, or a refused dirty or unmanaged worktree) stamps the time,
 # which holds the next attempt and its warning for 24h; a later success clears
-# the stamp. INT/TERM disarm it, so a cancelled drain never checks anything out.
+# the stamp. INT/TERM disarm it, so a cancelled drain never checks anything out,
+# and so does a transcript-consent or letter-case refusal (guard_unpublished_range,
+# validate_outgoing_paths), so a commit kept local by one never reaches gbrain.
 # The advance itself never force-removes (see gstack-gbrain-source-wireup).
 BRAIN_ADVANCE_ARMED=0
 advance_brain_worktree() {
