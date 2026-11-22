@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import { PREFLIGHT, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(120_000);
-const BIN = path.dirname(PREFLIGHT);
+const BIN = path.join(import.meta.dir, '..', 'bin');
 const CHECKOUT = { GSTACK_LEASE_DIR: '', GSTACK_APPROVALS_MIRROR: '0' };
 const fixtures: ShipFx[] = [];
 afterEach(() => { while (fixtures.length) fixtures.pop()!.cleanup(); });
