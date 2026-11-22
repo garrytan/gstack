@@ -287,6 +287,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/quality-gate.yml',
   '.github/workflows/scorecard.yml',
   '.github/workflows/skill-docs.yml',
+  '.github/workflows/test-changes.yml',
   '.github/workflows/test-health.yml',
   '.github/workflows/trunk-flaky-tests.yml',
   '.github/workflows/eval-sweep.yml', // The weekly off-ship sweep on main; no PR-gate case reads it, and it never gates a PR.
