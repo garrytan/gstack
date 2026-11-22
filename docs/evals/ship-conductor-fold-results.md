@@ -37,8 +37,9 @@ value t = 2.291 (10 cases).
   reached the step where it runs, and applied that rule to every later run, C and F. The checker dissented: line 193
   says "named", not "due before the stop". Read literally, F7t3 is a miss, fidelity is 29 of 30, and the plan's
   decision is that the conductor stays with one FIX-METHOD cycle for the fold's reviewer dispatch.
-- **Leaving out the runs that looked at main changes one case.** Nine of 30 F runs looked at `origin/main` near the
-  planted file (below). Repeating the bars without them leaves 9 cases (all three of case 7's F runs drop out). Cost
+- **Leaving out the exposure-flagged runs changes one case.** Nine of 30 F runs were flagged for exposure: most looked
+  at `origin/main`'s version of the planted file, and the rest saw only file names or summaries that mention this plan
+  (below). Repeating the bars without them leaves 9 cases (all three of case 7's F runs drop out). Cost
   and real problems still pass, but case 9 becomes C 3 of 3 against F's one remaining run, which missed: by the
   script's per-case mean, a structural loss. The plan's own definition needs F to miss in 3 runs, so this is a
   looser reading on one run, and it is reported, not decided on.
@@ -57,7 +58,7 @@ value t = 2.291 (10 cases).
 | `claude-opus-5-5#ship-folded` | F | 30 | 22 of 30 | 0.23 | $11.54 | 36.6 min | 30 of 30 under the ruling, 29 of 30 literal |
 | `claude-opus-5-5#no-gstack` | N | 30 | 16 of 30 | 0.40 | $0.83 | 6.6 min (SDK runs) | not applicable |
 
-| Bar (F minus C) | Primary (ruling) | Literal line 193 | Without the 9 looked-at-main F runs (9 cases, t = 2.336) |
+| Bar (F minus C) | Primary (ruling) | Literal line 193 | Without the 9 exposure-flagged F runs (9 cases, t = 2.336) |
 |---|---|---|---|
 | Cost a run | +$0.07 (-$1.42 to +$1.57), pass | same, pass | +$0.01 (-$1.62 to +$1.64), pass |
 | Planted-bug catch rate | +0.03 (-0.18 to +0.25), pass | same, pass | -0.04 (-0.39 to +0.32), fails on case 9 |
