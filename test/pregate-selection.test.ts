@@ -218,33 +218,69 @@ describe('literals (pure)', () => {
   //   shell module is; fails_when=`/<stem>` again accepts any following `.<word>`, the file name accepts a further extension,
   //   a non-JS module takes JS/TS extensions, or stops accepting a following space, bracket or sentence end
   //   (GST-820: 17 false files in gbrain #8372 on ARM_SHARDS 12 -> 18); why_new=no test had a same-stem sibling; seam=none;
-  //   no_claim=name-gated hits (a file naming ARM_SHARDS still counts any 12)
+  //   no_claim=name-gated hits (a file naming ARM_SHARDS still counts any 12); the two-digit run pins which module matches still count (#4312)
   test('consumersOf: a sibling file sharing the module stem is not the module; real imports of it still are (GST-820)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-stem-'));
     const nl = String.fromCharCode(10);
-    const files: Record<string, string> = {
-      'test/a.test.ts': ['// listed in test/postgres-unit-arms.txt', 'expect(n).toBe(12);', ''].join(nl),
-      'test/json.test.ts': ["const arms = read('fixtures/postgres-unit-arms.json');", 'expect(arms.length).toBe(12);', ''].join(nl),
-      'test/longer.test.ts': ["run('scripts/postgres-unit-arms-v2.ts');", 'expect(n).toBe(12);', ''].join(nl),
-      'test/import.test.ts': ["import { shards } from '../scripts/postgres-unit-arms';", 'expect(shards()).toBe(12);', ''].join(nl),
-      'test/import-js.test.ts': ["import { shards } from '../scripts/postgres-unit-arms.js';", 'expect(shards()).toBe(12);', ''].join(nl),
-      'test/own.test.ts': ["const out = run('scripts/postgres-unit-arms.ts');", 'expect(out).toBe(12);', ''].join(nl),
-      'test/line-end.test.ts': ['// covers scripts/postgres-unit-arms', 'expect(n).toBe(12);', ''].join(nl),
-      'test/prose.test.ts': ['// covers scripts/postgres-unit-arms and more', 'expect(n).toBe(12);', ''].join(nl),
-      'test/paren.test.ts': ['// (scripts/postgres-unit-arms)', 'expect(n).toBe(12);', ''].join(nl),
-      'test/sentence.test.ts': ['// see scripts/postgres-unit-arms.', 'expect(n).toBe(12);', ''].join(nl),
-      'test/dts.test.ts': ["import type { Arms } from '../scripts/postgres-unit-arms.d.ts';", 'expect(n).toBe(12);', ''].join(nl),
-      'test/sibling-test.test.ts': ["run('scripts/postgres-unit-arms.test.ts');", 'expect(n).toBe(12);', ''].join(nl),
-      'test/snap.test.ts': ["read('scripts/__snapshots__/postgres-unit-arms.ts.snap');", 'expect(n).toBe(12);', ''].join(nl),
-      'test/sh-twin.test.ts': ["import { arms } from '../lib/arms-tool.ts';", 'expect(n).toBe(12);', ''].join(nl),
-      'test/sh-own.test.ts': ["run('scripts/arms-tool.sh');", 'expect(n).toBe(12);', ''].join(nl),
-    };
+    const armsFiles = (v: string): Record<string, string> => ({
+      'test/a.test.ts': ['// listed in test/postgres-unit-arms.txt', `expect(n).toBe(${v});`, ''].join(nl),
+      'test/json.test.ts': ["const arms = read('fixtures/postgres-unit-arms.json');", `expect(arms.length).toBe(${v});`, ''].join(nl),
+      'test/longer.test.ts': ["run('scripts/postgres-unit-arms-v2.ts');", `expect(n).toBe(${v});`, ''].join(nl),
+      'test/import.test.ts': ["import { shards } from '../scripts/postgres-unit-arms';", `expect(shards()).toBe(${v});`, ''].join(nl),
+      'test/import-js.test.ts': ["import { shards } from '../scripts/postgres-unit-arms.js';", `expect(shards()).toBe(${v});`, ''].join(nl),
+      'test/own.test.ts': ["const out = run('scripts/postgres-unit-arms.ts');", `expect(out).toBe(${v});`, ''].join(nl),
+      'test/line-end.test.ts': ['// covers scripts/postgres-unit-arms', `expect(n).toBe(${v});`, ''].join(nl),
+      'test/prose.test.ts': ['// covers scripts/postgres-unit-arms and more', `expect(n).toBe(${v});`, ''].join(nl),
+      'test/paren.test.ts': ['// (scripts/postgres-unit-arms)', `expect(n).toBe(${v});`, ''].join(nl),
+      'test/sentence.test.ts': ['// see scripts/postgres-unit-arms.', `expect(n).toBe(${v});`, ''].join(nl),
+      'test/dts.test.ts': ["import type { Arms } from '../scripts/postgres-unit-arms.d.ts';", `expect(n).toBe(${v});`, ''].join(nl),
+      'test/sibling-test.test.ts': ["run('scripts/postgres-unit-arms.test.ts');", `expect(n).toBe(${v});`, ''].join(nl),
+      'test/snap.test.ts': ["read('scripts/__snapshots__/postgres-unit-arms.ts.snap');", `expect(n).toBe(${v});`, ''].join(nl),
+      'test/sh-twin.test.ts': ["import { arms } from '../lib/arms-tool.ts';", `expect(n).toBe(${v});`, ''].join(nl),
+      'test/sh-own.test.ts': ["run('scripts/arms-tool.sh');", `expect(n).toBe(${v});`, ''].join(nl),
+       });
+    const files = armsFiles('120');
     for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
-    expect(consumersOf(root, Object.keys(files), { name: 'ARM_SHARDS', old: '12', new: '18', file: 'scripts/postgres-unit-arms.ts' })).toEqual([
+    expect(consumersOf(root, Object.keys(files), { name: 'ARM_SHARDS', old: '120', new: '180', file: 'scripts/postgres-unit-arms.ts' })).toEqual([
       'test/import.test.ts:2', 'test/import-js.test.ts:2', 'test/own.test.ts:2', 'test/line-end.test.ts:2',
       'test/prose.test.ts:2', 'test/paren.test.ts:2', 'test/sentence.test.ts:2', 'test/dts.test.ts:2',
     ]);
-    expect(consumersOf(root, ['test/sh-twin.test.ts', 'test/sh-own.test.ts'], { name: 'ARMS', old: '12', new: '18', file: 'scripts/arms-tool.sh' })).toEqual(['test/sh-own.test.ts:2']);
+    expect(consumersOf(root, ['test/sh-twin.test.ts', 'test/sh-own.test.ts'], { name: 'ARMS', old: '120', new: '180', file: 'scripts/arms-tool.sh' })).toEqual(['test/sh-own.test.ts:2']);
+    // The incident's own two-digit change: a test that imports the module, or keeps what running it returned, and asserts 12 is still
+    // a consumer; a comment naming the module, a type-only import, or a script run with no binding beside an unrelated 12 is not (#4312).
+    for (const [rel, text] of Object.entries(armsFiles('12'))) fs.writeFileSync(path.join(root, rel), text);
+    expect(consumersOf(root, Object.keys(files), { name: 'ARM_SHARDS', old: '12', new: '18', file: 'scripts/postgres-unit-arms.ts' })).toEqual([
+      'test/import.test.ts:2', 'test/import-js.test.ts:2', 'test/own.test.ts:2',
+    ]);
+    expect(consumersOf(root, ['test/sh-twin.test.ts', 'test/sh-own.test.ts'], { name: 'ARMS', old: '12', new: '18', file: 'scripts/arms-tool.sh' })).toEqual([]);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  // Value: protects=a one- or two-digit old value found only through the module counts in a statement that uses a binding the file
+  //   takes from it (an import, multi-line, namespace or require), never beside a comment naming the module or after a type-only
+  //   import, and a negative two-digit value gets the same rule; three digits keep the module rule; fails_when=short integers match
+  //   any line in a file that mentions the module again (#4312: 10 -> 11 flagged 194 lines in 11 files); why_new=only one-character
+  //   values were gated; seam=none; no_claim=Python or shell bindings (a short value there needs the constant's name)
+  test('consumersOf: a one- or two-digit value found through its module counts only beside a binding taken from it (#4312)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-literals-short-'));
+    const nl = String.fromCharCode(10);
+    const files: Record<string, string> = {
+      'test/unrelated.test.ts': ["import { other } from '../lib/retry';", 'expect(items.length).toBe(10);', 'expect(other()).toBe(11);', ''].join(nl),
+      'test/prose.test.ts': ['// covers lib/retry', 'expect(rows).toHaveLength(10);', ''].join(nl),
+      'test/type-only.test.ts': ["import type { Opts } from '../lib/retry';", 'expect(rows).toHaveLength(10);', ''].join(nl),
+      'test/named.test.ts': ['expect(MAX_ITEMS).toBe(10);', ''].join(nl),
+      'test/binding.test.ts': ['import {', '  maxItems as limit,', "} from '../lib/retry.js';", 'expect(n).toBe(10);', 'expect(', '  limit(),', ').toBe(10);', ''].join(nl),
+      'test/namespace.test.ts': ["import * as retry from '../lib/retry';", 'expect(retry.MAX).toBe(10);', ''].join(nl),
+      'test/require.test.ts': ["const { maxItems } = require('../lib/retry');", 'expect(maxItems()).toBe(10);', ''].join(nl),
+    };
+    for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
+    expect(consumersOf(root, Object.keys(files), { name: 'MAX_ITEMS', old: '10', new: '11', file: 'lib/retry.ts' })).toEqual([
+      'test/named.test.ts:1', 'test/binding.test.ts:7', 'test/namespace.test.ts:2', 'test/require.test.ts:2',
+    ]);
+    fs.writeFileSync(path.join(root, 'test/negative.test.ts'), ['// covers lib/retry', 'expect(offset).toBe(-10);', ''].join(nl));
+    fs.writeFileSync(path.join(root, 'test/negative-import.test.ts'), ["import { offset } from '../lib/retry';", 'expect(offset()).toBe(-10);', ''].join(nl));
+    expect(consumersOf(root, ['test/negative.test.ts', 'test/negative-import.test.ts'], { name: 'OFFSET', old: '-10', new: '-11', file: 'lib/retry.ts' })).toEqual(['test/negative-import.test.ts:2']);
+    fs.writeFileSync(path.join(root, 'test/wide.test.ts'), ['// covers lib/retry', 'expect(rows).toHaveLength(100);', ''].join(nl));
+    expect(consumersOf(root, ['test/wide.test.ts'], { name: 'MAX_ITEMS', old: '100', new: '101', file: 'lib/retry.ts' })).toEqual(['test/wide.test.ts:2']);
     fs.rmSync(root, { recursive: true, force: true });
   });
   test('consumersOf: a module stem is a path fragment, never a bare word, and a one-character old value needs the constant name (GSTA-114 flood: install.sh 2 -> 3 flagged 575 consumers)', () => {

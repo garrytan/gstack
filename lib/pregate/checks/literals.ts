@@ -97,7 +97,13 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
  * in a statement that names it: on the name's line, or on a line that
  * continues it (the line before ends open, `(` `,` `.` `=`, or the line
  * starts with `.` `)` `]`), comments excluded (#3492: `$2`, "from revision 2",
- * `export default 2`). A call-site name (`attempts`, `limit`) is an ordinary
+ * `export default 2`). A one- or two-digit integer (`12`, `-10`) is nearly as
+ * common, so through the module it counts only in a statement that names the
+ * constant or a binding the file takes from the module: an import of it
+ * (`import { shards } from '…/arms'`, type-only imports excluded) or a variable
+ * a line naming it declares (`const out = run('…/arms.ts')`). A comment that
+ * names the module beside an unrelated `10` is not a consumer (#4312), while
+ * `expect(shards()).toBe(12)` still is (GST-820). A call-site name (`attempts`, `limit`) is an ordinary
  * word, so for it the file must also name the module whatever the value's
  * length (gstack-evals#97, #4478).
  *
@@ -128,6 +134,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   const moduleRe = new RegExp(`(?:^|[/\\\\])${escape(stem)}(?=[^\\w.-]|$|\\.${dts}(?:${exts})(?![\\w.-])|\\.(?!\\w))|(?<![\\w-])${escape(base)}(?![\\w-]|\\.\\w)`, 'm');
   const nameRe = new RegExp(`\\b${escape(change.name)}\\b`);
   const nameRequired = value.length < 2;
+  const shortNumber = !nameRequired && /^-?\d{1,2}$/.test(value);
   const callSite = !/^[A-Z]/.test(change.name);
   const comment = (l: string) => /^\s*(?:\/\/|#|\*|\/\*|<!--)/.test(l);
   const continues = (prev: string, cur: string) => /[([{,.=+\-*/&|?:\\]\s*$/.test(prev) || /^\s*[.)\]}?:&|+]/.test(cur);
@@ -137,11 +144,14 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
     if (!((nameRequired ? nameRe.test(text) : nameRe.test(text) || moduleRe.test(text)) && (!callSite || moduleRe.test(text)))) continue;
     const lines = text.split('\n');
+    const bindings = shortNumber ? moduleBindings(lines, moduleRe, comment) : [];
+    if (shortNumber && !bindings.length && !nameRe.test(text)) continue;
+    const statementRe = bindings.length ? new RegExp(`(?<![\\w$])(?:${[change.name, ...bindings].map(escape).join('|')})(?![\\w$])`) : nameRe;
     const named = (i: number) => {
       if (comment(lines[i]!)) return false;
       for (let j = i; j >= 0 && i - j < 4; j--) {
         if (j < i && (comment(lines[j]!) || !continues(lines[j]!, lines[j + 1]!))) return false;
-        if (nameRe.test(lines[j]!)) return true;
+        if (statementRe.test(lines[j]!)) return true;
       }
       return false;
     };
@@ -168,9 +178,27 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
       return true;
     };
     const carries = (i: number) => { const m = markerIn(lines[i]!); return valueRe.test(m ? lines[i]!.slice(0, lines[i]!.indexOf('pregate-literal:')) : lines[i]!); };
-    for (let i = 0; i < lines.length; i++) if (carries(i) && (!nameRequired || oldRowRe.test(lines[i]!) || named(i)) && !skip(i) && !waiver(i)) { hits.push(`${rel}:${i + 1}`); break; }
+    for (let i = 0; i < lines.length; i++) if (carries(i) && (!(nameRequired || shortNumber) || oldRowRe.test(lines[i]!) || named(i)) && !skip(i) && !waiver(i)) { hits.push(`${rel}:${i + 1}`); break; }
   }
   return hits;
+}
+
+/** The names a file takes from the module: the bindings of a JS/TS import whose specifier is the module (type-only ones excluded), and the variables a non-comment line naming the module declares. */
+function moduleBindings(lines: readonly string[], moduleRe: RegExp, comment: (l: string) => boolean): string[] {
+  const code = lines.filter(l => !comment(l)).join('\n');
+  const out = new Set<string>();
+  const names = (list: string) => list.split(',').map(s => s.trim()).filter(s => s && !/^type\s/.test(s)).map(s => s.split(/\s+as\s+|:/).pop()!.replace(/^\.\.\./, '').trim());
+  for (const m of code.matchAll(/\bimport\s+(?!type\b)([^'"`;]*?)\s*\bfrom\s*['"]([^'"]+)['"]/g)) {
+    if (!moduleRe.test(m[2]!)) continue;
+    const braces = /\{([^}]*)\}/.exec(m[1]!);
+    if (braces) for (const n of names(braces[1]!)) out.add(n);
+    for (const n of m[1]!.replace(/\{[^}]*\}/, '').split(',').map(s => s.trim().replace(/^\*\s+as\s+/, ''))) out.add(n);
+  }
+  for (const line of code.split('\n')) {
+    const m = moduleRe.test(line) ? /\b(?:const|let|var)\s+(\{[^}]*\}|[\w$]+)\s*=/.exec(line) : null;
+    if (m) for (const n of m[1]!.startsWith('{') ? names(m[1]!.slice(1, -1)) : [m[1]!]) out.add(n);
+  }
+  return [...out].filter(n => /^[\w$]+$/.test(n));
 }
 
 function run(ctx: PregateContext): CheckResult {
