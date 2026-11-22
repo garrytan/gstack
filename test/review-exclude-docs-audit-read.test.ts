@@ -103,4 +103,19 @@ describe('a docs-audit edit to a doc the reviewers read takes one scoped reader 
     expect(w.err).toContain('RECEIPT_DOCS_AUDIT_READ');
     expect(fs.readFileSync(packetOf(w.err)!, 'utf8')).toContain('+A token is read from the store and retried 2 times on a timeout.');
   }, 240_000);
+
+  // Value: protects=an audit change git shows with no text hunk (a NUL byte, or a doc over core.bigFileThreshold) refuses instead of
+  //   handing the reader an empty packet a clean record would bind; fails_when=write asks for a reader of an empty diff;
+  //   seam=gstack-ship-receipt write --docs-post; no_claim=-
+  test('a change git shows with no text hunk refuses', () => {
+    const nul = auditedAfterReview(['A token is read from the store and retried\0 2 times on a timeout.']).writeReceipt();
+    const big = auditedAfterReview();
+    big.repo.git('config', 'core.bigFileThreshold', '16');
+    const large = big.writeReceipt();
+    for (const r of [nul, large]) {
+      expect(r.status).toBe(EXIT.fail);
+      expect(r.err).not.toContain('RECEIPT_DOCS_AUDIT_READ');
+      expect(r.err).toContain('with no text hunk');
+    }
+  }, 240_000);
 });

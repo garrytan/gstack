@@ -28,6 +28,7 @@ export function docsAuditPacket(root: string, head: string, files: ReadonlyArray
     if (diff === null) return { ok: false, why: `git could not diff ${p} from before the audit to HEAD` };
     const lines = diff.split('\n');
     const at = lines.findIndex(l => l.startsWith('@@'));
+    if (at < 0 && diff.trim()) return { ok: false, why: `git shows the audit's change to ${p} with no text hunk (a binary or very large file), so one scoped reader cannot read it` };
     const hunks = at < 0 ? [] : lines.slice(at);
     const changed = hunks.filter(l => /^[+-]/.test(l)).length;
     if (changed > BOUNDED_LINES) return { ok: false, why: `the audit changed ${changed} lines of ${p}, a doc the reviewers read: too large for one scoped reader (at most ${BOUNDED_LINES})` };

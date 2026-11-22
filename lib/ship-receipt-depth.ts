@@ -346,7 +346,8 @@ const treatment = (x: ActiveExclusion, p: string) => (x.excluded.has(p) ? 'exclu
  * them left. When the whole carried list does not rebuild the reviewed selection, write retries without the oldest carried audits,
  * one at a time down to none (a review that ran between two audits already read the earlier one's edits); only that digest
  * mismatch retries, so an integrity refusal (an edit after an audit, a file changed between audits, a foreign HEAD) ends it, and
- * the refusal names the whole list's reason. A file the merged base changed since an audit's HEAD and the PR's own three-dot diff
+ * the refusal names the whole list's reason, unless a retry matched the reviewed selection: then that retry's own refusal or
+ * reader packet comes back. A file the merged base changed since an audit's HEAD and the PR's own three-dot diff
  * leaves alone holds no PR edit, so it is not counted as changed; a latest audit that changed nothing still binds through the audits
  * it carries; and the rebuilt selection binds the reviewed digest as carryExcludeBinds does, so a base policy change alone does not
  * void it (GST-3260). Content compares as git stores it or as it checks out (autocrlf, filters). Anything else, an unreadable
