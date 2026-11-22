@@ -43,7 +43,7 @@ describe('gstack-ship-receipt write', () => {
     const ok = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '42', '--base', 'main', '--receipt', treeReceipt,
       '--gate', '{"tests":{"pass":1,"fail":0,"skip":0}}', '--ci', '@' + path.join(repo.root, 'ci.json'), '--spend-usd', '0.42',
       '--session-kind', 'unattended', '--artifacts-consumed', '2/3', '--run', 'run-1', '--thread', 'jam_1', '--queue-mode', 'stamp-at-merge',
-      '--preregistration', 'none (no preregistration_shas)', '--history', 'squash-ok', '--body', body, '--out', path.join(repo.root, 'receipt.md')]);
+      '--preregistration', 'none (no preregistration_shas)', '--history', 'squash-ok', '--body', body, '--out', path.join(repo.root, 'receipt.md')], ghShim(repo, { 42: { body: '' } }));
     expect(ok.status).toBe(EXIT.ok);
     expect(ok.err.trim()).toBe(`SHIP_RECEIPT: pr=42 head=${head.slice(0, 12)} version=1.2.4.0 base=main gated_tree=${repo.git('rev-parse', 'HEAD^{tree}').slice(0, 12)} tree=same-modulo-stamps gate-reuse=eligible (reusable: tests; rerun: -) predecessor=${'b'.repeat(12)} session_kind=unattended artifacts_consumed=2/3 depth=light`);
     const parsed = extractReceipt(ok.out);

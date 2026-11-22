@@ -4,9 +4,10 @@
  * file; merging the base re-records the pin's blob for the merged file and nothing else. The pin is then a function of
  * the pinned file's bytes, which the carry still compares as product, so it carries as a regenerated output. Controls:
  * a pin whose blob is not the file's, a changed reason, a moved harness version and a blob-only re-pin of a pinned test
- * helper (which carries as a test change on its own) still refuse.
+ * helper (which carries as a test change on its own) and a pin turned into a symlink still refuse.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { cleanup, commit, makeFixtureRepo, runBin, write, type FixtureRepo } from './helpers/pregate-fixture';
@@ -22,7 +23,7 @@ const pin = (blob: string, reason: string, since = 7) => `${JSON.stringify({ blo
 const LINES = ['export const FREE = [', "  'a.yml',", '];', ...Array.from({ length: 8 }, (_, i) => `export const K${i} = ${i};`), ''];
 
 /** main pins FILE; feature edits its start and re-pins, /ship receipt there; main edits its end and re-pins; feature merges main and resolves the pin with `resolve`. */
-function repinned(resolve: (merged: string) => Record<string, string>): { body: string; repo: FixtureRepo } {
+function repinned(resolve: (merged: string) => Record<string, string>, linkPin = false): { body: string; repo: FixtureRepo } {
   const repo = makeFixtureRepo(); repos.push(repo);
   const blob = () => repo.git('rev-parse', `HEAD:${FILE}`);
   repo.git('checkout', '-q', 'main');
@@ -41,7 +42,11 @@ function repinned(resolve: (merged: string) => Record<string, string>): { body: 
   repo.git('push', '-q', 'origin', 'main');
   repo.git('checkout', '-q', 'feature');
   try { repo.git('merge', '-q', '--no-edit', 'origin/main'); } catch { /* the pin conflicts; resolved below */ }
-  for (const [rel, text] of Object.entries(resolve(repo.git('hash-object', FILE)))) write(repo.work, rel, text);
+  for (const [rel, text] of Object.entries(resolve(repo.git('hash-object', FILE)))) {
+    if (!linkPin || rel !== PIN) { write(repo.work, rel, text); continue; }
+    fs.rmSync(path.join(repo.work, rel), { force: true });
+    fs.symlinkSync(text.trim(), path.join(repo.work, rel));
+  }
   repo.git('add', '-A');
   repo.git('commit', '-q', '--no-edit');
   return { body, repo };
@@ -104,6 +109,18 @@ describe('carry across a harness pin a base merge re-recorded (GSTA-749)', () =>
     expect(out.status).toBe(EXIT.refused);
     expect(out.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
     expect(out.err).toContain(pinPath);
+  }, 90_000);
+
+  // Value: protects=the harness reads the pin git shows: a symlink's link text can spell the reviewed pin while the harness
+  //   follows it elsewhere (second-model review of #4669); fails_when=a pin is read without its tree mode; seam=productSpec;
+  //   no_claim=gh pr edit
+  test.skipIf(process.platform === 'win32')('a pin turned into a symlink whose link text is the pin still refuses', () => {
+    const { repo, body } = repinned(merged => ({ [PIN]: pin(merged, BRANCH_REASON) }), true);
+    expect(repo.git('ls-tree', 'HEAD', '--', PIN)).toStartWith('120000 ');
+    const out = carry(repo, body);
+    expect(out.status).toBe(EXIT.refused);
+    expect(out.err).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+    expect(out.err).toContain(PIN);
   }, 90_000);
 
   // Value: protects=a version bump starts a new pass-rate series, a behavior change; fails_when=a bump rides a re-record; seam=productSpec; no_claim=gh pr edit

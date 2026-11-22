@@ -1,0 +1,4 @@
+{
+  "bytes": 180,
+  "why": "The docs audit steps say a re-audit carries each earlier audit by its post snapshot, or by its Prepare snapshot with --carry-stopped when it stopped before one"
+}
