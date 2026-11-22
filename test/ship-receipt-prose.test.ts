@@ -85,7 +85,7 @@ describe('the opening above the first fold is not prose', () => {
     expect(checkReceiptProse(receipt, folded)).toEqual({ checked: 2, mismatches: [] });
     expect(checkReceiptProse(receipt, opening + '<details><summary>Notes</summary>\n\n58 fixed with gstack.\n</details>\n').mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
     expect(checkReceiptProse(receipt, opening).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
-    expect(checkReceiptProse(receipt, '```\n<details>\n```\n' + opening + '<details><summary>x</summary>\n</details>\n').checked).toBe(0);
+    expect(checkReceiptProse(receipt, '```\n<details>\n```\n' + opening + '<details><summary>x</summary>\n</details>\n').mismatches).toEqual([{ field: 'review_loop.fixed', prose: 58, receipt: 1 }]);
   });
 
   // Value: protects=only an opening R76 allows (3 lines, 600 characters) is skipped; fails_when=a body that leaves its review section
@@ -104,6 +104,13 @@ describe('the opening above the first fold is not prose', () => {
     const notes = '<details><summary>Agent notes</summary>\n\nReview: 2 passes, 1 fixed.\n</details>\n';
     expect(checkReceiptProse(receipt, opening + '<!-- gstack:agent-notes -->\n' + notes).mismatches).toEqual([]);
     expect(checkReceiptProse(receipt, opening + '<!-- a note -->\n' + notes).mismatches).toEqual([]);
+  });
+
+  // Value: protects=a code block in the opening counts at its full length, as the shape check counts it; fails_when=an opening over R76 because of
+  //   a fence collapses to one line and hides its counter claims; why_new=ship-4672 p2/outside-voice#2; seam=checkReceiptProse
+  test('an opening over R76 because of a code block is still checked', () => {
+    const body = 'What changed.\n```\na\nb\nc\n```\n9 fixed.\n<details><summary>n</summary>\n</details>\n';
+    expect(checkReceiptProse(receipt, body).mismatches).toEqual([{ field: 'review_loop.fixed', prose: 9, receipt: 1 }]);
   });
 });
 

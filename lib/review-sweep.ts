@@ -183,7 +183,7 @@ export function sweepDiff(start: Inventory, end: Inventory): Found[] {
     found.push({ path: p, kind: 'repo', remote, bytes: du(p) });
   }
   for (const [p, bytes] of Object.entries(end.big)) {
-    if (p in start.big || p in (start.ignored ?? {}) || found.some(f => p.startsWith(f.path + path.sep))) continue;
+    if (p in start.big || start.ignored?.[p]?.reason === 'build-output' || found.some(f => p.startsWith(f.path + path.sep))) continue;
     found.push({ path: p, kind: 'download', bytes });
   }
   return found;

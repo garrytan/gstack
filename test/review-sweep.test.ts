@@ -150,6 +150,16 @@ describe('review-sweep inventory diff', () => {
     expect([r.verdict, r.found]).toEqual(['clean', []]);
   });
 
+  // Value: protects=only a build output is excused at its start path; fails_when=a fixture-marker or local-remote directory swapped for a big
+  //   download at the same path reads clean; why_new=ship-4672 p2/outside-voice#1; seam=sweepDiff; no_claim=a build output replaced in place
+  test('an ignored directory swapped for a big file at the same path is still a download', () => {
+    for (const reason of ['fixture-marker', 'local-remote'] as const) {
+      const dir = '/r/fixtures/root';
+      const r = sweepResult({ at: 1, roots: ['/r'], repos: {}, big: {}, ignored: { [dir]: { reason } } }, { at: 2, roots: ['/r'], repos: {}, big: { [dir]: BIG_BYTES }, ignored: {} });
+      expect([r.verdict, r.found.map(f => f.path)]).toEqual(['violation', [dir]]);
+    }
+  });
+
   test('a partial start inventory makes what the end walk finds a partial note, not a violation', () => {
     const root = tmp();
     const checkout = path.join(root, 'checkout');
