@@ -13,7 +13,7 @@ import { HOST_PATHS } from '../scripts/resolvers/types';
  */
 
 const ROOT = join(import.meta.dir, '..');
-const SKILLS = ['review', 'qa', 'verify'];
+const SKILLS = ['review', 'qa', 'build-check'];
 // splitCatalogDescription cuts a longer Claude lead with "...", which drops the end of the when-clause.
 const LEAD_CAP = 200;
 // test/catalog-budget.test.ts PER_SKILL_BYTE_CAP: name + Claude description bytes.
@@ -85,8 +85,8 @@ describe('discovery-target descriptions (GST-1088)', () => {
     ['review my changes before I merge', 'review'],
     ['test the site and fix what you find', 'qa'],
     ['can you qa test this page', 'qa'],
-    ['run the checks and make it green', 'verify'],
-    ['verify my change', 'verify'],
+    ['run the checks and make it green', 'build-check'],
+    ['verify my change', 'build-check'],
   ];
   for (const [prompt, want] of PROMPTS) {
     test('untold prompt "' + prompt + '" carries ' + (want ? 'a ' + want + ' trigger and no other' : 'no') + ' target trigger', () => {
