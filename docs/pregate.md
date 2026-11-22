@@ -1981,15 +1981,21 @@ those, each with its scope and its reason:
   in a `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts` or `.cts` file.
   Declarations without a literal (types, destructuring, imports, calls,
   `process.env` reads) give nothing, and neither does a literal that names a
-  key (`'agent_model'`, `'test/skill-e2e-bws.test.ts'`) or a template whose
-  text beside its `${…}` slots holds no secret. A key split across a `+` chain
-  reports. Known limits, not read by this rule: a fallback after an
-  environment read (`process.env.TOKEN ?? "<key>"`); a declaration that does
+  key (`'agent_model'`, `'test/skill-e2e-bws.test.ts'`), an environment-variable
+  name (`const API_KEY = "MY_SERVICE_API_KEY"`) or a template whose text beside
+  its `${…}` slots holds no secret. A type stops at `;`, so
+  `let session: string; const mode = "BILLING_DASHBOARD";` gives nothing. A key
+  split across a `+` chain of quoted pieces reports. Known limits, not read by
+  this rule: a fallback after an environment read (`process.env.TOKEN ?? "<key>"`); a declaration that does
   not start its line (`if (x) { const token = "<key>"; }`,
   `const a = 1, token = "<key>"`); a value on the line after its `=`, since
-  the check reads added lines alone; `.vue`, `.svelte` and other files; and a
-  lowercase passphrase of dictionary words (`"summer-breeze-falcon"`), which
-  reads as a key name. A bare `#secret = "<key>"` line stays `env.kv`'s.
+  the check reads added lines alone; `.vue`, `.svelte` and other files; a
+  lowercase passphrase of dictionary words (`"summer-breeze-falcon"`) or a
+  letters-only camelCase one (`'CorrectHorseBatteryStaple'`), which reads as a
+  key name; a template with a space inside a slot (`` `${ base }<key>` ``),
+  whose capture stops at the space; and a `+` chain whose first piece is a
+  template (`` `sk_` + '<key>' ``). A bare `#secret = "<key>"` line stays
+  `env.kv`'s.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with

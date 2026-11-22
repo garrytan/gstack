@@ -1232,14 +1232,16 @@ function holdsSecretText(text: string): boolean {
  * one: key-naming text (KEY_TEXT: `'agent_model'`, `'sealed.visibility'`,
  * `'terminalFontSize'`), a lowercase path or id of two or more segments with
  * at most one digit each (`'test/skill-e2e-bws.test.ts'`,
- * `'e6-multiblock-sentinel'`), or a template literal that closes on its line
+ * `'e6-multiblock-sentinel'`), an environment-variable name (`'MY_SERVICE_API_KEY'`:
+ * two or more uppercase words, each with optional trailing digits, joined by `_`), or a template literal that closes on its line
  * with a `${…}` slot (built at run time) whose static text holds no secret run
  * (CONSTANT_CASE names aside). A UUID, hex, a segment of digits, mixed case
  * with digits, an unclosed template, or a secret beside a slot still reports.
  */
 const JS_KEY_PATH = /^[a-z]+(?:\d[a-z]*)?(?:[/._\-#~:]+[a-z]+(?:\d[a-z]*)?)+$/;
+const JS_ENV_NAME = /^[A-Z]+\d*(?:_[A-Z]+\d*)+$/;
 function isJsKeyName(span: string, match: RegExpExecArray): boolean {
-  if (KEY_TEXT.test(span) || JS_KEY_PATH.test(span)) return true;
+  if (KEY_TEXT.test(span) || JS_KEY_PATH.test(span) || JS_ENV_NAME.test(span)) return true;
   const { start } = spanBounds(match);
   if (match.input[start - 1] !== "\x60") return false;
   const line = match.input.slice(start).split("\n", 1)[0]!;
@@ -1882,7 +1884,8 @@ export const PATTERNS: RedactPattern[] = [
     // four of `declare`, `public`, `private`, `protected`, `static`,
     // `readonly`, `override`, `accessor`, `const`, `let` and `var` (after an
     // optional `export`), with an optional `#` private name, then a secret-named name with
-    // an optional `?`/`!` and type, then `=` and a quoted or template literal,
+    // an optional `?`/`!` and type (which stops at `;`, so the value belongs to
+    // the same declaration), then `=` and a quoted or template literal,
     // at a line start (diff markers as env.kv) or after `//` or `/*`. A name
     // with no keyword is left to env.kv, so no line reports twice. It is its own
     // pattern so env.kv's matches are unchanged, and validate keeps it to .js,
@@ -1892,10 +1895,10 @@ export const PATTERNS: RedactPattern[] = [
     // fixture-label exemption and isJsKeyName. As in
     // env.kv, a short first piece followed by `+` is captured and a secret
     // in a `+` chain of literals reports first (concatenationHoldsSecret).
-    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}#?[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]([^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}#?[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=;\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]([^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
     validate: (span, match, opts) => {
       if (!opts?.sourcePath || !JS_SOURCE.test(opts.sourcePath)) return false;
-      const name = /([$\w]+)[?!]?[ \t]*(?::[^=\n]*)?=/.exec(match[0])?.[1]?.replace(/\$/g, "");
+      const name = /([$\w]+)[?!]?[ \t]*(?::[^=;\n]*)?=/.exec(match[0])?.[1]?.replace(/\$/g, "");
       return !!name && isCredentialShapedEnvName(`${name}=`) && (concatenationHoldsSecret(match) || (!isPlaceholderSpan(span) && (match.input[match.index + match[0].length - span.length - 1] === "\x60" || !/^\$\{?[A-Za-z_]/.test(span)) && !isTestFixtureLabel(span, opts.sourcePath) && !isJsKeyName(span, match) && shannonEntropy(span) >= 3.0));
     },
   },

@@ -76,6 +76,19 @@ describe("env.kv.js: a key bound by a JS/TS declaration reports (GST-3500)", () 
     ], false);
   });
 
+  test("a type stops at `;` and an environment-variable name is a name, not a value", () => {
+    has("env.kv.js", [
+      ['let session: string; const mode = "BILLING_DASHBOARD";', "src/client.ts"],
+      ['const API_KEY = "MY_SERVICE_API_KEY"; process.env[API_KEY];', "src/client.ts"],
+      ['export const SESSION_KEY = "OAUTH2_SESSION_TOKEN";', "src/config.ts"],
+    ], false);
+    has("env.kv.js", [
+      ['let session: string = "' + S + '";', "src/client.ts"],
+      ['const API_KEY = "' + S.toUpperCase() + '";', "src/client.ts"],
+      ['const API_KEY = "QX9V_L2MZ_P8RT_4KW7";', "src/client.ts"],
+    ], true);
+  });
+
   test("scoped to JS/TS: other files and scans without a path are not read by this rule", () => {
     has("env.kv.js", [
       ['const token = "' + S + '";', "src/lib.rs"],
