@@ -780,6 +780,10 @@ _remove_project_dir() {
     return 0
   fi
   if [ -z "$_tracked" ]; then
+    if [ -n "$(find "$_dir" -name .git -print -quit 2>/dev/null)" ]; then
+      echo "kept $_dir/: it holds its own git repository, whose commits may exist nowhere else; check it, then remove it by hand" >&2
+      return 0
+    fi
     rm -rf "$_dir"
     REMOVED+=("$_dir/")
     return 0
