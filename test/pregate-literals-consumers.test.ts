@@ -34,6 +34,12 @@ describe('literals: consumers by resolved reference (GBRA-739)', () => {
     const root = fixture('gstack-literals-twin-', files);
     const change = { name: 'DEFAULT_SESSION_TOKEN_BUDGET', old: '2000', new: '8000', file: 'src/core/skills/resolver/config.ts' };
     expect(consumersOf(root, tests(files), change, undefined, undefined, Object.keys(files))).toEqual(['test/budget.test.ts:2', 'test/alias-budget.test.ts:2', 'test/named.test.ts:1']);
+    const unique = ['tsconfig.json', 'src/core/skills/resolver/config.ts', 'src/core/config/README.md', 'test/alias-budget.test.ts', 'test/config.test.ts'];
+    expect(consumersOf(root, ['test/alias-budget.test.ts', 'test/config.test.ts'], change, undefined, undefined, unique)).toEqual(['test/alias-budget.test.ts:2', 'test/config.test.ts:2']);
+    fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '#budget': ['src/core/skills/resolver/config.ts'] } } }));
+    fs.writeFileSync(path.join(root, 'test/exact-alias.test.ts'), ["import { sessionBudget } from '#budget';", 'expect(sessionBudget()).toBe(2000);', ''].join(nl));
+    expect(consumersOf(root, ['test/exact-alias.test.ts'], change, undefined, undefined, [...unique, 'test/exact-alias.test.ts'])).toEqual(['test/exact-alias.test.ts:2']);
+    expect(consumersOf(root, ['test/exact-alias.test.ts'], change)).toEqual([]);
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -53,6 +59,11 @@ describe('literals: consumers by resolved reference (GBRA-739)', () => {
     const root = fixture('gstack-literals-json-', files);
     const change = { name: 'DEFAULT_SESSION_TOKEN_BUDGET', old: '2000', new: '8000', file: 'src/core/skills/resolver/config.ts' };
     expect(consumersOf(root, Object.keys(files), change)).toEqual(['test/fixtures/goldens/pinned.json:14', 'test/fixtures/goldens/keyed.json:3']);
+    fs.writeFileSync(path.join(root, 'test/fixtures/goldens/broken.json'), ['{', '  "LONG_PAGE_DEADLINE_MS": 2000,', '  "DEFAULT_SESSION_TOKEN_BUDGET": 2000,', ''].join(nl));
+    expect(consumersOf(root, ['test/fixtures/goldens/broken.json'], change)).toEqual(['test/fixtures/goldens/broken.json:3']);
+    fs.writeFileSync(path.join(root, 'test/fixtures/run.json'), JSON.stringify({ timeout: 30000 }, null, 2) + nl);
+    fs.writeFileSync(path.join(root, 'test/fixtures/runner-run.json'), JSON.stringify({ module: 'lib/runner.ts', timeout: 30000 }, null, 2) + nl);
+    expect(consumersOf(root, ['test/fixtures/run.json', 'test/fixtures/runner-run.json'], { name: 'timeout', old: '30000', new: '60000', file: 'lib/runner.ts' })).toEqual(['test/fixtures/runner-run.json:3']);
     fs.rmSync(root, { recursive: true, force: true });
   });
 });

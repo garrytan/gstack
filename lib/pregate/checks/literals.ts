@@ -201,7 +201,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   const wholeRe = new RegExp(`\\.(?:toBe|toEqual|toStrictEqual)\\(\\s*\\[?\\s*${quoted}\\s*\\]?\\s*\\)|\\b(?:is|equal|strictEqual|deepEqual|deepStrictEqual|assertEqual|assert_equal|assertEquals)\\((?:.*,)?\\s*\\[?\\s*${quoted}\\s*\\]?\\s*[,)]|(?:[!=]==?|(?<![=!<>])=)\\s*\\[?\\s*${quoted}|${quoted}\\s*\\]?\\s*[!=]==?`);
   const memberRe = new RegExp(`\\.(?:toContain|toContainEqual|includes|indexOf|has|contains)\\(\\s*${quoted}|${quoted}\\s+(?:not\\s+)?in\\b`);
   const files = new Set(repoFiles ?? []);
-  const twinned = [...files].some(f => f !== change.file && moduleRe.test(f));
+  const twinned = [...files].some(f => f !== change.file && moduleRe.test(path.posix.basename(f)));
   const dirs = new Set<string>();
   for (const f of files) for (let d = path.posix.dirname(f); d !== '.'; d = path.posix.dirname(d)) dirs.add(d);
   const aliasesFor = repoFiles ? pathAliasResolver(repoRoot, repoFiles).aliasesFor : null;
@@ -219,7 +219,7 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
     let text: string;
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
     const json = rel.endsWith('.json');
-    if (json ? !nameRe.test(text) : !((nameRequired ? nameRe.test(text) : nameRe.test(text) || isModule(rel, text)) && (!callSite || isModule(rel, text)))) continue;
+    if (json ? !(nameRe.test(text) && (!callSite || isModule(rel, text))) : !((nameRequired ? nameRe.test(text) : nameRe.test(text) || isModule(rel, text)) && (!callSite || isModule(rel, text)))) continue;
     const lines = text.split('\n');
     const tied = json ? jsonLinesTiedTo(text, change.name) : null;
     const bindings = !json && (shortNumber || grew) ? moduleBindings(lines, (s, fragment) => isModule(rel, s, fragment), change.name, comment, continues) : [];
