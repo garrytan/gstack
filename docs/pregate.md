@@ -1182,15 +1182,20 @@ already passed at this tree ([guard carry](#guard-carry)).
 
 **The tests stage.** Without `--from-run`, when the base branch declares
 `run_profiles`, `gstack-pregate` looks up the newest verified run at HEAD under
-the profiles `--from-run` would use and applies it as `--from-run` does: the
-selected local files its `tree.json` lists count as passed, and only the rest
-run. On a small machine a selection the run covers records no remote gate
-obligation. It prints `CI_CARRY: accepted <receipt>` or `CI_CARRY: none
-(<reason>)` on stderr; `--no-ci-carry` skips the lookup.
+each profile `--from-run` would use and applies them as `--from-run` does: the
+selected local files any of their `tree.json` files lists count as passed, and
+only the rest run. So a green E2E run beside the Test run at the same tree
+shortens the remainder too; a profile whose run is red, missing or on another
+tree adds nothing. On a small machine a selection the runs cover records no
+remote gate obligation. It prints `CI_CARRY: accepted <receipt> + <receipt>…`
+(one receipt per carried run) or `CI_CARRY: none (<reason>)` on stderr;
+`--no-ci-carry` skips the lookup.
 
 When files are left over, the remote gate obligation still clears from the
-same run when the base declares `remote_gate_runs` naming that run's profile:
-the run must pass every `clear --run` check, with the carried files counted
+carried run under the profile the base's `remote_gate_runs` names (a
+`remote_gate_runs` that names two profiles is refused here, since one carried
+run is offered; clear it with `clear --run`, one run per profile): the run
+must pass every `clear --run` check, with the carried files counted
 as selected files. So a remainder of only files the gate's `skipped` command
 names (gstack's paid evals, which the gate itself reports as
 `PREGATE_REMOTE_PAID_ONLY` with `tests=0`) clears with `skipped=<n>` in the

@@ -59,8 +59,8 @@ export function applyDowngrades(ctx: PregateContext, result: CheckResult, def: C
 
 /**
  * The tests stage's automatic `--from-run` (GSTA-258): when the base branch declares run profiles and no run was named,
- * the newest verified CI run at HEAD's clean tree under a profile for this OS becomes `ctx.fromRun`, so its tree.json
- * files count as passed and only the rest run (on a small machine, an all-covered selection records no remote gate
+ * the newest verified CI run at HEAD's clean tree under each profile for this OS goes into `ctx.fromRun`, so the tree.json
+ * files of every one of them count as passed and only the rest run (on a small machine, an all-covered selection records no remote gate
  * obligation). Returns the CI_CARRY line, or null when the base declares no profiles. Security scans, guards and the
  * preflight stage are never carried.
  */
@@ -75,12 +75,17 @@ export function autoCarry(ctx: PregateContext): string | null {
   if (!names.length) return none('no_profile: no base run profile for this OS covers a lane this machine runs');
   const wtree = () => { const fp = wtreeFingerprint({ cwd: ctx.repoRoot }); return 'tree' in fp ? fp.tree : null; };
   const refusals: string[] = [];
+  const runs: Array<{ ref: string; profile: string }> = [];
+  const receipts: string[] = [];
   for (const name of names) {
     const v = findCarry(check, { profiles: [name], head: ctx.head, tree, wtree });
-    if (v.ok) { ctx.fromRun = { ref: String(v.runs[0]!.run_id), check }; return `CI_CARRY: accepted ${v.receipt}`; }
-    refusals.push(`${v.reason}: ${v.detail}`);
+    if (!v.ok) { refusals.push(`${v.reason}: ${v.detail}`); continue; }
+    runs.push({ ref: String(v.runs[0]!.run_id), profile: name });
+    receipts.push(v.receipt);
   }
-  return none(refusals.join(' | '));
+  if (!runs.length) return none(refusals.join(' | '));
+  ctx.fromRun = { ref: (runs.find(r => check.gateRuns?.profiles.includes(r.profile)) ?? runs[0]!).ref, check, runs };
+  return `CI_CARRY: accepted ${receipts.join(' + ')}`;
 }
 
 const git = (cwd: string, args: string[]): string | null => {

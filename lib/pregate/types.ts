@@ -64,8 +64,8 @@ export interface PregateContext {
   cores: number;
   testBackend: string;
   policyFrom: 'base' | 'head';
-  /** `--from-run`: a Free Tests run whose tree.json files count as passed for this tree (lanes, lib/run-evidence.ts verifyFromRun), with the base branch's run check or why it could not be built. */
-  fromRun?: { ref: string; check: RunSource | { error: string } };
+  /** `--from-run`: a Free Tests run whose tree.json files count as passed for this tree (lanes, lib/run-evidence.ts verifyFromRun), with the base branch's run check or why it could not be built. The CI carry sets `runs`, every profile's verified run at this tree (`ref` is the remote gate's, else the first), and their files count together. */
+  fromRun?: { ref: string; check: RunSource | { error: string }; runs?: Array<{ ref: string; profile: string }> };
   /** `--no-ci-carry`: false skips the tests stage's automatic --from-run (lib/ci-carry.ts findCarry at HEAD's clean tree). */
   ciCarry?: boolean;
   /** `--remote`: run the declared remote gate now, under this spend cap. */

@@ -41,7 +41,7 @@ import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
 import { adapterFor, readRange, STALL_IDLE, supervise, type Counter, type Supervised } from '../supervise';
-import { ranFiles, verifyFromRun, type RunProfile } from '../../run-evidence';
+import { ranFiles, runChanged, runReceiptFields, verifyFromRun, type RunProfile } from '../../run-evidence';
 import { matchesAny } from '../../ship-policy';
 import { testFileArgs } from '../../test-paths';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
@@ -734,14 +734,22 @@ export function fromRunProfiles(ctx: PregateContext, profiles: Record<string, Ru
  * ones it already passed. Profiles are matched by workflow and OS, never by name, so none has to be named after a lane.
  */
 function fromRun(ctx: PregateContext, sel: Selection): { line: string; passed: string[]; receipt?: string } {
-  const { ref, check } = ctx.fromRun!;
-  const names = 'error' in check ? [] : fromRunProfiles(ctx, check.profiles);
-  const v = 'error' in check ? { ok: false as const, reason: 'profiles_unavailable', detail: check.error } : verifyFromRun(check, ref, names, ctx.wtree, ctx.head);
-  if (!v.ok) return { line: `REUSE: refused reason=${v.reason} — ${v.detail}; every selected test runs here`, passed: [] };
-  const ran = new Set(ranFiles(v.evidence));
+  const { ref, check, runs } = ctx.fromRun!;
+  if ('error' in check) return { line: `REUSE: refused reason=profiles_unavailable — ${check.error}; every selected test runs here`, passed: [] };
+  const names = fromRunProfiles(ctx, check.profiles);
+  const verdicts = (runs ?? [{ ref, profile: null }]).map(r => verifyFromRun(check, r.ref, r.profile ? names.filter(n => n === r.profile) : names, ctx.wtree, ctx.head));
+  const ok = verdicts.flatMap(v => (v.ok ? [v.evidence] : []));
+  const v = verdicts[0]!;
+  if (!ok.length && !v.ok) return { line: `REUSE: refused reason=${v.reason} — ${v.detail}; every selected test runs here`, passed: [] };
+  let changed: string | null = null;
+  try { for (const e of ok.length > 1 ? ok : []) changed ??= runChanged(check.deps, e.run_id, e.run_attempt); }
+  catch (err) { changed = `reading the runs again failed: ${String((err as Error)?.message ?? err).slice(0, 200)}`; }
+  if (changed) return { line: `REUSE: refused reason=run_changed — ${changed}; every selected test runs here`, passed: [] };
+  const ran = new Set(ok.flatMap(ranFiles));
   const passed = sel.localTests.filter(t => ran.has(t));
-  const skipped = sel.localTests.filter(t => v.evidence.skipped?.includes(t)).length;
-  return { line: `REUSE: accepted ${passed.length} of ${sel.localTests.length} selected local test file(s) from ${v.receipt}; ${sel.localTests.length - passed.length} still run${skipped ? ` (${skipped} skipped every test in the run)` : ''}`, passed, receipt: v.receipt };
+  const skipped = sel.localTests.filter(t => !ran.has(t) && ok.some(e => e.skipped?.includes(t))).length;
+  const receipt = `run tree=${ctx.wtree.slice(0, 12)} tests=${ok.reduce((n, e) => n + (e.tests ?? e.files.length), 0)} ${runReceiptFields(ok, check.now)}`;
+  return { line: `REUSE: accepted ${passed.length} of ${sel.localTests.length} selected local test file(s) from ${receipt}; ${sel.localTests.length - passed.length} still run${skipped ? ` (${skipped} skipped every test in the run)` : ''}`, passed, receipt };
 }
 
 /**
