@@ -459,7 +459,11 @@ and the kind fixes its trials before the run:
   skill's single native capture has its recommendation substance scored by 3
   judge samples, gated on their median against the unchanged minimum of 4, and a
   failed sample fails the panel without resampling (approved 2026-10-04 for
-  censuses after the change).
+  censuses after the change). The `rule` case auq-format-gate scores its one
+  capture's substance with the same panel (GStack Minder, 2026-11-22, GST-3447):
+  after #4630 moved the judge to Haiku 5.5, single samples on one captured brief
+  scored 3 in 25 of 41 draws and 4 in the rest, so one sample decided the
+  verdict by chance.
 
 `panelVerdict()` (`test/helpers/eval-store.ts`) is the single verdict
 function the report, `collector-outcomes.json`, the PR comment and pass-rates

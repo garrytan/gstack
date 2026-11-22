@@ -1,0 +1,38 @@
+Review mode
+
+D1 — Which review mode should this CEO review use for the developer pricing tier plan?
+Project/branch/task: Reviewing plan.md ("developer-friendly" pricing tier) on branch main.
+ELI10: The plan wants a cheaper tier to get more developers signing up. But nobody has asked developers whether price is what's stopping them, and "more signups" has no target number. The mode decides how I review it: dream bigger, offer optional add-ons one at a time, test the current plan hard without changing its size, or cut it down to the smallest test of the idea.
+Stakes if we pick wrong: Adding scope on top of a guess could mean launching a tier that cuts revenue without bringing in developers, and with no target number nobody can tell whether it worked.
+Recommendation: HOLD SCOPE because the plan's weakest points are its untested premise (no developer conversations) and a metric with no number, and HOLD spends the review on those instead of adding scope on top of an unproven guess.
+Note: options differ in kind, not coverage — no completeness score.
+Pros / cons:
+A) HOLD SCOPE (recommended)
+  ✅ Spends the review on the untested premise and the metric with no number
+  ✅ Keeps the plan the size it is while still checking failure modes and rollback
+  ❌ Won't suggest bigger ideas like usage-based pricing or a free developer sandbox
+B) SELECTIVE EXPANSION
+  ✅ Keeps the current scope and offers optional add-ons for you to accept or reject one by one
+  ✅ Can bring up ideas like a self-serve trial or a startup program as options
+  ❌ More questions, and every add-on still rests on the same unproven premise
+C) SCOPE EXPANSION
+  ✅ Rethinks developer adoption from scratch, not just the price point
+  ✅ Could turn up a bigger lever than price, like onboarding friction or the docs
+  ❌ Pushes hard for bigger scope before anyone has shown that price is the problem
+D) SCOPE REDUCTION
+  ✅ Cuts the plan to the smallest test: talk to developers or run a short pricing experiment
+  ✅ Cheapest way to find out if price matters before committing to a new tier
+  ❌ Might drop the tier launch entirely if you've already committed to it for other reasons
+Net: The choice is between testing the plan as written, offering optional add-ons, rethinking it from scratch, or cutting it down to an experiment before building anything.
+
+HOLD SCOPE (recommended)
+Keep the plan's current scope and test it hard: the untested premise, the metric with no number, failure modes and rollback. ✅ Spends the review on the untested premise and the metric with no number ✅ Keeps the plan the size it is while still checking failure modes and rollback ❌ Won't suggest bigger ideas like usage-based pricing or a free developer sandbox
+
+SELECTIVE EXPANSION
+Keep the current scope, then offer each possible add-on separately for you to add, defer or skip. ✅ Keeps the current scope and offers optional add-ons for you to accept or reject one by one ✅ Can bring up ideas like a self-serve trial or a startup program as options ❌ More questions, and every add-on still rests on the same unproven premise
+
+SCOPE EXPANSION
+Dream big: design the best possible developer adoption plan and push for bigger ideas. ✅ Rethinks developer adoption from scratch, not just the price point ✅ Could turn up a bigger lever than price, like onboarding friction or the docs ❌ Pushes hard for bigger scope before anyone has shown that price is the problem
+
+SCOPE REDUCTION
+Cut the plan to the smallest version that tests whether price is really the barrier. ✅ Cuts the plan to the smallest test: talk to developers or run a short pricing experiment ✅ Cheapest way to find out if price matters before committing to a new tier ❌ Might drop the tier launch entirely if you've already committed to it for other reasons
