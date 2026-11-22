@@ -5,7 +5,8 @@ long runs hand their heavy segments to fresh-context children. The helper is
 `bin/gstack-ship-budget`; the skill's procedure is `ship/sections/budget-handoff.md`.
 There is one default cap: an observe-mode run that meters one row of a root thread's `tasks` (`--reading-from task`,
 below) and names no cap gets 50M, the line where /runaway-stopper stops a subagent, and prints
-`BUDGET_DEFAULT_CAP: 50M`; `--token-cap none` turns it off. Without a cap, /ship meters usage when it can and prints it, and
+`BUDGET_DEFAULT_CAP: 50M`; `--token-cap none` turns it off. A /ship run in its own thread reads its own counter,
+so no default applies: pass the brief's cap as `--token-cap <n>`. Without a cap, /ship meters usage when it can and prints it, and
 nothing else changes.
 
 ## What the cap guarantees
