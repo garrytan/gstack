@@ -203,9 +203,9 @@ function testSources(text: string): string[] {
   return [...code.matchAll(/^[\t ]*(?:(?:import|export)[\t ]*\{([^}]*)\}|export[\t ]*\*)[\t ]*from[\t ]*['"](\.{1,2}\/[^'"]+|@playwright\/test)['"]/gm)].filter(m => m[1] === undefined || m[1].split(',').some(s => /^test(?:\s+as\s+[\w$]+)?$/.test(s.trim()))).map(m => m[2]!);
 }
 /**
- * Whether a JS/TS test is a Playwright spec: it imports a value from `@playwright/test`, or takes `test` from a repo module that takes `test` from it,
- * directly or through further such modules, up to 8 deep (Playwright's fixtures pattern: `export const test = base.extend(…)`). Only the modules
- * `test` comes from are followed, so a unit test whose helper or fixture uses other Playwright APIs keeps its runner (#4347).
+ * Whether a JS/TS test is a Playwright spec: it imports a value from `@playwright/test`, or takes `test` from a repo module that does and doesn't take
+ * `test` from a unit runner, directly or through further such modules, up to 8 deep (Playwright's fixtures pattern: `base.extend(…)`, `mergeTests(…)`).
+ * Only the modules `test` comes from are followed, so a unit test whose helper or vitest fixture uses other Playwright APIs keeps its runner (#4347).
  */
 function playwrightSpec(repoRoot: string, file: string): boolean {
   const exts = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
@@ -216,7 +216,7 @@ function playwrightSpec(repoRoot: string, file: string): boolean {
     for (const mod of level.filter(m => !seen.has(m))) {
       seen.add(mod);
       const text = readRepoFile(repoRoot, mod) ?? '', sources = testSources(text);
-      if (depth === 0 ? importsPlaywright(text) : sources.includes('@playwright/test')) return true;
+      if (depth === 0 ? importsPlaywright(text) : sources.includes('@playwright/test') || (importsPlaywright(text) && !/^[\t ]*import\b[^;]*\btest\b[^;]*\bfrom[\t ]*['"](?:vitest|@jest\/globals|bun:test|node:test)['"]/m.test(text))) return true;
       for (const base of sources.filter(s => s.startsWith('.')).map(spec => path.posix.normalize(path.posix.join(path.posix.dirname(mod), spec))).filter(b => b !== '..' && !b.startsWith('../'))) {
         const stem = base.replace(/\.[cm]?jsx?$/, '');
         const hit = [base, ...exts.map(e => stem + e), ...exts.map(e => `${base}/index${e}`)].find(c => readRepoFile(repoRoot, c) !== null);

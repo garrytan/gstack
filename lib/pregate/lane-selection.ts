@@ -150,8 +150,8 @@ function outputsOf(all: readonly string[], globs: readonly string[]): string[] {
  * Tracked files outside Markdown that mention `file`'s name without its final extension anywhere, where the import graph cannot
  * see: a curation list, a durations manifest, a script, a workflow, an extensionless path (`node test/alpha.test`), a dotted
  * module (`tests.test_alpha`), or an escaped or encoded path (`\talpha.test.js`, `test%2Falpha.test.js`). A file whose every mention sits under
- * another directory's path (`packages/b/alpha.test`) does not count, nor does `.gstack/pregate.json` when its only mentions are `dependencies` keys
- * or listed tests beside another test that still exists.
+ * another directory's path (`packages/b/alpha.test`) does not count, nor does `.gstack/pregate.json` when its only mentions are `dependencies` keys,
+ * listed tests beside another test that still exists, or another directory's listed test.
  */
 function namedBy(ctx: PregateContext, file: string): string[] {
   const base = path.posix.basename(file);
@@ -167,12 +167,15 @@ function namedBy(ctx: PregateContext, file: string): string[] {
       try {
         const { dependencies: deps, ...rest } = JSON.parse(text);
         if (deps && typeof deps === 'object' && !Array.isArray(deps) && !JSON.stringify(rest).includes(stem)) {
-          return Object.values(deps).some(list => JSON.stringify(list).includes(stem) && !(Array.isArray(list) && list.some(t => typeof t === 'string' && !t.includes(stem) && fs.existsSync(path.join(ctx.repoRoot, t)))));
+          const own = (t: unknown) => typeof t === 'string' ? t.includes(stem) && (!t.includes('/') || path.posix.normalize(path.posix.dirname(t)) === dir) : JSON.stringify(t ?? null).includes(stem);
+          const sibling = (t: unknown) => typeof t === 'string' && !t.includes(stem) && !!fs.statSync(path.join(ctx.repoRoot, t), { throwIfNoEntry: false })?.isFile();
+          return Object.values(deps).some(list => Array.isArray(list) ? list.some(own) && !list.some(sibling) : own(list));
         }
       } catch { return true; }
     }
     return text.split(stem).slice(0, -1).some(before => {
-      const q = /([\w.@-]+\/)+$/.exec(before)?.[0];
+      if (before.endsWith(`${dir}/`)) return true;
+      const q = /(?:^|[\s'"`=,(\[])((?:[\w.@-]+\/)+)$/.exec(before)?.[1];
       return !q || q.startsWith('./') || q.startsWith('../') || `/${dir}/`.endsWith(`/${q}`) || `/${q}`.endsWith(`/${dir}/`);
     });
   });

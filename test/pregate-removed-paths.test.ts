@@ -269,9 +269,12 @@ describe('removed paths in lanes (#3529)', () => {
       ['the only listed test of a dependencies entry', { 'scripts/build.js': ['test/util.test.js'] }, {}, 'fail'],
       ['a listed test beside one that still exists', { 'scripts/build.js': ['test/util.test.js', 'test/retry.test.js'] }, {}, 'pass'],
       ['a same-named test in another directory', {}, { 'ci/skip-list.txt': 'packages/b/util.test.js\n' }, 'pass'],
-    ])('a mapped removed test named as %s', (_how, deps, files, status) => {
-      const repo = fixture({ pregate: withDeps({ 'test/util.test.js': ['test/retry.test.js'], ...deps }), baseFiles: { 'test/retry.test.js': RETRY_TEST, ...files } });
-      commit(repo, { 'test/util.test.js': null });
+      ['the only listed test of an entry, under another directory', { 'scripts/build.js': ['packages/b/util.test.js'] }, {}, 'pass'],
+      ['its own path in a directory with a space', {}, { 'ci/skip-list.txt': 'test/e2e suite/util.test.js\n' }, 'fail', 'test/e2e suite/util.test.js'],
+      ['its own path in a $-named directory', {}, { 'ci/skip-list.txt': 'test/$id/util.test.js\n' }, 'fail', 'test/$id/util.test.js'],
+    ])('a mapped removed test named as %s', (_how, deps, files, status, gone = 'test/util.test.js') => {
+      const repo = fixture({ pregate: withDeps({ [gone]: ['test/retry.test.js'], ...deps }), baseFiles: { 'test/retry.test.js': RETRY_TEST, [gone]: RETRY_TEST, ...files } });
+      commit(repo, { [gone]: null });
       const r = lanes(repo);
       expect(r.check.status).toBe(status);
       if (status === 'fail') expect(r.check.code).toBe('PREGATE_NO_LANE');
