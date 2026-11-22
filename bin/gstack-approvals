@@ -33,7 +33,7 @@ import { isGstackActor, isGstackActorName, openShipRun, OWNER_REF, RULED_NOTE_SC
 import { resultLine } from '../lib/result-codes';
 import { parsePlanLine, publicPlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
-import { FINDING_ID, LEGACY_GRANT, OTHER_GRANT_ROW, REVIEW_ROUND_GRANT_SCOPE, reviewRoundGrantRow, ROUND_GRANT_KINDS, STOP_RUN, type RoundGrantKind } from '../lib/review-round-grant';
+import { FINDING_ID, REVIEW_ROUND_GRANT_SCOPE, reviewRoundGrantRow, ROUND_GRANT_KINDS, STOP_RUN, type RoundGrantKind } from '../lib/review-round-grant';
 import { GATE_DISPOSITION_SCOPE, GATE_SOURCE, gateDispositionRow, gateDispositions, gateDispositionText, ONE_LINE, recordGateDisposition, validGateId } from '../lib/gate-dispositions';
 
 const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gstack/captain.md)
@@ -252,7 +252,7 @@ function main(argv: string[]): number {
       if (TEST_LANE_EXCEPTION_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a test_lane_exception scope is recorded with gstack-approvals lane-exception' });
       if (REVIEW_ROUND_GRANT_SCOPE.test(flags['--scope'] ?? '')) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: 'a review_round_grant scope is recorded with gstack-approvals round-grant' });
       const ownerRef = flags['--owner-ref']?.trim();
-      const grant = LEGACY_GRANT.test(`${flags['--ask'] ?? ''} ${flags['--scope'] ?? ''}`) && !OTHER_GRANT_ROW.test(flags['--scope'] ?? '');
+      const grant = `${flags['--ask'] ?? ''} ${flags['--scope'] ?? ''}`.includes('review_loop_grant');
       if (ownerRef !== undefined && (!grant || !OWNER_REF.test(ownerRef) || !(flags['--words'] ?? '').trim())) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: '--owner-ref on add relays a review_loop_grant: <thread code>:<message id or timestamp>, with --words <their exact words>' });
       const open = grant ? openShipRun(process.cwd()) : undefined;
       if (open && ownerRef === undefined) return fail(cmd, { code: 'APPROVAL_RECORD_INVALID', message: `${open.line}: a review_loop_grant row is a fix-check grant (GST-3546), the lane's or its Captain's, never the run's own; relay it with --owner-ref <thread code>:<message id or timestamp> --words <their exact words>, or record it after the run ends` });

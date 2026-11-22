@@ -2040,7 +2040,8 @@ start under 120 minutes old that `gstack-review-log --finish` has not
 consumed. A run that provably ended stops deferring at once
 (`gstack-ship-run live` prints `RUN_HOLD_RELEASED:` for each, GST-3546): the
 harness it ran under has exited or the machine restarted, or its own run
-record in its checkout (opened after its ledger) finished or was abandoned. A
+record in its checkout finished or was abandoned (the record belongs to the
+newest ledger on that checkout created before it opened). A
 stopped run keeps deferring, since it may still claim its fix-check grant and
 resume, and so does an open run on Capy's shared harness; end a run that
 stopped working with `gstack-ship-run abandon`.

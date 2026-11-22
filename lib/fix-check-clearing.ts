@@ -56,7 +56,8 @@ export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'appr
  * range_base that disagrees; a completed, converged read bound to its commit's own tree, which contains the base; nothing open in it
  * (rule e: its status, an inline finding with action open at any severity, findings_open from a findings file, an id its dispatch
  * ledger collected that the row does not dispose); and the hunks its reader was given are git diff <base> <commit> over their paths,
- * which cover every path that diff changes. `open: true` skips the nothing-open check: whether the row counts as the grant's read at all.
+ * which cover every path that diff changes. `open: true` asks only whether the row counts as the grant's read at all: it skips the
+ * nothing-open check, and an id its dispatch ledger collected needs a finding in the row, whatever its action.
  */
 export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRoundGrant[], o: { open?: boolean } = {}): RowBinding {
   const no = (why: string): RowBinding => ({ ok: false, why });
@@ -80,7 +81,7 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
   if (typeof h.ledger === 'string') {
     let ids: string[];
     try { fs.readFileSync(h.ledger); ids = ledgerPass(h.ledger, id => `${path.basename(path.dirname(h.ledger))}/${id}`).ids ?? []; } catch { return no(`its dispatch ledger ${h.ledger} is unreadable`); }
-    const disposed = new Set(findings.filter(f => f.action !== 'open').map(f => f.ledger_id));
+    const disposed = new Set(findings.filter(f => o.open || f.action !== 'open').map(f => f.ledger_id));
     const left = ids.filter(id => !disposed.has(id));
     if (left.length) return no(`its dispatch ledger holds ${left.join(', ')}, which the row does not dispose`);
   }
@@ -90,7 +91,8 @@ export function bindFixCheckRow(cwd: string, row: Row, grants: readonly ReviewRo
 /**
  * Rules a to f with amendments D and E: (a) grantedStop accepts the newest stop record's fix-check grant for this PR and run, or
  * (GST-3546) a fix-check grant that names no stop answers its own head once this run claimed it; (b) the PR body's first claim of
- * the grant is this run's; (c) every review-fix-check row carrying the grant is stamped with this run, the first that counts
+ * the grant is this run's; (c) every review-fix-check row carrying the grant is stamped with this run (a copy of one read, same key and
+ * start, counts once, and two reads never collapse into the later one), the first that counts
  * (bindFixCheckRow with open: true; a malformed row before it spends nothing) is the grant's one read, and it binds clean at
  * the stop's head and tree from the body, never the newest review row, on the receipt
  * head or a head that only merges the base into it; (d) the stop, the claim and the row's start are recorded in that order;
@@ -108,7 +110,7 @@ export function clearByGrant(cwd: string, o: { pr: number; run: string; head: st
   const stop = unstopped ? { head: unstopped.head, tree: treeOf(cwd, unstopped.head), at: unstopped.at } : (answer as Extract<typeof answer, { ok: true }>).stop;
   const claim = claimOf(g.approval);
   if (claim?.run !== o.run) return none(`the PR body's first claim of grant ${g.approval} is ${claim ? `run ${claim.run}'s` : 'missing'}, not run ${o.run}'s`);
-  const stamped = [...new Map(o.rows.filter(r => r?.skill === 'review-fix-check' && r.grant === g.approval).map(r => [reviewRowKey(r), r] as const)).values()];
+  const stamped = [...o.rows.filter(r => r?.skill === 'review-fix-check' && r.grant === g.approval).map(r => [JSON.stringify([reviewRowKey(r), r.review_binding?.started_at ?? r.timestamp ?? null]), r] as const).reduce((m, [k, r]) => (m.has(k) ? m : m.set(k, r)), new Map<string, Row>()).values()];
   const foreign = stamped.find(r => r.run !== o.run);
   if (!stamped.length || foreign) return none(`grant ${g.approval} buys fix-check rows stamped with run ${o.run}, and the review log holds ${foreign ? `run ${foreign.run}'s` : 'none'}`);
   const counted = stamped.find(r => bindFixCheckRow(cwd, r, o.grants, { open: true }).ok);

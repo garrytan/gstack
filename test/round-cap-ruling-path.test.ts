@@ -97,6 +97,10 @@ describe('one grant kind: planner, claim and receipt accept either row (GST-3546
     const args = ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${c.S})`, '--words', 'do it', '--by', CAPTAIN, '--scope', 'this /ship invocation', '--json'];
     const self = c.run('gstack-approvals', args);
     expect([self.status, self.stderr]).toEqual([2, expect.stringContaining('never the run\'s own')]);
+    for (const spelling of [['--ask', `grant (review_loop_grant: ${c.S})`], ['--scope', 'review_loop_exception x', '--ask', `grant (review_loop_grant ${c.S})`]]) {
+      const r = c.run('gstack-approvals', ['add', ...spelling, '--words', 'do it', '--by', CAPTAIN, '--json']);
+      expect([r.status, r.stderr]).toEqual([2, expect.stringContaining('never the run\'s own')]);
+    }
     const id = JSON.parse(ok(c.run('gstack-approvals', [...args, '--owner-ref', 'GSTA-36:2026-11-22T12:00:00Z']))).added[0] as string;
     fixCheck(c, { grant: id, run: 'r2', fixList: 'fix ' + ID + '\n', files: { 'src/x.ts': 'export const x = 3;\n' } });
     const row = rows(c).filter(r => r.skill === 'review-fix-check').at(-1)!;
@@ -175,6 +179,28 @@ describe('a grant spends only on a counted fix-check (gskills#24, gskills#25)', 
     const w = write(c, 'r2');
     expect(w.status).toBe(3);
     expect(w.stderr).toContain('the one counted read the grant bought');
+  });
+
+  // Value: protects=a later clean row recording the same findings as fixed never replaces the first read in the receipt's dedup,
+  //   and a read that leaves a collected dispatch-ledger id open still counts as the grant's read; fails_when=dedup keeps the last
+  //   copy, or open:true still demands every ledger id disposed; seam=clearByGrant, bindFixCheckRow
+  test('the first copy of a repeated row stays the grant\'s read, and an open ledger id still counts it', () => {
+    const c = atCap([open(ID, FP)]);
+    const id = grantId(ok(c.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', c.S, '--kind', 'fix-check', '--reason', 'fix it', '--by', CAPTAIN, '--owner-ref', 'GSTA-36:2026-11-22T12:00:00Z', '--words', 'fix it'])));
+    const finding = (action: string) => ({ fingerprint: 'src/x.ts:1:style', severity: 'INFORMATIONAL', action, ledger_id: 'fc/fix-check#1' });
+    fixCheck(c, { grant: id, run: 'r2', fixList: 'fix ' + ID + '\n', files: { 'src/x.ts': 'export const x = 3;\n' }, row: { status: 'issues_found', issues_found: 1, informational: 1, findings: [finding('open')] } });
+    const first = rows(c).filter(r => r.skill === 'review-fix-check').at(-1)!;
+    fixCheck(c, { grant: id, run: 'r2', fixList: 'fix ' + ID + '\n', claim: false, row: { findings: [finding('fixed')] } });
+    const w = write(c, 'r2');
+    expect(w.status).toBe(3);
+    expect(w.stderr).toContain('the one counted read the grant bought');
+    const ledger = path.join(c.f.root, 'fc', 'review-ledger.jsonl');
+    fs.mkdirSync(path.dirname(ledger), { recursive: true });
+    fs.writeFileSync(ledger, JSON.stringify({ event: 'output', reader: 'fix-check', ids: ['fix-check#1'], tree_ok: true, at: new Date().toISOString() }) + '\n');
+    const withLedger = { ...first, hunks: { ...first.hunks, ledger } };
+    expect(bindFixCheckRow(c.f.work, withLedger, grantsOf(c), { open: true })).toMatchObject({ ok: true });
+    expect(bindFixCheckRow(c.f.work, withLedger, grantsOf(c))).toMatchObject({ ok: false });
+    expect(bindFixCheckRow(c.f.work, { ...withLedger, findings: [] }, grantsOf(c), { open: true })).toMatchObject({ ok: false, why: expect.stringContaining('does not dispose') });
   });
 
   // Value: protects=gskills#25: the claimed reader's packet is git diff <claimed head> HEAD, built by gstack, so a hand-built
@@ -257,7 +283,10 @@ describe('an ended or dead /ship run stops holding gstack upgrades (gskills#25)'
     expect(liveRun(sr).live).toContain('/ship run mine');
     record('finished', Date.now() - 3_600_000);
     expect(liveRun(sr).live).toContain('/ship run mine');
+    ledger(sr, 'other', { checkout: c.f.work, owner: shared, created_at: new Date(Date.now() - 30_000).toISOString() });
     record('finished', Date.now());
+    expect(liveRun(sr).live).toContain('/ship run mine');
+    fs.rmSync(path.join(sr, 'ship-runs', 'other'), { recursive: true });
     expect(liveRun(sr).live).toBeUndefined();
     ledger(sr, 'alive', { owner: ownerOf(sleeper()) });
     expect(liveRun(sr).live).toContain('/ship run alive');

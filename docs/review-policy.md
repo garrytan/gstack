@@ -310,10 +310,14 @@ the same grant, whichever row records it:
   grant unspent: the same run logs a correct row. A counted read that found
   issues spends it like a clean one, so a grant still buys one fix round, and
   write reads the first counted row only.
-- **Only the lane or its Captain grants.** An owner's `review_loop_grant` row
-  recorded with `gstack-approvals add` inside this checkout's open /ship run is
-  refused unless it relays their message with `--owner-ref` and `--words`, as
-  `round-grant` already required.
+- **Only the lane or its Captain grants.** A row whose ask or scope mentions
+  `review_loop_grant`, in any spelling or scope, recorded with `gstack-approvals
+  add` inside this checkout's open /ship run is refused unless it relays their
+  message with `--owner-ref` and `--words`, as `round-grant` already required.
+- **One read per grant.** Receipt write keeps every distinct read stamped with
+  the grant (a copied row counts once) and takes the first that counts; a read
+  whose dispatch ledger collected a finding counts as long as the row records
+  that finding, open or not.
 - **Long reasons fit.** A `--reason` longer than the approval record's
   300-character ask is cut there with an ellipsis; `--words` (the reason by
   default) keeps every word.
