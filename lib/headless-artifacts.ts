@@ -150,6 +150,8 @@ export interface ShipReceipt {
   review_exclude?: { source: string; patterns: string[]; applied: string[]; excluded: number; excluded_bytes: number; kept: number; gate_tagged: string[]; patterns_sha256: string; list_sha256: string; digest: string };
   /** The base policy failed only on its exclusion keys, so they were set aside and every file was reviewed (GST-3399): the policy's source and its errors. */
   review_exclude_fallback?: { source: string; errors: string[] };
+  /** The scoped reader's clean read of Step 14.5 docs-audit edits to docs the review read (lib/docs-audit-read.ts, GST-3532). */
+  docs_audit_read?: { paths: string[]; reviewer: string; packet_sha256: string };
   /** Routine stops the run recorded and went on past instead of waiting for a Captain (plan K1; GSTA-258 L5 writes them): one record per stop. */
   no_stop?: Array<{ class: NoStopClass; reason: string; evidence: string }>;
 }
@@ -289,6 +291,7 @@ export const ARTIFACT_SCHEMAS = {
       review_targeted: { type: 'object', required: ['classes', 'rules', 'brief_sha', 'product_patch_id', 'status', 'findings', 'raised_by'], properties: { classes: { type: 'array', items: { enum: ['money', 'gate', 'auth', 'secret'] } }, rules: str, brief_sha: str, product_patch_id: str, status: { enum: ['done', 'failed', 'not-run'] }, findings: { type: 'integer', minimum: 0 }, raised_by: str } },
       review_exclude: { type: 'object', required: ['source', 'patterns', 'applied', 'excluded', 'excluded_bytes', 'kept', 'gate_tagged', 'patterns_sha256', 'list_sha256', 'digest'], properties: { source: str, patterns: strList, applied: strList, excluded: { type: 'integer', minimum: 0 }, excluded_bytes: { type: 'integer', minimum: 0 }, kept: { type: 'integer', minimum: 0 }, gate_tagged: strList, patterns_sha256: str, list_sha256: str, digest: str } },
       review_exclude_fallback: { type: 'object', required: ['source', 'errors'], properties: { source: str, errors: strList } },
+      docs_audit_read: { type: 'object', required: ['paths', 'reviewer', 'packet_sha256'], properties: { paths: strList, reviewer: str, packet_sha256: str } },
       review_loop_exception: { type: 'object', required: ['accepted_by', 'date', 'via', 'reason'], properties: { accepted_by: str, date: str, via: str, reason: str, fix_check: { type: 'object', required: ['head', 'findings'], properties: { head: str, findings: { type: 'integer', minimum: 0 }, files: strList } }, second_pass: { type: 'object', required: ['head', 'deferred'], properties: { head: str, deferred: strList } } } },
       review_round_grants: { type: 'array', items: { type: 'object', required: ['kind', 'head', 'pr', 'by', 'reason', 'at', 'approval'], properties: { kind: { enum: ['extra-round', 'fix-check'] }, head: str, pr: { type: 'integer', minimum: 1 }, by: str, reason: str, at: str, approval: str, stop_run: str, findings: { type: 'array', items: str } } } },
       cleared_by_grant: { type: 'object', required: ['approval', 'run', 'ids'], properties: { approval: str, run: str, ids: strList } },

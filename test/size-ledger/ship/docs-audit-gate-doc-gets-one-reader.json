@@ -1,0 +1,4 @@
+{
+  "bytes": 365,
+  "why": "Step 19 runs the one scoped reader RECEIPT_DOCS_AUDIT_READ asks for (GST-3532)"
+}

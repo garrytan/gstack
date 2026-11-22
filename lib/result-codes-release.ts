@@ -475,6 +475,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the branch\'s own +/- lines are the reviewed ones, but the base edited context next to them, so the merge may have spliced the two (GST-384); the receipt carries only after a scoped review of those hunks',
     fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /ship on the new head',
   },
+  RECEIPT_DOCS_AUDIT_READ: {
+    anchor: 'receipt-docs-audit-read',
+    summary: 'the Step 14.5 docs audit edited a doc the review read for its own content (a gate path, gate tags, agent prose or a secret line) after the review, so the receipt binds only after one scoped reader reads that change (GST-3532); it is not a review round',
+    fix: 'dispatch one reader on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict, packet_sha256 } and rerun write with --docs-audit-read <record.json>; a finding goes to the lane\'s Captain',
+  },
   DOCS_AUDIT_BLOCKED: {
     anchor: 'docs-audit-blocked',
     summary: 'the documentation audit (/ship Step 14.5) is blocked: gstack-ship-receipt docs-caps found a declared doc cap over, or gstack-ship-receipt write was given a blocked audit with no owner exception and refused to record the ship as audited',

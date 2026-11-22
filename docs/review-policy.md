@@ -1022,6 +1022,24 @@ receipt carried across a base merge or a test-only fix
 counters, because the reviewed product diff is unchanged or its only
 difference passed a scoped review.
 
+<a id="docs-audit-edits-to-reviewed-docs"></a>
+### Docs-audit edits to reviewed docs (GST-3532)
+
+The Step 14.5 docs audit runs after the review, so it can correct a line in a
+doc the review read for its own content: a gate path, a doc with gate tags,
+agent prose or a doc with a secret line, which `review_exclude_paths` keeps in
+the review. When that edit changes the selection, receipt write refuses with
+`RECEIPT_DOCS_AUDIT_READ` instead of asking for another review round, which the
+round cap may forbid (gbrain#10059 had to waive its receipt). The refusal writes
+a packet with the audit's change to those docs, at most 20 changed lines each,
+and the targeted brief. One scoped reader reads it. Like the bounded read
+above, that read is not a review round under R51 and needs no grant. Its clean
+record (`head`, `paths`, `reviewer`, `verdict`, `packet_sha256`) goes back
+to write with `--docs-audit-read`, and the receipt records it as
+`docs_audit_read`. A finding, a record for another head or packet, and a
+larger edit still refuse; a finding goes to the lane's Captain
+([troubleshooting](troubleshooting.md#receipt-docs-audit-read)).
+
 ## The scope knob
 
 `.gstack/ship-policy.json` `review_scope` ([ship-policy.md#review-scope](ship-policy.md#review-scope)):
