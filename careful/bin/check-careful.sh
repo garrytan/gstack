@@ -519,7 +519,7 @@ _careful_push_scan() {
       --mirror) force=1; all=1 ;;
       --all|--branches) all=1 ;;
       -n|--dry-run) dry=1 ;;
-      --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) dry=0 ;;
+      --no-dr|--no-dry|--no-dry-|--no-dry-r|--no-dry-ru|--no-dry-run) dry=0; dd=0 ;;
       --pu|--pus|--push|--push-|--push-o|--push-op|--push-opt|--push-opti|--push-optio|--push-option) pov=1 ;;
       -d|--delete) del=1 ;;
       --repo=*) repo=1 ;;
