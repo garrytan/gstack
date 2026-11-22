@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -35,6 +36,18 @@ describe('skill text fixes from user reports', () => {
     for (const file of ['codex/SKILL.md', 'codex/sections/consult-mode.md', 'codex/sections/challenge-mode.md', 'codex/sections/review-mode.md']) {
       const text = read(file);
       expect(text).toContain('files under ~/.claude/, ~/.agents/, .claude/skills/, .agents/, or any agents/openai.yaml.');
+      expect(text).toContain('other files in the repository agents/ folder are code to review.');
+      expect(text).not.toContain('.claude/skills/, or agents/');
+    }
+  });
+
+  test('the second-model review in /ship, /review and every other skill that sends it reads the repo agents/ folder as code (#3924)', () => {
+    const ls = spawnSync('git', ['grep', '-l', 'Filesystem boundary: do not read or execute'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 });
+    const files = ls.stdout.split('\n').filter(f => f.endsWith('.md'));
+    expect(files).toEqual(expect.arrayContaining(['review/sections/adversarial.md', 'ship/sections/adversarial.md']));
+    for (const file of files) {
+      const text = read(file);
+      expect(text).toContain('Filesystem boundary: do not read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, .agents/, or any agents/openai.yaml.');
       expect(text).toContain('other files in the repository agents/ folder are code to review.');
       expect(text).not.toContain('.claude/skills/, or agents/');
     }

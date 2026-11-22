@@ -24,7 +24,7 @@ import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, sliceDiff, sliceNote, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
 import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseFindings, parseReply, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerdictCheck, type VerifyRow } from '../lib/review-ledger';
-import { buildManifest, chunkCount, chunkOf, manifestPath, markReader, planCyberRetry, readManifest, renderStage, withAuditModel, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
+import { buildManifest, checklistFile, chunkCount, chunkOf, manifestPath, markReader, planCyberRetry, readManifest, renderStage, withAuditModel, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import { classifyOutsideReview } from '../lib/outside-review-result';
 import { gateOutcomeLine } from '../lib/gate-outcomes';
 import { diffCommand, type Dispatch } from '../lib/review-depth';
@@ -49,7 +49,7 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       roles: ${BRIEF_ROLES.join(', ')}
       slots: --diff-base <sha> (every role but fix-check)  --exclude '<DIFF_CMD tail>'  --stack <s>  --test-fw <s>
              --keep '<DIFF_KEEP tail after <diff-base>>'  --disclosure '<the line every brief carries>' (both only under review_exclude_paths)
-             --learnings-file <f>  --checklist <path> (default <root>/review/specialists/<name>.md; red-team.md for red-team)
+             --learnings-file <f>  --checklist <path> (default <root>/review/specialists/<name>.md; review/design-checklist.md for design; red-team.md for red-team)
              --checklists <a,b> (specialist-batched: the plan's checklists= names, or paths)  --findings-file <f> --specialists <n> (red-team)
              --fix-list <f> --hunks <f> --tests <f> [--callers <f>] (fix-check)
              --classes <money,gate,auth,secret> (targeted: the plan's TARGETED classes; the brief is review/specialists/targeted.md;
@@ -147,7 +147,7 @@ function render(): number {
   if (!role || !BRIEF_ROLES.includes(role) || !out) { process.stderr.write(`gstack-review-dispatch render: needs --role <${BRIEF_ROLES.join('|')}> and --out <dir>\n`); return EXIT.usage; }
   const name = flag('--name');
   const diffBase = flag('--diff-base');
-  const checklist = flag('--checklist') ?? (role === 'red-team' ? path.join(ROOT, 'review/specialists/red-team.md') : role === 'targeted' ? path.join(ROOT, 'review/specialists/targeted.md') : role === 'specialist' && name ? path.join(ROOT, 'review/specialists', `${name}.md`) : undefined);
+  const checklist = flag('--checklist') ?? (role === 'red-team' ? path.join(ROOT, 'review/specialists/red-team.md') : role === 'targeted' ? path.join(ROOT, 'review/specialists/targeted.md') : role === 'specialist' && name ? checklistFile(ROOT, name) : undefined);
   if (checklist && (role === 'specialist' || role === 'red-team' || role === 'targeted') && !fs.existsSync(checklist)) throw new BriefError(`checklist not found: ${checklist}`);
   const merged = role === 'adversarial-native' && !!flag('--classes');
   const brief = role === 'targeted' || merged ? readFile(merged ? path.join(ROOT, 'review/specialists/targeted.md') : checklist, 'targeted brief') : undefined;
@@ -158,7 +158,7 @@ function render(): number {
     if (!full || full !== mb) throw new BriefError(`the targeted reader reads the whole diff on every pass: --diff-base must be the merge base with ${base} (${mb ?? 'unresolved'}), got ${diffBase ?? 'none'}`);
     if (!flag('--disclosure') && ceilingContext(process.cwd(), base).state === 'active') throw new BriefError(`${base}'s review_exclude_paths is active, so the targeted reader renders in the pass manifest's voices stage (gstack-review-dispatch stage --manifest <f> --stage voices), which carries the exclusion and its disclosure line`);
   }
-  const checklists = flag('--checklists')?.split(',').map(s => s.trim()).filter(Boolean).map(c => (c.includes('/') ? c : path.join(ROOT, 'review/specialists', `${c}.md`)));
+  const checklists = flag('--checklists')?.split(',').map(s => s.trim()).filter(Boolean).map(c => (c.includes('/') ? c : checklistFile(ROOT, c)));
   for (const c of checklists ?? []) if (!fs.existsSync(c)) throw new BriefError(`checklist not found: ${c}`);
   let diff: string | undefined;
   const readers = readersAt(checkoutRoot(), flag('--base'));

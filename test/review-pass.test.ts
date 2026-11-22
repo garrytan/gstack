@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { promptHash } from '../lib/review-brief';
 import { CHUNK_CHARS, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import { FIXTURE_MARKER } from '../lib/fixture-marker';
+import { SPECIALISTS } from '../lib/review-depth';
 import { ROOT, BIN, texts, SHA, spec, tmp, manifest, collectAll, writeManifestFile, repo, treeLine, host, PROGRAM, AsyncFunction, runPass, bin } from './helpers/review-pass-harness';
 
 describe('pass manifest', () => {
@@ -487,4 +488,28 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(res).not.toContain('FETCH_RERUN_BLOCKED');
     expect([fs.existsSync(fixture), fs.existsSync(shipBin)]).toEqual([true, true]);
   }, 240_000);
+});
+
+describe('every checklist a plan names is a file its reader can open (#4410)', () => {
+  const design = path.join(ROOT, 'review/design-checklist.md');
+  const render = (args: string[]) => spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['render', ...args, '--out', tmp('rp-design-'), '--diff-base', SHA, '--stack', 'node', '--test-fw', 'unknown'], { encoding: 'utf8', timeout: 30_000 });
+
+  test('the batched reader reads every specialist checklist from an existing file, design from review/design-checklist.md', () => {
+    const m = manifest([{ role: 'specialist', name: 'batched', effort: 'medium', exclude: [], checklists: [...SPECIALISTS, 'red-team'] }]);
+    renderStage(m, 'specialists', texts, () => '');
+    const listed = fs.readFileSync(m.readers[0]!.file!, 'utf8').match(/Read each checklist at (.*?) \(tag each finding/)![1]!.split(', ');
+    expect(listed).toHaveLength(SPECIALISTS.length + 1);
+    expect(listed).toContain(design);
+    expect(listed.filter(f => !fs.existsSync(f))).toEqual([]);
+  });
+
+  test('a lone design specialist and the render CLI read the same file', () => {
+    const m = manifest([spec('design')]);
+    renderStage(m, 'specialists', texts, () => '');
+    expect(fs.readFileSync(m.readers[0]!.file!, 'utf8')).toContain(design);
+    const batched = render(['--role', 'specialist-batched', '--checklists', 'design,red-team']);
+    expect(batched.status, batched.stderr).toBe(0);
+    const lone = render(['--role', 'specialist', '--name', 'design']);
+    expect(lone.status, lone.stderr).toBe(0);
+  });
 });
