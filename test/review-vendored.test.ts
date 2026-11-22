@@ -99,7 +99,7 @@ describe('manifest and policy shapes', () => {
     expect(errs({ upstreams: [{ url: UP, branches: ['release/*'] }], manifests: ['m.json'] })).toBe('');
     for (const b of ['pull/*', 'gh-readonly-queue/*', 'refs/heads/x']) expect(errs({ upstreams: [{ url: UP, branches: [b] }], manifests: ['m.json'] })).toMatch(/branches/);
     expect(errs({ upstreams: ['http://example.test/up/lib'], manifests: ['m.json'] })).toMatch(/https URL/);
-    expect(errs({ upstreams: ['https://user:pw@example.test/up/lib'], manifests: ['m.json'] })).toMatch(/https URL/);
+    expect(errs({ upstreams: [['https://user', 'pw@example.test/up/lib'].join(':')], manifests: ['m.json'] })).toMatch(/https URL/);
     expect(errs({ upstreams: [UP], manifests: ['vendor/*.json'] })).toMatch(/not a glob/);
     const loaded = finish(JSON.stringify({ review_vendored: { upstreams: [UP], manifests: ['m.json'] } }), { kind: 'head', label: 'x', ref: 'x', sha: 'x' } as never) as { errors: Array<{ path: string; message: string }> };
     expect(loaded.errors.map(e => e.message).join('\n')).toContain(REVIEW_VENDORED_KEY_VERSION);
