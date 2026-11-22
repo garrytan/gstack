@@ -36,6 +36,7 @@
 # (same guard as bin/gstack-brain-sync; pinned by
 # test/heredoc-pipe-deadlock.test.ts).
 BASH_COMPAT=50
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
 SKILL_NAME=""
 MODEL_OVERLAY="none"
@@ -404,15 +405,32 @@ if [ -n "$_GBRAIN_CONFIG" ] && [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/d
     if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
       _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
     fi
+    # The repo's gbrain policy tier: read-only never indexes code (so no pin
+    # ever comes), deny allows no gbrain use at all (#4419).
+    _GBRAIN_REPO_TIER=$("$_BIN/gstack-gbrain-repo-policy" get 2>/dev/null || echo unset)
     if [ -n "$_GBRAIN_PIN_PATH" ]; then
       echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
       echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
       echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
       echo "Run /sync-gbrain to refresh."
-    else
+    elif [ "$_GBRAIN_REPO_TIER" = "read-only" ]; then
+      echo "GBrain configured, but this repo's gbrain policy is read-only, so its code is"
+      echo "never indexed and this worktree stays unpinned. Use Grep for code questions."
+      echo "To index it: gstack-gbrain-repo-policy set <origin url> read-write, then /sync-gbrain --full."
+    elif [ "$_GBRAIN_REPO_TIER" != "deny" ]; then
       echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
       echo "before relying on \`gbrain search\` for code questions in this worktree."
       echo "Falls back to Grep until pinned."
+    fi
+    # A skill whose SKILL.md declares gbrain.context_queries gets them here,
+    # rendered by gstack-brain-context-load (#4329). Off with
+    # \`gstack-config set gbrain_context_load off\`, and never in a deny repo.
+    _CTX_SKILL_FILE="$_BIN/../$SKILL_NAME/SKILL.md"
+    if [ "$_GBRAIN_REPO_TIER" != "deny" ] && [[ "$SKILL_NAME" =~ ^[a-z0-9-]{1,60}$ ]] \
+      && grep -q '^  context_queries:' "$_CTX_SKILL_FILE" 2>/dev/null \
+      && [ "$("$_BRAIN_CONFIG_BIN" get gbrain_context_load 2>/dev/null)" != "off" ]; then
+      bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$_BIN/gstack-brain-context-load.ts" \
+        --skill-file "$_CTX_SKILL_FILE" --skill "$SKILL_NAME" --repo "${SLUG:-unknown}" 2>/dev/null | _sanitize || true
     fi
   fi
 fi

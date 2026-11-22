@@ -2,7 +2,8 @@
 /**
  * gstack-brain-context-load — V1 retrieval surface (Lane C).
  *
- * Called from the gstack preamble at every skill start. Reads the active skill's
+ * Called from bin/gstack-skill-start when the active skill's SKILL.md declares
+ * `gbrain.context_queries:` and gbrain is configured. Reads the active skill's
  * `gbrain.context_queries:` frontmatter (Layer 2) or falls back to a generic
  * salience block (Layer 1). Dispatches each query by kind:
  *
