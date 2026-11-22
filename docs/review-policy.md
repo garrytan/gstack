@@ -258,7 +258,7 @@ for this PR; the PR body's first claim of it is this run's; exactly one
 `review-fix-check` row carries it, and `gstack-review-log` stamped that row from
 the claim (`fix_check_base`, `run`, `grant`, `pr`) with the digest of the hunks
 its reader was given, which cover every path the stop-to-fix diff changes, and
-the ledger ids and fingerprints its fix list named; the row read the stop's head to the receipt head (or a
+the ledger ids, fingerprints and `a-…` approval ids its fix list named; the row read the stop's head to the receipt head (or a
 head that only merges the base in) on one committed tree, with nothing open at
 any severity; and the stop, the claim and the row's start were recorded in that
 order. Each grant id the fix list named closes the one open blocker carrying
