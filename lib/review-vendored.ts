@@ -163,7 +163,7 @@ function withLock<T>(dir: string, fn: () => T): T {
   try { return fn(); } finally { fs.rmSync(lock, { force: true }); }
 }
 
-interface PinCache { reachable_from: string | null; default_branch?: string; checked_at: number; tree: Record<string, [string, string] | null>; error?: string }
+interface PinCache { reachable_from: string | null; default_branch?: string; checked_at: number; tree: Record<string, [string, string] | null>; error?: string; failed?: string }
 
 /** Whether a cached ref the commit sits on is one the current policy trusts: a tag, the default branch, or a branch the base names, never a merge-queue branch. */
 function trustedHolder(ref: string, def: string | undefined, up: VendoredUpstream): boolean {
@@ -185,11 +185,20 @@ function writePin(dir: string, commit: string, p: PinCache): void {
 
 /**
  * Fetch one upstream's reachability refs and each pin's trees into its cache and record, per pin, the ref that holds
- * the commit and the mode and blob id of every upstream path asked for. A failed fetch is recorded as the pin's error.
+ * the commit and the mode and blob id of every upstream path asked for. A failed fetch is this run's error for each pin it
+ * covers. It is recorded as the pin's error when the cache holds no good record for it; a good record stays, marked with
+ * the failure (`failed`) until a later fetch succeeds, so gstack-vendored-verify --offline keeps answering from it while
+ * review selection keeps the pin's files, as the run that failed did.
  */
-function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string, Set<string>>, env: NodeJS.ProcessEnv): void {
+function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string, Set<string>>, env: NodeJS.ProcessEnv): Map<string, string> {
   const dir = path.join(cacheRoot, key(up.url));
   fs.mkdirSync(dir, { recursive: true });
+  const errors = new Map<string, string>();
+  const failPin = (commit: string, error: string, rec: PinCache) => {
+    errors.set(commit, error);
+    const prev = readPin(dir, commit);
+    writePin(dir, commit, prev?.reachable_from && !prev.error ? { ...prev, failed: error } : { ...rec, error });
+  };
   withLock(dir, () => {
     const genv = gitEnv(dir);
     const flags = remoteFlags(env);
@@ -198,7 +207,7 @@ function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string
     for (const repo of ['refs.git', 'trees.git']) if (!fs.existsSync(path.join(dir, repo, 'HEAD'))) git(dir, ['init', '--quiet', '--bare', repo], genv);
     const refs = path.join(dir, 'refs.git');
     const trees = path.join(dir, 'trees.git');
-    const fail = (error: string) => { for (const c of pins.keys()) writePin(dir, c, { reachable_from: null, checked_at: Date.now(), tree: {}, error }); };
+    const fail = (error: string) => { for (const c of pins.keys()) failPin(c, error, { reachable_from: null, checked_at: Date.now(), tree: {} }); };
     const head = git(refs, [...flags, 'ls-remote', '--symref', url, 'HEAD', 'refs/heads/*'], genv, t);
     const def = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(head.out)?.[1];
     if (!head.ok || !def) { fail(`could not read the default branch (${head.err.split('\n').pop() || 'no HEAD'})`); return; }
@@ -214,9 +223,9 @@ function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string
       const reachable_from = holders.find(r => r && trustedHolder(r, def, up)) ?? null;
       if (!reachable_from) { writePin(dir, commit, { reachable_from: null, default_branch: def, checked_at: Date.now(), tree: {} }); continue; }
       const tf = git(trees, [...flags, 'fetch', '--quiet', '--no-tags', '--depth=1', '--filter=blob:none', url, commit], genv, t);
-      if (!tf.ok) { writePin(dir, commit, { reachable_from, default_branch: def, checked_at: Date.now(), tree: {}, error: `could not fetch the commit's trees (${tf.err.split('\n').pop()})` }); continue; }
+      if (!tf.ok) { failPin(commit, `could not fetch the commit's trees (${tf.err.split('\n').pop()})`, { reachable_from, default_branch: def, checked_at: Date.now(), tree: {} }); continue; }
       const ls = git(trees, ['ls-tree', '-r', '-z', '--full-tree', commit], genv);
-      if (!ls.ok) { writePin(dir, commit, { reachable_from, default_branch: def, checked_at: Date.now(), tree: {}, error: 'could not list the commit\'s tree' }); continue; }
+      if (!ls.ok) { failPin(commit, 'could not list the commit\'s tree', { reachable_from, default_branch: def, checked_at: Date.now(), tree: {} }); continue; }
       const all = new Map<string, [string, string]>();
       for (const rec of ls.out.split('\0')) { const m = /^(\d{6}) (?:blob|commit) ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(rec); if (m) all.set(m[3]!, [m[1]!, m[2]!]); }
       const prev = readPin(dir, commit);
@@ -225,6 +234,7 @@ function fetchUpstream(cacheRoot: string, up: VendoredUpstream, pins: Map<string
       writePin(dir, commit, { reachable_from, default_branch: def, checked_at: Date.now(), tree });
     }
   });
+  return errors;
 }
 
 /** The head's mode and blob id for each path (git ls-tree under each pin's prefix); missing paths are absent. */
@@ -244,6 +254,8 @@ export interface ResolveInput {
   root: string; rev: string; policy: VendoredPolicy; entries: readonly VendoredEntry[];
   /** Fetch upstreams and refresh the cache (gstack-vendored-verify); false answers from the cache alone. */
   fetch: boolean; cacheRoot: string; env?: NodeJS.ProcessEnv;
+  /** Answer from a good cached record whose latest fetch failed (gstack-vendored-verify); unset, such a pin is fetch-failed. */
+  keepGood?: boolean;
 }
 
 /** One verdict per entry, one summary per pin, and a digest over both; null when git could not read the head. */
@@ -257,14 +269,18 @@ export function resolveVendored(i: ResolveInput): { entries: EntryResult[]; pins
     pins.set(e.commit, (pins.get(e.commit) ?? new Set()).add(e.upstream_path));
     byUpstream.set(e.upstream, pins);
   }
-  if (i.fetch) for (const [url, pins] of byUpstream) fetchUpstream(i.cacheRoot, allowed.get(url)!, pins, env);
+  const fetchErrors = new Map<string, string>();
+  if (i.fetch) for (const [url, pins] of byUpstream) for (const [commit, error] of fetchUpstream(i.cacheRoot, allowed.get(url)!, pins, env)) fetchErrors.set(`${url}@${commit}`, error);
   const head = headBlobs(i.root, i.rev, i.entries);
   if (!head) return null;
   const results: EntryResult[] = i.entries.map(e => {
     const local = head.get(e.path);
     if (!allowed.has(e.upstream)) return { ...e, verdict: 'not-allowlisted' };
     if (!local) return { ...e, verdict: 'absent-local' };
+    const fetchError = fetchErrors.get(`${e.upstream}@${e.commit}`);
+    if (fetchError) return { ...e, verdict: 'fetch-failed', detail: fetchError };
     const pin = readPin(path.join(i.cacheRoot, key(e.upstream)), e.commit);
+    if (pin?.failed && !i.keepGood) return { ...e, verdict: 'fetch-failed', detail: `the latest fetch failed (${pin.failed}); review keeps the file until a fetch succeeds` };
     if (!pin || !(e.upstream_path in pin.tree) && !pin.error && pin.reachable_from) return { ...e, verdict: 'fetch-failed', detail: 'not in the cache; run gstack-vendored-verify' };
     if (pin.error) return { ...e, verdict: 'fetch-failed', detail: pin.error };
     if (!pin.reachable_from) return { ...e, verdict: 'unreachable' };
@@ -296,9 +312,12 @@ export interface VendoredSelection { verified: string[]; failed: EntryResult[]; 
 
 /**
  * The verified vendored files among `changed`: entries of the head's manifests, checked at the head, and files the range
- * deletes that the merge base's manifests list, checked at the merge base (a re-pin's old files). With no head (a live
- * tree) the manifests and blobs come from HEAD, and a file the working tree or index changes is not verified. A manifest
- * that is missing at the head, does not parse, or pins one path twice gives { error } and nothing is verified.
+ * deletes that the merge base's manifests list, checked at the merge base (a re-pin's old files). A head entry the merge
+ * base already has counts only when the base manifests pinned it there too and its base copy verifies, so a branch that
+ * swaps our own code (or a local patch) for upstream bytes keeps that removal in review; a file new on the branch needs
+ * only its head check. With no head (a live tree) the manifests and blobs come from HEAD, and a file the working tree or
+ * index changes is not verified. A manifest that is missing at the head, does not parse, or pins one path twice gives
+ * { error } and nothing is verified.
  */
 export function vendoredSelection(i: { root: string; policy: VendoredPolicy; head?: string; mergeBase: string; changed: ReadonlySet<string>; fetch: boolean; cacheRoot: string; env?: NodeJS.ProcessEnv }): VendoredSelection | { error: string } {
   const show = (rev: string, f: string) => { const r = spawnSync('git', ['show', `${rev}:${f}`], { cwd: i.root, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? r.stdout ?? '' : null; };
@@ -317,23 +336,41 @@ export function vendoredSelection(i: { root: string; policy: VendoredPolicy; hea
   const lower = new Set<string>();
   for (const e of now) { if (lower.has(e.path.toLowerCase())) return { error: `${e.path} is pinned more than once` }; lower.add(e.path.toLowerCase()); }
   const atHead = now.filter(e => i.changed.has(e.path));
+  const missing = (at: string, paths: string[]): Set<string> | null => {
+    if (!paths.length) return new Set();
+    const r = spawnSync('git', ['cat-file', '--batch-check=%(objectname)'], { cwd: i.root, input: paths.map(p => `${at}:${p}\n`).join(''), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+    if (r.status !== 0) return null;
+    const lines = (r.stdout ?? '').split('\n');
+    return new Set(paths.filter((p, k) => lines[k] === `${at}:${p} missing`));
+  };
   const dropped = old.filter(e => i.changed.has(e.path) && !lower.has(e.path.toLowerCase()) && !e.path.includes('\n'));
-  const probe = dropped.length ? spawnSync('git', ['cat-file', '--batch-check=%(objectname)'], { cwd: i.root, input: dropped.map(e => `${rev}:${e.path}\n`).join(''), encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }) : null;
-  if (probe && probe.status !== 0) return { error: 'git could not check which vendored files the range deletes' };
-  const probed = (probe?.stdout ?? '').split('\n');
-  const gone = dropped.filter((e, k) => probed[k] === `${rev}:${e.path} missing` && (i.head || !fs.existsSync(path.join(i.root, e.path))));
+  const deleted = missing(rev, dropped.map(e => e.path));
+  const added = missing(i.mergeBase, atHead.filter(e => !e.path.includes('\n')).map(e => e.path));
+  if (!deleted || !added) return { error: 'git could not check which vendored files the range adds or deletes' };
+  const gone = dropped.filter(e => deleted.has(e.path) && (i.head || !fs.existsSync(path.join(i.root, e.path))));
+  const oldByPath = new Map(old.map(e => [e.path, e]));
+  const modified = new Set(atHead.filter(e => !added.has(e.path)).map(e => e.path));
+  const prior = [...modified].flatMap(p => oldByPath.get(p) ?? []);
   const head = resolveVendored({ root: i.root, rev, policy: i.policy, entries: atHead, fetch: i.fetch, cacheRoot: i.cacheRoot, env: i.env });
-  const base = gone.length ? resolveVendored({ root: i.root, rev: i.mergeBase, policy: i.policy, entries: gone, fetch: i.fetch, cacheRoot: i.cacheRoot, env: i.env }) : { entries: [], pins: [], digest: '' };
+  const base = gone.length || prior.length ? resolveVendored({ root: i.root, rev: i.mergeBase, policy: i.policy, entries: [...gone, ...prior], fetch: i.fetch, cacheRoot: i.cacheRoot, env: i.env }) : { entries: [], pins: [], digest: '' };
   if (!head || !base) return { error: 'git could not list the vendored files' };
+  const atBase = new Map(base.entries.filter(e => modified.has(e.path)).map(e => [e.path, e]));
+  const ours = (p: string): string | null => {
+    if (!modified.has(p)) return null;
+    const b = atBase.get(p);
+    if (!b) return 'the merge base has this file but its manifests do not pin it, so the branch replaces our own code; it stays in review';
+    return b.verdict === 'verified' ? null : `its merge-base copy is not the upstream's file (${b.verdict}${b.detail ? `: ${b.detail}` : ''}), so the branch replaces our own code; it stays in review`;
+  };
   const dirty = new Set<string>();
   if (!i.head) {
     const d = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--name-only', '-z', '--no-renames', 'HEAD'], { cwd: i.root, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
     if (d.status !== 0) return { error: 'git could not list the working tree changes' };
     for (const f of (d.stdout ?? '').split('\0')) if (f) dirty.add(f);
   }
-  const all = [...head.entries, ...base.entries];
-  const verified = all.filter(e => e.verdict === 'verified' && !dirty.has(e.path)).map(e => e.path).sort();
-  const failed = all.filter(e => e.verdict !== 'verified' || dirty.has(e.path)).map(e => (e.verdict === 'verified' ? { ...e, verdict: 'mismatched' as const, detail: 'changed in the working tree' } : e));
+  const all = [...head.entries, ...base.entries.filter(e => !modified.has(e.path))];
+  const why = (e: EntryResult) => (e.verdict !== 'verified' ? null : dirty.has(e.path) ? 'changed in the working tree' : ours(e.path));
+  const verified = all.filter(e => e.verdict === 'verified' && why(e) === null).map(e => e.path).sort();
+  const failed = all.filter(e => e.verdict !== 'verified' || why(e) !== null).map(e => (e.verdict === 'verified' ? { ...e, verdict: 'mismatched' as const, detail: why(e)! } : e));
   return { verified, failed, pins: [...head.pins, ...base.pins], digest: createHash('sha256').update(JSON.stringify(verified)).digest('hex') };
 }
 

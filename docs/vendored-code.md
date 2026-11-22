@@ -97,7 +97,9 @@ Every failure fails closed: the file is simply not vendored.
 - Paths are repo-relative, with no `..`, `.` or empty segment, no backslash,
   and no two entries that differ only in letter case.
 - A file listed here and edited locally fails the check. Remove it from the
-  manifest to have it reviewed as your own code instead.
+  manifest to have it reviewed as your own code instead. Putting the upstream
+  bytes back later passes the check, but review still reads that change, as
+  below.
 
 ## The command
 
@@ -159,8 +161,12 @@ gate-tagged file is excerpted only off the gate floor, so a gate-tagged
 upstream test file (anything under `tests/`, `test/` or `spec/`) stays in
 review whole. When a re-pin deletes files, a deleted file that verifies at the
 base's pin can be left out too; a file the branch drops from the manifest but
-keeps stays in review. A file that does not verify keeps the reason it had
-before. Keep the manifest outside every `review_exclude_paths` pattern: when a
+keeps stays in review. A file the branch modifies counts as vendored only when
+the merge base's manifests already pinned it and its base copy verified too.
+So a branch that replaces your own file with upstream bytes, or drops a local
+patch from a vendored file, keeps that file in review as your code, and
+readers see your lines leave. A file new on the branch needs only its own
+check. A file that does not verify keeps the reason it had before. Keep the manifest outside every `review_exclude_paths` pattern: when a
 pattern matches it, nothing counts as verified and the plan prints
 `REVIEW_VENDORED: unavailable`.
 
@@ -177,10 +183,16 @@ Every later step (the review dispatch, the receipt write and carry) reads the
 same cache without the network, and the verified list is part of the
 selection digest the receipt binds. A machine with an empty cache verifies
 nothing, so its selection differs and the receipt says so; run
-`gstack-vendored-verify --base <base>` there first. Reviewers still read the
-manifest, every pin change and all of the repo's own code. When unverified
-vendored files make a pattern keep too many files, the refusal names them as
-`REVIEW_VENDORED_KEPT` and points at `gstack-vendored-verify`.
+`gstack-vendored-verify --base <base>` there first. It also caches the merge
+base's pins for the files the branch changes or deletes (its `VENDORED_BASE:`
+line, which never fails the run), since a modified or re-pinned file needs
+them. A fetch that fails fails its own run but leaves the cache's earlier good
+answers in place, so a later `gstack-vendored-verify --offline` still answers.
+Review keeps those files until a fetch succeeds, so the plan and the receipt's
+offline check select the same files. Reviewers still read
+the manifest, every pin change and all of the repo's own code. When manifest
+entries that don't count as vendored make a pattern keep too many files, the
+refusal counts them and points at `gstack-vendored-verify`.
 
 How much this saves depends on the gate tags. On harness-evals#504 (1,056
 upstream test files), 877 files and 4.47 MB leave review, but 161 gate-tagged
