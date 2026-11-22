@@ -5,7 +5,7 @@
  *   gstack-pregate [run] [--stage preflight|tests|guards|all] [--only <check,..>] [--base <branch>]
  *                  [--allow-repo-commands] [--policy-from base|head] [--out <pregate.json>]
  *                  [--timeout <s>] [--stall-timeout <s>] [--remote --spend-cap <usd>] [--run <id>] [--from-run <id|url>] [--no-ci-carry] [--explain] [--json]
- *   gstack-pregate verify [--out <pregate.json>] [--json]      publication check: current tree, every registered check, no fail/incomplete, obligations cleared
+ *   gstack-pregate verify [--base <branch>] [--out <pregate.json>] [--json]   publication check: current tree, every registered check, no fail/incomplete, obligations cleared
  *   gstack-pregate clear --remote <workflow.yml/job> --run-url <url> | --run <id|url> [--run …] [--allow-repo-commands] | --bundle-lane <label> | --receipt <file> [--base <branch>] [--out <pregate.json>]
  *                  [--flaky-exception "<test file>::<case>" … --pr <n> [--grant <approval id>]]   a run with failures, under the owner's grant
  *   gstack-pregate lanes [--explain]                             the lane list and platform tiers read from .github/workflows
@@ -52,7 +52,8 @@ const HELP = `gstack-pregate — cheap checks before anything paid or remote (do
 
   run (default)   stage 1 mechanical preflight (${CHECKS.filter(c => c.stage === 'preflight').map(c => c.id).join(', ')}), then stage 2 test execution (${CHECKS.filter(c => c.stage === 'tests').map(c => c.id).join(', ')})
   verify          publication check against ${PREGATE_OUT_REL}: current tree, every registered check present (checks=N of M;
-                  a --only or --stage record is PREGATE_INCOMPLETE), no fail or incomplete, every requires-remote obligation cleared
+                  a --only or --stage record is PREGATE_INCOMPLETE), no fail or incomplete, every requires-remote obligation cleared;
+                  --base <branch> also refuses a record taken against another base (PREGATE_STALE)
   clear           record the receipt that clears one requires-remote obligation: pregate.json/remote_gate needs
                   --receipt <file> (the gate's PREGATE_REMOTE: line, checked against the tested tree; a tree that
                   differs from pregate.json's only in the base branch's stamp rule is accepted and recorded as a
@@ -126,7 +127,7 @@ function flag(args: string[], name: string): string | undefined { const i = args
 /** Flags each verb accepts: `[flags that take a value, bare flags]`. Anything else is usage (exit 2), never a silent default run. */
 const VERB_FLAGS: Record<string, [string[], string[]]> = {
   run: [['--stage', '--only', '--base', '--policy-from', '--out', '--timeout', '--stall-timeout', '--spend-cap', '--run', '--from-run'], ['--allow-repo-commands', '--explain', '--json', '--remote', '--no-ci-carry']],
-  verify: [['--out'], ['--json']],
+  verify: [['--out', '--base'], ['--json']],
   clear: [['--remote', '--run-url', '--run', '--bundle-lane', '--receipt', '--out', '--flaky-exception', '--pr', '--grant', '--base'], ['--allow-repo-commands']],
   lanes: [[], ['--explain', '--json']],
   validate: [[], ['--json']],
@@ -240,7 +241,7 @@ function cmdVerify(root: string, rest: string[], json: boolean): number {
   if (!fs.existsSync(out)) { process.stderr.write(resultLine('gstack-pregate verify', 'PREGATE_STALE', `${out} does not exist; run gstack-pregate first`) + '\n'); return EXIT.fail; }
   const read = readPregateFile(out);
   if (!read.file) { for (const e of read.errors) process.stderr.write(resultLine('gstack-pregate verify', e.code, `${e.message} at ${e.path}`) + '\n'); return EXIT.fail; }
-  const v = verifyPregate(root, read.file);
+  const v = verifyPregate(root, read.file, undefined, flag(rest, '--base'));
   if (json) { process.stdout.write(JSON.stringify({ ...v, verdict: read.file.verdict, tree: read.file.tree, head: read.file.head, out }) + '\n'); return v.ok ? EXIT.ok : EXIT.fail; }
   if (v.ok) {
     const excepted = describeExceptions(read.file);
@@ -274,6 +275,8 @@ function cmdClear(root: string, rest: string[]): number {
   const recordedBase = baseBranchOf(read.file.base);
   const base = resolveBaseBranch(root, flag(rest, '--base') ?? recordedBase ?? undefined);
   if (flag(rest, '--base') !== undefined && recordedBase && base !== recordedBase) { process.stderr.write(`gstack-pregate clear: receipt refused — REUSE: refused reason=base_mismatch — pregate.json was recorded against origin/${recordedBase}, but run profiles come from origin/${base}; ${lane} stays uncleared; fix: clear without --base, which reads the record's own base origin/${recordedBase}; or rerun gstack-pregate --base ${base}, then clear again ${resultCodeSuffix('PREGATE_RECEIPT_INVALID')}\n`); return EXIT.fail; }
+  const self = baseContainsHead(root, `origin/${base}`);
+  if (self) { process.stderr.write(`${resultLine('gstack-pregate clear', 'BASE_CONTAINS_HEAD', self)}; its policy would be the branch's own, so ${lane} stays uncleared\n`); return EXIT.refused; }
   const checked = runs.length || runUrl || bundleLane ? buildRunCheck(root, lane, rest.includes('--allow-repo-commands'), base) : undefined;
   if (checked && 'error' in checked && (runs.length || checked.profiled)) { process.stderr.write(`gstack-pregate clear: ${checked.error}${checked.profiled ? `; ${lane} may have a run profile on the base branch, so it clears only with a verified --run` : ''}\n`); return EXIT.fail; }
   const evidence = checked && !('error' in checked) ? checked : undefined;
