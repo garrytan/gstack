@@ -331,6 +331,42 @@ const SPECIFIC_WORD = /^(?!(?:what|which|where|whose)$)[a-z0-9]{5,}$/;
 /** How close, in words, a trigger made only of everyday words must sit when it matches out of order. */
 export const EVERYDAY_SPAN = 8;
 
+/** True when the phrase's words appear in text in order, with only stopwords added between them: "find bugs on my site" holds "find bugs on site". */
+function holdsPhrase(text: string, phrase: string): boolean {
+  const want = tokens(phrase);
+  const seq = words(text);
+  return want.length > 0 && seq.some((_, start) => {
+    let k = 0;
+    for (let j = start; j < seq.length && k < want.length; j++) {
+      if (concept(stem(seq[j])) === want[k]) k++;
+      else if (k === 0 || !STOPWORDS.has(seq[j])) return false;
+    }
+    return k === want.length;
+  });
+}
+
+/**
+ * True when the phrase's content words appear in text in order with only stopwords between them, and a gap the phrase
+ * fills with stopwords is filled with stopwords: "review my PR" holds "review this pr", but "the test site" does not hold
+ * "test the site".
+ */
+function holdsWords(text: string, phrase: string): boolean {
+  const pw = words(phrase);
+  const want = pw.flatMap((w, i) => STOPWORDS.has(w) ? [] : [{ token: concept(stem(w)), gap: i > 0 && STOPWORDS.has(pw[i - 1]) && pw.slice(0, i).some(p => !STOPWORDS.has(p)) }]);
+  const seq = words(text);
+  return want.length > 0 && seq.some((w, start) => {
+    if (STOPWORDS.has(w) || concept(stem(w)) !== want[0].token) return false;
+    let j = start + 1;
+    for (const { token, gap } of want.slice(1)) {
+      const from = j;
+      while (j < seq.length && STOPWORDS.has(seq[j])) j++;
+      if (j >= seq.length || concept(stem(seq[j])) !== token || (gap && j === from)) return false;
+      j++;
+    }
+    return true;
+  });
+}
+
 /** True when every word in want appears within some run of span consecutive words of seq. */
 function within(seq: string[], want: string[], span: number): boolean {
   const need = new Set(want);
@@ -394,18 +430,27 @@ const isRouted = (s: InstalledSkill) => !isGstackSkill(s) || ROUTED_SKILLS.inclu
 /**
  * Signs that a prompt reports a defect (bugReport). One strong sign is enough: a word for what went wrong, an exception
  * name (ValueError), the verb fix, an issue template's expected or actual heading, a failure verb (fails, failed to,
- * doesn't work) or a "should X, not Y" correction. Feature requests use error, exception and failure as nouns ("add
- * error handling", "a custom exception class"), so those words, a negated verb, "should" and "instead of" are weak
- * signs, and a bug report needs two different ones.
+ * doesn't work), a "should X, not Y" or "should X, but Y" correction, a regression (started with 0.19, used to work), a
+ * security hole or lost data. Feature requests use error, exception and failure as nouns ("add error handling", "a custom
+ * exception class"), so those words, a negated verb, "should" or "must", "instead of" and a word for an unwanted outcome
+ * (lost, ignored, dropped, twice) are weak signs, and a bug report needs two different ones.
  */
-const SYMPTOM_STEMS = new Set(['bug', 'crash', 'traceback', 'regression', 'broken', 'wrong', 'incorrect', 'incorrectly', 'defect',
+const SYMPTOM_STEMS = new Set(['bug', 'crash', 'traceback', 'regression', 'broken', 'broke', 'wrong', 'incorrect', 'incorrectly', 'defect',
   'hang', 'stuck', 'freeze', 'freezes', 'leak', 'corrupt', 'imprecise', 'inaccurate', 'unexpected', 'unexpectedly', 'weird', 'strange',
-  'glitch', 'mismatch', 'typo'].map(stem));
+  'glitch', 'mismatch', 'typo', 'silently'].map(stem));
 const STRONG_SIGN = new RegExp(String.raw`\b(?:expected (?:behaviou?r|result|output|value)|actual (?:behaviou?r|result|output)|what did you expect`
   + String.raw`|what happened|steps to reproduce|to reproduce|reproducible|correct (?:output|result|value|answer|behaviou?r)|fails|failing`
-  + String.raw`|fail(?:ed)? to|(?:does|do|did)(?: not|n't) work|not working|no longer works?)\b|\bshould\b[^.!?]*(?:, not\b|\binstead of\b)`);
-const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/, /\b(?:(?:does|do|did|is|are|was|were|can|could|will|would)(?: not|n't)|cannot|can't|won't)\b/,
-  /\bshould\b/, /\binstead of\b/];
+  + String.raw`|fail(?:ed)? to|(?:does|do|did)(?: not|n't) work|not working|no longer|used to (?:work|be|return)|as it did in`
+  + String.raw`|(?:started|began|regressed) (?:with|in|after|since) v?\d|security (?:problem|issue|hole|flaw|bug)|vulnerab\w*|data loss`
+  + String.raw`|los(?:e|es|t|ing) (?:\w+ ){0,2}data)\b|(?:^|[\s(])(?:expected|actual)(?: behaviou?r)?:|\bshould\b[^.!?]*(?:, not\b|\binstead of\b|\bbut\b)`);
+const WEAK_SIGNS = [/\b(?:errors?|exceptions?|failures?|failed)\b/,
+  /\b(?:(?:does|do|did|is|are|was|were|can|could|will|would)(?: not|n't)|cannot|can't|won't|never)\b/,
+  /\b(?:should|must)\b/, /\binstead of\b/,
+  /\b(?:los(?:es|t|ing)|gone|ignored|ignores|drops|dropped|dropping|twice|duplicated?|truncated|half-written|wipes|wiped|resets)\b/];
+
+/** A strong sign in lowercased prose: a symptom word, an exception name as a word, or a STRONG_SIGN phrase. */
+const defectSign = (text: string) => words(text).some(w => SYMPTOM_STEMS.has(stem(w)) || /^[a-z]{3,}(?:error|exception)$/.test(w))
+  || STRONG_SIGN.test(text);
 
 /** The verb fix, as a prompt asks for one. */
 const FIX_WORD = /^(?:re-)?fix(?:es|ing)?$/;
@@ -414,16 +459,24 @@ const FIX_WORD = /^(?:re-)?fix(?:es|ing)?$/;
 const EXCEPTION_NAME = /\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b/;
 
 /**
- * True when the window (promptWindow) of the prompt's prose (splitCode) reads as a bug report: one strong sign, or two
- * different weak ones. Its code counts only for an exception name, since a pasted traceback or a quoted `KeyError` reports
- * one; a flag such as `--fix` or the word broken in a log does not.
+ * What the window (promptWindow) of the prompt's prose (splitCode) reports: a defect (one strong sign or two different weak
+ * ones) and whether it asks for a fix (the verb fix). Its code counts only
+ * for an exception name, since a pasted traceback or a quoted `KeyError` reports one; a flag such as `--fix` or the word
+ * broken in a log does not.
  */
-export function bugReport(prompt: string): boolean {
+function reportSigns(prompt: string): { defect: boolean; fix: boolean } {
   const { prose, code } = splitCode(prompt);
-  if (EXCEPTION_NAME.test(promptWindow(code))) return true;
   const text = promptWindow(prose).toLowerCase().replace(/[\u2019`]/g, "'").replace(/\s+/g, ' ');
-  if (words(text).some(w => SYMPTOM_STEMS.has(stem(w)) || FIX_WORD.test(w) || /^[a-z]{3,}(?:error|exception)$/.test(w))) return true;
-  return STRONG_SIGN.test(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2;
+  return {
+    defect: EXCEPTION_NAME.test(promptWindow(code)) || defectSign(text) || WEAK_SIGNS.filter(re => re.test(text)).length >= 2,
+    fix: words(text).some(w => FIX_WORD.test(w)),
+  };
+}
+
+/** True when the prompt reads as a bug report: it reports a defect or asks for a fix (reportSigns). */
+export function bugReport(prompt: string): boolean {
+  const { defect, fix } = reportSigns(prompt);
+  return defect || fix;
 }
 
 /**
@@ -452,29 +505,47 @@ function bugFixRoute(skills: InstalledSkill[], candidates: RouteCandidate[]): Ro
 
 export type RouteDecision =
   | { route: RouteCandidate; routes: RouteCandidate[]; candidates: RouteCandidate[]; bugReport: boolean }
-  | { route: null; reason: 'slash-command' | 'skill-mention' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
+  | { route: null; reason: 'slash-command' | 'skill-mention' | 'agent-message' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
 
 /**
- * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. A bug
+ * The wrappers Claude Code puts around a turn no person typed: a message from another session (`<cross-session-message from=…>`)
+ * and a background agent's or command's hand-back (`<task-notification>`). UserPromptSubmit fires for both, and its payload has no
+ * field that tells them from a typed prompt (anthropics/claude-code#94675), so the wrapper is the sign (#4423).
+ */
+const AGENT_MESSAGE = /^<(?:cross-session-message|task-notification)[\s>]/;
+
+/**
+ * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. Nor is a message
+ * another agent or session sent (AGENT_MESSAGE): it reports work, and asks the person's session for nothing. A bug
  * report goes to the installed skill that claims bug reports, alone, whatever the triggers score (bugFixRoute), unless
- * it holds the whole phrase of one of /review's or /qa's own triggers ("review this pr for bugs") and never asks for a
- * fix: finding bugs is not fixing one. Any other prompt goes to the skills whose triggers reach the threshold. All of
- * this reads the prompt's prose, never its Markdown code (splitCode), except that an exception name in code reports a bug.
+ * it holds one of /review's or /qa's own triggers as a phrase (holdsPhrase: "review this pr for bugs", "find bugs on my site")
+ * and never asks for a fix: finding bugs is not fixing one. With no such skill installed, a report
+ * of a defect is still not a request to find bugs, so /review and /qa are not named for it unless it holds one of their triggers'
+ * words in order (holdsWords: "review my PR, the login page is broken") (GSTA-759: three long reports that
+ * said "test the site" or "find" and "broken" went to /qa); "test the site and fix what you find" reports no defect. Any other prompt goes to the skills whose triggers reach the threshold, and the installed skill that
+ * claims bug reports leads when it is one of them: an agent runs the first skill named (GEVA-562: /verify named before
+ * prove-it on 7 bug tasks, and Sol loaded /verify on all 7). All of this reads the prompt's prose, never its Markdown code
+ * (splitCode), except that an exception name in code reports a bug.
  */
 export function routePrompt(prompt: string, skills: InstalledSkill[], threshold = ROUTE_THRESHOLD, host: HookHost = 'claude'): RouteDecision {
   const trimmed = prompt.trim();
   if (!trimmed) return { route: null, reason: 'empty', candidates: [] };
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
+  if (AGENT_MESSAGE.test(trimmed)) return { route: null, reason: 'agent-message', candidates: [] };
   const routed = skills.filter(isRouted);
   const candidates = scorePrompt(prompt, routed);
   const window = promptWindow(splitCode(prompt).prose);
-  const seq = ` ${tokens(window).join(' ')} `;
-  const findsBugs = !words(window).some(w => FIX_WORD.test(w)) && routed.some(s => isGstackSkill(s)
-    && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => seq.includes(` ${tokens(t).join(' ')} `)));
-  const fixer = !findsBugs && bugReport(prompt) ? bugFixRoute(routed, candidates) : null;
+  const asks = (holds: (text: string, phrase: string) => boolean) => !words(window).some(w => FIX_WORD.test(w))
+    && routed.some(s => isGstackSkill(s) && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => holds(window, t)));
+  const findsBugs = asks(holdsPhrase);
+  const signs = reportSigns(prompt);
+  const fixer = !findsBugs && (signs.defect || signs.fix) ? bugFixRoute(routed, candidates) : null;
   if (fixer) return { route: fixer, routes: [fixer], candidates, bugReport: true };
-  const routes = candidates.filter((c, i) => c.score >= threshold && candidates.findIndex(o => o.skill === c.skill) === i).slice(0, MAX_ROUTES);
+  const findsOnly = (c: RouteCandidate) => !asks(holdsWords) && signs.defect && c.gstack && ['review', 'qa'].includes(baseName(c.skill));
+  const claimsBugs = (c: RouteCandidate) => skills.some(s => s.name === c.skill && !isGstackSkill(s) && s.triggers.some(claimsBugReports));
+  const routes = candidates.filter((c, i) => c.score >= threshold && !findsOnly(c) && candidates.findIndex(o => o.skill === c.skill) === i)
+    .sort((x, y) => Number(claimsBugs(y)) - Number(claimsBugs(x))).slice(0, MAX_ROUTES);
   return routes.length ? { route: routes[0], routes, candidates, bugReport: false } : { route: null, reason: 'below-threshold', candidates };
 }
 
