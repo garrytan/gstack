@@ -240,7 +240,10 @@ export function resolveMemoryIngestSources(
  */
 export function federatedCuratedSourceId(env?: NodeJS.ProcessEnv): string | null {
   const rows = parseSourcesList(execGbrainJson(["sources", "list", "--json"], { baseEnv: env, timeout: 10_000 }));
-  const row = rows.find((r) => (r as { federated?: boolean }).federated === true && isArtifactsSourceRow(r, env));
+  const explicit = (env ?? process.env).GSTACK_BRAIN_SOURCE_ID;
+  const row = rows.find(
+    (r) => (r as { federated?: boolean }).federated === true && (explicit ? r.id === explicit : isArtifactsSourceRow(r, env)),
+  );
   return row?.id ?? null;
 }
 
