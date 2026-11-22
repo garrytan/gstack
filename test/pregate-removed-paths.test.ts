@@ -266,13 +266,13 @@ describe('removed paths in lanes (#3529)', () => {
     //   fails_when=the dependencies map is dropped wholesale from the namer check, or any same-basename path counts as a mention;
     //   why_new=only the key-only case was covered; seam=none; no_claim=other policy keys
     test.each([
-      ['the only listed test of a dependencies entry', { 'scripts/build.js': ['test/util.test.js'] }, {}, 'fail'],
-      ['a listed test beside one that still exists', { 'scripts/build.js': ['test/util.test.js', 'test/retry.test.js'] }, {}, 'pass'],
-      ['a same-named test in another directory', {}, { 'ci/skip-list.txt': 'packages/b/util.test.js\n' }, 'pass'],
-      ['the only listed test of an entry, under another directory', { 'scripts/build.js': ['packages/b/util.test.js'] }, {}, 'pass'],
+      ['the only listed test of a dependencies entry', { 'scripts/build.js': ['test/util.test.js'] }, {}, 'fail', 'test/util.test.js'],
+      ['a listed test beside one that still exists', { 'scripts/build.js': ['test/util.test.js', 'test/retry.test.js'] }, {}, 'pass', 'test/util.test.js'],
+      ['a same-named test in another directory', {}, { 'ci/skip-list.txt': 'packages/b/util.test.js\n' }, 'pass', 'test/util.test.js'],
+      ['the only listed test of an entry, under another directory', { 'scripts/build.js': ['packages/b/util.test.js'] }, {}, 'pass', 'test/util.test.js'],
       ['its own path in a directory with a space', {}, { 'ci/skip-list.txt': 'test/e2e suite/util.test.js\n' }, 'fail', 'test/e2e suite/util.test.js'],
       ['its own path in a $-named directory', {}, { 'ci/skip-list.txt': 'test/$id/util.test.js\n' }, 'fail', 'test/$id/util.test.js'],
-    ])('a mapped removed test named as %s', (_how, deps, files, status, gone = 'test/util.test.js') => {
+    ] as [string, Record<string, string[]>, Record<string, string>, string, string][])('a mapped removed test named as %s', (_how, deps, files, status, gone) => {
       const repo = fixture({ pregate: withDeps({ [gone]: ['test/retry.test.js'], ...deps }), baseFiles: { 'test/retry.test.js': RETRY_TEST, [gone]: RETRY_TEST, ...files } });
       commit(repo, { [gone]: null });
       const r = lanes(repo);
