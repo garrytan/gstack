@@ -9,9 +9,9 @@
  * their own command and do not take this lock.
  *
  * The lock is a pid file in the repository's git common dir, published with a
- * hard link so it is never seen half-written, and its mtime is set when it is
- * taken. Every hold is one git call with a 60 s timeout, so a lock whose holder
- * is dead, whose pid is this process's own, or that is older than STALE_MS (a
+ * hard link so it is never seen half-written and dated the moment it is
+ * published. Every hold is one git call with a 60 s timeout, so a lock whose
+ * holder is dead, whose pid is this process's own, or that is older than STALE_MS (a
  * killed holder's pid can be reused after a restart) is stale. Only one waiter
  * at a time may remove a stale lock (the takeover directory), and it removes the
  * lock only if the file there is still the one it judged stale and still stale.
@@ -67,18 +67,19 @@ export function withWorktreeLock<T>(repoRoot: string, fn: () => T): T {
   const lock = path.join(common.out, LOCK_NAME);
   const staged = `${lock}.${process.pid}`;
   fs.writeFileSync(staged, String(process.pid));
+  const giveUpAt = Date.now() + 3 * STALE_MS;
   let mine: number;
   try {
     for (;;) {
+      const now = new Date();
+      fs.utimesSync(staged, now, now);
       try { fs.linkSync(staged, lock); } catch (e: any) {
         if (e?.code !== 'EEXIST') throw e;
+        if (Date.now() >= giveUpAt) throw new Error(`${lock} has blocked this worktree command for ${(3 * STALE_MS) / 1000} s; if no gstack command is running in this repository, delete it`);
         const held = readHeld(lock);
-        if (!held) continue;
-        if (isStale(held)) takeOverStale(lock, held); else pause();
+        if (held && isStale(held)) takeOverStale(lock, held); else pause();
         continue;
       }
-      const now = new Date();
-      fs.utimesSync(lock, now, now);
       mine = fs.statSync(lock).ino;
       break;
     }

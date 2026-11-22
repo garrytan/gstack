@@ -110,7 +110,7 @@ case "$HTTP_CODE" in
     exit 1
     ;;
   500)
-    if echo "$BODY" | grep -qiE '"(error_description|message)":[[:space:]]*"[^"]*(auth|token|unauthorized)' 2>/dev/null; then
+    if grep -qiE '"(error_description|message)":[[:space:]]*"[^"]*(auth|token|unauthorized)' <<<"$BODY" 2>/dev/null; then
       emit "auth" "" "" "AUTH" "rotate token on the brain host, re-run /setup-gbrain (HTTP 500 stale-token shape)" false "$BODY"
       exit 1
     fi

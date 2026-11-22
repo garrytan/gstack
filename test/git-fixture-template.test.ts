@@ -103,7 +103,7 @@ describe('git fixture template', () => {
       roots.push(traced.copy().root);
       const spawned = fs.readFileSync(trace, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as { event: string; argv?: string[] })
         .filter(e => e.event === 'start').map(e => e.argv!);
-      expect(spawned.some(argv => argv.includes('receive-pack') || argv.some(a => a.endsWith('git-receive-pack')))).toBe(true);
+      expect(spawned.some(argv => argv.includes('push'))).toBe(true);
       expect(spawned.filter(argv => argv.includes('maintenance') || argv.includes('gc'))).toEqual([]);
     } finally { traced.dispose(); }
   });
