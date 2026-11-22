@@ -509,6 +509,17 @@ export function recordFixCheckHunks(cwd: string, text: string, ledger: string | 
   } catch { /* the row carries no hunks and closes nothing */ }
 }
 
+/** The pass program renders a fix-check brief before it takes the review-fix-check start (GST-3523): re-date that render's record, only while its digest still matches the hunks the brief carried, so the start's row attaches it. */
+export function restampFixCheckHunks(cwd: string, text: string): boolean {
+  try {
+    const file = hunksFile(cwd);
+    const o = JSON.parse(readFileSync(file, 'utf8'));
+    if (o.sha256 !== hunksDigest(text).sha256) return false;
+    writeFileSync(file, JSON.stringify({ ...o, at: new Date().toISOString() }) + '\n');
+    return true;
+  } catch { return false; }
+}
+
 /** The hunks record gstack-review-log stamps on a granted fix-check row: the newest render at or after the row's start. */
 export function readFixCheckHunks(cwd: string, since: string): { sha256: string; paths: string[]; fix_list: string[]; ledger?: string } | undefined {
   try {
