@@ -6404,6 +6404,15 @@ released by the verify that clears the freeze
 next `land` or `train land` takes the lock over once the freeze record it fetches
 shows the freeze cleared after the lock was written; `--break-lock` never does.
 
+Under `merge: direct`, `land --pin` takes over by itself a lock whose land has
+exited or whose 90-minute expiry has passed, and prints `LOCK_TAKEOVER:`. When it
+still refuses, the message says why: a land that is still running (wait, or stop
+the process it names if it is stuck; `--break-lock` is refused), another
+machine's land that has not expired yet (rerun after the expiry it prints, or pass
+`--break-lock` once you know that land stopped), or a deliberate hold (release it
+as the `LOCK:` line says). See
+[the land lock can't go stale](ship-policy.md#land-lock).
+
 A lock push that GitHub applied but answered with an error (an HTTP 502) is
 checked against origin's ref and counts as written, so a rerun resumes this
 run's own lock without `--break-lock`.
