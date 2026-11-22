@@ -1526,8 +1526,13 @@ harness that writes the receipts names it) keeps nothing: the plan prints an
 informational `REVIEW_EXCLUDE_REFERENCE:` line naming the code that reads the
 folder. A data file never keeps another file: a results manifest such as
 `docs/receipts-manifest.json` lists every receipt by full path, and it is
-content, not a program that reads them. The name scan is an uncapped `git grep -F -f` of the candidates'
-paths over the consumer files alone (the head's and the merge base's trees filtered to code and tests and written into a
+content, not a program that reads them. A hash or pin manifest names nothing either (HARN-64:
+harness-evals #538's `pins.sha256` listed all 2,140 receipts): a file whose every non-blank line is a
+hex digest of 32 to 128 characters, one or two spaces, an optional `*` and a path made only of letters,
+digits and `. / _ - + @ ~`, as `sha256sum` writes it. Any other line, code or prose, makes it a consumer
+again, and its lines still count for the secret risk class. The name scan is an uncapped `git grep -F -l -f` of the candidates'
+paths, which lists the consumer files holding any of them, followed by a read of each such file
+(`git grep -o` with thousands of paths ran past its 120-second bound on #538), over the consumer files alone (the head's and the merge base's trees filtered to code and tests and written into a
 scratch index that one `git grep` per tree reads), never the data under the patterns, so its cost follows the code a results PR
 can be read by and not the receipts it adds (GST-1435), and its git calls stay the same however many files the tree holds
 (GST-1442); it is not the collector's capped consumer scan.

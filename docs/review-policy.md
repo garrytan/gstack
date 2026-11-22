@@ -415,7 +415,14 @@ function but a same-file `url(#id)`, which closes `@import`, `image-set()`,
 `href` a same-file `#` reference or an inline raster image, no event handler and no
 entity declaration, and no DOCTYPE but a bare `<!DOCTYPE svg>` or W3C's own SVG DTD, read after character references are decoded. A `<style>` element's text is read as written. Any `&` in it keeps the SVG code, its comments are read as CSS, an opening tag it cannot read as quoted `name="value"` pairs keeps the SVG code, and only ASCII whitespace may come before the `>` of either tag, so no character-reference `</style>`, comment that only an HTML parser ends early, quoted `>` or Unicode space can hide CSS. A non-ASCII character in an element or attribute name, such as a `gé:` prefix, keeps the SVG code too (GST-940); anything else, a
 script or `foreignObject` included, keeps it code. More than
-2,000 data paths keep every one code; a `git grep` failure is `consumer_scan_failed`
+2,000 data paths keep every one code (`GSTACK_REVIEW_CONSUMER_SCAN_CAP` raises the count, a whole
+number; an empty, zero, negative or non-numeric value keeps 2,000), and the plan then prints a
+`CONSUMER_SCAN: skipped:` line naming both ways out: raise the cap or move the data into its own PR.
+The cap is read from the environment, not recorded in the receipt, so a raised cap must also be set
+wherever depth is recomputed (`gstack-ship-receipt carry` and the merge queue); without it they read
+2,000, find a deeper depth than the receipt's and refuse it (`RECEIPT_CARRY_REFUSED`).
+The cap counts files before `review_exclude_paths` applies, because the exclusion's own name scan reads
+the depth this scan decides, and it changes only depth: excluded files still stay out of the readers' diffs; a `git grep` failure is `consumer_scan_failed`
 and fails the depth closed. The scan first lists the files that contain a candidate's
 extension and then searches only those, docs files left out, so a large data tree
 costs one cheap pass. Each scan gets one 120-second deadline, set in milliseconds with
