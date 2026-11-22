@@ -6110,7 +6110,9 @@ or in this project's `CLAUDE.md` that enumerates skills: an `Available
 skills:` line, or eight or more `/skill` names. Older install prompts asked
 for that list (#3169). Claude Code already lists every installed skill with
 its description, and a pasted list goes stale with each release, so the agent
-can take a partial list as the complete set.
+can take a partial list as the complete set. Inside a gstack checkout the
+doctor skips gstack's own `CLAUDE.md`, which is its development guide, and
+names it as skipped in the `ok` line (#4324).
 
 **Fix.** Replace the section with the short block the doctor prints (no skill
 list; keep any other gstack rules you wrote yourself):
