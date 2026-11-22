@@ -245,7 +245,8 @@ Two stages with separate clocks, both printed:
   literal (a named literal the branch only adds, such as `limit: 300` in a new
   object, is not a change), the whole test tree (nightly- and Heavy-only files included) is
   searched for the old value in files that name the constant or, when the old
-  value is longer than one character, its module (the module's file name not
+  value is longer than one character, its module (for a one- or two-digit
+  integer, only on a line that uses a name taken from the module, below; the module's file name not
   followed by another extension, or a path ending
   in its stem followed by its own extension, for a JS/TS module also any JS/TS
   extension or `.d.ts`, a sentence-ending `.`, or anything but a word
@@ -266,7 +267,16 @@ Two stages with separate clocks, both printed:
   line before ends with `(`, `[`, `{`, `,`, `.`, `=` or another operator, or the
   line starts with `.`, `)`, `]`, `}` or an operator), never on a comment line, plus the history rows
   above. A `$2` in a shell stub, a comment, or `export default 2` in a fixture
-  elsewhere in the file is not a consumer. A call-site name such as `attempts`
+  elsewhere in the file is not a consumer.
+  A one- or two-digit integer (`12`, `-10`) found through the module counts only
+  in a statement that names the constant or a binding the file takes from the
+  module: a JS/TS import of it (type-only imports excluded) or a variable that a
+  statement naming the module or another such binding declares or assigns, its
+  continuation lines included (`const out = run('scripts/arms.ts')`,
+  `const items = listItems()`). So `expect(shards()).toBe(12)` after importing
+  `shards` still fails, while a comment naming the module beside an unrelated
+  `10` does not (#4312). A local helper function that wraps an imported name is
+  not followed, so its assertions need the constant's name to count. A call-site name such as `attempts`
   or `limit` is an ordinary word, so for it the file must also name the changed
   module, whatever the old value's length: a test that only uses the word is not
   a consumer, and a test that imports the module still is.
