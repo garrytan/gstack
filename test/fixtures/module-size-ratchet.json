@@ -134,6 +134,7 @@
     { "file": "lib/tree-receipt.ts", "movedFrom": "(new: tree equality modulo stamps and per-gate reuse, C3)" },
     { "file": "lib/ship-receipt.ts", "movedFrom": "(new: the ship receipt block, PR-body placement and adoption census, C5)" },
     { "file": "lib/ship-run-record.ts", "movedFrom": "(new: the /ship run record that replaces the bare run marker, its transition table and the gate lock, GST-3260)" },
+    { "file": "lib/fix-check-clearing.ts", "movedFrom": "(new: when a granted fix-check counts and what it closes, shared by finish and receipt write, GST-3260)" },
     { "file": "lib/ship-receipt-docs.ts", "movedFrom": "(new: the receipt's docs record, the owner exception and the policy doc caps, kept out of lib/ship-receipt.ts; convergence lane PR 2)" },
     { "file": "lib/spend-ledger.ts", "movedFrom": "(new: the spend cap admission ledger reserve/settle/release and the file lock, B2)" },
     { "file": "lib/outside-voice-runner.ts", "movedFrom": "(new: the outside-voice adapter interface, model families and runner selection, B3)" },

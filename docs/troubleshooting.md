@@ -4307,7 +4307,9 @@ leave `merged.jsonl`, and it never reaches the Red Team, the judge, the
 returned output or PR text. `verify` prints `FETCH_VIOLATION:` and refuses
 until the stage has rerun and swept clean. A test run's fixtures (a root
 carrying `.gstack-test-fixture`, or a repository whose remote resolves to a local
-path through `url.<base>.insteadOf`) print `FETCH_IGNORED:` and never count.
+path through `url.<base>.insteadOf`) and the checkout's own native build output at a
+path its committed root `.gitignore` names exactly (`bin/gstack-cso-core`) print
+`FETCH_IGNORED:` and never count.
 Capy's `~/.capy/drive` is never walked, and the drive sync database under
 `~/.capy/drive-engine` (`state.db` and its `-wal`, `-shm` and `-journal` files)
 is ignored, so that database growing past 100 MB is not a violation. Any other
@@ -5035,8 +5037,9 @@ as attested rather than validated.
 
 `gstack-pregate clear --run <id|url>` refusals use this code too: the line
 reads `gstack-pregate clear: receipt refused — REUSE: refused reason=<code> —
-…`, and the GitHub Actions runs offered did not verify against the base
-branch's `run_profiles`. Each reason code and
+…`, and the GitHub Actions runs offered did not verify against the
+`run_profiles` of the base `pregate.json` was recorded against (`--base`
+naming another branch refuses `base_mismatch`). Each reason code and
 what it checks is listed in [run evidence](pregate.md#run-evidence).
 
 `gstack-pregate clear --remote <workflow.yml/job> --run-url <url>` on a lane
@@ -6045,7 +6048,9 @@ edit `.gstack/eval-models.json` in a reviewed PR.
 
 **Meaning.** One of two rules refused a model. R116: a preregistration's arm,
 judge, reader or simulator, or a dry-run or pilot arm, is gpt-4o (any variant or
-snapshot) or a model `lib/pricing.ts` marks `superseded_by`; the
+snapshot), a model `lib/pricing.ts` marks `superseded_by`, or an unpriced id
+whose family has rows there and whose generation is older than the family's
+current rows; the
 `MODEL_GENERATION:` line names the model, its role and the replacement. Or the
 eval model rules declare `families` (newest first), and an arm uses an id that
 is not the first one in its family.
@@ -6053,7 +6058,9 @@ is not the first one in its family.
 **Fix.** Use the replacement the `MODEL_GENERATION:` or `EVAL_MODEL:` line names.
 A competitor system tested as its vendor ships it keeps its built-in model with a
 `vendor-default: <model> <system>` line in `## Models`; the results must name it.
-If the `families` order is wrong, fix it in a reviewed PR.
+A dry run applies those lines, and a `frozen:` date before 2026-11-21, only when
+you pass the plan with `dry-run --prereg <file>`; the date counts only when the
+plan's `## Arms` names every dry-run arm. If the `families` order is wrong, fix it in a reviewed PR.
 
 <a id="eval-model-generation-unresolved"></a>
 ### `EVAL_MODEL_GENERATION_UNRESOLVED`
@@ -6110,7 +6117,9 @@ or in this project's `CLAUDE.md` that enumerates skills: an `Available
 skills:` line, or eight or more `/skill` names. Older install prompts asked
 for that list (#3169). Claude Code already lists every installed skill with
 its description, and a pasted list goes stale with each release, so the agent
-can take a partial list as the complete set.
+can take a partial list as the complete set. Inside a gstack checkout the
+doctor skips gstack's own `CLAUDE.md`, which is its development guide, and
+names it as skipped in the `ok` line (#4324).
 
 **Fix.** Replace the section with the short block the doctor prints (no skill
 list; keep any other gstack rules you wrote yourself):
@@ -7125,7 +7134,12 @@ the parent's commits the PR carries were never reviewed under it. `ready`,
 landing the parent's commits past the parent's own receipt and READY.
 A receipt whose `base` is the queue's base (`main` or `origin/main`),
 including a stacked child reviewed against the base (GST-1199), is
-unaffected.
+unaffected. For `ready` without `--base`, the queue's base is the branch the
+pull request targets, so a pull request into a non-default branch whose
+receipt names that branch passes; `land` still uses the default branch unless
+`--base` names another (GST-3445). `ready` refuses an explicit `--base` that
+is not the pull request's base, and any base that differs from the one GitHub
+reports, with QUEUE_NOT_READY.
 
 **Fix.** Land the parent first, merge the base into this branch and push.
 Then run `gstack-ship-receipt carry --pr <n> --base <base>`: it moves the receipt to the base when the parent fully landed
@@ -7649,7 +7663,9 @@ through land. See [gate dispositions](ship-policy.md#gate-dispositions).
 
 **Meaning.** `gstack-ship-release finish` did not count a granted fix-check
 because it still has findings no owner has ruled on that still hold it open. The line lists
-their fingerprints and the fix-check's commit. A fix-check that found a new
+their fingerprints and the fix-check's commit. A blocking finding the row
+records `fixed` or `auto-fixed` never holds it open and needs no ruling
+(GST-3501). A fix-check that found a new
 CRITICAL logs it `open` with `converged:false`, so `FIX_CHECK: not counted`
 reads `missing start capture or incomplete/nonconverged pass` until the
 rulings exist. A `--review-loop-exception` does not help here: it accepts
@@ -7969,8 +7985,9 @@ the run; the prose was typed, so a reader of the body would learn a number the
 run did not produce. The `PROSE:` line names each field with both values. The
 `## Approvals` table `gstack-approvals` renders, the `Review-loop exception: …`,
 `Documentation exception: …`, `Ruled note: …`, `Gate disposition: …`, `Mechanical retake: …` and
-`Test-lane exception: …` lines the receipt requires, and the inside of a
-closed code fence are never read as claims.
+`Test-lane exception: …` lines the receipt requires, the body's opening above
+its first `<details>` fold when it fits 3 lines and 600 characters, and the
+inside of a closed code fence are never read as claims.
 
 **Fix.** Correct the body to the receipt's number. When the receipt is the
 stale one (the run was repeated), rerun `/ship` so the receipt is rewritten

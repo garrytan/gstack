@@ -683,8 +683,8 @@ export function finish(rawText: string | null, source: PolicySource): LoadedPoli
   let raw: unknown;
   try { raw = JSON.parse(rawText); }
   catch (e: any) { return { policy: JSON.parse(JSON.stringify(DEFAULT_POLICY)), present: true, source, errors: [{ code: 'POLICY_INVALID', path: SHIP_POLICY_PATH, message: `not valid JSON: ${e.message}` }], warnings: [], values: {} }; }
-  const all = validatePolicy(raw), exclusion = /^review_(exclude_paths|content_patterns)(\[|$)/;
-  const rest = source.kind === 'base' && all.length && all.every(e => exclusion.test(e.path)) ? Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([k]) => !exclusion.test(k))) : null;
+  const all = validatePolicy(raw), exclusion = /^review_(exclude_paths|content_patterns)(\[|$)/, exclusionKey = /^review_(exclude_paths|content_patterns)$/;
+  const rest = source.kind === 'base' && all.length && all.every(e => exclusion.test(e.path)) ? Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([k]) => !exclusionKey.test(k))) : null;
   const errors = rest && !validatePolicy(rest).length ? [] : all, read = errors.length ? null : (rest ?? raw) as Record<string, unknown>, merged = mergePolicy(read, source.label);
   const warnings = raw && typeof raw === 'object' && !Array.isArray(raw) ? policyWarnings(raw as Record<string, unknown>) : [];
   return { policy: merged.policy, present: true, source, errors, warnings, values: merged.values, ...(rest && !errors.length ? { setAside: all } : {}) };

@@ -140,6 +140,19 @@ describe('gstack-harness register and unregister (skill folders)', () => {
     }
   }, 60_000);
 
+  // #4548: the harness payload (OpenClaw, Hermes, Dots) honors gstack-config disabled_skills like every other install.
+  test('a skill turned off with disabled_skills is left out of the harness payload (#4548)', () => {
+    const d = tmp();
+    fs.mkdirSync(path.join(d, 'state'), { recursive: true });
+    fs.writeFileSync(path.join(d, 'state', 'config.yaml'), 'disabled_skills: ship,/cso,gstack-qa\n');
+    const r = register(opts(d, 'dots', { mode: 'all', skillsDir: path.join(d, 'all') }));
+    for (const off of ['ship', 'cso', 'qa']) expect(fs.existsSync(path.join(r.dest, off))).toBe(false);
+    expect(fs.existsSync(path.join(r.dest, 'review', 'SKILL.md'))).toBe(true);
+    const names = sourceSkills(TARGETS.dots, ROOT, d, { GSTACK_STATE_ROOT: path.join(d, 'state') }).map(s => s.name);
+    expect(names).toContain('review');
+    for (const off of ['ship', 'cso', 'qa']) expect(names).not.toContain(off);
+  }, 60_000);
+
   test('Claude-render targets (dots, generic) never register a retired skill; /autoplan still carries its methodology', () => {
     const d = tmp();
     const names = sourceSkills(TARGETS.dots, ROOT, d).map(s => s.name);

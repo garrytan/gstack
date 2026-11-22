@@ -963,8 +963,11 @@ once:
 
 Then, for the lane:
 
-- pregate.json was recorded against this repository's base, whose profiles
-  apply (`base_mismatch` otherwise).
+- The run profiles come from the base pregate.json was recorded against (its
+  `base` field), so a branch stacked on another branch clears from that
+  branch's profiles, and so does the CI carry inside a `--base <branch>` run.
+  `clear --base <branch>` naming any other branch refuses (`base_mismatch`).
+  A stamp-only substitution still reads `origin/HEAD`'s stamp rule, as above.
 - Each profile gets its own run (a run id given twice is a usage error), and
   every run verifies under its profile. The assignment is searched, so a run
   valid for two profiles cannot starve the other. A lane with a profile needs
@@ -1958,6 +1961,23 @@ those, each with its scope and its reason:
   read from the value, never from the key's name or the file's path, and a
   secret in the same position, a literal after it on the line, or the same text
   in a config file still reports.
+- Rust (GST-3474): in a `.rs` file, a type annotation at the start of a line
+  (`token: Option<&str>,`, `key: &RelationshipKey,`,
+  `by_key: Mutex<HashMap<String, u32>>,`) and a match arm's path
+  (`Token::Char(c) => {`) are code, not credentials. A literal, an `=`, a
+  second field on the line, or a name that reads as random still reports.
+  So does a value with no closing comma or one that is not type-shaped (a
+  lowercase name that is not a primitive like `u32` or `str`, or an all-caps
+  word), because pregate reads a `.rs` file's added lines alone and cannot see
+  a string or block comment around them. Known limit: a line inside a Rust
+  string or block comment that reads exactly like a field annotation
+  (`token: Option<String>,`) passes.
+  A key bound with `let`, `let mut`, `const` or `static`
+  (`let token = "<key>";`, `const API_KEY: &str = "<key>";`) reports as
+  `env.kv.rust`; with a file path it reports only in a `.rs` file. A scan
+  without a path reports it too, and the pre-push hook scans Dart and Python
+  files without one, so a Dart `const token = "<key>";` gets an `env.kv.rust`
+  warning there.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with
@@ -2410,7 +2430,10 @@ cross-repo `Refs name#N`, never a same-repo Refs line or a promotion
 candidate; `(see #12)`, `(closing #12)` and `(#301)` stay bare refs.
 Several in one parenthesis, `(founderstar #837, harness-evals #393)`, are each
 their own name's reference. `owner/repo#N` naming this repository is its own
-issue, so a `Fixes garrytan/gstack#N` trailer closes it.
+issue, so a `Fixes garrytan/gstack#N` trailer closes it. A `Review-Finding:`
+trailer line, which /ship writes for each fixed review finding, names a review
+ledger entry (`p1/red-team#3`) or a fingerprint, never an issue, so it is skipped
+(#4371).
 Same-repo references are printed as
 promotion candidates (`reference #N ← <commit line> (promote: fix #N)` on
 stderr, `candidates` in `--json`): the owner's `fix #N` reply reruns with

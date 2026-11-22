@@ -584,7 +584,9 @@ commit in another train is reused instead of run again.
 **Base-red PRs.** A lane whose /ship paused on a red base (its receipt carries
 `base_red`) READYs with `ready --pr <n> --no-screen --base-red --fixer <pr>`:
 the condition must have been classified on today's base and not have expired.
-The fixer READYs with `--fixes-base-red <case,...>`. The fixer rides at slot 1
+The fixer READYs with `--fixes-base-red <case,...>`, or with
+`--fixes-base-red-file <file>` (one case per line) when a case name holds a
+comma; a JUnit record's `&gt;` and `&apos;` read as `>` and `'` (#4569). The fixer rides at slot 1
 (moved there unless `--order` says otherwise, which then refuses), T0 may be
 red on exactly the fixer's cases and nothing else, and every conditional PR
 behind it is gated on its own prefix with nothing excluded. A conditional PR
@@ -1435,7 +1437,10 @@ key's claim alone, so `passes=2 blocking_found=1` is two claims, never a
 both values; prose that quotes no counter is not a claim. The `## Approvals`
 block `gstack-approvals` renders (its heading, the Date | Asked | Exact words
 table and the `Source: gstack-approvals record` line) quotes the owner's
-words, not this PR's numbers, so it is skipped: "one Step 11 pass" in that table
+words, not this PR's numbers, so it is skipped, and so is the body's opening
+above its first `<details>` fold, which says what changed for a user (a result
+the PR is about, "58 fixed with gstack", is not a `fixed` claim; a body with no
+fold, or whose opening is longer than 3 lines or 600 characters, is checked whole): "one Step 11 pass" in that table
 is not a `pass` claim. Text you write under the heading after that block is
 still checked. The `Review-loop exception: …` line (GST-977) and the
 `Documentation exception: …` line (GST-983) the receipt's own exceptions
@@ -1858,7 +1863,9 @@ counts. That includes the usual order, where the fix-check finds a new CRITICAL,
 logs it `open` with `converged:false` and stops for the owner, and the owner rules
 afterwards: the row's `incomplete` binding still names the one tree it read, so
 once every blocking finding on it is ruled it binds at that tree as a clean read
-(harness-evals#361, GST-2251). A CRITICAL with no ruling stays open, and while one
+(harness-evals#361, GST-2251). A blocking finding the row records `fixed` or
+`auto-fixed` needs no ruling, since a fixed finding cannot be ruled and already
+reads resolved (gbrain#10036, GST-3501). A CRITICAL with no ruling stays open, and while one
 does, finish prints `FIX_CHECK_OPEN: <fingerprints> on the fix-check at <commit12>`
 naming the `gstack-approvals rule` command for each
 ([troubleshooting](troubleshooting.md#fix-check-open)). On any stopped review row,
@@ -1887,7 +1894,8 @@ file, not on the row, so `gstack-review-read` shows the file's findings on the r
 (`findings_from` names the file) while the file still derives the counts the row
 recorded. A Step 11 native row that lists no findings shows the findings of the
 Step 9 row of the same pass, commit and bound tree, because Step 9 carries Step
-11's queued findings; rulings must then cover every blocker of that pass. A file
+11's queued findings; rulings must then cover every blocker of that pass that is not recorded `fixed` or
+`auto-fixed`. A file
 that is missing or changed attaches nothing, and any row that claims issues but
 lists no findings reads `it lists no findings (fcount 0) but claims …` with the
 cause (harness-evals#515, GST-3296).
@@ -2339,6 +2347,7 @@ receipt when the base moves:
 |---|---|
 | a merge of the base, product diff unchanged (tests, release metadata, registered outputs the pregate's regen check proved) | carries; no review reruns |
 | a merge of the base that edited lines next to the branch's unchanged hunks (the branch's +/- lines identical and in the same places) | carries after one fix-check reviewer reads the hunks and comes back clean (`RECEIPT_CARRY_SCOPED_REVIEW`, then `carry --scoped-review <record.json>`) |
+| a merge of the base that only re-records the harness pin of a product file (`scripts/harness-pins/<file>.json`; a pinned test or metadata file's pin stays product): at both heads the pin's `blob` is its file's blob, its other fields are the reviewed ones, and `scripts/harness-version.json`'s version and patterns did not move; the pinned file itself still counts as product | carries (reason `regenerated outputs`, GSTA-749) |
 | a merge of the base whose resolution changed product code, or moved the branch's lines elsewhere | a fresh /ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
 | a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
 | any other rebase or force-push | a fresh /ship (`RECEIPT_CARRY_TREE_MISMATCH`) |

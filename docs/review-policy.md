@@ -247,6 +247,32 @@ caught on another crew's PRs.
    Captain's check of the receipt's `review_round_grants` and the PR body's lines
    is the control. The receipt lists grants under `review_round_grants`.
 
+<a id="what-closes-a-finding"></a>
+### What closes a finding (GST-3260)
+
+A fix-check that a grant bought and that read the fix clean closes exactly the
+findings the grant names, with no owner ruling. `gstack-ship-receipt write`
+checks it from records gstack's tools wrote, never from the `--review-loop`
+file (`lib/fix-check-clearing.ts`): the grant answers the newest stop record
+for this PR; the PR body's first claim of it is this run's; exactly one
+`review-fix-check` row carries it, and `gstack-review-log` stamped that row from
+the claim (`fix_check_base`, `run`, `grant`, `pr`) with the digest of the hunks
+its reader was given, which cover every path the stop-to-fix diff changes, and
+the ledger ids and fingerprints its fix list named; the row read the stop's head to the receipt head (or a
+head that only merges the base in) on one committed tree, with nothing open at
+any severity; and the stop, the claim and the row's start were recorded in that
+order. Each grant id the fix list named closes the one open blocker carrying
+that id; a grant id the fix list left out closes nothing, and a fingerprint
+shared by two blockers closes neither. Anything less closes nothing, and write
+says why on a `FIX_CHECK_CLEAR:` line. The receipt records `cleared_by_grant`,
+and the Agent notes section gets one `Closed by grant …` line. A finding whose
+fix commit carries its `Review-Finding:` trailer also closes once a later full
+round, bound to its committed tree and holding that commit, left nothing open
+at all, by its status, its findings file or an inline finding
+(`cleared_by_trailer`, #4597). finish counts the same
+stamped row, anchored on the grant's stop rather than the newest reviewed tree
+(#4612).
+
 <a id="transitions"></a>
 ### Transitions
 
@@ -845,6 +871,12 @@ repository whose every network-looking remote resolves to a local path through
 marker on a sweep root itself is not honored, insteadOf that sends a local path
 to the network still counts, and a clone made inside a live fixture root goes
 unseen, as does one whose reader writes the marker or an insteadOf line itself.
+The checkout's own build output is not a fetch either: a new big native executable
+(ELF, Mach-O or PE) inside the checkout, at a path its committed, unmodified root
+`.gitignore` names exactly with no glob (`bin/gstack-cso-core`), prints
+`FETCH_IGNORED: … reason=build-output`. A big file under an ignored directory or a
+glob, a non-executable at that path, or a path only an uncommitted `.gitignore`
+edit names still counts as a download.
 A `Bun.spawn` child given no `env` keeps the temp dir its test process started
 with, so its fixtures land outside the marked root and still count.
 
@@ -865,10 +897,11 @@ puts in the receipt:
 | `review_loop.passes` | full review passes this ship ran (1 or 2; up to 3 under `review_scope: diff-plus-blocking` or `all`) |
 | `review_loop.blocking_found` | every blocker found (GST-951): the rows' blocking findings (classified, or an unclassified CRITICAL), plus each ledger CRITICAL (as collected or judged) that no row finding from the same reviewer at the same path:line accounts for (each row finding pairs with one per ledger), so an adversarial, outside-voice or not-yet-classified blocker counts and one whose newest classification is below the floor does not. An unreadable ledger, merged file or judged set, or a judged set changed since `judge`, is `REVIEW_SCOPE_LEDGER`, never a count |
 | `review_loop.unrecorded` | blockers found that no row gives a disposition (fixed, deferred, noted, skipped, a gate answer); absent when 0 |
-| `review_loop.open` | blockers a row still holds as `open` at its newest action, gate findings aside (GST-3075), each its ledger id or fingerprint (or `{ id, fingerprint }`); Step 11's `adversarial-review` row counts here like a pass's row but is never a pass or a round. Only a later row's action clears one, and while any is left with no owner ruling, `gstack-ship-receipt write` refuses with [`RECEIPT_BLOCKER_OPEN`](troubleshooting.md#receipt-blocker-open); absent when 0 |
+| `review_loop.open` | blockers a row still holds as `open` at its newest action, gate findings aside (GST-3075), each its ledger id or fingerprint (or `{ id, fingerprint }`); Step 11's `adversarial-review` row counts here like a pass's row but is never a pass or a round. Only a later row's action clears one, or a [granted fix-check or a trailer-carrying fix](#what-closes-a-finding) (`cleared_by_grant`, `cleared_by_trailer`), and while any is left with no owner ruling, `gstack-ship-receipt write` refuses with [`RECEIPT_BLOCKER_OPEN`](troubleshooting.md#receipt-blocker-open); absent when 0 |
 | `review_loop.unbound` | what could not bind (GST-1168), each printed as `REVIEW_SCOPE_UNBOUND: <what>: <why>`: a row with no start token and no readable time, a `pN` ledger with no review row of pass N (a fix-check ledger in a `pN` directory is not a pass ledger, GST-1775), a row finding's `ledger_id` no ledger collected, a `Review-Finding` trailer naming nothing; absent when 0 |
 | `review_loop.ledgers_read` | dispatch ledgers the count read; absent under `--no-ledger` |
 | `REVIEW_SCOPE_VOIDED:` (stderr, not a receipt field) | an abandoned pass (GBEV-3): a `pN` ledger never judged that no row names, replaced by a later `pM` ledger (M > N) that was judged or is named. Its findings are left out of every count above instead of counting as unbound and unrecorded. A fix-check ledger and the last pass are never voided |
+| `REVIEW_ROWS_MISSING:` (stderr, not a receipt field) | dispatch ledgers of this run hold reader output that no review-log row of the run records (HARN-109): with no `via: ship` row since `--since`, every pass ledger; otherwise a `pN` ledger with no `review` row of pass N, or more fix-check ledgers than `review-fix-check` rows. Step 9.4's persistence never ran for those readers, so a stop, a fix-check grant or finish cannot bind them; log each pass and fix-check with `gstack-review-log --start`/`--finish`, and never hand-run a reader |
 
 Findings bind by id first (GST-1168). A row finding that came from a dispatched reader carries `ledger_id` (`<pass dir>/<merged.jsonl id>`, such as `p2/adversarial-native#3`) and pairs with that ledger entry whatever its path:line says, so a native finding with no path:line, or a row logged after its fix moved the line, still pairs. Each fix commit names what it fixed in a `Review-Finding: <ledger_id or fingerprint> reader=<raised_by>` trailer, and a trailer counts the finding as fixed. A late defer re-logs its finding under the same id, so it counts once. Rows that record their head dedupe by kind, pass, head and finding ids, so a logger command run twice counts once. Rows and findings without an id keep the path:line pairing above. The native reader's own verdict line ("all FIXABLE, and none blocks", with no file:line, list mark, lead label or Severity/Blocks field) collects at FIXABLE, not CRITICAL; the findings it summarizes collect on their own lines.
 | `review_loop.deferred` | blocking findings in unchanged code, kept on the PR under `## Deferred findings` (a Step 11 late defer, logged as a `review-late-defer` row so it never displaces the newest `review` pass, counts here and is not a pass) |
@@ -1144,6 +1177,12 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    field `Blocks: no` (colon required, and no `Blocks: yes`) is not counted as a blocker by the ledger count, nor by the
    review-log count or classify when the finding carries `stated` (GST-1031); lead judgment that raises such a line above
    its label counts it again.
+   A capitalized HIGH, MEDIUM or LOW that names something in the code rather than rating a finding ("the HIGH branch",
+   "the redact-doc HIGH and scanner-failure branches", "the MEDIUM and LOW tiers": after "the" and at most one qualifier,
+   before a noun that is not a word for a finding or its rating) is a name, not a label (GSTA-711). A prose line with no
+   `Severity` field whose every label is such a name collects at INFORMATIONAL, so the reviewer's own fields decide.
+   CRITICAL never counts as a name, so "the HIGH and CRITICAL write paths" still collects at CRITICAL, and `Blocks: yes`
+   still raises the line.
    A phantom finding costs a fold; a lost one costs the gate.
    A reply with no finding counts as a review only with the clean marker its own brief asks for: `NO FINDINGS` alone on a
    line for the specialists, the batched specialist, the targeted reader, the Red Team and fix-check, the `Recommendation:`

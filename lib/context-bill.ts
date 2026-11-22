@@ -817,9 +817,10 @@ export function renderDiff(diff: { rows: DiffRow[]; grew: boolean }): string {
   return lines.join("\n") + "\n";
 }
 
-// --exact defaults to the model the offline divisor was calibrated against, so
-// `--exact` and the estimate are comparable. Later tokenizers differ.
-export const EXACT_DEFAULT_MODEL = "claude-opus-4-5";
+// --exact defaults to the current model, so it counts what a session pays today.
+// The offline divisors were fitted on claude-opus-4-5's tokenizer; the
+// calibration block shows how far they sit from the current one.
+export const EXACT_DEFAULT_MODEL = "claude-opus-5-5";
 const COUNT_TOKENS_URL = "https://api.anthropic.com/v1/messages/count_tokens";
 const EXACT_CONCURRENCY = 8;
 
@@ -1219,7 +1220,7 @@ const USAGE =
   "                       `calibration` block grades the offline divisors\n" +
   "                       (TOKEN_DIVISORS) file by file against measured counts.\n" +
   "  --exact-model <id>   model whose tokenizer to count against\n" +
-  `                       (default ${EXACT_DEFAULT_MODEL}, the calibration model).\n`;
+  `                       (default ${EXACT_DEFAULT_MODEL}, the current model).\n`;
 
 export interface MainOptions {
   cwd?: string;

@@ -9,6 +9,7 @@
 import fs from "fs";
 import path from "path";
 import { openaiUrl } from "./src/auth";
+import { imageRequestBody } from "./src/models";
 import { receiptedFetch } from "./src/receipted-fetch";
 
 const API_KEY = process.env.OPENAI_API_KEY;
@@ -41,6 +42,7 @@ async function generateMockup(brief: { name: string; prompt: string }) {
   console.log(`Generating: ${brief.name}`);
   console.log(`${"=".repeat(60)}`);
 
+  const body = imageRequestBody(brief.prompt, { size: "1536x1024", quality: "high" });
   const startTime = Date.now();
 
   const controller = new AbortController();
@@ -52,15 +54,7 @@ async function generateMockup(brief: { name: string; prompt: string }) {
       "Authorization": `Bearer ${API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      input: brief.prompt,
-      tools: [{
-        type: "image_generation",
-        size: "1536x1024",
-        quality: "high"
-      }],
-    }),
+    body,
     signal: controller.signal,
   });
   clearTimeout(timeout);

@@ -327,6 +327,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts (windows-scoped-shard, run 42720453184)',
   },
   {
+    file: 'test/ship-queue-ready-pr-base.test.ts',
+    reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts, as test/ship-queue-ready-fresh-base.test.ts does',
+  },
+  {
     file: 'crew/test/release-gate-workflow.test.ts',
     reason: 'the gate-step case splices a native temp-path stub into the step\'s bash -e script in place of crew/bin/gstack-release-gate, and on windows-latest its gated case exits non-zero (expected 0; windows-scoped-shard, run 42421330820); release-gate.yml itself runs only on ubuntu-latest',
   },
@@ -471,6 +475,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/ship-run-record.test.ts',
     reason: 'drives bin/gstack-ship-preflight, gstack-ship-run, gstack-ship-receipt, gstack-approvals, gstack-review-log, gstack-lease and gstack-skill-end (shebangs) through test/helpers/ship-bin-fixture.ts like test/round-cap-granted-stop.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
+  },
+  {
+    file: 'test/fix-check-clearing.test.ts',
+    reason: 'drives bin/gstack-ship-receipt, gstack-approvals, gstack-review-log, gstack-review-plan, gstack-review-scope, gstack-review-read and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/round-cap-granted-stop.test.ts; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
   },
   {
     file: 'test/round-cap-granted-stop.test.ts',
