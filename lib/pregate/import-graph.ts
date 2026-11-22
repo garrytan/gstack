@@ -279,7 +279,7 @@ const NO_ALIASES: PathAliases = { aliases: [], baseUrl: null, notes: [] };
  * config that declares neither defers upward, so a file never loses an alias
  * the root gives it. With no nested config every file gets the root's.
  */
-function pathAliasResolver(repoRoot: string, files: readonly string[]): { aliasesFor: (rel: string) => PathAliases; notes: string[] } {
+export function pathAliasResolver(repoRoot: string, files: readonly string[]): { aliasesFor: (rel: string) => PathAliases; notes: string[] } {
   const root = readPathAliases(repoRoot);
   const notes = [...root.notes];
   const read = new Set<string>();

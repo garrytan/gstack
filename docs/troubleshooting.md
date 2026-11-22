@@ -4848,7 +4848,9 @@ keeps the old value on purpose (the refused input after a minimum version goes
 up), mark that line: `// pregate-literal: NAME=<old value> <reason>` on the line
 or on the comment line directly above it. The marker waives only that line, and
 the check lists it as `waived:`. Don't use `warn: ["literals"]` for this, since
-that turns the check off for every constant.
+that turns the check off for every constant. A JSON file can't hold a marker,
+so the check only counts JSON values tied to the constant's name; a listed JSON
+line really pins the old value, so update the golden.
 
 <a id="arg-limit"></a>
 ### `PREGATE_ENVIRONMENT` with `environment: arg-limit — E2BIG` (or `Argument list too long`)

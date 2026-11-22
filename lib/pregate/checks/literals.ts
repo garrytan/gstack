@@ -10,7 +10,7 @@ import { spawnSync } from '../../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { baseInputs, sha256 } from '../context';
-import { isTestFile, listRepoFiles, scansLiterals } from '../import-graph';
+import { isTestFile, listRepoFiles, pathAliasResolver, referencesIn, scansLiterals } from '../import-graph';
 import type { CheckDef, CheckResult, PregateContext } from '../types';
 
 export interface ChangedLiteral { name: string; old: string; new: string; file: string }
@@ -82,6 +82,58 @@ export function changedLiterals(file: string, oldText: string, newText: string):
 
 function escape(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) : v; }
+/** The text with each string emptied (a template literal keeps its `${…}` parts), so a word inside a string is not code. */
+function blankStrings(s: string): string {
+  return s.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, q => q.startsWith('`') ? [...q.matchAll(/\$\{[^}]*\}/g)].map(m => m[0]).join(' ') : "''");
+}
+
+/** A quoted one-item list that kept its item and gained more (`"investigate"` → `"investigate verify"`), every item a bare token. */
+function onlyGrew(old: string, now: string): boolean {
+  const token = /^[\w.@/:-]+$/;
+  const items = unquote(now).split(/\s+/).filter(Boolean);
+  return /^['"`]/.test(old) && /^['"`]/.test(now) && token.test(unquote(old)) && items.length > 1 && items.includes(unquote(old)) && items.every(t => token.test(t));
+}
+
+/** 0-based lines of the JSON scalars tied to `name`: the value of a `name` key, or anything inside a record holding the string `name`; null when the text is not JSON. */
+function jsonLinesTiedTo(text: string, name: string): Set<number> | null {
+  type Node = { line: number; scalar?: string; entries?: Array<[string, Node]>; items?: Node[] };
+  const tokens: Array<{ t: string; line: number }> = [];
+  let line = 0; let at = 0;
+  for (const m of text.matchAll(/"(?:[^"\\\n]|\\.)*"|[{}[\]:,]|[^\s{}[\]:,"]+|\s+/g)) {
+    if (m.index !== at) return null;
+    at += m[0].length;
+    if (m[0].trim()) tokens.push({ t: m[0], line });
+    line += m[0].split('\n').length - 1;
+  }
+  if (at !== text.length) return null;
+  let k = 0;
+  const parse = (): Node => {
+    const tok = tokens[k++];
+    if (!tok || '}]:,'.includes(tok.t)) throw new Error('json');
+    if (tok.t !== '{' && tok.t !== '[') return { line: tok.line, scalar: tok.t.startsWith('"') ? JSON.parse(tok.t) as string : tok.t };
+    const close = tok.t === '{' ? '}' : ']';
+    const entries: Array<[string, Node]> = [];
+    if (tokens[k]?.t === close) k++;
+    else for (;;) {
+      let key = '';
+      if (close === '}') { const kt = tokens[k++]; if (!kt?.t.startsWith('"') || tokens[k++]?.t !== ':') throw new Error('json'); key = JSON.parse(kt.t) as string; }
+      entries.push([key, parse()]);
+      const sep = tokens[k++]?.t;
+      if (sep === close) break;
+      if (sep !== ',') throw new Error('json');
+    }
+    return close === '}' ? { line: tok.line, entries } : { line: tok.line, items: entries.map(e => e[1]) };
+  };
+  const out = new Set<number>();
+  const walk = (n: Node, tied: boolean): void => {
+    if (n.scalar !== undefined) { if (tied) out.add(n.line); return; }
+    if (n.items) { for (const c of n.items) walk(c, tied); return; }
+    const record = tied || n.entries!.some(([, v]) => v.scalar === name);
+    for (const [key, v] of n.entries!) walk(v, record || key === name);
+  };
+  try { walk(parse(), false); } catch { return null; }
+  return k === tokens.length ? out : null;
+}
 
 /**
  * Test files that still carry the old literal beside the constant's name or
@@ -118,8 +170,16 @@ function unquote(v: string): string { return /^['"`]/.test(v) ? v.slice(1, -1) :
  * A consumer line is waived by a `pregate-literal: NAME=<old value> <reason>` comment on that line or
  * on the comment line directly above it, naming this constant and its old value (#3490: the refused
  * input after a minimum-version bump). Each waiver goes to `waived`; the scan goes on to the next line.
+ *
+ * With `repoFiles`, a module name another repo file shares (two `config.ts`) is ambiguous, so the file
+ * counts through the module only when one of its references (import, tsconfig/jsconfig alias, quoted
+ * repo path, `join()` segments) resolves to the changed file; an alias import counts even when the name
+ * is unique (gbrain#10078: 17 tests of the other config.ts). A JSON file, which cannot carry a marker,
+ * counts only on values tied to the constant (its key, or a record whose string value is the name). A
+ * quoted one-item list that kept its item and gained more counts only where a line asserts the whole old
+ * value or a statement uses the constant or a module binding for anything but a membership check (#4714).
  */
-export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral, baseText?: (rel: string) => string | null | undefined, waived?: LiteralWaiver[]): string[] {
+export function consumersOf(repoRoot: string, testFiles: readonly string[], change: ChangedLiteral, baseText?: (rel: string) => string | null | undefined, waived?: LiteralWaiver[], repoFiles?: readonly string[]): string[] {
   const value = unquote(change.old);
   const valueRe = /^-?\d/.test(value) ? new RegExp(`(?<![\\w.])${escape(value)}(?![\\w.])`) : new RegExp(`['"\`]${escape(value)}['"\`]`);
   const row = (raw: string) => new RegExp(`^[ \\t]*\\[[ \\t]*${/^['"`]/.test(raw) ? `['"\`]${escape(unquote(raw))}['"\`]` : escape(raw)}[ \\t]*,`, 'm');
@@ -136,22 +196,40 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
   const nameRequired = value.length < 2;
   const shortNumber = !nameRequired && /^-?\d{1,2}$/.test(value);
   const callSite = !/^[A-Z]/.test(change.name);
+  const grew = onlyGrew(change.old, change.new);
+  const quoted = `['"\`]${escape(value)}['"\`]`;
+  const wholeRe = new RegExp(`\\.(?:toBe|toEqual|toStrictEqual)\\(\\s*\\[?\\s*${quoted}\\s*\\]?\\s*\\)|\\b(?:is|equal|strictEqual|deepEqual|deepStrictEqual|assertEqual|assert_equal|assertEquals)\\((?:.*,)?\\s*\\[?\\s*${quoted}\\s*\\]?\\s*[,)]|(?:[!=]==?|(?<![=!<>])=)\\s*\\[?\\s*${quoted}|${quoted}\\s*\\]?\\s*[!=]==?`);
+  const memberRe = new RegExp(`\\.(?:toContain|toContainEqual|includes|indexOf|has|contains)\\(\\s*${quoted}|${quoted}\\s+(?:not\\s+)?in\\b`);
+  const files = new Set(repoFiles ?? []);
+  const twinned = [...files].some(f => f !== change.file && moduleRe.test(f));
+  const dirs = new Set<string>();
+  for (const f of files) for (let d = path.posix.dirname(f); d !== '.'; d = path.posix.dirname(d)) dirs.add(d);
+  const aliasesFor = repoFiles ? pathAliasResolver(repoRoot, repoFiles).aliasesFor : null;
+  const isModule = (rel: string, source: string, fragment = source): boolean => {
+    if (!twinned && moduleRe.test(fragment)) return true;
+    if (!aliasesFor || (!twinned && !aliasesFor(rel).aliases.length)) return false;
+    const exact = aliasesFor(rel).aliases.filter(a => !a.wildcard && a.targets.some(t => change.file.startsWith(t.replace(/\.[cm]?[jt]sx?$/, ''))));
+    if (!source.includes(stem) && !exact.some(a => source.includes(a.prefix))) return false;
+    return referencesIn(files, dirs, rel, source, aliasesFor(rel)).some(r => r.target === change.file);
+  };
   const comment = (l: string) => /^\s*(?:\/\/|#|\*|\/\*|<!--)/.test(l);
   const continues = (prev: string, cur: string) => /[([{,.=+\-*/&|?:\\]\s*$/.test(prev) || /^\s*[.)\]}?:&|+]/.test(cur);
   const hits: string[] = [];
   for (const rel of testFiles) {
     let text: string;
     try { text = fs.readFileSync(path.join(repoRoot, rel), 'utf8'); } catch { continue; }
-    if (!((nameRequired ? nameRe.test(text) : nameRe.test(text) || moduleRe.test(text)) && (!callSite || moduleRe.test(text)))) continue;
+    const json = rel.endsWith('.json');
+    if (json ? !nameRe.test(text) : !((nameRequired ? nameRe.test(text) : nameRe.test(text) || isModule(rel, text)) && (!callSite || isModule(rel, text)))) continue;
     const lines = text.split('\n');
-    const bindings = shortNumber ? moduleBindings(lines, moduleRe, comment, continues) : [];
+    const tied = json ? jsonLinesTiedTo(text, change.name) : null;
+    const bindings = !json && (shortNumber || grew) ? moduleBindings(lines, (s, fragment) => isModule(rel, s, fragment), change.name, comment, continues) : [];
     if (shortNumber && !bindings.length && !nameRe.test(text)) continue;
     const statementRe = bindings.length ? new RegExp(`(?<![\\w$])(?:${[change.name, ...bindings].map(escape).join('|')})(?![\\w$])`) : nameRe;
-    const named = (i: number) => {
+    const named = (i: number, code = false) => {
       if (comment(lines[i]!)) return false;
       for (let j = i; j >= 0 && i - j < 4; j--) {
         if (j < i && (comment(lines[j]!) || !continues(lines[j]!, lines[j + 1]!))) return false;
-        if (statementRe.test(lines[j]!)) return true;
+        if (statementRe.test(code ? blankStrings(lines[j]!) : lines[j]!)) return true;
       }
       return false;
     };
@@ -178,18 +256,24 @@ export function consumersOf(repoRoot: string, testFiles: readonly string[], chan
       return true;
     };
     const carries = (i: number) => { const m = markerIn(lines[i]!); return valueRe.test(m ? lines[i]!.slice(0, lines[i]!.indexOf('pregate-literal:')) : lines[i]!); };
-    for (let i = 0; i < lines.length; i++) if (carries(i) && (!(nameRequired || shortNumber) || oldRowRe.test(lines[i]!) || named(i)) && !skip(i) && !waiver(i)) { hits.push(`${rel}:${i + 1}`); break; }
+    const counts = (i: number) => {
+      const line = lines[i]!;
+      if (json) return tied ? tied.has(i) : nameRe.test(line);
+      if (grew) return !comment(line) && wholeRe.test(line) || named(i, true) && !memberRe.test(line);
+      return !(nameRequired || shortNumber) || oldRowRe.test(line) || named(i);
+    };
+    for (let i = 0; i < lines.length; i++) if (carries(i) && counts(i) && !skip(i) && !waiver(i)) { hits.push(`${rel}:${i + 1}`); break; }
   }
   return hits;
 }
 
 /** The names a file takes from the module: the bindings of a JS/TS import whose specifier is the module (type-only ones excluded), and the variables a non-comment statement (a line plus the lines that continue it) declares or assigns from the module or from such a name (`const items = listItems()`, `out = run('bin/x.sh')` in a hook). */
-function moduleBindings(lines: readonly string[], moduleRe: RegExp, comment: (l: string) => boolean, continues: (prev: string, cur: string) => boolean): string[] {
+function moduleBindings(lines: readonly string[], isModule: (source: string, fragment?: string) => boolean, name: string, comment: (l: string) => boolean, continues: (prev: string, cur: string) => boolean): string[] {
   const code = lines.filter(l => !comment(l)).join('\n');
-  const out = new Set<string>();
+  const out = new Set<string>([name]);
   const names = (list: string) => list.split(',').map(s => s.trim()).filter(s => s && !/^type\s/.test(s)).map(s => s.split(/\s+as\s+|:/).pop()!.replace(/^\.\.\./, '').trim());
   for (const m of code.matchAll(/\bimport\s+(?!type\b)([^'"`;]*?)\s*\bfrom\s*['"]([^'"]+)['"]/g)) {
-    if (!moduleRe.test(m[2]!)) continue;
+    if (!isModule(m[0], m[2]!)) continue;
     const braces = /\{([^}]*)\}/.exec(m[1]!);
     if (braces) for (const n of names(braces[1]!)) out.add(n);
     for (const n of m[1]!.replace(/\{[^}]*\}/, '').split(',').map(s => s.trim().replace(/^\*\s+as\s+/, ''))) out.add(n);
@@ -207,11 +291,11 @@ function moduleBindings(lines: readonly string[], moduleRe: RegExp, comment: (l:
     const knownRe = known.length ? new RegExp(`(?<![\\w$])(?:${known.map(escape).join('|')})(?![\\w$])`) : null;
     for (const s of statements) {
       const m = declRe.exec(s);
-      if (!m || !(moduleRe.test(s) || knownRe?.test(s.slice(m.index + m[0].length)))) continue;
+      if (!m || !(isModule(s) || knownRe?.test(blankStrings(s.slice(m.index + m[0].length))))) continue;
       for (const n of m[1]?.startsWith('{') ? names(m[1].slice(1, -1)) : [m[1] ?? m[2]!]) if (!out.has(n)) { out.add(n); grew = true; }
     }
   }
-  return [...out].filter(n => /^[\w$]+$/.test(n));
+  return [...out].filter(n => n !== name && /^[\w$]+$/.test(n));
 }
 
 function run(ctx: PregateContext): CheckResult {
@@ -226,7 +310,8 @@ function run(ctx: PregateContext): CheckResult {
   }
   const inputs = baseInputs(ctx, { changes: sha256(changes.map(c => `${c.file}:${c.name}:${c.old}→${c.new}`).join('\n')) });
   if (!changes.length) return { id: 'literals', stage: 'preflight', status: 'pass', inputs, detail: `no exported constant or named timeout literal changed in ${candidates.length} modified source file(s)` };
-  const testFiles = listRepoFiles(ctx.repoRoot).filter(f => scansLiterals(f) && !f.startsWith('bin/'));
+  const repoFiles = listRepoFiles(ctx.repoRoot);
+  const testFiles = repoFiles.filter(f => scansLiterals(f) && !f.startsWith('bin/'));
   const lines: string[] = [];
   const notes: string[] = [];
   for (const c of changes) {
@@ -237,7 +322,7 @@ function run(ctx: PregateContext): CheckResult {
       if (r.status === 0) return r.stdout;
       const ls = spawnSync('git', ['ls-tree', ctx.mergeBase, '--', from], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 30_000, env: ctx.env });
       return ls.status === 0 && !ls.stdout.trim() ? null : undefined;
-    }, waived);
+    }, waived, repoFiles);
     for (const w of waived) notes.push(`waived: ${w.at}: ${c.name} ${c.old} (${w.reason}${w.added ? '; marker added on this branch' : ''})`);
     ctx.explain.push(`literals: ${c.file} ${c.name} ${c.old} → ${c.new}: ${hits.length} test file(s) still carry ${c.old}`);
     for (const h of hits) lines.push(`${h}: ${c.name} still ${c.old} (now ${c.new} in ${c.file})`);
