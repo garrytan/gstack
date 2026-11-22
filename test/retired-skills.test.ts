@@ -364,4 +364,16 @@ describe('gstack-relink after /verify became /build-check (#4593)', () => {
     expect(fs.readFileSync(path.join(skills, 'verify', 'SKILL.md'), 'utf8')).toBe(own);
     expect(fs.readFileSync(path.join(skills, 'verify', 'notes.md'), 'utf8')).toBe('mine\n');
   });
+  test("a marked verify entry keeps the user's own files even when an old render of verify is still cached", () => {
+    const render = path.join(tmp, 'state', 'render', 'claude', 'verify');
+    fs.mkdirSync(render, { recursive: true });
+    fs.writeFileSync(path.join(render, 'SKILL.md'), '---\nname: verify\ndescription: old render\n---\n');
+    fs.mkdirSync(path.join(skills, 'verify'));
+    fs.symlinkSync(path.join(render, 'SKILL.md'), path.join(skills, 'verify', 'SKILL.md'));
+    fs.writeFileSync(path.join(skills, 'verify', '.gstack-owned'), install + '\n');
+    fs.writeFileSync(path.join(skills, 'verify', 'runbook.md'), 'mine\n');
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readdirSync(path.join(skills, 'verify'))).toEqual(['runbook.md']);
+  });
 });
