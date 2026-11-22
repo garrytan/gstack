@@ -1123,15 +1123,22 @@ function isSourceExpression(span: string, match: RegExpExecArray, sourcePath: st
  * value. Only a line-start match with an unquoted name and a `:` passes, and
  * only when its code up to a trailing `//` comment is made of Rust type and
  * pattern tokens: names, paths, lifetimes, `&`, `*`, brackets, `+`, `?`,
- * `!`, `|`, `->`, `=>`, an array length after `;`, and one closing `,` or
- * `;` with nothing after it. A string or char literal, an `=` assignment, a
- * `.`, a second field, or a name that reads as random (three digit runs, a
- * word over 20 letters, or case changes about every two letters in a name of
- * 12 or more) still reports. Another file, a scan without a path, a comment and
- * a `/` start are unchanged.
+ * `!`, `|`, `->`, `=>`, an array length after `;`, and one closing `,`
+ * with nothing after it, which a field or parameter line has and a line of
+ * text does not (a match arm needs no comma). A lowercase name is a primitive
+ * or keyword (`u32`, `str`, `dyn`), a path segment before `::` or a match
+ * arm's binding; an all-caps name over four letters is a path segment or an
+ * array length. pregate reads a .rs file's added lines alone, so a
+ * `token: <value>` line inside a string or block comment arrives looking like
+ * code: a lowercase, all-caps or comma-less value there still reports. A
+ * string or char literal, an `=` assignment, a `.`, a `;`, a second field, or
+ * a name that reads as random (three digit runs, a word over 20 letters, or
+ * case changes about every two letters in a name of 12 or more) still reports.
+ * Another file, a scan without a path, a comment and a `/` start are unchanged.
  */
 const RUST_SOURCE = /\.rs$/i;
 const RUST_TYPE_TOKEN = /[ \t]+|::|->|=>|'[A-Za-z_]\w*|[A-Za-z_]\w*|\d+|[&*<>()[\]{},;:+?!|]/y;
+const RUST_LOWERCASE_TYPE = /^(?:[iu](?:8|16|32|64|128|size)|f32|f64|bool|char|str|dyn|impl|fn|mut|const|unsafe|extern|for|self|crate|super)$/;
 function readsAsRustName(name: string): boolean {
   if ((name.match(/\d+/g) ?? []).length > 2) return false;
   const words = name.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+/g) ?? [];
@@ -1144,6 +1151,7 @@ function isRustTypeAnnotation(span: string, match: RegExpExecArray, sourcePath: 
   const { start } = spanBounds(match);
   if (!/^[ +-]{0,2}[ \t]*[A-Za-z_]\w*[ \t]*:[ \t]*$/.test(match.input.slice(match.index, start))) return false;
   const code = match.input.slice(start).split("\n", 1)[0]!.replace(/\r$/, "").replace(/[ \t]*\/\/.*$/, "");
+  const arm = code.startsWith(":") && code.includes("=>");
   let depth = 0;
   let closed = false;
   let previous = "";
@@ -1155,12 +1163,17 @@ function isRustTypeAnnotation(span: string, match: RegExpExecArray, sourcePath: 
     if (/^[ \t]/.test(token)) continue;
     if (closed) return false;
     if (/^\d/.test(token) ? previous !== ";" : /^[A-Za-z_]/.test(token) && !readsAsRustName(token)) return false;
+    if (/^[A-Za-z_]/.test(token) && !code.startsWith("::", i)) {
+      if (/^[a-z_]/.test(token) && !RUST_LOWERCASE_TYPE.test(token) && !(arm && depth > 0)) return false;
+      if (!/[a-z]/.test(token) && token.length > 4 && previous !== ";") return false;
+    }
     if (/^[<([{]$/.test(token)) depth += 1;
     else if (/^[>)\]}]$/.test(token)) depth = Math.max(0, depth - 1);
-    else if (depth === 0 && (token === "," || token === ";")) closed = true;
+    else if (depth === 0 && token === ";") return false;
+    else if (depth === 0 && token === ",") closed = true;
     previous = token;
   }
-  return true;
+  return closed || arm;
 }
 
 /**

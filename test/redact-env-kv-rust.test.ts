@@ -75,6 +75,7 @@ describe("env.kv: a Rust type annotation is code, not a secret (GST-3474)", () =
       ["    auth: Box<dyn Fn(&str) -> bool + Send + Sync>,", "src/lib.rs"],
       ["    private_key: &'a [u8; 32],", "src/lib.rs"],
       ["    session_token: Option<SessionToken>, // refreshed on login", "src/lib.rs"],
+      ["    private_key: [u8; KEY_LEN],", "src/lib.rs"],
     ], false);
   });
 
@@ -91,6 +92,15 @@ describe("env.kv: a Rust type annotation is code, not a secret (GST-3474)", () =
       ["    token: Option<&str>,", "deploy/values.yaml"],
       ["    key: &RelationshipKey,", undefined],
       ["    Token::Char(c) => {", "src/lexer.ts"],
+    ], true);
+  });
+
+  test("hold: a credential line inside a string, a struct literal's value and a comma-less line still report", () => {
+    has("env.kv", [
+      ['const CFG: &str = r#"\nstripe:\n    token: qxvlmzprtkwynbhjdtwa\n"#;\n', "src/cfg.rs"],
+      ['const CFG: &str = "\nauth:\n    token: QXVLMZPRTKWYNBHJ\n";\n', "src/cfg.rs"],
+      ["    password: Hunter2password", "src/cfg.rs"],
+      ["    token: auth_token_value,", "src/lib.rs"],
     ], true);
   });
 });
