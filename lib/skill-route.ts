@@ -461,9 +461,11 @@ const defectSign = (text: string) => words(text).some(w => SYMPTOM_STEMS.has(ste
  * whose first word, after any leading #, asks for something new and is followed by a space or a colon, the way gstack-evals
  * draws its non-fit tasks. Its body may name an error or a failing case (GEVA-558: 13 of 27 feature-titled tasks routed as bug
  * reports), so it is no bug report unless the title names a defect (any strong or weak sign, the verb fix, or an error status
- * it returns) or the body follows an issue template (steps to reproduce, expected or actual behavior).
+ * it returns) or the body follows an issue template (steps to reproduce, expected or actual behavior). A title whose feature word
+ * names a thing (NOUN_LED: "Support page shows a blank screen", "New tab is empty") states a symptom and asks for nothing.
  */
 const FEATURE_TITLE = /^(?:\[?feature(?: request)?\]?|feat(?:\([^)]*\))?:|enhancement|add|adds|adding|support|allow|implement|introduce|provide|expose|new)(?=[\s:]|$)/i;
+const NOUN_LED = /^(?:feature|support|new|add|allow)\s+(?!(?:a|an|the|for|to|us)\s)(?:[\w-]+\s+){1,2}(?:(?:is|are|was|were|has|have|had|does|did)\b|[a-z]+(?:[^s\W]s|ed)\s+(?:a|an|the|no|nothing)\b)/i;
 const LONE_TAG = /^\s*<\/?[A-Za-z][\w-]*>\s*$/;
 const ERROR_STATUS = /\b(?:returns?|returning|gives?|giving|throws?|responds? with)\s+(?:an?\s+)?(?:http\s+)?[45]\d\d\b/;
 const TEMPLATE_SIGN = /\b(?:steps to reproduce|(?:expected|actual) (?:behaviou?r|result|output))\b|(?:^|\n)\s*(?:expected|actual):/;
@@ -480,7 +482,7 @@ function featureTitled(prose: string): boolean {
     const line = lines[i];
     if (line === undefined || LONE_TAG.test(line) || !edge(lines[i - 1]) || !edge(lines[i + 1])) return false;
     const title = line.trim().replace(/^#+\s*/, '');
-    return FEATURE_TITLE.test(title) && !namesDefect(title);
+    return FEATURE_TITLE.test(title) && !NOUN_LED.test(title) && !namesDefect(title);
   };
   const first = lines.findIndex(l => l.trim());
   if (first < 0) return false;

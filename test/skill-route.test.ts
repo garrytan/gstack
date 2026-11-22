@@ -398,6 +398,14 @@ describe('installed skills beside gstack (GST-3123)', () => {
     expect(misses).toEqual(['f14']);
   });
 
+  test('a bug title led by a noun such as "Support page" or "New tab" is still a bug report when its body names an exception; a feature title is not', () => {
+    for (const report of ['Support page shows a blank screen\n\nOpening /support renders nothing and the console shows TypeError.',
+      'New tab opens a blank page\n\nThe console shows TypeError: x is undefined.',
+      'Add button is greyed out on Safari\n\nClicking it logs a ReferenceError.']) expect(bugReport(report)).toBe(true);
+    for (const request of ['Support custom headers\n\nToday a request with a custom header fails with a 400 error.',
+      'Add a retry for uploads\n\nWhen an upload fails we get no error detail.']) expect(bugReport(request)).toBe(false);
+  });
+
   test('the installed bug-fix skill leads when it reaches the threshold beside a gstack skill: an agent runs the first one named (GEVA-562)', () => {
     const proveIt = other('prove-it', ['fix this bug', 'prove the fix', 'reproduce the bug in a test']);
     const d = routePrompt('Write a test that reproduces the timeout in the upload path, then make the tests pass.', [...routed, proveIt]);
