@@ -319,6 +319,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts',
   },
   {
+    file: 'test/ship-queue-trial-fetch.test.ts',
+    reason: 'spawns bin/gstack-ship-queue (shebang), a #!/bin/sh gh shim and a #!/bin/sh upload-pack wrapper through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts, as test/ship-queue-ready-fresh-base.test.ts does',
+  },
+  {
     file: 'test/ship-queue-ready-fresh-base.test.ts',
     reason: 'spawns bin/gstack-ship-queue (shebang) and a #!/bin/sh gh shim through test/helpers/restamp-fixture.ts and test/helpers/ship-queue-fixture.ts (windows-scoped-shard, run 42720453184)',
   },
