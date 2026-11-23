@@ -181,15 +181,17 @@ export function dayOneItems(ctx: OwnerContext, narrowed: ChallengeRow[] = []): N
   const left = new Map<number, string[]>();
   const note = (q: OwnerQuote, why: string) => left.set(q.n, [...(left.get(q.n) ?? []), why]);
   for (const q of ctx.words.quotes) if (q.line?.kind === 'choice') note(q, "the plan's line for it says this version doesn't do it yet");
-  const quoteCuts = ctx.cuts.filter(c => cutQuote(c, ctx.words.quotes));
-  for (const cut of quoteCuts) note(cutQuote(cut, ctx.words.quotes)!, `the plan cuts it: "${cut}"`);
-  for (const f of narrowed) { const q = ctx.words.quotes.find(x => x.n === f.narrows_quote); if (q) note(q, `a reviewer (${f.voice}) says the plan narrows it: ${f.title}`); }
+  const open = ctx.words.quotes.filter(q => q.line?.kind !== 'ruled_out');
+  const quoteCuts = ctx.cuts.filter(c => cutQuote(c, open));
+  for (const cut of quoteCuts) note(cutQuote(cut, open)!, `the plan cuts it: "${cut}"`);
+  for (const f of narrowed) { const q = open.find(x => x.n === f.narrows_quote); if (q) note(q, `a reviewer (${f.voice}) says the plan narrows it: ${f.title}`); }
   for (const q of ctx.words.quotes.filter(x => left.has(x.n))) {
     const choice = q.line?.kind === 'choice' ? q.line : undefined;
-    const leave = choice?.leave_out;
+    const blocking = narrowed.find(f => f.narrows_quote === q.n && (f.severity === 'Critical' || f.severity === 'High'));
+    const leave = blocking ? undefined : choice?.leave_out;
     const size = choice?.size ? `about ${choice.size}` : 'size not stated';
     items.push({ idKind: 'uc', key: `quote:${wordKey(q.text).trim()}`, kind: 'approval', recommended: leave ? 'b' : 'a', item_class: 'owner_choice', changes: 'scope',
-      recommended_basis: leave ? `the plan's reason to leave it out: ${leave}` : 'your own words asked for it, and only your words are direction',
+      recommended_basis: blocking ? `your own words asked for it, and a ${blocking.severity} finding says the plan falls short of them` : leave ? `the plan's reason to leave it out: ${leave}` : 'your own words asked for it, and only your words are direction',
       cost: `a adds ${size} to this version and ${reopen}`,
       title: `Your words${quoteWhen(q) ? ` (${quoteWhen(q)})` : ''}: “${q.text}”, which this version doesn't fully do`,
       why: left.get(q.n)!.join('; '),

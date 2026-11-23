@@ -28,6 +28,7 @@ import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry'
 import { buildEli5, capyRelayLine } from './captain-brief';
 import { FINDING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
 import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, heaviestChanges, narrowedQuoteOf, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
+import { wordKey } from './autoplan-owner-text';
 import { phaseClose } from './autoplan-timing';
 import { agentWords, ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
 import type { DecisionRow, FindingRow } from './headless-artifacts';
@@ -282,7 +283,11 @@ export function buildGate(state: RunState, gateRev: number): GateList {
   }
   items.push(...capItems(state, { d: () => `d${++d}`, uc: () => `uc${++uc}` }));
   if (!quoted && kept.length) add(confirmDirectionItem(kept), options => ['owner', 'confirm-direction', optionHash(options), keptIds.join('+')].join('|'));
-  for (const item of dayOneItems(owner, narrowed)) add(item, options => ['owner', item.key, optionHash(options), createHash('sha256').update(item.title).digest('hex').slice(0, 16)].join('|'));
+  const settles = (key: string) => narrowed.filter(f => key === `quote:${wordKey(narrowedQuoteOf(owner, f)!.text).trim()}`);
+  for (const item of dayOneItems(owner, narrowed)) {
+    const found = settles(item.key);
+    add(item, options => ['owner', [item.key, ...found.map(f => f.id)].join('+'), optionHash(options), createHash('sha256').update(item.title).digest('hex').slice(0, 16), ...(blockingProposal(found) ? [FINDING_ORIGIN] : [])].join('|'));
+  }
   items.push(planApproval(state, items));
   const list: GateList = { schema_version: 1, run: state.run, gate_rev: gateRev, items, title: '/autoplan final approval gate', rec_rev: 0, rec_hash_v: 2,
     ...(quoted ? { owner_words: gateOwnerWords(owner) } : {}), ...(owner.firstVersion ? { first_version: true } : {}),

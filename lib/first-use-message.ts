@@ -13,16 +13,18 @@ import { buildLabel, type Decision, type FirstUseError, type Manifest } from './
 export interface PlayLink { url: string; label: string; login_gated?: boolean }
 /** A numbered try-it step: what the owner does, and what it writes (`none` or what); a write on his real setup names his approval. */
 export interface PlayStep { text: string; writes: string; approved_write?: string }
+/** What one of the five day-one actions writes, in table order; on the owner's real setup each is required. */
+export type ActionWrites = Omit<PlayStep, 'text'>;
 /** Where the steps run: the owner's real setup, or a copy loaded with realistic data (the default), named exactly. */
 export interface PlayTarget { kind: 'real' | 'realistic-copy'; name: string; data?: string }
 export interface PlaySpec {
-  links: PlayLink[]; device: string; setup: string; account: string; target: PlayTarget; what: string; start: string; steps: PlayStep[];
+  links: PlayLink[]; device: string; setup: string; account: string; target: PlayTarget; what: string; start: string; steps: PlayStep[]; action_writes?: ActionWrites[];
   controls: string; minutes: number; learn: string; report: string; quirks: string; reply_word: string;
 }
 /** R47's ten parts in order, with the play-spec fields each one reads. */
 export const PLAY_PARTS: Array<{ part: string; fields: Array<keyof PlaySpec> }> = [
   { part: 'The links, each checked live minutes before sending', fields: ['links'] },
-  { part: 'Device and setup', fields: ['device', 'setup', 'account', 'target'] },
+  { part: 'Device and setup', fields: ['device', 'setup', 'account', 'target', 'action_writes'] },
   { part: 'What it is, in a sentence', fields: ['what'] },
   { part: 'How to start', fields: ['start', 'steps'] },
   { part: 'Controls', fields: ['controls'] },
@@ -37,7 +39,8 @@ const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 
 /**
  * A complete play spec, or the R47 parts it is missing. "none" is a fine answer for quirks and for a step's writes; an
- * empty field is not. A step that writes on the owner's real setup needs `approved_write` naming his approval.
+ * empty field is not. A step that writes on the owner's real setup needs `approved_write` naming his approval, and on that
+ * setup `action_writes` says what each of the five day-one actions writes, under the same rule.
  */
 export function checkPlaySpec(raw: unknown): { spec: PlaySpec } | { error: FirstUseError } {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -54,18 +57,23 @@ export function checkPlaySpec(raw: unknown): { spec: PlaySpec } | { error: First
   if ((kind !== 'real' && kind !== 'realistic-copy') || !str(t.name) || (kind === 'realistic-copy' && !str(t.data))) bad.add('target');
   const steps = Array.isArray(o.steps) ? o.steps as Array<Record<string, unknown>> : [];
   if (!steps.length || !steps.every(s => !!str(s?.text) && !!str(s?.writes))) bad.add('steps');
+  const acts = o.action_writes === undefined ? undefined : Array.isArray(o.action_writes) ? o.action_writes as Array<Record<string, unknown>> : [];
+  if (acts ? acts.length !== 5 || !acts.every(a => !!str(a?.writes)) : kind === 'real') bad.add('action_writes');
   if (bad.size) {
     const parts = PLAY_PARTS.filter(p => p.fields.some(f => bad.has(f))).map(p => `${p.part} (${p.fields.filter(f => bad.has(f)).join(', ')})`);
     return { error: { code: 'FIRST_USE_PLAY_SPEC_INCOMPLETE', detail: `missing or invalid: ${parts.join('; ')}` } };
   }
-  const unapproved = kind === 'real' ? steps.map((s, i) => (!/^none$/i.test(str(s.writes)) && !str(s.approved_write) ? i + 1 : 0)).filter(Boolean) : [];
-  if (unapproved.length) return { error: { code: 'FIRST_USE_PLAY_SPEC_INCOMPLETE', detail: `step ${unapproved.join(', ')} writes on the owner's real setup with no approved_write naming his lettered approval; run it on a realistic copy, or get his approval for that write first` } };
+  const writesUnapproved = (s: Record<string, unknown>) => !/^none$/i.test(str(s.writes)) && !str(s.approved_write);
+  const unapproved = kind === 'real' ? [...steps.map((s, i) => (writesUnapproved(s) ? `step ${i + 1}` : '')), ...(acts ?? []).map((a, i) => (writesUnapproved(a) ? `day-one action ${i + 1}` : ''))].filter(Boolean) : [];
+  if (unapproved.length) return { error: { code: 'FIRST_USE_PLAY_SPEC_INCOMPLETE', detail: `${unapproved.join(', ')} ${unapproved.length === 1 ? 'writes' : 'write'} on the owner's real setup with no approved_write naming his lettered approval; run it on a realistic copy, or get his approval for that write first` } };
+  const writesOf = (s: Record<string, unknown>) => ({ writes: str(s.writes), ...(str(s.approved_write) ? { approved_write: str(s.approved_write) } : {}) });
   const spec: PlaySpec = {
     links: links.map(l => ({ url: l.url as string, label: (l.label as string).trim(), ...(l.login_gated ? { login_gated: true } : {}) })),
     minutes: o.minutes as number,
     target: { kind: kind as PlayTarget['kind'], name: str(t.name), ...(str(t.data) ? { data: str(t.data) } : {}) },
-    steps: steps.map(s => ({ text: str(s.text), writes: str(s.writes), ...(str(s.approved_write) ? { approved_write: str(s.approved_write) } : {}) })),
-    ...Object.fromEntries(TEXT_FIELDS.map(f => [f, str(o[f])])) as Omit<PlaySpec, 'links' | 'minutes' | 'target' | 'steps'>,
+    steps: steps.map(s => ({ text: str(s.text), ...writesOf(s) })),
+    ...(acts ? { action_writes: acts.map(writesOf) } : {}),
+    ...Object.fromEntries(TEXT_FIELDS.map(f => [f, str(o[f])])) as Omit<PlaySpec, 'links' | 'minutes' | 'target' | 'steps' | 'action_writes'>,
   };
   return { spec };
 }
@@ -148,7 +156,7 @@ export function renderBrief(m: Manifest, dir: string): string {
     '## The exact message the owner will get', '',
     '~~~markdown', m.try_text.trimEnd(), '~~~', '',
     `## The ${m.steps.length} steps you check (frozen ${m.created_at.slice(0, 10)})`, '',
-    ...m.steps.map(s => `${s.n}. ${s.kind === 'action' ? `Day-one action, from the owner's words (quote ${s.quote}): ${s.text}. It works when: ${s.check}` : s.text}. Writes: ${s.writes}${s.approved_write ? ` (approved: ${s.approved_write})` : ''}`), '',
+    ...m.steps.map(s => `${s.n}. ${s.kind === 'action' ? `Day-one action, from the owner's words (quote ${s.quote}): ${s.text}. It works when: ${s.check}` : s.text}. Writes: ${s.writes === 'unknown' ? 'unknown, so treat it as a write' : s.writes}${s.approved_write ? ` (approved: ${s.approved_write})` : ''}`), '',
     '## What to do', '',
     '1. Follow the message above word for word, from a cold start, with no help beyond it.',
     "2. For each step, capture a screenshot, a short video or a terminal capture that shows the result, then record a verdict and one line on what the owner would see. useful: it does what he asked, well. thin: it works but does little. wrong: it does something other than what he asked. broken: it fails. Add --needs-lookup when the step asks the owner for something an agent could look up or do, and --notice when a system notice or prompt appears that the message doesn't warn about:",

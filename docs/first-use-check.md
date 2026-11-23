@@ -95,7 +95,7 @@ Every ask to play or try a build carries full play instructions in the same mess
 | 1. The links | `links`: `[{ "label", "url", "login_gated"? }]` | http or https; each checked live within 15 minutes of sending |
 | 2. Device and setup | `device`, `setup`, `account`, `target` | `target` is `{ "kind": "realistic-copy", "name", "data" }` (the default kind: a copy loaded with realistic data, named) or `{ "kind": "real", "name" }` for the owner's own setup |
 | 3. What it is, in a sentence | `what` | |
-| 4. How to start | `start`, `steps` | `steps` is `[{ "text", "writes", "approved_write"? }]`: what the owner does, and what it writes (`"none"` or what). A step that writes on a `real` target needs `approved_write` naming the owner's lettered approval for that write |
+| 4. How to start | `start`, `steps` | `steps` is `[{ "text", "writes", "approved_write"? }]`: what the owner does, and what it writes (`"none"` or what). A step that writes on a `real` target needs `approved_write` naming the owner's lettered approval for that write. On a `real` target `action_writes` is also required: five `{ "writes", "approved_write"? }` entries, one per day-one row in table order, under the same rule; on a copy an action without one is briefed as `unknown, so treat it as a write` |
 | 5. Controls | `controls` | |
 | 6. How long to play | `minutes` | a whole number from 1 to 240 |
 | 7. What we want to learn | `learn` | |

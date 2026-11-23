@@ -182,7 +182,7 @@ export function startRun(o: StartInput): Result<{ dir: string; manifest: Manifes
   const now = o.now ?? new Date();
   const steps: FrozenStep[] = [
     ...play.spec.steps.map((s, i) => ({ n: i + 1, kind: 'step' as const, text: s.text, writes: s.writes, ...(s.approved_write ? { approved_write: s.approved_write } : {}) })),
-    ...frozen.actions.map((a, i) => ({ n: play.spec.steps.length + i + 1, kind: 'action' as const, text: a.action, writes: 'none', check: a.check, quote: a.quote })),
+    ...frozen.actions.map((a, i) => ({ n: play.spec.steps.length + i + 1, kind: 'action' as const, text: a.action, ...(play.spec.action_writes?.[i] ?? { writes: 'unknown' }), check: a.check, quote: a.quote })),
   ];
   const base = { schema_version: 2 as const, kind: 'first-use-manifest' as const, app: o.app, created_at: now.toISOString(),
     source: { path: path.resolve(o.planPath), rows_sha256: frozen.rows_sha256 }, quotes: frozen.quotes, actions: frozen.actions, steps,

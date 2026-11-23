@@ -192,10 +192,22 @@ describe('the play spec carries the ten parts, the target and the numbered try-i
   test('a copy is the default target; a step that writes on the owner\'s real setup needs his approval named', () => {
     const { target: _t, ...noTarget } = PLAY;
     expect(checkPlaySpec({ ...noTarget, target: { name: 'a copy', data: 'sample rows' } })).toMatchObject({ spec: { target: { kind: 'realistic-copy' } } });
-    const real = { ...PLAY, target: { kind: 'real', name: "Ada's own phone" } };
+    const reads = Array.from({ length: 5 }, () => ({ writes: 'none' }));
+    const real = { ...PLAY, target: { kind: 'real', name: "Ada's own phone" }, action_writes: reads };
     expect(checkPlaySpec(real)).toEqual({ error: { code: 'FIRST_USE_PLAY_SPEC_INCOMPLETE', detail: "step 2 writes on the owner's real setup with no approved_write naming his lettered approval; run it on a realistic copy, or get his approval for that write first" } });
     const approved = { ...real, steps: [PLAY.steps[0], { ...PLAY.steps[1], approved_write: 'Ada, 2026-11-18: "B1"' }] };
-    expect(checkPlaySpec(approved)).toMatchObject({ spec: { target: { kind: 'real' }, steps: [{}, { approved_write: 'Ada, 2026-11-18: "B1"' }] } });
+    expect(checkPlaySpec(approved)).toMatchObject({ spec: { target: { kind: 'real' }, steps: [{}, { approved_write: 'Ada, 2026-11-18: "B1"' }], action_writes: reads } });
+  });
+
+  test('on the owner\'s real setup each day-one action says what it writes, and a write needs his approval', () => {
+    const steps = [PLAY.steps[0]];
+    const real = { ...PLAY, steps, target: { kind: 'real', name: "Ada's own phone" } };
+    expect(checkPlaySpec(real)).toMatchObject({ error: { detail: 'missing or invalid: Device and setup (action_writes)' } });
+    expect(checkPlaySpec({ ...real, action_writes: [{ writes: 'none' }] })).toMatchObject({ error: { detail: 'missing or invalid: Device and setup (action_writes)' } });
+    const acts = [{ writes: 'none' }, { writes: 'none' }, { writes: 'archives a plant' }, { writes: 'none' }, { writes: 'none' }];
+    expect(checkPlaySpec({ ...real, action_writes: acts })).toEqual({ error: { code: 'FIRST_USE_PLAY_SPEC_INCOMPLETE', detail: "day-one action 3 writes on the owner's real setup with no approved_write naming his lettered approval; run it on a realistic copy, or get his approval for that write first" } });
+    acts[2] = { writes: 'archives a plant', approved_write: 'Ada, 2026-11-18: "C1"' } as typeof acts[number];
+    expect(checkPlaySpec({ ...real, action_writes: acts })).toMatchObject({ spec: { action_writes: [{}, {}, { approved_write: 'Ada, 2026-11-18: "C1"' }, {}, {}] } });
   });
 });
 
@@ -269,6 +281,15 @@ describe('the gate', () => {
     const ev = fs.readdirSync(path.join(r.dir, 'evidence')).find(f => f.startsWith('2-'))!;
     fs.writeFileSync(path.join(r.dir, 'evidence', ev), 'edited');
     expect(decide(r.dir, BUILD, T0).reasons).toEqual(['step_2_evidence_stale']);
+  });
+
+  test('a try-it text edited after the check refuses', async () => {
+    const r = passedRun();
+    await checkLinks(r.dir, AS, okFetch, () => T0);
+    const file = path.join(r.dir, 'manifest.json'), m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.chmodSync(file, 0o600);
+    fs.writeFileSync(file, JSON.stringify({ ...m, try_text: m.try_text + '\nOne more line.\n' }));
+    expect(decide(r.dir, BUILD, T0).reasons.some(x => x.startsWith('try_text_changed'))).toBe(true);
   });
 
   test('broken, wrong, a lookup the owner would be asked for and a thin day-one action refuse; the newest result counts', async () => {
@@ -402,7 +423,7 @@ describe('the gate', () => {
     expect(brief).toContain('Never send anything as the owner');
     expect(brief).toContain('Run every step on the Plantpal test account (a copy loaded with three sample plants with a watering history)');
     expect(brief).toContain('2. Sign in with the account above. Writes: a Plantpal account');
-    expect(brief).toContain("3. Day-one action, from the owner's words (quote 1): adds her first three plants by photo. It works when: three plants show on the home screen with names. Writes: none");
+    expect(brief).toContain("3. Day-one action, from the owner's words (quote 1): adds her first three plants by photo. It works when: three plants show on the home screen with names. Writes: unknown, so treat it as a write");
     expect(brief).toContain(`gstack-first-use record --run '${r.dir}' --step N --verdict useful --line 'WHAT THE OWNER SEES' --evidence FILE --device 'DEVICE YOU USED' --account 'a fresh Apple ID with notifications allowed' --target 'the Plantpal test account' --by 'openai/gpt-6.2-sol'`);
     expect(brief).not.toContain(r.planPath);
     expect(brief).not.toContain('TestFlight build 16');
@@ -412,7 +433,8 @@ describe('the gate', () => {
     const work = fresh('mac'), planPath = path.join(work, 'plan.md');
     fs.writeFileSync(planPath, AUTOPLAN);
     const base = { root: fresh('root'), app: 'helper', planPath, holding: HOLDING, builder: 'anthropic/claude-opus-5-5', checker: CHECKER, now: T0 };
-    const mac = startRun({ ...base, build: { platform: 'macos', commit: COMMIT, deploy: '0.3.1' }, play: { ...PLAY, target: { kind: 'real', name: "Ada's Mac" }, steps: [{ text: 'Run helper setup', writes: 'none' }] } });
+    const mac = startRun({ ...base, build: { platform: 'macos', commit: COMMIT, deploy: '0.3.1' }, play: { ...PLAY, target: { kind: 'real', name: "Ada's Mac" }, steps: [{ text: 'Run helper setup', writes: 'none' }], action_writes: Array.from({ length: 5 }, () => ({ writes: 'none' })) } });
+    if (!('error' in mac)) expect(mac.manifest.steps.filter(s => s.kind === 'action').map(s => s.writes)).toEqual(['none', 'none', 'none', 'none', 'none']);
     if ('error' in mac) throw new Error(mac.error.detail);
     expect(renderBrief(mac.manifest, mac.dir)).toContain('through the Aside CLI, preferably over Tailscale');
     const srv = startRun({ ...base, root: fresh('root'), build: { platform: 'server', commit: COMMIT, deploy: 'gw-7' }, play: PLAY });

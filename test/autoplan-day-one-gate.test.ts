@@ -27,7 +27,7 @@ import { buildTasks } from '../lib/autoplan-export';
 import { exportPublic } from '../lib/autoplan-public';
 import * as crypto from 'node:crypto';
 import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, ownerWordsLine, renderOwnerPage } from '../lib/autoplan-owner-text';
-import { RESULT_FORMAT } from '../lib/autoplan-prompts';
+import { detectScope, RESULT_FORMAT } from '../lib/autoplan-prompts';
 import { ownerWords, redactOwnerWords } from '../lib/autoplan-owner-words';
 import { consensusRecord, parseReviewResult, reconcile } from '../lib/autoplan-reconcile';
 import { decisionSeverity } from '../lib/autoplan-revise';
@@ -508,6 +508,24 @@ describe('first versions: the owner page quotes the owner and letters what it le
     expect(page).toContain("### What it won't do yet\n\n- No Android build\n");
     expect(page).not.toContain('- No notes');
     expect(page).toContain('(gstack-first-use)');
+    expect(renderOwnerPage(fs.readFileSync(state.active_plan, 'utf8'), list.owner_words?.quotes, { firstVersion: false }).join('\n')).not.toContain('(gstack-first-use)');
+  });
+
+  test('a cut that follows the owner\'s own ruling stays a cut recommending keep, never a build-it choice', () => {
+    const cuts = '- It never touches your calendar: never touch my calendar\n- No Android build\n';
+    const list = buildGate(makeRun('ruled-cut', { plan: plan(CASE4, cuts), round2: narrowing(), round1: false, ui: false }), 1);
+    expect(byClass(list, 'owner_choice').filter(i => i.title.includes('calendar'))).toEqual([]);
+    const cut = byClass(list, 'cut').find(i => i.title.includes('calendar'))!;
+    expect([cut.title, cut.recommended]).toEqual(['Cut: It never touches your calendar: never touch my calendar', 'a']);
+  });
+
+  test('a High finding that narrows a quote recommends build over the plan\'s leave-out reason, and only build settles it', () => {
+    const list = buildGate(makeRun('high-narrow', { plan: plan(CASE4), round2: narrowing({ quote: 2 }), round1: false, ui: false }), 1);
+    const notes = byClass(list, 'owner_choice').find(i => i.title.includes('notes are awesome'))!;
+    expect(notes.recommended).toBe('a');
+    expect(notes.recommended_basis).toBe('your own words asked for it, and a High finding says the plan falls short of them');
+    expect(notes.origin!.split('|')[1]!.split('+')).toContain(`${RUN}-ceo-r2-native-1`);
+    expect(notes.origin!.endsWith('|finding')).toBe(true);
   });
 
   test('--first-version makes a plan with no Day one section a first version; a plain backend plan stays as it was', () => {
@@ -519,6 +537,17 @@ describe('first versions: the owner page quotes the owner and letters what it le
     expect(plain.first_version).toBeUndefined();
     expect(byClass(plain, 'owner_words')).toEqual([]);
     expect(byClass(plain, 'cuts').map(i => i.title)).toEqual(['2 other cuts: It never writes to your Contacts: writes keep going through the iCloud route; No Android build']);
+  });
+
+  test('--first-version reaches the run scope from the CLI flag and from the plan\'s scope marker', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-scope-'));
+    const bare = path.join(dir, 'bare.md'), marked = path.join(dir, 'marked.md');
+    fs.writeFileSync(bare, '# A plan\n\n## Implementation plan\n\n- Edit lib/x.ts\n\n## Review record\n');
+    fs.writeFileSync(marked, '<!-- gstack-autoplan-scope: --first-version -->\n' + fs.readFileSync(bare, 'utf8'));
+    expect(detectScope(bare, dir, { firstVersion: true }).first_version).toBe(true);
+    expect(detectScope(marked, dir, {}).first_version).toBe(true);
+    expect(detectScope(bare, dir, {}).first_version).toBeUndefined();
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   test('the reviewer prompt asks for narrows_quote and the reconciler keeps it', () => {
