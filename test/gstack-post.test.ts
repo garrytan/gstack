@@ -413,6 +413,52 @@ describe("gstack-post owns the redaction scan", () => {
     }
   });
 
+  // Value: protects=a gstack-receipt-runs block's session ids (/ship's earlier runs) post through pr-comment and pr-body without a pii.phone.e164
+  //   confirmation (gstack#4725), while a phone number in another field of the same line, a phone number, a truncated id or a session id under
+  //   another key, a non-canonical line, a line whose head is missing or not a 40-hex sha, an unclosed block and the same id in prose still need
+  //   one; fails_when=every /ship that rewrites a PR body holding earlier runs gets a false MEDIUM hold, or the exemption reaches past the exact
+  //   run value of a canonical runs line; why_new=the #4480 test covers only the gstack-ship-receipt block; seam=fake gh; no_claim=real gh
+  test("a runs block's session ids are not phone numbers; a phone number anywhere else in or around the block still is", () => {
+    const HEAD_A = "abc123abc123abc123abc123abc123abc123abcd";
+    const HEAD_B = "def456def456def456def456def456def456def0";
+    const RUN_A = "4242424-1700000000-deadbeef";
+    const RUN_B = "3454314-1795338725-c32255b8";
+    const post = (args: string[], text: string, visibility: "public" | "private" = "private") => {
+      const f = fakeEnv({ files: { "/b": text }, visibility });
+      return { code: run([...args, "--body-file", "/b"], f), phones: f.stdout().split("\n").filter(l => l.startsWith("RULE: pii.phone.e164 ")), f };
+    };
+    const runsBlock = (...lines: string[]) => `Body.\n\n\`\`\`gstack-receipt-runs\n${lines.join("\n")}\n\`\`\`\n`;
+
+    const comment = post(["pr-comment", "1"], runsBlock(JSON.stringify({ head: HEAD_A, version: "1.0.0.0", run: RUN_A }), JSON.stringify({ run: RUN_B, head: HEAD_B, mark: "stop" })));
+    expect([comment.phones, comment.code, comment.f.posts().length]).toEqual([[], EXIT.posted, 1]);
+
+    const first = placeReceipt("## What changed\n\nFirst run.\n", orderReceipt({ schema_version: 1, pr: 4725, head: HEAD_A, base: "main", version: "1.0.0.0", run: RUN_A }));
+    const second = placeReceipt(first, orderReceipt({ schema_version: 1, pr: 4725, head: HEAD_B, base: "main", version: "1.0.0.0", run: RUN_B }));
+    expect(second).toContain("```gstack-receipt-runs\n");
+    const body = post(["pr-body", "4725", "--replace"], second, "public");
+    expect([body.phones, body.code, body.f.posts().length]).toEqual([[], EXIT.posted, 1]);
+
+    const holds: Array<[string, string, string]> = [
+      ["a phone number in reason on a line with a valid run", runsBlock(JSON.stringify({ head: HEAD_A, run: RUN_A, mark: "abandoned", by: "ops", reason: "call +14155552671" })), "call +14155552671"],
+      ["a phone number as the run", runsBlock(JSON.stringify({ head: HEAD_A, run: "+14155552671" })), '"+14155552671"'],
+      ["a truncated session id", runsBlock(JSON.stringify({ head: HEAD_A, run: "4242424-1700000000" })), '"4242424-1700000000"'],
+      ["a session id under another key", runsBlock(JSON.stringify({ head: HEAD_A, run: "ship-1", grant: RUN_A })), RUN_A],
+      ["a session id nested under review_loop", runsBlock(JSON.stringify({ head: HEAD_A, review_loop: { run: RUN_A } })), RUN_A],
+      ["a non-canonical spaced line", runsBlock(`{ "head": "${HEAD_A}", "run": "${RUN_A}" }`), RUN_A],
+      ["a duplicated run key", runsBlock(`{"head":"${HEAD_A}","run":"${RUN_A}","run":"${RUN_B}"}`), RUN_A],
+      ["a line missing head", runsBlock(JSON.stringify({ version: "1.0.0.0", run: RUN_A })), RUN_A],
+      ["a head that is not a 40-hex sha", runsBlock(JSON.stringify({ head: "main", run: RUN_A })), RUN_A],
+      ["an unclosed runs block", `Body.\n\n\`\`\`gstack-receipt-runs\n${JSON.stringify({ head: HEAD_A, run: RUN_A })}\n`, RUN_A],
+      ["a session id in prose after the block", runsBlock(JSON.stringify({ head: HEAD_A, run: RUN_B })) + `\nRun ${RUN_A} failed.\n`, `Run ${RUN_A}`],
+      ["a session id in a json block", `Body.\n\n\`\`\`json\n${JSON.stringify({ head: HEAD_A, run: RUN_A })}\n\`\`\`\n`, RUN_A],
+    ];
+    for (const [name, text, needle] of holds) {
+      const { code, phones, f } = post(["pr-comment", "1"], text);
+      const line = text.split("\n").findIndex(l => l.includes(needle)) + 1;
+      expect([name, [...new Set(phones)], code, f.posts()]).toEqual([name, [`RULE: pii.phone.e164 LINE: ${line} PART: body`], EXIT.confirm, []]);
+    }
+  });
+
   // Value: protects=a private PR's Approvals table (renderRecord, full mode) posts through pr-body without a pii.phone.e164 confirmation when a
   //   fix-check grant row's Covers cell names a run id like 507-7192673 (GST-3246, trail-read row 8), while the same digits in that row's
   //   Asked or Exact words cell, in prose, or in a table no Source footer closes still need one; fails_when=every private /ship body with such a

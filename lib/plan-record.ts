@@ -24,7 +24,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { agentNotesOrBody } from './agent-notes';
-import { locate, type ApprovalRow, type Env } from './approval-record';
+import { autoplanRunId, locate, type ApprovalRow, type Env } from './approval-record';
 import type { ResultCodeName } from './result-codes';
 import { isUnavailable, loadPolicyFromBase, type ShipPolicy } from './ship-policy';
 import { readConfigKeyWithRoot, resolveStateRoot } from './state-root';
@@ -147,7 +147,11 @@ const rowSha = (r: ApprovalRow) => createHash('sha256').update(JSON.stringify(r)
 function runIdFor(token: string, cwd: string): string {
   const dir = path.resolve(cwd, token.replace(/^~(?=\/)/, process.env.HOME ?? '~'));
   if (!token.includes('/')) return token;
-  try { return String(JSON.parse(fs.readFileSync(path.join(dir, 'run.json'), 'utf8')).run ?? path.basename(dir)); } catch { return path.basename(dir); }
+  let run: Record<string, any> = {};
+  try { run = JSON.parse(fs.readFileSync(path.join(dir, 'run.json'), 'utf8')); } catch {}
+  let rows: { run?: unknown }[] = [];
+  try { rows = fs.readFileSync(path.join(dir, 'decisions.jsonl'), 'utf8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l)); } catch {}
+  return autoplanRunId(dir, run, rows);
 }
 
 /** Resolve a Plan line against the approval store; `changedOnly` lists the PR's changed paths for the changelog-only exemption. */

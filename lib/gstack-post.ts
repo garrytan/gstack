@@ -577,7 +577,9 @@ const lineIdSpans = (text: string, line: number): Span[] => RECEIPT_LINE_IDS.fla
  * span of each value below. In every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
  * renderReceiptBlock's rendering of it: each ci_carried[].run, flaky_exception[].runs[] and issues.flakes[].run value that is a run id (11 to 20
  * digits, with an optional /attempt), the run value when it is a gstack-skill-start session id, and the RECEIPT_LINE_IDS values inside the
- * pregate and requires_remote[] values. On every line outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
+ * pregate and requires_remote[] values. In every closed ```gstack-receipt-runs``` block (gstack#4725), the top-level run value of each line that is a
+ * JSON object byte-identical to its JSON.stringify rendering, with a 40-hex head and a run that is a gstack-skill-start session id. On every line
+ * outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
  * those writers' own output qualifies, so a hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in
  * prose, in any other code block (a receipt-prefixed line inside one included), on a line without a receipt prefix or under any other key still reports.
  */
@@ -624,6 +626,21 @@ function receiptIdSpans(text: string): Span[] {
     receipt.ci_carried?.forEach((_, i) => span(["ci_carried", i, "run"]));
     receipt.flaky_exception?.forEach((e, i) => e.runs.forEach((_, j) => span(["flaky_exception", i, "runs", j])));
     receipt.issues?.flakes?.forEach((_, i) => span(["issues", "flakes", i, "run"]));
+    open = close;
+  }
+  for (let open = 0; open < lines.length; open++) {
+    if (lines[open] !== "```" + RUNS_FENCE) continue;
+    const close = lines.indexOf("```", open + 1);
+    if (close < 0) break;
+    for (let i = open + 1; i < close; i++) {
+      let entry: Record<string, unknown>;
+      try { entry = JSON.parse(lines[i]!); } catch { continue; }
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry) || JSON.stringify(entry) !== lines[i]) continue;
+      if (typeof entry.head !== "string" || !/^[0-9a-f]{40}$/.test(entry.head) || typeof entry.run !== "string" || !SESSION_ID.test(entry.run)) continue;
+      const before = Object.keys(entry).slice(0, Object.keys(entry).indexOf("run"));
+      const from = JSON.stringify(Object.fromEntries(before.map(k => [k, entry[k]]))).length + (before.length ? 1 : 0) + '"run":'.length;
+      spans.push({ line: i + 1, from, to: from + JSON.stringify(entry.run).length - 1 });
+    }
     open = close;
   }
   return spans;
