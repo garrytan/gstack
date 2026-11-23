@@ -2,13 +2,15 @@
  * GST-2975: /ship finish stopped with "behavior, tests or build inputs changed since review" after a base merge whose only
  * effect on the branch's files was base-side: the shared-preamble hash id in regenerated skill files (#4383, 94 files), and
  * main's new entry spliced into an expected-value list the branch also appended to (ghome#16). Both now compare with the
- * base-side difference masked; the spliced list goes to the scoped reader, and a real change to the branch's own lines
- * still stops.
+ * base-side difference masked; the spliced list goes to the scoped reader, moved base context next to unchanged own lines
+ * counts as reviewed (GST-3562 G), and a real change to the branch's own lines still stops.
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
+import { extractReceipt, placeReceipt } from '../lib/ship-receipt';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(90_000);
@@ -59,15 +61,15 @@ describe('regenerated skill files whose only base-side change is the shared-prea
   // Value: protects=#4383: a main merge that only moved the shared-preamble hash id in the branch's regenerated files is a
   //   base merge, not a behavior change; fails_when=finish stops with behavior=N for the id lines; seam=comparePath via finish;
   //   no_claim=a hash id outside the two generated forms
-  test('the id lines are masked: the paths route as base or context and finish never stops for a behavior change', () => {
+  test('the id lines are masked: both paths route as base and finish never stops for a behavior change', () => {
     const { f, reviewed, reviewedBase, post } = preambleMerge();
     const sides = sidesOf(f, reviewed, reviewedBase);
     expect(comparePath(f.work, sides, SKILL)).toBe('same');
     expect(comparePath(f.work, sides, PREAMBLE)).toBe('context');
     const r = finish(f, reviewed, post, reviewedBase);
-    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 .* base=1 context=1$/);
+    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 .* base=2 context=0$/);
     expect(r.stdout).not.toContain('behavior, tests or build inputs changed since review');
-    expect(r.stdout).toContain(`STOP: base context moved next to the reviewed hunks in ${PREAMBLE}`);
+    expect(r.stdout).not.toContain('STOP:');
   });
 
   // Value: protects=#4383's own files: a branch that edits the shared preamble changes every generated file by its id alone, and
@@ -120,9 +122,9 @@ describe('an expected-value list the base merge spliced (ghome#16)', () => {
   // Value: protects=ghome#16: a resolved line that is main's line plus exactly the entry the branch added goes to the scoped
   //   reader of its test hunks, not to an owner grant; fails_when=gateEditedPaths sends it to behavior (the owner-grant stop) or
   //   it passes with no reader; seam=comparePath + finish route; no_claim=the scoped reader's verdict
-  test('the union is context: finish stops for the scoped reader, never for a behavior change', () => {
+  test('the union is spliced: finish stops for the scoped reader, never for a behavior change', () => {
     const { f, reviewed, reviewedBase, post } = listMerge(methods([...BASE_METHODS, 'ghome.talk.target', 'ghome.brief']));
-    expect(comparePath(f.work, sidesOf(f, reviewed, reviewedBase), LIST)).toBe('context');
+    expect(comparePath(f.work, sidesOf(f, reviewed, reviewedBase), LIST)).toBe('spliced');
     const r = finish(f, reviewed, post, reviewedBase);
     expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 .*tests=1 /);
     expect(r.stdout).not.toContain('behavior, tests or build inputs changed since review');
@@ -146,6 +148,71 @@ describe('an expected-value list the base merge spliced (ghome#16)', () => {
       const r = finish(f, reviewed, post, reviewedBase);
       expect(r.status).toBe(3);
       expect(r.stdout).toContain(`behavior, tests or build inputs changed since review (${LIST})`);
+    }
+  });
+});
+
+const ROWS = 'src/rows.ts';
+const RUN = 'bin/run.sh';
+const LINK = 'src/link.ts';
+const rows = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => edit[i + 1] ?? `export const r${i + 1} = ${i + 1};`).join('\n') + '\n';
+const OWN = { 6: 'export const r6 = 600;' };
+
+/**
+ * GST-3562 G: the branch edits rows.ts, a script it marks executable and a symlink it adds; the base edits the line next to
+ * the branch's hunk, so the merge conflicts and the resolution decides what the head holds. `resolve` runs on the merged
+ * working tree before the merge commit.
+ */
+function noLossMerge(resolve: (work: string) => void) {
+  const f = fx({ [ROWS]: rows(), [RUN]: '#!/bin/sh\necho base\n' }, { [ROWS]: rows(OWN), [RUN]: '#!/bin/sh\necho branch\n' });
+  fs.chmodSync(path.join(f.work, RUN), 0o755);
+  fs.symlinkSync('rows.ts', path.join(f.work, LINK));
+  f.commit('feat: executable script and link');
+  const reviewed = wtree(f);
+  const reviewedBase = mergeBase(f);
+  const reviewedHead = f.git('rev-parse', 'HEAD').stdout.trim();
+  const post = snapshot(f);
+  f.advanceBase({ [ROWS]: rows({ 5: 'export const r5 = 50;' }) });
+  f.git('fetch', '-q', 'origin');
+  f.git('merge', '-q', '--no-commit', '--no-edit', 'origin/main');
+  f.write({ [ROWS]: rows({ 5: 'export const r5 = 50;', ...OWN }) });
+  resolve(f.work);
+  f.commit('merge main');
+  const body = path.join(f.root, 'body.md');
+  fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewedHead, base: 'main', queue_mode: 'stamp-at-merge' } as any));
+  const carry = () => f.run(path.join(BIN, 'gstack-ship-receipt'), ['carry', '--body', body, '--base', 'main']);
+  return { f, sides: sidesOf(f, reviewed, reviewedBase), finish: () => finish(f, reviewed, post, reviewedBase), carry, body };
+}
+
+describe('a base merge counts as reviewed only when the branch\'s own lines, modes and symlink targets are unchanged (GST-3562 G)', () => {
+  // Value: protects=no review is lost by G: a base merge whose resolution keeps the branch's own lines, file modes and symlink
+  //   targets byte-identical counts as reviewed in finish and carry, and a mode flip, a symlink retarget or a resolution that
+  //   edits the branch's own line inside the conflict never does; fails_when=any adversarial resolution routes as base or
+  //   carries, or the identical one asks for a reader; seam=comparePath via finish and carry; no_claim=CI's verdict at the head
+  test('byte-identical own lines, modes and symlink targets route as base in finish and carry with no reader', () => {
+    const x = noLossMerge(() => {});
+    expect([ROWS, RUN, LINK].map(p => comparePath(x.f.work, x.sides, p))).toEqual(['context', 'same', 'same']);
+    const r = x.finish();
+    expect([r.status, lineOf(r.stdout, 'ROUTE')], r.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* base=1 context=0$/)]);
+    const c = x.carry();
+    expect(c.status, c.stderr).toBe(EXIT.ok);
+    expect(extractReceipt(fs.readFileSync(x.body, 'utf8')).receipt!.carry!.reason).toContain(`base context moved next to unchanged own lines (${ROWS}; CI at head checks it)`);
+  });
+
+  test('a mode flip, a symlink retarget and a resolution inside the branch\'s own line are changed: finish stops and carry refuses', () => {
+    const cases: [string, (work: string) => void][] = [
+      [RUN, work => fs.chmodSync(path.join(work, RUN), 0o644)],
+      [LINK, work => { fs.unlinkSync(path.join(work, LINK)); fs.symlinkSync('a.ts', path.join(work, LINK)); }],
+      [ROWS, work => fs.writeFileSync(path.join(work, ROWS), rows({ 5: 'export const r5 = 50;', 6: 'export const r6 = 6000;' }))],
+    ];
+    for (const [p, resolve] of cases) {
+      const x = noLossMerge(resolve);
+      expect([p, comparePath(x.f.work, x.sides, p)]).toEqual([p, 'changed']);
+      const r = x.finish();
+      expect([p, r.status, r.stdout.includes('behavior, tests or build inputs changed since review')], r.stdout).toEqual([p, 3, true]);
+      const c = x.carry();
+      expect([p, c.status, c.stdout.trim().split('\n')[0]], c.stderr).toEqual([p, EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)']);
+      expect(c.stderr).toContain(p);
     }
   });
 });

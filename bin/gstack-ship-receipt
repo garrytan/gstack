@@ -753,14 +753,15 @@ function cmdCarry(rest: string[], json: boolean): number {
     const changedProduct: string[] = [];
     let walkCut = false;
     const contextPaths: string[] = [];
+    const baseContext: string[] = [];
     const stampOnly: string[] = [];
     if (retarget && reviewed !== current) changedProduct.push(`HEAD's product diff against ${base} is not the one reviewed against ${reviewedBase} (the parent has not fully landed on ${base}, or the branch changed since)`);
     else if (productFrom !== productHead && !retarget) {
       // planCarry names at most CARRY_NAMED_PATHS differing paths, so the walk stops there, and it reads only the paths the
       // branch itself touched against the base at either head: a base merge brings in every path the base changed, none of
       // which can differ between the two base diffs. A touched path with the same blob at both heads and at both bases has
-      // the same patch, so only paths that moved on one side are compared (GST-448: 6000 touched paths). A path whose only difference is base context next to unchanged hunks
-      // (lib/ship-patch.ts) needs a scoped review instead of the loop.
+      // the same patch, so only paths that moved on one side are compared (GST-448: 6000 touched paths). A spliced path (comparePath) needs a scoped review, and a path whose only difference is base context next to its unchanged hunks counts as reviewed
+      // (lib/ship-patch.ts, GST-3562 G).
       const sides = { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head };
       const moved = [touchedPaths(repoRoot, from, head), touchedPaths(repoRoot, rangeBase, headBase)];
       if (moved.some(l => !l)) return refused('RECEIPT_CARRY_REFUSED', `git could not list the paths the branch touched against ${base}; run /ship on ${head.slice(0, 12)}`);
@@ -784,9 +785,10 @@ function cmdCarry(rest: string[], json: boolean): number {
         if (cls !== 'product') continue;
         const verdict = comparePath(repoRoot, sides, p);
         if (verdict === 'changed') changedProduct.push(p);
-        else if (verdict === 'context') contextPaths.push(p);
+        else if (verdict === 'spliced') contextPaths.push(p);
+        else if (verdict === 'context') baseContext.push(p);
       }
-      const left = [...contextPaths, ...stampOnly];
+      const left = [...contextPaths, ...baseContext, ...stampOnly];
       if (!changedProduct.length && !left.length) changedProduct.push('(a product path outside the branch\'s touched files; compare the two base diffs)');
       else if (!changedProduct.length) {
         const rest = [...spec.product, ...left.map(p => `:(exclude,literal)${p}`)];
@@ -802,8 +804,8 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
       if (!record && rest.includes('--dry-run')) {
-        scopedDryRun = `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one fix-check reviewer, then carry --scoped-review <record.json>; nothing written`;
-        scopedReview = `base context moved (scoped review pending: ${contextPaths.join(', ')})`;
+        scopedDryRun = `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one fix-check reviewer, then carry --scoped-review <record.json>; nothing written`;
+        scopedReview = `spliced hunks (scoped review pending: ${contextPaths.join(', ')})`;
       } else if (!record) {
         const gitPath = git(['rev-parse', '--git-path', `gstack/scoped-review-${head.slice(0, 12)}.md`], repoRoot);
         const packet = path.resolve(repoRoot, gitPath ?? `.git/gstack/scoped-review-${head.slice(0, 12)}.md`);
@@ -811,14 +813,14 @@ function cmdCarry(rest: string[], json: boolean): number {
           fs.mkdirSync(path.dirname(packet), { recursive: true });
           fs.writeFileSync(packet, packetBody.text);
         } catch (e) {
-          return refused('RECEIPT_CARRY_REFUSED', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}, but the scoped-review packet ${packet} cannot be written (${(e as Error).message.split('\n')[0]}); make its directory writable, then rerun carry`);
+          return refused('RECEIPT_CARRY_REFUSED', `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}, but the scoped-review packet ${packet} cannot be written (${(e as Error).message.split('\n')[0]}); make its directory writable, then rerun carry`);
         }
-        return refused('RECEIPT_CARRY_SCOPED_REVIEW', `base context moved next to the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /ship on ${head.slice(0, 12)}`);
+        return refused('RECEIPT_CARRY_SCOPED_REVIEW', `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /ship on ${head.slice(0, 12)}`);
       }
       if (record) {
         const review = readScopedReview(record, { head }, contextPaths);
         if (!review.ok) return refused('RECEIPT_CARRY_REFUSED', `--scoped-review: ${review.message}`);
-        scopedReview = `base context moved (scoped review by ${review.review.reviewer}: ${contextPaths.join(', ')})`;
+        scopedReview = `spliced hunks (scoped review by ${review.review.reviewer}: ${contextPaths.join(', ')})`;
       }
     }
     const mergeCommits = (git(['rev-list', '--merges', '--count', `${from}..${head}`], repoRoot) ?? '0').trim();
@@ -832,10 +834,11 @@ function cmdCarry(rest: string[], json: boolean): number {
       const fullRange = rangeRaw.status === 0 && inter?.status === 0 ? `${rangeRaw.stdout.trim()}\n${inter.stdout.trim()}` : null;
       const numstat = named.length ? spawnSync('git', ['diff', '--numstat', from, head, '--', ...named.map(p => `:(literal)${p}`)], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }) : null;
       const binary = numstat?.status !== 0 || (numstat?.stdout ?? '').split('\n').some(l => l.startsWith('-\t-\t'));
-      // Moved base context composes into the same packet, bound to range_base (GST-1561).
-      const context = contextPaths.length ? contextPacket(repoRoot, { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head }, contextPaths) : undefined;
+      // Moved base context and spliced hunks compose into the same advisory packet, bound to range_base (GST-1561).
+      const advisory = [...contextPaths, ...baseContext].sort();
+      const context = advisory.length ? contextPacket(repoRoot, { reviewedBase: rangeBase, reviewed: from, currentBase: headBase, current: head }, advisory) : undefined;
       const bound = context ? { rangeBase, context: context.text } : {};
-      const r = planRecheck({ code: 'RECEIPT_CARRY_PRODUCT_CHANGED', ancestor, retarget, rangeDiff: fullRange, unnamedPaths: named.length !== changedProduct.length, legacy: !receipt.review_depth, walkCut, contextPaths: contextPaths.length, context, binary });
+      const r = planRecheck({ code: 'RECEIPT_CARRY_PRODUCT_CHANGED', ancestor, retarget, rangeDiff: fullRange, unnamedPaths: named.length !== changedProduct.length, legacy: !receipt.review_depth, walkCut, contextPaths: advisory.length, context, binary });
       if (!r.ok) process.stderr.write(`RECHECK: not eligible (${r.reason}); run /ship on ${head.slice(0, 12)}\n`);
       else {
         let where = 'not written (dry run)';
@@ -847,7 +850,7 @@ function cmdCarry(rest: string[], json: boolean): number {
         process.stderr.write(`RECHECK: advisory range_diff_lines=${r.lines} range_diff_sha256=${r.sha256} packet=${where}; one reader may read it for advice, but it never carries the receipt (GST-2673): run /ship on ${head.slice(0, 12)} for the merge head's full review (docs/review-policy.md#rounds-per-pull-request)\n`);
       }
     }
-    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(stampedRows.length ? { stampedRows } : {}) });
+    plan = planCarry({ from, head, changed, productPatchId: { from: reviewed as string, head: current as string }, testPatchId: { from: testFrom, head: testHead }, changedProduct, mergeCommits: Number(mergeCommits) || 0, rangeDiff, ...(retarget ? { retargetedFrom: reviewedBase } : {}), ...(stackParent ? { stackParent } : {}), ...(scopedReview ? { scopedReview } : {}), ...(!changedProduct.length && baseContext.length ? { baseContext } : {}), ...(stampedRows.length ? { stampedRows } : {}) });
   }
   if (!plan.ok) return refused(plan.code, plan.message);
   // Eligibility is not publication: a receipt that recorded a pregate is rebound only with a pregate current for HEAD,

@@ -39,7 +39,7 @@ export function targetedDelta(root: string, base: string, rangeBase: string, ran
   const now = touchedPaths(root, headBase, head);
   if (!before || !now) return skip('git could not list the branch patch at range_base or at HEAD');
   const sides = { reviewedBase: readBase, reviewed: read, currentBase: headBase, current: head };
-  const paths = [...new Set([...before, ...now])].filter(p => !['same', 'context'].includes(comparePath(root, sides, p))).sort();
+  const paths = [...new Set([...before, ...now])].filter(p => !['same', 'context', 'spliced'].includes(comparePath(root, sides, p))).sort();
   if (!paths.length) return skip(`the branch patch is unchanged since range_base ${read.slice(0, 12)}`);
   const change = docsChangeSince(root, read, head, base);
   if (!change) return skip(`git could not build the PR's own change since range_base ${read.slice(0, 12)}`);

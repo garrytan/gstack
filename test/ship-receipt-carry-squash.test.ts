@@ -215,17 +215,16 @@ describe('carry after a stack parent squash-merges, receipt written against main
     expect(receiptIn(s.body).head).toBe(s.child);
   }, 120_000);
 
-  // Value: protects=a base change next to the child's reviewed hunks gets one fix-check reviewer, not a carry and not a full
-  // /ship; fails_when=the landed-parent comparison ignores base context or refuses it outright; seam=none; no_claim=-
-  test('a base change next to the child\'s reviewed hunks routes to RECEIPT_CARRY_SCOPED_REVIEW', () => {
+  // Value: protects=GST-3562 G: a base change next to the child's unchanged reviewed hunks carries with no reader and the
+  // reason names the file, not a full /ship; fails_when=the landed-parent comparison ignores base context (the reason
+  // says only "base merge") or refuses it; seam=none; no_claim=-
+  test('a base change next to the child\'s reviewed hunks carries and names the moved context', () => {
     const repo = makeFixtureRepo({ baseFiles: { 'lib/config.js': CONFIG } }); repos.push(repo);
-    const { child, body } = stack(repo, undefined, { 'lib/config.js': configWith({ 'd = 4': 'd = 40' }) }, 'main');
+    const { body } = stack(repo, undefined, { 'lib/config.js': configWith({ 'd = 4': 'd = 40' }) }, 'main');
     landOnMain(repo, { 'lib/util.js': SUB, 'lib/config.js': configWith({ 'f = 6': 'f = 60' }) });
     const out = carry(repo, body);
-    expect(out.status).toBe(EXIT.refused);
-    expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)');
-    expect(out.err).toContain('lib/config.js');
-    expect(receiptIn(body).head).toBe(child);
+    expect(out.status, out.err).toBe(EXIT.ok);
+    expect(receiptIn(body).carry!.reason).toContain('base context moved next to unchanged own lines (lib/config.js; CI at head checks it)');
   }, 90_000);
 
   // Value: protects=the receipt never names a stack parent that does not exist; fails_when=a test-first commit with no
@@ -338,26 +337,27 @@ function landedFirst(files: Record<string, string>) {
 }
 
 describe('a stack parent the reviewed base already held is no landed parent (qm#3457, GST-3315)', () => {
-  // Value: protects=qm#3457: base context moved beside the child's own hunk takes one scoped review of that file, not a
-  //   refusal naming the parent's files; fails_when=landedStackParent counts a parent the reviewed base already held and the
-  //   carry measures from it; seam=gstack-ship-receipt carry; no_claim=the scoped review itself
-  test('#3457: context moved next to the child\'s hunk routes to a scoped review of that file alone', () => {
+  // Value: protects=qm#3457: base context moved beside the child's own hunk carries naming that file alone (GST-3562 G), not
+  //   a refusal naming the parent's files; fails_when=landedStackParent counts a parent the reviewed base already held and the
+  //   carry measures from it; seam=gstack-ship-receipt carry; no_claim=-
+  test('#3457: context moved next to the child\'s hunk carries naming that file alone', () => {
     const { repo, reviewed, rangeBase, body } = landedFirst({ 'lib/config.js': configWith({ 'f = 6': 'f = 60' }) });
     expect(landedStackParent(repo.work, { rangeBase, reviewed, currentBase: repo.git('merge-base', 'origin/main', 'HEAD') }, ['.', ':(exclude,glob)test/**'])).toBeNull();
     const out = carry(repo, body);
-    expect([out.status, out.out]).toEqual([EXIT.refused, expect.stringContaining('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)')]);
-    expect(out.err).toContain('lib/config.js');
-    expect(out.err).not.toContain('lib/util.js');
-    expect(receiptIn(body).head).toBe(reviewed);
+    expect(out.status, out.err).toBe(EXIT.ok);
+    const reason = receiptIn(body).carry!.reason;
+    expect(reason).toContain('base context moved next to unchanged own lines (lib/config.js; CI at head checks it)');
+    expect(reason).not.toContain('lib/util.js');
   }, 90_000);
 
   // Value: protects=the patch-id keeps three lines of context whatever the user's git config says; fails_when=diff.context=0
-  //   drops the moved context from both hashes and the carry passes unread base edits; seam=patchId; no_claim=-
-  test('diff.context=0 in the user\'s git config still routes moved context to a scoped review', () => {
+  //   drops the moved context from both hashes and the carry calls it a plain base merge; seam=patchId; no_claim=-
+  test('diff.context=0 in the user\'s git config still sees the moved context', () => {
     const { repo, body } = landedFirst({ 'lib/config.js': configWith({ 'f = 6': 'f = 60' }) });
     repo.git('config', 'diff.context', '0');
     const out = carry(repo, body);
-    expect([out.status, out.out]).toEqual([EXIT.refused, expect.stringContaining('CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)')]);
+    expect(out.status, out.err).toBe(EXIT.ok);
+    expect(receiptIn(body).carry!.reason).toContain('base context moved next to unchanged own lines (lib/config.js; CI at head checks it)');
   }, 90_000);
 
   test('an unrelated main change carries', () => {

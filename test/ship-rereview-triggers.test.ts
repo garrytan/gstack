@@ -301,35 +301,21 @@ describe('a restamp after a lost slot (GST-895, GBRA-218, gbrain #8134)', () => 
 });
 
 describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
-  // Value: protects=a base edit next to the branch's unchanged hunk asks for a scoped review of only those hunks (finish
-  //   context=N, carry RECEIPT_CARRY_SCOPED_REVIEW), and a clean scoped review lets it through; fails_when=it forces the
-  //   full loop (RECEIPT_CARRY_PRODUCT_CHANGED, behavior=1) or passes silently with no review; seam=lib/ship-patch.ts;
-  //   no_claim=the scoped reviewer's judgment
-  test('finish stops for a scoped review of the spliced JSON entry, then continues with a clean record', () => {
+  // Value: protects=GST-3562 G: a base edit next to the branch's unchanged hunk (the JSON entry where the branch changed one
+  //   key and the base the next, an inserted guard() under a base-edited line) counts as reviewed, with CI on the merged head
+  //   as the check; a hunk the merge spliced still stops for one scoped reader and a clean record lets it through;
+  //   fails_when=the adjacent edit forces the full loop (behavior=1) or a reader, or a spliced hunk passes silently;
+  //   seam=lib/ship-patch.ts via finish; no_claim=the scoped reviewer's judgment
+  test('finish routes an adjacent base edit as base, and stops for a scoped review of a spliced hunk', () => {
     const f = fx({ 'data/flavor.json': FLAVOR('old', 'old') }, { 'data/flavor.json': FLAVOR('Bright and new', 'old') });
     const reviewed = wtree(f);
     const reviewedBase = mergeBase(f);
     const post = snapshot(f);
     f.advanceBase({ 'data/flavor.json': FLAVOR('old', 'pat-pat') });
     mergeMain(f, { 'data/flavor.json': FLAVOR('Bright and new', 'pat-pat') });
-    const r = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
-    expect(lineOf(r.stdout, 'ROUTE')).toMatch(/ behavior=0 .* context=1$/);
-    expect(r.status).toBe(3);
-    const packet = /STOP: base context moved next to the reviewed hunks in data\/flavor\.json: .* reads (\S+),/.exec(r.stdout)?.[1];
-    expect(packet).toBeDefined();
-    const text = fs.readFileSync(packet!, 'utf8');
-    expect(text).toContain('"pat": "pat-pat"');
-    expect(text).toContain('"headline": "Bright and new"');
-    const record = path.join(f.root, 'scoped.json');
-    fs.writeFileSync(record, JSON.stringify({ tree: wtree(f), paths: ['data/flavor.json'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'blocking' }));
-    expect(finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record]).stdout).toContain('STOP: --context-reviewed: the scoped review is "blocking"');
-    fs.writeFileSync(record, JSON.stringify({ tree: reviewed, paths: ['data/flavor.json'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
-    expect(finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record]).stdout).toContain(`STOP: --context-reviewed: the scoped review is for tree ${reviewed.slice(0, 12)}`);
-    fs.writeFileSync(record, JSON.stringify({ tree: wtree(f), paths: [], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
-    expect(finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record]).stdout).toContain('STOP: --context-reviewed: the scoped review does not cover data/flavor.json');
-    fs.writeFileSync(record, JSON.stringify({ tree: wtree(f), paths: ['data/flavor.json'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
-    const ok = finish(f, reviewed, post, ['--reviewed-base', reviewedBase, '--context-reviewed', record]);
-    expect([ok.status, ok.stdout.includes('NEXT: Step 16 stage 5')]).toEqual([0, true]);
+    const adjacent = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    expect([adjacent.status, lineOf(adjacent.stdout, 'ROUTE')], adjacent.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* base=1 context=0$/)]);
+    expect(adjacent.stdout).toContain('NEXT: Step 16 stage 5');
 
     const guard = (text: string) => text.replace('export const l5 = 5;\n', 'export const l5 = 5;\nguard();\n');
     const inserted = fx({ 'src/m.ts': lines(9) }, { 'src/m.ts': guard(lines(9)) });
@@ -339,28 +325,70 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     inserted.advanceBase({ 'src/m.ts': lines(9, { 4: 'export const l4 = 40;' }) });
     mergeMain(inserted, { 'src/m.ts': guard(lines(9, { 4: 'export const l4 = 40;' })) });
     const i = finish(inserted, reviewed2, post2, ['--reviewed-base', base2]);
-    expect([i.status, lineOf(i.stdout, 'ROUTE')]).toEqual([3, expect.stringMatching(/ behavior=0 .* context=1$/)]);
+    expect([i.status, lineOf(i.stdout, 'ROUTE')], i.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* base=1 context=0$/)]);
+
+    const list = (entries: string) => `export const METHODS = [${entries}];\n`;
+    const s = fx({ 'src/methods.ts': list('"prep"') }, { 'src/methods.ts': list('"prep", "brief"') });
+    const reviewed3 = wtree(s);
+    const base3 = mergeBase(s);
+    const post3 = snapshot(s);
+    s.advanceBase({ 'src/methods.ts': list('"prep", "talk"') });
+    mergeMain(s, { 'src/methods.ts': list('"prep", "talk", "brief"') });
+    const r = finish(s, reviewed3, post3, ['--reviewed-base', base3]);
+    expect([r.status, lineOf(r.stdout, 'ROUTE')], r.stdout).toEqual([3, expect.stringMatching(/ behavior=0 .* context=1$/)]);
+    const packet = /STOP: the base merge spliced lines into the reviewed hunks in src\/methods\.ts: .* reads (\S+),/.exec(r.stdout)?.[1];
+    expect(packet).toBeDefined();
+    expect(fs.readFileSync(packet!, 'utf8')).toContain('"prep", "talk", "brief"');
+    const record = path.join(s.root, 'scoped.json');
+    fs.writeFileSync(record, JSON.stringify({ tree: wtree(s), paths: ['src/methods.ts'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'blocking' }));
+    expect(finish(s, reviewed3, post3, ['--reviewed-base', base3, '--context-reviewed', record]).stdout).toContain('STOP: --context-reviewed: the scoped review is "blocking"');
+    fs.writeFileSync(record, JSON.stringify({ tree: reviewed3, paths: ['src/methods.ts'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
+    expect(finish(s, reviewed3, post3, ['--reviewed-base', base3, '--context-reviewed', record]).stdout).toContain(`STOP: --context-reviewed: the scoped review is for tree ${reviewed3.slice(0, 12)}`);
+    fs.writeFileSync(record, JSON.stringify({ tree: wtree(s), paths: [], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
+    expect(finish(s, reviewed3, post3, ['--reviewed-base', base3, '--context-reviewed', record]).stdout).toContain('STOP: --context-reviewed: the scoped review does not cover src/methods.ts');
+    fs.writeFileSync(record, JSON.stringify({ tree: wtree(s), paths: ['src/methods.ts'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
+    const ok = finish(s, reviewed3, post3, ['--reviewed-base', base3, '--context-reviewed', record]);
+    expect([ok.status, ok.stdout.includes('NEXT: Step 16 stage 5')], ok.stdout).toEqual([0, true]);
   });
 
-  // Value: protects=same as above, for the receipt carry; and the same added line moved to another function is
-  //   RECEIPT_CARRY_PRODUCT_CHANGED; fails_when=carry refuses the adjacent edit outright, carries it silently, or carries
-  //   a moved hunk; seam=lib/ship-patch.ts; no_claim=gh pr edit (--body stands in)
-  test('carry asks for a scoped review of an adjacent base edit, carries with a clean one, and refuses a moved hunk', () => {
-    const repo = makeFixtureRepo({ prefix: 'ship-rereview-' }); repos.push(repo);
+  // Value: protects=GST-3562 G for the receipt carry: an adjacent base edit next to the branch's unchanged hunk carries with
+  //   no reader (CI at head checks it); a hunk the merge spliced asks for one scoped review and carries with a clean one; the
+  //   same added line moved to another function is RECEIPT_CARRY_PRODUCT_CHANGED; fails_when=carry refuses the adjacent edit,
+  //   carries a spliced hunk silently, or carries a moved hunk; seam=lib/ship-patch.ts; no_claim=gh pr edit (--body stands in)
+  test('carry passes an adjacent base edit, asks for a scoped review of a spliced hunk, and refuses a moved hunk', () => {
     const src = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => edit[i + 1] ?? `exports.v${i + 1} = ${i + 1};`).join('\n') + '\n';
-    repo.git('checkout', '-q', 'main');
-    write(repo.work, 'lib/rows.js', src()); repo.git('add', '-A'); repo.git('commit', '-qm', 'rows'); repo.git('push', '-q', 'origin', 'main');
-    repo.git('checkout', '-q', 'feature'); repo.git('merge', '-q', '--no-edit', 'main');
-    write(repo.work, 'lib/rows.js', src({ 6: 'exports.v6 = 600;' })); repo.git('commit', '-qam', 'feat: v6');
-    const reviewed = repo.git('rev-parse', 'HEAD');
-    const body = path.join(repo.root, 'body.md');
-    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
-    repo.git('checkout', '-q', 'main');
-    write(repo.work, 'lib/rows.js', src({ 5: 'exports.v5 = "five";' })); repo.git('commit', '-qam', 'main: v5'); repo.git('push', '-q', 'origin', 'main');
-    repo.git('checkout', '-q', 'feature');
-    spawnMerge(repo, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
-    const head = repo.git('rev-parse', 'HEAD');
-    const carry = (extra: string[] = []) => runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main', ...extra]);
+    const setup = (reviewedEdit: Record<number, string>, baseEdit: Record<number, string>, merged: Record<number, string>) => {
+      const repo = makeFixtureRepo({ prefix: 'ship-rereview-' }); repos.push(repo);
+      repo.git('checkout', '-q', 'main');
+      write(repo.work, 'lib/rows.js', src()); repo.git('add', '-A'); repo.git('commit', '-qm', 'rows'); repo.git('push', '-q', 'origin', 'main');
+      repo.git('checkout', '-q', 'feature'); repo.git('merge', '-q', '--no-edit', 'main');
+      write(repo.work, 'lib/rows.js', src(reviewedEdit)); repo.git('commit', '-qam', 'feat: v6');
+      const reviewed = repo.git('rev-parse', 'HEAD');
+      const body = path.join(repo.root, 'body.md');
+      fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any));
+      repo.git('checkout', '-q', 'main');
+      write(repo.work, 'lib/rows.js', src(baseEdit)); repo.git('commit', '-qam', 'main: edit'); repo.git('push', '-q', 'origin', 'main');
+      repo.git('checkout', '-q', 'feature');
+      spawnMerge(repo, { 'lib/rows.js': src(merged) });
+      const carry = (extra: string[] = []) => runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main', ...extra]);
+      return { repo, reviewed, head: repo.git('rev-parse', 'HEAD'), body, carry };
+    };
+
+    const adjacent = setup({ 6: 'exports.v6 = 600;' }, { 5: 'exports.v5 = "five";' }, { 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' });
+    const passed = adjacent.carry();
+    expect(passed.status, passed.err).toBe(EXIT.ok);
+    expect(extractReceipt(fs.readFileSync(adjacent.body, 'utf8')).receipt!.carry!.reason).toContain('base context moved next to unchanged own lines (lib/rows.js; CI at head checks it)');
+    const guard = (text: string, after: string) => text.replace('authorize();\n', '').replace(after + '\n', after + '\nauthorize();\n');
+    const rows = () => fs.readFileSync(path.join(adjacent.repo.work, 'lib/rows.js'), 'utf8');
+    write(adjacent.repo.work, 'lib/rows.js', guard(rows(), 'exports.v2 = 2;')); adjacent.repo.git('commit', '-qam', 'feat: guard v2');
+    fs.writeFileSync(adjacent.body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: adjacent.repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
+    write(adjacent.repo.work, 'lib/rows.js', guard(rows(), 'exports.v4 = 4;')); adjacent.repo.git('commit', '-qam', 'feat: move the guard');
+    const moved = adjacent.carry();
+    expect(moved.status).toBe(EXIT.refused);
+    expect(moved.out).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
+    expect(moved.err).toContain('lib/rows.js');
+
+    const { repo, reviewed, head, body, carry } = setup({ 6: 'exports.v6 = 6 + 60;' }, { 6: 'exports.v6 = 6 + 7;' }, { 6: 'exports.v6 = 6 + 7 + 60;' });
     fs.writeFileSync(path.join(repo.work, '.git', 'gstack'), 'not a directory');
     const blocked = carry();
     expect([blocked.status, blocked.out.includes('RECEIPT_CARRY_REFUSED'), blocked.err.includes('cannot be written')]).toEqual([EXIT.refused, true, true]);
@@ -378,24 +406,15 @@ describe('adjacent base edits (GST-384, #3631, founderstar#441)', () => {
     fs.writeFileSync(record, JSON.stringify({ head, paths: ['lib/rows.js'], reviewer: 'anthropic/claude-opus-5-5', verdict: 'clean' }));
     const ok = carry(['--scoped-review', record]);
     expect(ok.status).toBe(EXIT.ok);
-    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.carry!.reason).toBe('base merge + base context moved (scoped review by anthropic/claude-opus-5-5: lib/rows.js)');
-    const guard = (text: string, after: string) => text.replace('authorize();\n', '').replace(after + '\n', after + '\nauthorize();\n');
-    const rows = () => fs.readFileSync(path.join(repo.work, 'lib/rows.js'), 'utf8');
-    write(repo.work, 'lib/rows.js', guard(rows(), 'exports.v2 = 2;')); repo.git('commit', '-qam', 'feat: guard v2');
-    fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
-    write(repo.work, 'lib/rows.js', guard(rows(), 'exports.v4 = 4;')); repo.git('commit', '-qam', 'feat: move the guard');
-    const moved = carry();
-    expect(moved.status).toBe(EXIT.refused);
-    expect(moved.out).toContain('RECEIPT_CARRY_PRODUCT_CHANGED');
-    expect(moved.err).toContain('lib/rows.js');
+    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.carry!.reason).toBe('base merge + spliced hunks (scoped review by anthropic/claude-opus-5-5: lib/rows.js)');
   });
 });
 
 describe('carry with a context path and a gap elsewhere (GST-407 cycle 5)', () => {
-  // Value: protects=a scoped review of the context paths carries only when the rest of the product diff is unchanged;
-  //   fails_when=a product path the walk skips (a stamp_files sibling whose glob a base edit demoted, here plugin/b.json,
-  //   whose branch edit also landed on main) drops out of the product patch-id unnamed and the receipt carries under a
-  //   scoped review that never saw it; seam=bin/gstack-ship-receipt cmdCarry; no_claim=none
+  // Value: protects=a context path carries only when the rest of the product diff is unchanged, and once it is, a large
+  //   context path carries with no reader (GST-3562 G); fails_when=a product path the walk skips (a stamp_files sibling
+  //   whose glob a base edit demoted, here plugin/b.json, whose branch edit also landed on main) drops out of the product
+  //   patch-id unnamed and the receipt carries without it; seam=bin/gstack-ship-receipt cmdCarry; no_claim=none
   test('carry refuses a product patch-id gap outside the context paths', () => {
     const repo = makeFixtureRepo({ prefix: 'ship-rereview-gap-' }); repos.push(repo);
     const src = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => edit[i + 1] ?? `exports.v${i + 1} = ${i + 1};`).join('\n') + '\n';
@@ -424,7 +443,8 @@ describe('carry with a context path and a gap elsewhere (GST-407 cycle 5)', () =
     repo.git('checkout', '-q', 'feature');
     spawnMerge(repo, { 'lib/rows.js': src({ 5: 'exports.v5 = "5";', 6: 'exports.v6 = 600;' }) + Array.from({ length: 220 }, (_, i) => `exports.w${i} = ${i};\n`).join('') });
     const big = runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
-    expect([big.status, big.out.trim().split('\n')[0], big.err.includes('too large for the scoped review')]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)', true]);
+    expect(big.status, big.err).toBe(EXIT.ok);
+    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.carry!.reason).toContain('base context moved next to unchanged own lines (lib/rows.js; CI at head checks it)');
   });
 });
 
@@ -605,16 +625,17 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
   });
 });
 
-describe('preflight carry route for an adjacent base edit (GST-442)', () => {
-  // Value: protects=/ship Step 1's carry check offers the scoped review when the base edited context next to a reviewed hunk,
-  //   instead of treating the refusal as "run the full loop", and its dry run writes nothing; fails_when=preflight acts only on
-  //   'CARRY: would carry' or carry --dry-run writes the packet; seam=gstack-ship-receipt carry --dry-run; no_claim=the reviewer
+describe('preflight carry route for a spliced hunk (GST-442)', () => {
+  // Value: protects=/ship Step 1's carry check offers the scoped review when the base merge spliced lines into a reviewed hunk
+  //   (GST-3562 G: an adjacent base edit alone now carries), instead of treating the refusal as "run the full loop", and its
+  //   dry run writes nothing; fails_when=preflight acts only on 'CARRY: would carry' or carry --dry-run writes the packet;
+  //   seam=gstack-ship-receipt carry --dry-run; no_claim=the reviewer
   test('preflight routes RECEIPT_CARRY_SCOPED_REVIEW to one scoped review, and the dry run writes no packet', () => {
     const src = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => edit[i + 1] ?? `exports.v${i + 1} = ${i + 1};`).join('\n') + '\n';
-    const f = fx({ 'lib/rows.js': src() }, { 'lib/rows.js': src({ 6: 'exports.v6 = 600;' }) });
+    const f = fx({ 'lib/rows.js': src() }, { 'lib/rows.js': src({ 6: 'exports.v6 = 6 + 60;' }) });
     const reviewed = f.git('rev-parse', 'HEAD').stdout.trim();
-    f.advanceBase({ 'lib/rows.js': src({ 5: 'exports.v5 = "five";' }) });
-    mergeMain(f, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
+    f.advanceBase({ 'lib/rows.js': src({ 6: 'exports.v6 = 6 + 7;' }) });
+    mergeMain(f, { 'lib/rows.js': src({ 6: 'exports.v6 = 6 + 7 + 60;' }) });
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
     const view = path.join(f.root, 'view.json');
     fs.writeFileSync(view, JSON.stringify({ body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge' } as any), headRefOid: head }));
@@ -650,10 +671,10 @@ describe('preflight carry route for an adjacent base edit (GST-442)', () => {
   //   round 2); fails_when=the dry run returns the scoped refusal before the receipt's other carry checks; seam=gh; no_claim=none
   test('a dry run that the receipt would refuse anyway names that refusal, not the scoped route', () => {
     const src = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => edit[i + 1] ?? `exports.v${i + 1} = ${i + 1};`).join('\n') + '\n';
-    const f = fx({ 'lib/rows.js': src() }, { 'lib/rows.js': src({ 6: 'exports.v6 = 600;' }) });
+    const f = fx({ 'lib/rows.js': src() }, { 'lib/rows.js': src({ 6: 'exports.v6 = 6 + 60;' }) });
     const reviewed = f.git('rev-parse', 'HEAD').stdout.trim();
-    f.advanceBase({ 'lib/rows.js': src({ 5: 'exports.v5 = "five";' }) });
-    mergeMain(f, { 'lib/rows.js': src({ 5: 'exports.v5 = "five";', 6: 'exports.v6 = 600;' }) });
+    f.advanceBase({ 'lib/rows.js': src({ 6: 'exports.v6 = 6 + 7;' }) });
+    mergeMain(f, { 'lib/rows.js': src({ 6: 'exports.v6 = 6 + 7 + 60;' }) });
     const head = f.git('rev-parse', 'HEAD').stdout.trim();
     const view = path.join(f.root, 'view.json');
     fs.writeFileSync(view, JSON.stringify({ body: placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge', gstack_version: '1.0.0' } as any), headRefOid: head }));
@@ -947,17 +968,19 @@ describe('finish after a completed fix-check (GST-1130, GEVA-218)', () => {
   });
 });
 
-// Value: protects=a base merge that puts lines already merged at base next to the branch's reviewed, unchanged hunk reaches
-//   the scoped read even when those base lines push a packet section past PACKET_SECTION_CAP (founderstar#515, #3923); only the
-//   branch's own lines count toward the cap; fails_when=finish forces the behavior route for a section that is over only
-//   because of base lines, or lets a section the branch's own lines push over reach the scoped read; seam=contextPacket's count
-describe('base lines do not count toward the scoped-review cap (GST-1226, founderstar#515, #3923)', () => {
+// Value: protects=GST-3562 G: a base merge that puts lines next to the branch's reviewed, unchanged hunk counts as reviewed
+//   however large either side is (founderstar#515, #3923 once needed a scoped read), with CI on the merged head as the check;
+//   the scoped-review cap now applies to hunks the merge spliced, where only the branch's own lines count;
+//   fails_when=finish asks for a reader or the behavior route for unchanged own lines, or lets a spliced section the branch's
+//   own lines push over the cap reach the scoped read; seam=comparePath + contextPacket's count
+describe('base lines next to unchanged own lines need no reader; the cap binds spliced hunks (GST-1226, GST-3562 G)', () => {
   const block = (name: string, n: number) => Array.from({ length: n }, (_, i) => `export const ${name}${i + 1} = ${i + 1};`);
   const join = (rows: string[]) => rows.join('\n') + '\n';
   const at = (n: number, after: number, add: string[]) => { const rows = lines(n).trimEnd().split('\n'); rows.splice(after, 0, ...add); return rows; };
-  const scoped = (r: { status: number | null; stdout: string }) => [r.status, lineOf(r.stdout, 'ROUTE').replace(/^.* behavior=/, 'behavior='), r.stdout.includes('STOP: base context moved next to the reviewed hunks in src/shots.ts'), r.stdout.includes('SCOPED_REVIEW: too large')];
+  const routed = (r: { status: number | null; stdout: string }) => [r.status, lineOf(r.stdout, 'ROUTE').replace(/^.* behavior=/, 'behavior='), r.stdout.includes('STOP: the base merge spliced lines into the reviewed hunks in src/shots.ts'), r.stdout.includes('SCOPED_REVIEW: too large')];
+  const reviewedAsBase = [0, 'behavior=0 docs=0 metadata=0 tests=0 base=1 context=0', false, false];
 
-  test('210 lines another PR merged at base next to the branch\'s 76 reviewed lines reach the scoped read', () => {
+  test('210 lines another PR merged at base next to the branch\'s 76 reviewed lines count as reviewed', () => {
     const pr = block('pr', 76), other = block('other', 210);
     const f = fx({ 'src/shots.ts': lines(20) }, { 'src/shots.ts': join(at(20, 10, pr)) });
     const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
@@ -965,10 +988,10 @@ describe('base lines do not count toward the scoped-review cap (GST-1226, founde
     const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
     mergeMain(f, { 'src/shots.ts': join(merged) });
     expect(f.git('show', 'HEAD:src/shots.ts').stdout).toBe(join(merged));
-    expect(scoped(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual([3, 'behavior=0 docs=0 metadata=0 tests=0 base=0 context=1', true, false]);
+    expect(routed(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual(reviewedAsBase);
   });
 
-  test('a changed trailing context line with the same +/- lines reaches the scoped read beside a 221-line base rewrite', () => {
+  test('a changed trailing context line with the same +/- lines beside a 221-line base rewrite counts as reviewed', () => {
     const pr = block('pr', 76);
     const f = fx({ 'src/shots.ts': lines(300) }, { 'src/shots.ts': join(at(300, 10, pr)) });
     const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
@@ -978,39 +1001,43 @@ describe('base lines do not count toward the scoped-review cap (GST-1226, founde
     const merged = lines(300, edits).trimEnd().split('\n'); merged.splice(10, 0, ...pr);
     mergeMain(f, { 'src/shots.ts': join(merged) });
     expect(f.git('show', 'HEAD:src/shots.ts').stdout).toBe(join(merged));
-    expect(scoped(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual([3, 'behavior=0 docs=0 metadata=0 tests=0 base=0 context=1', true, false]);
+    expect(routed(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual(reviewedAsBase);
   });
 
-  test('a section the branch\'s own 230 lines push past the cap still takes the behavior route', () => {
-    const pr = block('pr', 230), other = block('other', 5);
-    const f = fx({ 'src/shots.ts': lines(20) }, { 'src/shots.ts': join(at(20, 10, pr)) });
-    const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
-    f.advanceBase({ 'src/shots.ts': join(at(20, 11, other)) });
-    const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
-    mergeMain(f, { 'src/shots.ts': join(merged) });
-    const r = finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
-    expect(scoped(r)).toEqual([3, 'behavior=1 docs=0 metadata=0 tests=0 base=0 context=0', false, true]);
-    expect(r.stdout.includes('STOP: behavior, tests or build inputs changed since review (src/shots.ts)')).toBe(true);
+  test('the branch\'s own 230 unchanged lines and a base change past BASE_SECTION_CEILING count as reviewed', () => {
+    for (const [own, base] of [[230, 5], [76, 2100]]) {
+      const pr = block('pr', own), other = block('other', base);
+      const f = fx({ 'src/shots.ts': lines(20) }, { 'src/shots.ts': join(at(20, 10, pr)) });
+      const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
+      f.advanceBase({ 'src/shots.ts': join(at(20, 11, other)) });
+      const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
+      mergeMain(f, { 'src/shots.ts': join(merged) });
+      expect(routed(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual(reviewedAsBase);
+    }
   });
 
-  test('a base change past BASE_SECTION_CEILING counts in full again and takes the behavior route', () => {
-    const pr = block('pr', 76), other = block('other', 2100);
-    const f = fx({ 'src/shots.ts': lines(20) }, { 'src/shots.ts': join(at(20, 10, pr)) });
-    const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
-    f.advanceBase({ 'src/shots.ts': join(at(20, 11, other)) });
-    const merged = at(20, 11, other); merged.splice(10, 0, ...pr);
-    mergeMain(f, { 'src/shots.ts': join(merged) });
-    expect(scoped(finish(f, reviewed, post, ['--reviewed-base', reviewedBase]))).toEqual([3, 'behavior=1 docs=0 metadata=0 tests=0 base=0 context=0', false, true]);
+  test('20 spliced lines reach the scoped read; 120 spliced lines pass the cap and take the behavior route', () => {
+    const spliced = (n: number) => {
+      const edit = (v: (i: number) => string) => Object.fromEntries(Array.from({ length: n }, (_, i) => [i + 3, `export const l${i + 3} = ${v(i + 3)};`]));
+      const f = fx({ 'src/shots.ts': lines(n + 10) }, { 'src/shots.ts': lines(n + 10, edit(i => `${i} + 1000`)) });
+      const reviewed = wtree(f), reviewedBase = mergeBase(f), post = snapshot(f);
+      f.advanceBase({ 'src/shots.ts': lines(n + 10, edit(i => `${i} + 7`)) });
+      mergeMain(f, { 'src/shots.ts': lines(n + 10, edit(i => `${i} + 7 + 1000`)) });
+      return finish(f, reviewed, post, ['--reviewed-base', reviewedBase]);
+    };
+    expect(routed(spliced(20))).toEqual([3, 'behavior=0 docs=0 metadata=0 tests=0 base=0 context=1', true, false]);
+    const big = spliced(120);
+    expect(routed(big)).toEqual([3, 'behavior=1 docs=0 metadata=0 tests=0 base=0 context=0', false, true]);
+    expect(big.stdout).toContain('STOP: behavior, tests or build inputs changed since review (src/shots.ts)');
   });
 });
 
-// Value: protects=a base merge that only changes context lines inside the branch's own unchanged hunks reaches the carry's
-//   scoped read even when those context lines and hunk headers push a section past PACKET_SECTION_CAP (founderstar#802: 22
-//   hunks, +66/-11, a section of about 205 lines); a branch whose own +/- lines pass the cap is still refused;
-//   fails_when=carry counts base context lines (in the branch's hunks or in the base's change) toward the cap and refuses
-//   with RECEIPT_CARRY_PRODUCT_CHANGED, or lets a section the branch's own lines push over reach the scoped read;
-//   seam=contextPacket's count; no_claim=the scoped reviewer's judgment
-describe('only the branch\'s own +/- lines count toward the scoped-review cap in carry (GST-2229, founderstar#802)', () => {
+// Value: protects=GST-3562 G for the carry: a base merge that only changes context lines inside or next to the branch's own
+//   unchanged hunks carries with no reader however large the sections are (founderstar#802 once needed a scoped read); the
+//   scoped-review cap binds spliced hunks, counting only the branch's own +/- lines; fails_when=carry refuses unchanged own
+//   lines, or lets a spliced section the branch's own lines push over the cap reach the scoped read;
+//   seam=bin/gstack-ship-receipt cmdCarry + contextPacket's count; no_claim=the scoped reviewer's judgment
+describe('carry passes moved context next to unchanged own lines; the cap binds spliced hunks (GST-2229, GST-3562 G)', () => {
   const row = (at: number, v: string | number = at) => `exports.v${at} = ${v};`;
   /** `hunks` branch hunks 15 lines apart, alternating a 1-to-3 replacement and a 3-line insertion; the base edits the line two below each of the first `edits` spots, inside a branch hunk's context where there is one. */
   const file = (hunks: number, edits: number, pr: boolean, base: boolean) => Array.from({ length: 15 * Math.max(hunks, edits) + 10 }, (_, i) => {
@@ -1020,46 +1047,47 @@ describe('only the branch\'s own +/- lines count toward the scoped-review cap in
     const added = [0, 1, 2].map(j => `exports.pr${at}_${j} = ${j};`);
     return k % 2 ? [line, ...added] : added;
   }).flat().join('\n') + '\n';
-  const carry = (hunks: number, edits = hunks) => {
+  const carryOf = (main: string, branch: string, base: string, merged: string) => {
     const repo = makeFixtureRepo({ prefix: 'ship-rereview-own-' }); repos.push(repo);
     repo.git('checkout', '-q', 'main');
-    write(repo.work, 'lib/game.js', file(hunks, edits, false, false)); repo.git('add', '-A'); repo.git('commit', '-qm', 'game'); repo.git('push', '-q', 'origin', 'main');
+    write(repo.work, 'lib/game.js', main); repo.git('add', '-A'); repo.git('commit', '-qm', 'game'); repo.git('push', '-q', 'origin', 'main');
     repo.git('checkout', '-q', 'feature'); repo.git('merge', '-q', '--no-edit', 'main');
-    write(repo.work, 'lib/game.js', file(hunks, edits, true, false)); repo.git('commit', '-qam', 'feat: game');
+    write(repo.work, 'lib/game.js', branch); repo.git('commit', '-qam', 'feat: game');
     const body = path.join(repo.root, 'body.md');
     fs.writeFileSync(body, placeReceipt('## Summary\n\nProse.\n', { schema_version: 1, pr: 9, head: repo.git('rev-parse', 'HEAD'), base: 'main', queue_mode: 'stamp-at-merge' } as any));
     repo.git('checkout', '-q', 'main');
-    write(repo.work, 'lib/game.js', file(hunks, edits, false, true)); repo.git('commit', '-qam', 'main: context'); repo.git('push', '-q', 'origin', 'main');
+    write(repo.work, 'lib/game.js', base); repo.git('commit', '-qam', 'main: context'); repo.git('push', '-q', 'origin', 'main');
     repo.git('checkout', '-q', 'feature');
-    spawnMerge(repo, { 'lib/game.js': file(hunks, edits, true, true) });
-    expect(fs.readFileSync(path.join(repo.work, 'lib/game.js'), 'utf8')).toBe(file(hunks, edits, true, true));
-    return runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']);
+    spawnMerge(repo, { 'lib/game.js': merged });
+    expect(fs.readFileSync(path.join(repo.work, 'lib/game.js'), 'utf8')).toBe(merged);
+    return { r: runBin(repo, 'gstack-ship-receipt', ['carry', '--body', body, '--base', 'main']), body };
+  };
+  const carry = (hunks: number, edits = hunks) => carryOf(file(hunks, edits, false, false), file(hunks, edits, true, false), file(hunks, edits, false, true), file(hunks, edits, true, true));
+  const spliced = (n: number) => {
+    const text = (v: (i: number) => string) => Array.from({ length: n + 10 }, (_, i) => row(i + 1, i >= 2 && i < n + 2 ? v(i + 1) : i + 1)).join('\n') + '\n';
+    return carryOf(text(i => String(i)), text(i => `${i} + 1000`), text(i => `${i} + 7`), text(i => `${i} + 7 + 1000`)).r;
   };
   const section = (text: string, label: string) => (new RegExp(`^${label}\\n\`\`\`diff\\n([\\s\\S]*?)\\n\`\`\`$`, 'm').exec(text)?.[1] ?? '').split('\n');
-
-  const packet = (r: { status: number | null; out: string; err: string }) => {
-    expect([r.status, r.out.trim().split('\n')[0]], r.err).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)']);
-    const at = /reads (\S+), then/.exec(r.err)?.[1];
-    expect(at).toBeDefined();
-    return fs.readFileSync(at!, 'utf8');
-  };
   const own = (rows: string[]) => rows.filter(l => /^[+-]/.test(l)).length;
 
-  test('22 unchanged branch hunks whose base context moved reach the scoped read with their sections over 200 lines', () => {
-    const text = packet(carry(22));
-    const current = section(text, 'Current hunks'), reviewed = section(text, 'Reviewed hunks');
-    expect([current.length > 200, own(current), reviewed.length > 200, own(reviewed)]).toEqual([true, 77, true, 77]);
-    expect(text).toContain('+exports.pr10_0 = 0;');
-    expect(text).toContain(' exports.v12 = "base 12";');
+  test('22 or 60 unchanged branch hunks and 30 scattered base edits carry with no reader', () => {
+    for (const [hunks, edits] of [[22, 22], [60, 60], [4, 30]]) {
+      const { r, body } = carry(hunks, edits);
+      expect(r.status, r.err).toBe(EXIT.ok);
+      expect(r.err).not.toContain('SCOPED_REVIEW');
+      expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.carry!.reason).toContain('base context moved next to unchanged own lines (lib/game.js; CI at head checks it)');
+    }
   });
 
-  test('30 scattered base edits whose context lines pass 200 next to 4 unchanged branch hunks reach the scoped read', () => {
-    const base = section(packet(carry(4, 30)), "The base's change");
-    expect([base.length - own(base) > 200, own(base)]).toEqual([true, 60]);
-  });
-
-  test('60 branch hunks whose own +/- lines pass 200 are still too large for the scoped review', () => {
-    const r = carry(60);
-    expect([r.status, r.out.trim().split('\n')[0], r.err.includes('lib/game.js (too large for the scoped review: over 200 lines in a section)')]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)', true]);
+  test('20 spliced lines reach the scoped read with only their own lines counted; 120 are too large for it', () => {
+    const ask = spliced(20);
+    expect([ask.status, ask.out.trim().split('\n')[0]], ask.err).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)']);
+    const at = /reads (\S+), then/.exec(ask.err)?.[1];
+    expect(at).toBeDefined();
+    const text = fs.readFileSync(at!, 'utf8');
+    expect([own(section(text, 'Current hunks')), own(section(text, 'Reviewed hunks'))]).toEqual([40, 40]);
+    expect(text).toContain('+exports.v3 = 3 + 7 + 1000;');
+    const big = spliced(120);
+    expect([big.status, big.out.trim().split('\n')[0], big.err.includes('lib/game.js (too large for the scoped review: over 200 lines in a section)')]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)', true]);
   });
 });
