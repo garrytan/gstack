@@ -40,7 +40,9 @@ file in use and the names of the env vars read, plus "safe to retry; nothing was
 at most 3 times with backoff, then stop". \`--json\` emits the same fields as an RFC 9457 object with
 \`code\`, \`fix\`, \`recovery: {action, side_effects}\` and a \`type\` URL to
 https://acme.example/errors#PROJECT_NOT_FOUND. Unexpected crashes write the stack trace to
-~/.acme/logs/crash-<timestamp>.log and print that path. Tokens are masked in every message.
+~/.acme/logs/crash-<timestamp>.log and print that path, plus "nothing was changed: pull stages files in
+./.acme/staging and swaps them in with one rename; rerun acmesync pull once, and if it crashes again
+send that log to Acme support". Tokens are masked in every message.
 
 ### Error path P3 (GET /v1/projects/{id} on the Acme API)
 An unknown id returns HTTP 404 with an RFC 9457 body: \`type\`

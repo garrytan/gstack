@@ -621,6 +621,20 @@ describe('gstack-developer-profile --vibe', () => {
     // Default profile (all 0.5) is closest to Builder-Coach or Polymath
     expect(lines[0].length).toBeGreaterThan(0);
   });
+
+  test('a profile larger than a pipe buffer or one argument still returns its archetype', () => {
+    runDev('--read');
+    const file = path.join(tmpHome, 'developer-profile.json');
+    const base = readProfile() as any;
+    for (const [count, bytes] of [[450, 65_536], [900, 131_072]]) {
+      const sessions = Array.from({ length: count }, (_, i) => ({ ts: new Date(0).toISOString(), skill: 'office-hours', note: `session ${i} `.padEnd(120, 'x') }));
+      fs.writeFileSync(file, JSON.stringify({ ...base, sessions }));
+      expect(fs.statSync(file).size).toBeGreaterThan(bytes);
+      const r = runDev('--vibe');
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim().split('\n').length).toBe(2);
+    }
+  });
 });
 
 // -----------------------------------------------------------------------
