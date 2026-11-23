@@ -437,6 +437,11 @@ The results file opens with two or three plain takeaways ("We learned X. You sho
 X."): what works first, then what didn't, with its number. Cost appears only as part of a
 lesson, and nothing is opened without a stated reason (ETHOS.md, Explain the Number).
 
+A run that ends null, as a cut candidate, at option C of the approval ask, or on
+`budget_exhausted` is shelved work: before the question closes, its results file also says
+why it's shelved, what would reopen it and where the data is (`docs/shelved-attempt.md` in
+gstack), and the verdict links it.
+
 ## Tier 3, after P7 (not in this skill yet)
 
 Each of these waits for the adoption number in the multi-agent wave plan (P7); one line each so the shape is known:

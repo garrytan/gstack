@@ -85,6 +85,16 @@ describe('archive check (reads and verdict)', () => {
     expect(ci.lines.some(l => l.includes('ci=unknown'))).toBe(true);
   });
 
+  // Value: protects=a PR closed without merging reminds the Captain to link the shelved-attempt write-up and never refuses the archive; fails_when=the note is missing, fires on a merged PR, or changes the verdict
+  test('a PR closed without merging prints a write-up NOTE; a merged one prints none', () => {
+    const r = checkThread(reads({ thread: thread('GSTA-1', 'idle', [pr(12), pr(13)]) }), opts({ 'garrytan/gstack#12': { state: 'CLOSED' }, 'garrytan/gstack#13': { state: 'MERGED' } }));
+    expect(r.verdict).toBe('clean');
+    expect(r.lines.filter(l => l.startsWith('NOTE: pr'))).toEqual(['NOTE: pr garrytan/gstack#12 closed without merging (if it was shelved, cut or null, its close links a write-up: docs/shelved-attempt.md)']);
+    expect(r.json.notes).toContain(r.lines[0]);
+    expect(r.lines.at(-1)).toBe('ARCHIVE_CHECK: clean thread=GSTA-1 prs=0 issues=0');
+    expect(fs.existsSync(path.join(import.meta.dir, '..', 'docs', 'shelved-attempt.md'))).toBe(true);
+  });
+
   // Value: protects=only OPEN, CLOSED and MERGED are PR states, anything else fails closed; fails_when=an empty or unknown gh state is read as closed and the thread archives clean
   test('an unknown or empty live PR state is unreadable, never closed', () => {
     const t = thread('GSTA-1', 'idle', [pr(7)]);

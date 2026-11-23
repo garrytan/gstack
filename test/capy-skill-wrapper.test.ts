@@ -696,7 +696,9 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     // what its name says (the second batch of crew rules, G4 and G10, each reached by three crews on their own).
     // 5,300 for point 16's queue drain (R119, Garry's rule of 2026-11-22: every Captain that lands PRs runs a standing process
     // that stops finished PRs piling up; the procedure is crew/docs/captain.md's Drain the queue).
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(5300);
+    // 5,550 for point 17's write-up before a shelve (Garry's "do it" of 2026-11-23: an attempt that fails or is shelved is
+    // documented first, as gstack's default; the template is docs/shelved-attempt.md).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(5550);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });
