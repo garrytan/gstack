@@ -1012,7 +1012,9 @@ corporate proxy keeps working. `BROWSE_PROXY_URL=direct` bypasses the system
 settings too, on every platform; on macOS and Windows it is part of the
 daemon's settings, so a running daemon started without it is not reused (for
 a headless daemon the refusal below names `BROWSE_PROXY_URL`; a `connect`
-daemon gets the generic flags refusal) and a crash restart keeps it. The
+daemon gets the generic flags refusal plus a line naming `BROWSE_PROXY_URL`,
+since passing the same flags alone would not reuse it) and a crash restart
+keeps it. The
 daemon log (`browse-daemon.log` next to the state file) records the
 effective mode each time the daemon starts, as `[proxy] using <url> from
 <source>`, `[proxy] none: direct connection (--proxy-server=direct://;

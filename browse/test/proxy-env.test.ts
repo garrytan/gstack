@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { DIRECT_PROXY_ARG, computeConfigHash, directProxyLogLine, noProxyToChromiumRules, parseProxyConfig, resolveProxy, serverProxyEnv, withLoopbackBypass } from '../src/proxy-config';
-import { buildHeadedServerEnv, buildRestartEnv, extractGlobalFlags, proxyMismatchLines, withLoopbackNoProxy } from '../src/cli';
+import { buildHeadedServerEnv, buildRestartEnv, extractGlobalFlags, headedDaemonProxyLine, proxyMismatchLines, withLoopbackNoProxy } from '../src/cli';
 
 describe('resolveProxy precedence', () => {
   const env = {
@@ -327,5 +327,48 @@ describe('BROWSER.md documents the proxy messages', () => {
       expect(section).toContain(needle);
     }
     expect(directProxyLogLine({ HTTPS_PROXY: 'http://b:2' }, 'linux')).toContain('[proxy] none: direct connection (' + DIRECT_PROXY_ARG + '; ignoring HTTPS_PROXY)');
+  });
+});
+
+// Value: protects=every remedy a proxy mismatch refusal offers can be followed: a --proxy session keeps the --proxy refusal, an
+//   unset remedy names every variable that would still resolve a proxy, an opted out session is told to drop BROWSE_PROXY_URL, and a
+//   connect daemon names the variable when its proxy differs too; fails_when=a remedy names a setting that --proxy or
+//   BROWSE_PROXY_URL=direct outranks, or leaves a set variable that refuses the next run; why_new=the existing cases pin one variable
+//   per side and never pair --proxy, an opt out or a headed daemon with the other side's source (#3455); seam=proxyMismatchLines
+describe('proxy mismatch remedies that can be followed (#3455)', () => {
+  const state = (extra: Record<string, unknown> = {}) => ({ pid: 1, port: 1, token: 't', startedAt: '', serverPath: '', mode: 'launched' as const, configHash: 'x', ...extra });
+  const proxied = { proxy: 'http://proxy.example:3128/', proxySource: 'HTTPS_PROXY', proxyBypass: 'localhost,127.0.0.1,[::1]' };
+  const fixLine = (lines: string[] | null) => lines?.find(l => l.startsWith('fix: ')) ?? '';
+
+  test('a --proxy session against an explicit-direct daemon keeps the --proxy refusal (item 1)', () => {
+    const flags = extractGlobalFlags(['--proxy', 'http://corp:3128', 'text'], {}, 'darwin');
+    expect(proxyMismatchLines(flags, state({ proxyDirect: true }), {}, 'darwin')).toBeNull();
+  });
+
+  test('an unset remedy names every variable that would still resolve a proxy (item 2)', () => {
+    const optedOut = { BROWSE_PROXY_URL: 'direct', HTTPS_PROXY: 'http://a:1', https_proxy: 'http://a:1' };
+    const a = fixLine(proxyMismatchLines(extractGlobalFlags(['text'], optedOut, 'darwin'), state(), optedOut, 'darwin'));
+    for (const name of ['BROWSE_PROXY_URL', 'HTTPS_PROXY', 'https_proxy']) expect(a, name).toContain(name);
+    expect(a).not.toContain('HTTP_PROXY');
+    const both = { HTTPS_PROXY: 'http://a:1', https_proxy: 'http://a:1' };
+    const b = fixLine(proxyMismatchLines(extractGlobalFlags(['text'], both, 'darwin'), state(), both, 'darwin'));
+    for (const name of ['HTTPS_PROXY', 'https_proxy']) expect(b, name).toContain(name);
+  });
+
+  test('an opted out session against a proxied daemon is told to unset BROWSE_PROXY_URL (item 3)', () => {
+    const env = { BROWSE_PROXY_URL: 'direct' };
+    for (const platform of ['darwin', 'linux'] as const) {
+      const fix = fixLine(proxyMismatchLines(extractGlobalFlags(['text'], env, platform), state(proxied), env, platform));
+      expect(fix, platform).toContain('unset BROWSE_PROXY_URL');
+      expect(fix, platform).toContain('HTTPS_PROXY');
+    }
+  });
+
+  test('a connect daemon whose proxy also differs gets a line naming the variable; a headed-only difference gets none (item 4)', () => {
+    const env = { BROWSE_PROXY_URL: 'direct' };
+    expect(headedDaemonProxyLine(extractGlobalFlags(['text'], env, 'darwin'), state({ mode: 'headed' }), env)).toContain('BROWSE_PROXY_URL');
+    expect(headedDaemonProxyLine(extractGlobalFlags(['text'], {}, 'darwin'), state({ mode: 'headed' }), {})).toBeNull();
+    const same = { HTTPS_PROXY: 'http://proxy.example:3128' };
+    expect(headedDaemonProxyLine(extractGlobalFlags(['text'], same, 'darwin'), state({ mode: 'headed', ...proxied }), same)).toBeNull();
   });
 });

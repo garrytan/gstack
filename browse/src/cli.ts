@@ -16,7 +16,7 @@ import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-h
 import { readPidStartTime, readPidCmdline } from './xvfb';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash, isPairAgentEnabled, resolveChromiumProfile } from './config';
-import { resolveProxy, computeConfigHash, explicitDirect, ProxyConfigError, PROXY_TROUBLESHOOTING } from './proxy-config';
+import { resolveProxy, computeConfigHash, explicitDirect, ProxyConfigError, PROXY_TROUBLESHOOTING, STANDARD_PROXY_VARS } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
 import { spawnTerminalAgent, bunChildFlags } from './terminal-agent-control';
 import { profileOwner, ensureProjectProfile, runProfilesCommand } from './chromium-profiles';
@@ -494,9 +494,49 @@ function reportDaemonBusyAndExit(pid: number): never {
  */
 export function proxyMismatchLines(flags: GlobalFlags, state: ServerState, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string[] | null {
   if ((state.mode === 'headed') !== flags.headed) return null;
+  // --proxy outranks every variable, so against a daemon without a proxy only the --proxy refusal can be followed (#3455).
+  if (flags.proxySource === '--proxy' && !state.proxy) return null;
+  const d = proxyDifference(flags, state, env);
+  if (!d.fromEnv(flags.proxySource) && !d.fromEnv(state.proxySource) && !flags.proxyWarning && !d.optedOut && !state.proxyDirect) return null;
+  // Every set variable that would still resolve a proxy, so unsetting the one named does not lead to a second refusal.
+  const set = ['BROWSE_PROXY_URL', ...STANDARD_PROXY_VARS].filter(name => env[name]);
+  const unset = (fallback: string) => `unset ${spokenList(set.length ? set : [fallback])}`;
+  const remedies = [`run 'browse stop' to restart the daemon with this session's proxy settings`];
+  if (state.proxy && d.optedOut && d.fromEnv(state.proxySource) && state.proxySource !== 'BROWSE_PROXY_URL') remedies.push(`or unset BROWSE_PROXY_URL and run this session with the daemon's ${d.variable} so the settings match`);
+  else if (state.proxy) remedies.push(`or run this session with the daemon's ${d.variable} so the settings match`);
+  else if (flags.explicitDirect && !state.proxyDirect) remedies.push(`or ${unset('BROWSE_PROXY_URL')} to use the running daemon with the system proxy settings`);
+  else if (state.proxyDirect || platform === 'linux') remedies.push(`or set BROWSE_PROXY_URL=direct to use the running daemon without a proxy`);
+  else remedies.push(`or ${unset(d.variable)} to use the running daemon with the system proxy settings`);
+  return [
+    `the running browse daemon was started with different proxy settings (${d.variable} differs), so it was not reused.`,
+    `  daemon:  ${d.daemon}`,
+    `  session: ${d.session}`,
+    `fix: ${remedies.join(', ')}.`,
+    `see ${PROXY_TROUBLESHOOTING}`,
+  ];
+}
+
+/**
+ * The extra line the generic refusal prints for a daemon whose headed mode differs (a `connect` daemon meeting a plain
+ * session) when its proxy settings differ too and a variable is involved: passing the same flags alone would still not
+ * reuse it (#3455). Null when only the headed mode differs, or when no environment setting is part of the difference.
+ */
+export function headedDaemonProxyLine(flags: GlobalFlags, state: ServerState, env: NodeJS.ProcessEnv = process.env): string | null {
+  if ((state.mode === 'headed') === flags.headed) return null;
+  const d = proxyDifference(flags, state, env);
+  if (!d.fromEnv(flags.proxySource) && !d.fromEnv(state.proxySource) && !flags.explicitDirect && !state.proxyDirect) return null;
+  const sessionProxy = flags.proxyUrl ? flags.redactedProxyUrl : undefined;
+  const differs = sessionProxy !== (state.proxy || undefined)
+    || (sessionProxy ? flags.proxyBypass ?? null : null) !== (state.proxy ? state.proxyBypass ?? null : null)
+    || flags.explicitDirect !== !!state.proxyDirect;
+  if (!differs) return null;
+  return `its proxy settings differ as well (${d.variable} differs; daemon: ${d.daemon}; session: ${d.session}), so the same flags alone will not reuse it; see ${PROXY_TROUBLESHOOTING}`;
+}
+
+/** Both proxy refusals describe the two sides and the variable to name the same way. */
+function proxyDifference(flags: GlobalFlags, state: ServerState, env: NodeJS.ProcessEnv) {
   const fromEnv = (source?: string | null) => !!source && source !== '--proxy';
   const optedOut = env.BROWSE_PROXY_URL === 'direct' && !flags.proxyUrl;
-  if (!fromEnv(flags.proxySource) && !fromEnv(state.proxySource) && !flags.proxyWarning && !optedOut && !state.proxyDirect) return null;
   const describe = (proxy: string | undefined, source: string | null | undefined, bypass: string | null | undefined) =>
     proxy ? `proxy ${proxy} from ${source ?? 'an older browse'}${bypass ? `, bypassing ${bypass}` : ''}` : 'no proxy';
   const daemon = describe(state.proxy, state.proxySource, state.proxyBypass) + (state.proxyDirect ? ' (BROWSE_PROXY_URL=direct)' : '');
@@ -504,20 +544,12 @@ export function proxyMismatchLines(flags: GlobalFlags, state: ServerState, env: 
     ? describe(flags.redactedProxyUrl, flags.proxySource, flags.proxyBypass)
     : `no proxy${optedOut ? ' (BROWSE_PROXY_URL=direct)' : flags.proxyWarning ? ' (a proxy variable did not parse)' : ''}`;
   const sameProxy = !!state.proxy && state.proxy === (flags.proxyUrl ? flags.redactedProxyUrl : undefined);
-  const variable = sameProxy ? 'NO_PROXY' : fromEnv(flags.proxySource) ? flags.proxySource : state.proxySource ?? 'BROWSE_PROXY_URL';
-  const remedies = [`run 'browse stop' to restart the daemon with this session's proxy settings`];
-  if (state.proxy) remedies.push(`or run this session with the daemon's ${variable} so the settings match`);
-  else if (flags.explicitDirect && !state.proxyDirect) remedies.push(`or unset BROWSE_PROXY_URL to use the running daemon with the system proxy settings`);
-  else if (state.proxyDirect || platform === 'linux') remedies.push(`or set BROWSE_PROXY_URL=direct to use the running daemon without a proxy`);
-  else remedies.push(`or unset ${variable} to use the running daemon with the system proxy settings`);
-  return [
-    `the running browse daemon was started with different proxy settings (${variable} differs), so it was not reused.`,
-    `  daemon:  ${daemon}`,
-    `  session: ${session}`,
-    `fix: ${remedies.join(', ')}.`,
-    `see ${PROXY_TROUBLESHOOTING}`,
-  ];
+  const variable = sameProxy ? 'NO_PROXY' : fromEnv(flags.proxySource) ? flags.proxySource! : state.proxySource ?? 'BROWSE_PROXY_URL';
+  return { fromEnv, optedOut, daemon, session, variable };
 }
+
+/** `a`, `a and b`, `a, b and c`. */
+const spokenList = (names: readonly string[]) => names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
 /**
  * The server env for this invocation's resolved proxy (#915); empty when
@@ -948,6 +980,8 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
       } else {
         console.error(`[browse] a browse daemon for this project is running with --headed/--proxy (started by another session).`);
         console.error(`[browse] pass the same flags to use it, or run 'browse disconnect' to start a plain one.`);
+        const proxyLine = flags && headedDaemonProxyLine(flags, state);
+        if (proxyLine) console.error(`[browse] ${proxyLine}`);
         console.error(`[browse] why: BROWSER.md, "Daemon discipline": https://github.com/garrytan/gstack/blob/main/BROWSER.md#headed-mode--proxy--browser-native-downloads-v12800`);
       }
       process.exit(1);
