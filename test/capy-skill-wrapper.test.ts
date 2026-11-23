@@ -698,7 +698,9 @@ describe('capy skill: factory.md, the auto-loaded "how we work" page', () => {
     // that stops finished PRs piling up; the procedure is crew/docs/captain.md's Drain the queue).
     // 5,550 for point 17's write-up before a shelve (Garry's "do it" of 2026-11-23: an attempt that fails or is shelved is
     // documented first, as gstack's default; the template is docs/shelved-attempt.md).
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(5550);
+    // 5,875 for point 18's first versions (Garry's "do it" of 2026-11-23 on GST-3608: a first version's plan quotes the owner's
+    // words with a line each, and gstack-first-use runs his exact try-it steps on the real target first; docs/first-use-check.md).
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(5875);
     expect(text).toMatch(/^# How we work/);
     expect(citationProblems(text)).toEqual([]);
   });

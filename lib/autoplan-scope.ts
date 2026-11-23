@@ -84,13 +84,13 @@ export function detectDocsOnly(implementationPlan: string, root: string): DocsOn
   return { docsOnly: paths.length > 0 && code.length === 0, paths, code };
 }
 
-export interface ScopeFlags { ui?: boolean; developerTool?: boolean; agentPrimary?: boolean; dx?: boolean; docsOnly?: boolean }
-export const SCOPE_FLAG_TOKENS = ['--ui', '--no-ui', '--no-dx', '--developer-tool', '--agent-primary', '--docs-only'] as const;
+export interface ScopeFlags { ui?: boolean; developerTool?: boolean; agentPrimary?: boolean; dx?: boolean; docsOnly?: boolean; firstVersion?: boolean }
+export const SCOPE_FLAG_TOKENS = ['--ui', '--no-ui', '--no-dx', '--developer-tool', '--agent-primary', '--docs-only', '--first-version'] as const;
 export const MARKER_RE = /^<!--\s*gstack-autoplan-scope:(.*?)-->\s*$/;
 
 export function scopeTokens(f: ScopeFlags): string[] {
   return [...(f.ui === true ? ['--ui'] : f.ui === false ? ['--no-ui'] : []), ...(f.dx === false ? ['--no-dx'] : []),
-    ...(f.developerTool ? ['--developer-tool'] : []), ...(f.agentPrimary ? ['--agent-primary'] : []), ...(f.docsOnly ? ['--docs-only'] : [])];
+    ...(f.developerTool ? ['--developer-tool'] : []), ...(f.agentPrimary ? ['--agent-primary'] : []), ...(f.docsOnly ? ['--docs-only'] : []), ...(f.firstVersion ? ['--first-version'] : [])];
 }
 
 export function parseScopeTokens(tokens: readonly string[], where: string): ScopeFlags {
@@ -103,6 +103,7 @@ export function parseScopeTokens(tokens: readonly string[], where: string): Scop
     ...(tokens.includes('--developer-tool') ? { developerTool: true } : {}),
     ...(tokens.includes('--agent-primary') ? { agentPrimary: true } : {}),
     ...(tokens.includes('--docs-only') ? { docsOnly: true } : {}),
+    ...(tokens.includes('--first-version') ? { firstVersion: true } : {}),
   };
 }
 

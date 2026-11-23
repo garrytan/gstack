@@ -19,6 +19,7 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 - /ship runs at the final pushed head before any READY; `SHIP_RECEIPT: pr=<n> head=<head>` names that head, and a later push needs a new /ship.
 - Run /ship in this thread (`ship/DRIVER.md`), with its reviewers as your subagents, never in a subagent of its own. After the receipt, read the PR's checks and comments once and run `gstack-ship-queue ready`.
 - Never merge. The controller merges on a recorded standing approval.
+- A first version (an app, a Mac helper, a new route on the owner's box): the plan quotes the owner's messages under `### Owner's words` with a line each, and the build clears `gstack-first-use` (`docs/first-use-check.md`) before any ask to try it or "v1 is ready" report.
 - UI work (recommended, never a READY prerequisite): once the change renders, run `install.sh --check --for design-review` and `gstack-browser-ensure`, launch with the printed `GSTACK_LAUNCH` line, then `/design-review --build <preview url>`, and paste its one `DESIGN_BUILD:` line in READY. A start that prints `GSTACK_RESULT: skill=design-review status=refused` is `DESIGN_BUILD: unrendered code=INSTALL` (`gstack-design-build admit <saved start output>` prints it). `incomplete` does not count as having run it.
 
 ## Under a Captain

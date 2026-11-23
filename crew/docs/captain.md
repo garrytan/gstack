@@ -444,6 +444,18 @@ machine starts without it, put `GSTACK_PLAN_RECORD` in the project env. On a pub
 render writes `Plan: approved (record r-<id>)` in place of the brief's run id, and ready
 resolves that id to the same approval row.
 
+**First versions.** A first version of anything a person uses (an app, a Mac helper, a new
+route on the owner's box) is a plan with a `### Day one` section, or `--first-version`. Its
+plan quotes the owner's own messages that state the job under `### Owner's words`, each with
+its time and a line: `does it`, `choice` (a lettered choice recommending the build unless the
+line gives a reason to leave it out) or `ruled out <date>` with his ruling. Nothing his words
+asked for sits under "What it won't do yet"; the gate letters it, and every cut on a first
+version gets its own letter. The five day-one rows cite those quotes. Before the owner is asked
+to try it, the build clears `gstack-first-use` ([docs/first-use-check.md](../../docs/first-use-check.md)):
+an agent from another model family follows the exact try-it message on the real target and
+records a verdict per step. A one-page day-one plan written without `/autoplan` (an app build
+under the owner's standing rule) carries the same two sections, so the same check reads it.
+
 The copy-paste brief is [`captain/templates/brief.md`](../../captain/templates/brief.md): the
 plan and the ask as step 1, the build after the word as step 2, /ship to READY as step 3,
 and a done line that names the approval row or the exemption.

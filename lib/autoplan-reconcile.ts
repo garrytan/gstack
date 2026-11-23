@@ -32,6 +32,8 @@ export interface CanonicalFinding {
   changes?: Changes;
   /** A challenge to the owner's own words: the 1-based bullet of the plan's `### Owner's words` it would change. */
   owner_quote?: number;
+  /** A cut or a "does it" line that does less than the plan's `### Owner's words` bullet n asked: the gate asks the owner to build it (lib/autoplan-gate-items.ts). */
+  narrows_quote?: number;
   /** A confirm round's row naming the earlier challenge id the revised plan now fixes. */
   resolves?: string;
 }
@@ -98,6 +100,7 @@ function parseFences(text: string, errors: string[]): { findings: CanonicalFindi
       if (Array.isArray(row.plan_items)) finding.plan_items = row.plan_items.filter((p: unknown): p is string => typeof p === 'string');
       if (typeof row.dimension === 'string') finding.dimension = row.dimension;
       if (Number.isInteger(row.owner_quote) && row.owner_quote > 0) finding.owner_quote = row.owner_quote;
+      if (Number.isInteger(row.narrows_quote) && row.narrows_quote > 0) finding.narrows_quote = row.narrows_quote;
       if (typeof row.resolves === 'string' && row.resolves.trim()) finding.resolves = row.resolves.trim();
       if (row.changes !== undefined) {
         if (!(CHANGES as readonly unknown[]).includes(row.changes)) { errors.push(`findings row ${i + 1}: changes ${JSON.stringify(row.changes)} is not one of ${CHANGES.join('|')}`); return; }
@@ -195,7 +198,7 @@ export function canonicalRows(findings: CanonicalFinding[], ctx: { run: string; 
     ...(f.local_id ? { source: f.local_id } : {}),
     ...(f.user_challenge ? { user_challenge: true } : {}), ...(f.urgent ? { urgent: true } : {}),
     ...(f.suggested_owner ? { suggested_owner: f.suggested_owner } : {}), ...(f.dimension ? { dimension: f.dimension } : {}),
-    ...(f.changes ? { changes: f.changes } : {}), ...(f.owner_quote ? { owner_quote: f.owner_quote } : {}), ...(f.resolves ? { resolves: f.resolves } : {}),
+    ...(f.changes ? { changes: f.changes } : {}), ...(f.owner_quote ? { owner_quote: f.owner_quote } : {}), ...(f.narrows_quote ? { narrows_quote: f.narrows_quote } : {}), ...(f.resolves ? { resolves: f.resolves } : {}),
   } as FindingRow));
 }
 

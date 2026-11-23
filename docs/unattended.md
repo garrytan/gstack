@@ -610,8 +610,14 @@ The example above is the full run. The first `next` also takes `--kind`:
    one-voice challenge keeps it. An earlier round's open challenge stays until
    answered or marked fixed (`resolves`). `### Day one` and `### What it won't
    do yet` add `day_one` and `cut` approval items (a missing day-one page on a
-   UI plan, each `assumed` row, each cut that drops a day-one row or quoted
-   owner line) and one `cuts` auto item for the rest.
+   UI plan, each `assumed` row, each cut that drops a day-one row) and one
+   `cuts` auto item for the rest. A first version (a `### Day one` section or
+   `--first-version`) letters every cut instead, and adds `owner_words` items
+   for a missing Owner's words section or a quote with no time or line. Each
+   quote this version doesn't fully do (its line says `choice`, a cut drops it,
+   or a reviewer's `narrows_quote` finding says the plan narrows it) is one
+   `owner_choice` approval item: a) build it, recommended unless the line says
+   `leave out: <reason>`, b) leave it out ([first-use-check.md](first-use-check.md#the-owners-words-and-the-day-one-table)).
 4. **Answer the gate** with the reply grammar and the revision you read:
    ```bash
    $AP answer --out <dir> --gate-rev 1 --reply "rec" --by human            # every recommendation, plan changes included (APPLY: ...; amend_pending)
@@ -957,7 +963,7 @@ predictions with his answers.
 - **The record.** `shadow/ceo-only.r<rev>.jsonl`, one row per gate item: the
   frozen item, `item_class` (`challenge2`, `challenge1`, `disagree`, `agent`,
   `cap_deferred`, `cap_blocker`, `cap_delta`, `finding`, `proposal`,
-  `confirm_direction`, `day_one`, `cut`, `cuts`, `p1`), `ceo_eligible`
+  `confirm_direction`, `day_one`, `cut`, `cuts`, `owner_words`, `owner_choice`, `p1`), `ceo_eligible`
   (false for a `finding` item, which a CEO-only run leaves to the owner), the
   prediction, `rule_pick` (the driver's keep-direction pick, the free
   baseline), `rec_hash`, the plan and prompt hashes, the model, the gstack
@@ -988,8 +994,9 @@ predictions with his answers.
 gate, interactive or unattended: one page built from `gate.json`,
 `decisions.jsonl` and `findings.jsonl` (`BRIEF_INPUT_MISSING` when one is
 absent). It opens with the `URGENT, outside this plan` block, then the
-plan's `### Day one` table, its `### What it won't do yet` cuts and the
-owner's words it follows (each only when the plan has it), then a
+owner's words it follows with each quote's line, the plan's `### Day one`
+table and its remaining `### What it won't do yet` cuts (each only when the
+plan has it; a cut that drops a quote is asked beside that quote), then a
 plain-language summary (phases closed, findings accepted, how many decisions
 take their default, the cycle time; `--summary <file>` or `<dir>/summary.md`
 replaces the generated sentence with the run's own), then the numbered

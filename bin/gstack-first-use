@@ -1,11 +1,13 @@
 #!/usr/bin/env -S bun --no-env-file --config=/dev/null
 /**
- * gstack-first-use — the cold first-use check for an app build (docs/first-use-check.md).
+ * gstack-first-use — the cold first-use check for a first version or app build (docs/first-use-check.md).
  *
- *   gstack-first-use start   --app <slug> --plan <plan.md> --play <play.json> --platform ios|android|web --commit <sha>
- *                            (--testflight <build> | --deploy <version>) --builder <model> --checker <model> [--json]
+ *   gstack-first-use start   --app <slug> --plan <plan.md> --play <play.json> --platform ios|android|web|macos|server --commit <sha>
+ *                            (--testflight <build> | --deploy <version>) --holding <build label|none> --holding-defects <list|none>
+ *                            --builder <model> --checker <model> [--json]
  *   gstack-first-use brief   --run <dir>
- *   gstack-first-use record  --run <dir> --action <n> --verdict pass|fail --evidence <file> --device <text> --account <text> --by <model> [--note <text>] [--json]
+ *   gstack-first-use record  --run <dir> --step <n> --verdict useful|thin|wrong|broken --line <text> --evidence <file> --device <text>
+ *                            --account <text> --target <text> --by <model> [--needs-lookup <text>] [--notice <text>] [--json]
  *   gstack-first-use predict --run <dir> --score <1-10> --why <text> --by <model> [--json]
  *   gstack-first-use links   --run <dir> --account <owner-equivalent account> --device-class ios|android|web [--json]
  *   gstack-first-use check   --run <dir> --platform … --commit … (--testflight … | --deploy …) [--json]
@@ -14,10 +16,12 @@
  *   gstack-first-use show    --run <dir> [--json]
  *   gstack-first-use root
  *
- * start freezes the first five rows of the plan's ### Day one table and the build fingerprint into a
- * write-once manifest; brief prints what the checker from the other model family gets; record, predict
- * and links write its evidence, predicted score and dated link receipts; check prints FIRST_USE: pass
- * or refuses (FIRST_USE_REFUSED); message prints the "try this build" text only when check passes;
+ * start freezes the owner's quoted words, the play spec's numbered try-it steps, the first five rows of
+ * the plan's ### Day one table (each citing a quote), the try-it text, the build fingerprint and the build
+ * the owner holds now into a write-once manifest; brief prints what the checker from the other model
+ * family gets; record, predict and links write its per-step verdicts with evidence, predicted score and
+ * dated link receipts; check prints FIRST_USE: pass or refuses (FIRST_USE_REFUSED); message prints the
+ * try-it text with what the check found only when check passes;
  * score keeps the owner's score and words beside the prediction. Records live in the owner's private
  * user-level Capy Drive folder (GSTACK_FIRST_USE_DIR overrides). Logic: lib/first-use.ts.
  */
@@ -28,16 +32,18 @@ import { buildLabel, checkLinks, decide, ownerScore, predict, readManifest, reco
 import { renderBrief, renderPlayMessage } from '../lib/first-use-message';
 import { resultLine } from '../lib/result-codes';
 
-const HELP = `gstack-first-use — a cold first-use check on an app build before its owner tries it (docs/first-use-check.md)
+const HELP = `gstack-first-use — a cold first-use check: the owner's exact try-it steps, run on the real target before the owner is asked (docs/first-use-check.md)
 
-  start   --app <slug> --plan <plan.md> --play <play.json> --platform ios|android|web --commit <sha>
-          (--testflight <build> | --deploy <version>) --builder <model> --checker <model> [--json]
+  start   --app <slug> --plan <plan.md> --play <play.json> --platform ios|android|web|macos|server --commit <sha>
+          (--testflight <build> | --deploy <version>) --holding <build label|none> --holding-defects <list|none>
+          --builder <model> --checker <model> [--json]
   brief   --run <dir>                     what the checker from the other model family is given
-  record  --run <dir> --action <n> --verdict pass|fail --evidence <file> --device <text> --account <text> --by <model> [--note <text>]
+  record  --run <dir> --step <n> --verdict useful|thin|wrong|broken --line <text> --evidence <file> --device <text> --account <text>
+          --target <text> --by <model> [--needs-lookup <text>] [--notice <text>]
   predict --run <dir> --score <1-10> --why <text> --by <model>
-  links   --run <dir> --account <text> --device-class ios|android|web   check every play link now, as the owner-equivalent audience
+  links   --run <dir> --account <text> --device-class ios|android|web|macos|server   check every play link now, as the owner-equivalent audience
   check   --run <dir> --platform … --commit … (--testflight … | --deploy …)    FIRST_USE: pass, or refused
-  message --run <dir> --platform … --commit … (--testflight … | --deploy …)    the "try this build" text, only after a pass
+  message --run <dir> --platform … --commit … (--testflight … | --deploy …)    the try-it message, only after a pass
   score   --run <dir> --score <1-10> --words "<owner's exact words>" --by <who relayed them>
   show    --run <dir> [--json]
   root                                    where records live
@@ -62,19 +68,20 @@ function runDir(cmd: string, a: string[]): string | number {
 }
 
 function cmdStart(a: string[], json: boolean): number {
-  const need = ['--app', '--plan', '--play', '--platform', '--commit', '--builder', '--checker'].filter(f => !flag(a, f));
+  const need = ['--app', '--plan', '--play', '--platform', '--commit', '--holding', '--holding-defects', '--builder', '--checker'].filter(f => !flag(a, f));
   if (need.length) { process.stderr.write(`gstack-first-use: start needs ${need.join(', ')}\n`); return EXIT.usage; }
   const root = recordRoot();
   if ('error' in root) return refuse('start', root.error);
   let play: unknown;
   try { play = JSON.parse(fs.readFileSync(flag(a, '--play')!, 'utf8')); } catch { return refuse('start', { code: 'FIRST_USE_PLAY_SPEC_INCOMPLETE', detail: `${flag(a, '--play')} is not a readable JSON play spec` }); }
-  const r = startRun({ root: root.root, app: flag(a, '--app')!, planPath: flag(a, '--plan')!, build: buildArgs(a), play, builder: flag(a, '--builder')!, checker: flag(a, '--checker')! });
+  const r = startRun({ root: root.root, app: flag(a, '--app')!, planPath: flag(a, '--plan')!, build: buildArgs(a), play, holding: { build: flag(a, '--holding'), defects: flag(a, '--holding-defects') }, builder: flag(a, '--builder')!, checker: flag(a, '--checker')! });
   if ('error' in r) return refuse('start', r.error);
-  if (json) { say(JSON.stringify({ run: r.dir, actions: r.manifest.actions.length, rows_sha256: r.manifest.source.rows_sha256, build: r.manifest.build })); return EXIT.ok; }
+  const m = r.manifest;
+  if (json) { say(JSON.stringify({ run: r.dir, steps: m.steps.length, actions: m.actions.length, quotes: m.quotes.length, rows_sha256: m.source.rows_sha256, try_sha256: m.try_sha256, target: m.play.target, build: m.build })); return EXIT.ok; }
   say(`FIRST_USE_RUN: ${r.dir}`);
-  say(`FIRST_USE_FROZEN: ${r.manifest.actions.length} actions rows=${r.manifest.source.rows_sha256.slice(0, 12)} build=${buildLabel(r.manifest.build)} checker=${r.manifest.checker.model}`);
-  r.manifest.actions.forEach(x => say(`  ${x.n}. ${x.action}`));
-  say(`NEXT: gstack-first-use brief --run "${r.dir}"  (give it to one fresh agent on ${r.manifest.checker.model}, never a ${r.manifest.builder.family} model)`);
+  say(`FIRST_USE_FROZEN: ${m.steps.length} steps (${m.actions.length} day-one actions) quotes=${m.quotes.length} rows=${m.source.rows_sha256.slice(0, 12)} try=${m.try_sha256.slice(0, 12)} target=${m.play.target.kind}:${m.play.target.name} build=${buildLabel(m.build)} checker=${m.checker.model}`);
+  m.steps.forEach(x => say(`  ${x.n}. ${x.text}${x.writes === 'none' ? '' : ` (writes: ${x.writes})`}`));
+  say(`NEXT: gstack-first-use brief --run "${r.dir}"  (give it to one fresh agent on ${m.checker.model}, never a ${m.builder.family} model)`);
   return EXIT.ok;
 }
 
@@ -83,11 +90,12 @@ function cmdShow(dir: string, json: boolean): number {
   if ('error' in read) return refuse('show', read.error);
   const m = read.manifest;
   const d = decide(dir, m.build);
-  const summary = { app: m.app, build: buildLabel(m.build), checker: m.checker.model, actions: m.actions.length, passed: d.passed, reasons: d.reasons,
+  const summary = { app: m.app, build: buildLabel(m.build), checker: m.checker.model, steps: m.steps.length, passed: d.passed, verdicts: d.verdicts, reasons: d.reasons,
     predicted: d.prediction?.score ?? null, owner: d.owner ? { score: d.owner.score, words: d.owner.words, at: d.owner.at } : null,
     gap: d.prediction && d.owner ? d.owner.score - d.prediction.score : null };
   if (json) { say(JSON.stringify(summary)); return EXIT.ok; }
-  say(`FIRST_USE_SHOW: app=${m.app} build=${summary.build} passed=${d.passed}/${m.actions.length} predicted=${summary.predicted ?? 'none'} owner=${summary.owner?.score ?? 'none'}${summary.gap === null ? '' : ` gap=${summary.gap > 0 ? '+' : ''}${summary.gap}`}`);
+  say(`FIRST_USE_SHOW: app=${m.app} build=${summary.build} passed=${d.passed}/${m.steps.length} predicted=${summary.predicted ?? 'none'} owner=${summary.owner?.score ?? 'none'}${summary.gap === null ? '' : ` gap=${summary.gap > 0 ? '+' : ''}${summary.gap}`}`);
+  for (const v of d.verdicts) say(`STEP: ${v.n} ${v.verdict} ${v.line}`);
   if (summary.owner) say(`OWNER_WORDS: ${summary.owner.words}`);
   for (const r of d.reasons) say(`OPEN: ${r}`);
   return EXIT.ok;
@@ -111,10 +119,11 @@ async function main(argv: string[]): Promise<number> {
     return EXIT.ok;
   }
   if (cmd === 'record') {
-    const n = Number(flag(a, '--action'));
-    const r = recordResult({ dir, action: Number.isInteger(n) ? n : -1, verdict: flag(a, '--verdict') ?? '', evidence: flag(a, '--evidence') ?? '', device: flag(a, '--device') ?? '', account: flag(a, '--account') ?? '', by: flag(a, '--by') ?? '', note: flag(a, '--note') });
+    const n = Number(flag(a, '--step'));
+    const r = recordResult({ dir, step: Number.isInteger(n) ? n : -1, verdict: flag(a, '--verdict') ?? '', line: flag(a, '--line') ?? '', evidence: flag(a, '--evidence') ?? '', device: flag(a, '--device') ?? '',
+      account: flag(a, '--account') ?? '', target: flag(a, '--target') ?? '', by: flag(a, '--by') ?? '', needsLookup: flag(a, '--needs-lookup'), notice: flag(a, '--notice') });
     if ('error' in r) return refuse(cmd, r.error);
-    say(json ? JSON.stringify(r.result) : `FIRST_USE_RESULT: action=${r.result.action} verdict=${r.result.verdict} evidence=${r.result.evidence.file} sha256=${r.result.evidence.sha256.slice(0, 12)}`);
+    say(json ? JSON.stringify(r.result) : `FIRST_USE_RESULT: step=${r.result.step} verdict=${r.result.verdict} evidence=${r.result.evidence.file} sha256=${r.result.evidence.sha256.slice(0, 12)}`);
     return EXIT.ok;
   }
   if (cmd === 'predict') {
@@ -140,8 +149,8 @@ async function main(argv: string[]): Promise<number> {
   if (!d.ok) return refuse(cmd, { code: 'FIRST_USE_REFUSED', detail: d.reasons.join('; ') });
   if (cmd === 'message') { process.stdout.write(renderPlayMessage(d)); return EXIT.ok; }
   const m = d.manifest!;
-  say(json ? JSON.stringify({ ok: true, app: m.app, build: m.build, passed: d.passed, links: d.links.length, predicted: d.prediction?.score })
-    : `FIRST_USE: pass app=${m.app} build=${buildLabel(m.build)} actions=${d.passed}/${m.actions.length} links=${d.links.length}/${m.play.links.length} checker=${m.checker.model} predicted=${d.prediction?.score}`);
+  say(json ? JSON.stringify({ ok: true, app: m.app, build: m.build, passed: d.passed, verdicts: d.verdicts, links: d.links.length, predicted: d.prediction?.score })
+    : `FIRST_USE: pass app=${m.app} build=${buildLabel(m.build)} steps=${d.passed}/${m.steps.length} thin=${d.verdicts.filter(v => v.verdict === 'thin').length} notices=${d.verdicts.filter(v => v.notice).length} links=${d.links.length}/${m.play.links.length} checker=${m.checker.model} predicted=${d.prediction?.score}`);
   return EXIT.ok;
 }
 

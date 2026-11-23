@@ -3,7 +3,7 @@
  * gstack-autoplan — the unattended /autoplan runner as an explicit, durable state machine (plan B2).
  *
  *   gstack-autoplan next    --kind fix                 a bug fix: no plan review (R65), status=skipped, nothing written (run --kind fix too)
- *   gstack-autoplan next    --out <dir> [--plan <file>] [--kind feature|--full] [--base <ref>] [--plan-heading <text>] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--docs-only] [--ceo-only]
+ *   gstack-autoplan next    --out <dir> [--plan <file>] [--kind feature|--full] [--base <ref>] [--plan-heading <text>] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--docs-only] [--first-version] [--ceo-only]
  *                           [--no-outside] [--light] [--spend-cap <usd>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
  *   gstack-autoplan submit  --out <dir> --phase <p> --voice native|outside --result <file> | --record <file> [--attest <reason>]
  *                           --model <id> [--attempt <id>] [--runner <r>] [--usage-usd <n>] [--reconcile <jsonl>] [--json]
@@ -65,7 +65,7 @@ DRIVER: ${driverFile()}
 
   next    --kind fix   a bug fix needs no plan review (R65): prints AUTOPLAN: not needed and status=skipped, writes nothing (no --out or --plan);
           the PR still needs the bug's proof (a repro on current main or a failing test written first)
-  next    --out <dir> [--plan <file>] [--kind feature|--full] [--base <ref>] [--plan-heading <text>] [--scaffold] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--no-dx] [--docs-only] [--ceo-only]
+  next    --out <dir> [--plan <file>] [--kind feature|--full] [--base <ref>] [--plan-heading <text>] [--scaffold] [--ui|--no-ui] [--developer-tool] [--agent-primary] [--no-dx] [--docs-only] [--first-version] [--ceo-only]
           [--no-outside] [--light] [--spend-cap <usd>] [--max-rounds <n>] [--estimate-usd <n>] [--deadline <min>] [--redispatch <attempt>] [--json]
           --kind feature (first next; the default for an unattended Capy run, GSTACK_CAPY=1): the lean run (R65): the eng phase alone with one
           native reviewer whose brief merges the CEO and Eng lenses (Design/DX when scope detects them), reads the draft code (git diff of
@@ -74,6 +74,7 @@ DRIVER: ${driverFile()}
           --full (first next): every phase and both voices, as before R65; off Capy, or in an interactive session, the default stays full
           --max-rounds (first next): review rounds per phase (default 2 unattended, 1 lean); at the cap a phase closes accepted-with-findings
           --docs-only (first next; also detected when every Implementation-plan path is docs-class): CEO (native voice only) + Eng
+          --first-version (first next, or the scope marker): the plan is a first version even without a ### Day one section, so the gate asks for the owner's quoted words, a line per quote and a letter per cut
           --ceo-only (first next, command line only): the CEO phase alone, no gate; ends status=reviewed with <out>/ceo-review.md, never approved
           --estimate-usd: reserved per new attempt, kept for the rest of the run; with --spend-cap any run (or an unattended run on Capy) reserves a default so the cap binds
           --scaffold (first next): a plan missing one of its two sections is reviewed from <out>/plan-source.md with the heading added
@@ -261,7 +262,7 @@ function doNext(out: string, rest: string[], price?: NextOptions['price']): Repo
     if (shadow.line) initLines.push(shadow.line);
     initRun({ plan, out, cwd, kind: flag(rest, '--kind') as AutoplanKind | undefined, full: rest.includes('--full'), base: flag(rest, '--base'), planHeading: flag(rest, '--plan-heading'), outsideEnabled: !rest.includes('--no-outside'), spendCap: num(rest, '--spend-cap') ?? null, maxRounds,
       carryForward: !rest.includes('--no-carry-forward'), carryCheckCapUsd, ceoOnly, shadow: shadow.shadow,
-      deadlineMin: num(rest, '--deadline'), light: rest.includes('--light'), scaffold: rest.includes('--scaffold'), scope: { ui, developerTool: rest.includes('--developer-tool'), agentPrimary: rest.includes('--agent-primary'), dx: rest.includes('--no-dx') ? false : undefined, ...(rest.includes('--docs-only') ? { docsOnly: true } : {}) } }, initLines);
+      deadlineMin: num(rest, '--deadline'), light: rest.includes('--light'), scaffold: rest.includes('--scaffold'), scope: { ui, developerTool: rest.includes('--developer-tool'), agentPrimary: rest.includes('--agent-primary'), dx: rest.includes('--no-dx') ? false : undefined, ...(rest.includes('--docs-only') ? { docsOnly: true } : {}), ...(rest.includes('--first-version') ? { firstVersion: true } : {}) } }, initLines);
   }
   const redispatch = rest.flatMap((a, i) => (a === '--redispatch' && rest[i + 1] ? [rest[i + 1]!] : []));
   const r = nextStep({ out, cwd, estimateUsd: num(rest, '--estimate-usd'), redispatch, price });
