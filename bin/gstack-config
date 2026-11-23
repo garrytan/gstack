@@ -1230,20 +1230,27 @@ $_gstack_legacy_root"
     fi
     mv "$DETECTION_FILE.tmp.$$" "$DETECTION_FILE"
 
-    # Summarize for the user. Use python (already required elsewhere) to
-    # parse the JSON portably; fall back to grep if python is unavailable.
+    # Summarize for the user. Parse the JSON with the first Python that runs,
+    # else with grep. A python3 on PATH can fail to run: on Windows it is often
+    # the Microsoft Store alias, which exits 49, and taking its failure as
+    # "unknown" removed a healthy brain-aware render below.
     # The file goes in on stdin (E6, #1967): bash opens the path, so a native
     # Windows Python under Git Bash never has to resolve an MSYS /c/... path.
-    PYTHON_CMD=$(command -v python3 || command -v python || true)
-    if [ -n "$PYTHON_CMD" ]; then
-      STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_local_status','unknown'))" < "$DETECTION_FILE" 2>/dev/null || echo unknown)
-      VERSION=$("$PYTHON_CMD" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_version') or 'unknown')" < "$DETECTION_FILE" 2>/dev/null || echo unknown)
-    else
-      STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
-      VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
-      [ -z "$STATUS" ] && STATUS=unknown
-      [ -z "$VERSION" ] && VERSION=unknown
+    STATUS=""; VERSION=""
+    for _py in python3 python; do
+      command -v "$_py" >/dev/null 2>&1 || continue
+      STATUS=$("$_py" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_local_status','unknown'))" < "$DETECTION_FILE" 2>/dev/null) \
+        && VERSION=$("$_py" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_version') or 'unknown')" < "$DETECTION_FILE" 2>/dev/null) \
+        && break
+      STATUS=""; VERSION=""
+    done
+    if [ -z "$STATUS" ]; then
+      # A missing field is no match for grep; pipefail must not end the run.
+      STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/' || true)
+      VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/' || true)
     fi
+    [ -z "$STATUS" ] && STATUS=unknown
+    [ -z "$VERSION" ] && VERSION=unknown
 
     case "$STATUS" in
       ok|timeout|db-unreachable|thin-client|engine-locked)
