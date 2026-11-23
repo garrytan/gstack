@@ -186,6 +186,8 @@ describe('GST-1702: release stamps and a docs-audit edit after the last fix-chec
  * GST-1775 (GBRA-347, gbrain#8730): /ship Step 16 stage 2.1 inserted a Step 9 for edits after the review bound on a gate-class
  * diff. `gstack-review-plan --post-review --pass 2 --last full` printed NEXT: voices with the voices' DISPATCH lines, and Step 11's
  * `gstack-review-dispatch pass --voices` with the same plan flags printed PASS: none, so the voices the plan asked for could not run.
+ * Since GST-3562 A a post-review edit at pass 2 gets the read-only full review, so the stop (and the voices before it on gate
+ * class) is the edit after that review, pass 3.
  */
 function postReviewBranch(): { repo: FixtureRepo; flags: string[] } {
   const repo = makeFixtureRepo({ prefix: 'gst1775-voices-' });
@@ -199,7 +201,7 @@ function postReviewBranch(): { repo: FixtureRepo; flags: string[] } {
   };
   const rangeBase = edit('export const spend_cap_usd = 5;\n', 'feature');
   edit('export const spend_cap_usd = 5;\nexport const retries = 2;\n', 'edit after the review bound');
-  return { repo, flags: ['--gate-tagged', '1', '--post-review', '--pass', '2', '--last', 'full', '--range-base', rangeBase, '--pass1-depth', 'full'] };
+  return { repo, flags: ['--gate-tagged', '1', '--post-review', '--pass', '3', '--last', 'full', '--range-base', rangeBase, '--pass1-depth', 'full'] };
 }
 const dispatchLines = (out: string) => out.split('\n').filter(l => l.startsWith('DISPATCH: ')).map(l => l.split(' ')[1]);
 

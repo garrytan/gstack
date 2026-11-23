@@ -26,7 +26,7 @@ const SAVES = (n: number, odd: Record<number, number> = {}) => Object.fromEntrie
 const GOLDEN = 'test/golden/rules.golden';
 const REGEN = JSON.stringify({ entries: [{ id: 'rules-golden', command: `sed -n 's/^const RULE_NUMBERS := //p' scripts/core/game.gd | sed 's/^/rules=/' > ${GOLDEN}`, outputs: [GOLDEN], inputs: ['scripts/core/game.gd'] }] }) + '\n';
 const POLICY = JSON.stringify({ mechanical_retake: [{ path: 'scripts/core/game.gd', template: 'const RULE_NUMBERS := {n}', fields: [{ glob: 'fixtures/saves/*.json', field: 'save_version' }], regen: ['rules-golden'] }], min_gstack_version: MECHANICAL_RETAKE_KEY_VERSION }) + '\n';
-const behaviorStop = (p: string) => `STOP: behavior, tests or build inputs changed since review (${p}): insert 5–11.5 → 12–14 → 16 before Step 17; plan that Step 9 with gstack-review-plan --post-review, which at the round cap stops for the owner's grant of one scoped fix-check (stage 2.1)`;
+const behaviorStop = (p: string) => `STOP: behavior, tests or build inputs changed since review (${p}): insert 5–11.5 → 12–14 → 16 before Step 17; plan that Step 9 with gstack-review-plan --post-review, which at the round cap plans one read-only full review of the final head (stage 2.1)`;
 
 /**
  * founderstar#563: the branch took 80 and was reviewed; the base then took 80 for another rule and added 7 files; the
@@ -133,10 +133,12 @@ describe('a declared mechanical retake after a base merge (GST-1560: founderstar
 describe('finish and gstack-review-plan agree at the round cap (GST-1560)', () => {
   test('the behavior STOP names --post-review, and the planner then plans the owner\'s exit at the cap, never done', () => {
     const { f, run } = founderstar({ game: GAME(81, { top: 'func rule_other(): pass', bottom: 'func rule_80(): pass', ready: 'return' }) });
-    expect(lineOf(run().stdout, 'STOP')).toContain('plan that Step 9 with gstack-review-plan --post-review, which at the round cap stops for the owner\'s grant of one scoped fix-check');
+    expect(lineOf(run().stdout, 'STOP')).toContain('plan that Step 9 with gstack-review-plan --post-review, which at the round cap plans one read-only full review of the final head');
     const plan = (...a: string[]) => lineOf(f.run(path.join(BIN, 'gstack-review-plan'), ['--base', 'main', '--adversarial-ran', ...a]).stdout, 'NEXT');
     expect(plan('--pass', '2', '--last', 'full')).toStartWith('NEXT: done');
-    expect(plan('--pass', '2', '--last', 'full', '--post-review')).toStartWith('NEXT: stop (edits after the review bound (Step 16 stage 2.1)');
+    expect(plan('--pass', '2', '--last', 'full', '--post-review')).toStartWith('NEXT: full (edits after the review bound (Step 16 stage 2.1)');
+    expect(plan('--pass', '2', '--last', 'full', '--post-review')).toContain('read-only final review (R51)');
+    expect(plan('--pass', '3', '--last', 'full', '--post-review')).toStartWith('NEXT: stop (edits after the review bound (Step 16 stage 2.1)');
     expect(plan('--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--post-review')).toStartWith('NEXT: stop (edits after the review bound');
     expect(plan('--pass', '1', '--last', 'full', '--post-review')).toMatch(/^NEXT: (full|fix-check) \(edits after the review bound/);
     const stage2 = fs.readFileSync(path.join(ROOT, 'ship/SKILL.md.tmpl'), 'utf8').split('### 2. Choose the change route')[1]!.split('### 3.')[0]!;

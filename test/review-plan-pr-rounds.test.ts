@@ -25,16 +25,21 @@ describe('PR round cap', () => {
     }
   });
 
-  test('one prior full round: after pass 1, a below-floor fix keeps its in-run fix-check and a fixed blocker stops for the lane, not the owner', () => {
-    expect(nextStep(h({ priorFull: 1, fullPasses: 1, last: 'full', fixedBelow: true }), 'standard').step).toBe('fix-check');
-    const stop = nextStep(h({ priorFull: 1, fullPasses: 1, last: 'full', fixedBlocking: true }), 'standard');
-    expect(stop.step).toBe('stop');
-    expect(stop.reason).toStartWith('PR_ROUND_CAP');
-    expect(stop.reason).not.toContain('for the owner');
-  });
-
-  test('a fix-check stays the in-run table\'s call: lean\'s one fix-check after a fixed blocker still runs', () => {
-    expect(nextStep(h({ priorFull: 1, fullPasses: 1, last: 'full', fixedBlocking: true, lean: true }), 'standard').step).toBe('fix-check');
+  // Value: protects=GST-3562 A at the PR cap: a fix made in the PR's last full round gets one read-only full review of the final
+  //   head with no fix round, in both tables, and a fix after that review stops for the lane's Captain, never the owner;
+  //   fails_when=the cap plans a fix-check, ships the fix unread, or stops before the read-only review; seam=nextStep;
+  //   no_claim=the CLI's pr_rounds= print (pr-round-cli)
+  test('one prior full round: after pass 1, any fix gets one read-only full review, and a fix after it stops for the lane\'s Captain, not the owner', () => {
+    for (const lean of [false, true]) for (const fix of [{ fixedBelow: true }, { fixedBlocking: true }, { touchedGate: true }]) {
+      const n = nextStep(h({ priorFull: 1, fullPasses: 1, last: 'full', lean, ...fix }), 'standard');
+      expect([lean, fix, n.step]).toEqual([lean, fix, 'full']);
+      expect(n.reason).toStartWith('read-only final review (R51): fixes changed code after the last round');
+      expect(n.reason).toContain('(GST-3562 A); this PR already had 1 full review round on earlier heads');
+      const stop = nextStep(h({ priorFull: 1, fullPasses: 2, last: 'full', lean, ...fix }), 'standard');
+      expect([lean, fix, stop.step]).toEqual([lean, fix, 'stop']);
+      expect(stop.reason).toStartWith("a fix followed the read-only final review: the lane's Captain decides (R51)");
+      expect(stop.reason).not.toContain('for the owner');
+    }
   });
 
   // Value: protects=F1's past-cap case: a PR with two full rounds whose own code changed gets one read-only full review of
@@ -48,10 +53,10 @@ describe('PR round cap', () => {
     }
   });
 
-  test('after the read-only review: below-floor findings ship as notes, a blocker stops for the lane\'s Captain', () => {
+  test('after the read-only review: unfixed below-floor findings ship as notes, and a fix of any kind or a blocker stops for the lane\'s Captain (GST-3562 A)', () => {
     for (const lean of [false, true]) {
       expect(nextStep(h({ priorFull: 2, fullPasses: 1, last: 'full', lean })).step).toBe('done');
-      expect(nextStep(h({ priorFull: 2, fullPasses: 1, last: 'full', fixedBelow: true, lean }), 'standard')).toMatchObject({ step: 'done', reason: expect.stringContaining('no fix round') });
+      expect(nextStep(h({ priorFull: 2, fullPasses: 1, last: 'full', fixedBelow: true, lean }), 'standard')).toMatchObject({ step: 'stop', reason: expect.stringContaining("a fix followed the read-only final review: the lane's Captain decides") });
       for (const x of [{ blockingOpen: true }, { fixedBlocking: true }, { touchedGate: true, fixedBelow: true }]) {
         const stop = nextStep(h({ priorFull: 3, fullPasses: 1, last: 'full', lean, ...x }), 'standard');
         expect(stop.step).toBe('stop');
@@ -61,16 +66,17 @@ describe('PR round cap', () => {
     }
   });
 
-  // Value: protects=the read-only stop offers only what the Captain can do: a grant recorded after that review can't buy a
-  //   fix round (GST-2706); fails_when=the stop lists a round grant as an option; seam=nextStep; no_claim=history's grant route
-  // GST-2968 reverses GST-2706's "a later grant buys no fix round": PR_ROUND_CAP printed the grant command anyway, and two grants
-  //   on gstack#4272 bought nothing. The stop now names the fix-check grant that answers its stop record
-  //   (test/round-cap-granted-stop.test.ts covers what that grant buys).
-  test('the read-only stop offers ship-with-the-note, park, or a fix-check grant naming the stop', () => {
+  // Value: protects=the read-only stop offers only what the Captain can do: GST-3562 A plans no new fix-check, so the stop offers
+  //   ship-with-the-note, park, or a new /ship run's read-only full review of the kept fix, and never a fix-check grant or a round
+  //   grant; fails_when=the stop offers a grant that buys a fix round; seam=nextStep; no_claim=history's grant route
+  // GST-2968 had the stop name the fix-check grant that answers its stop record; a grant recorded before GST-3562 still buys it for
+  //   one release (test/round-cap-granted-stop.test.ts), but the stop no longer offers one.
+  test('the read-only stop offers ship-with-the-note, park, or keeping the fix for one more read-only full review, never a fix-check grant', () => {
     for (const roundGrant of [undefined, 'a-000000000001']) {
       const stop = nextStep(h({ priorFull: 3, fullPasses: 1, last: 'full', fixedBlocking: true, roundGrant }), 'standard');
       expect(stop.step).toBe('stop');
-      expect(stop.reason).toContain('(ship with the note, park, or buy its fix round with a fix-check grant naming the stop gstack-ship-receipt stop records)');
+      expect(stop.reason).toContain("the lane's Captain decides (ship with the note, park, or keep the fix and run /ship again for one more read-only full review of the final head)");
+      expect(stop.reason).not.toContain('fix-check grant');
       expect(stop.reason).not.toContain('does not buy a fix round');
     }
   });

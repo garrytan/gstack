@@ -130,12 +130,13 @@ describe('GST-3187: a plan that would ship unreviewed commits refuses instead of
 });
 
 describe('GST-3187: nextStep counts a gate-class fix as an edit', () => {
-  // Value: protects=--touched-gate alone after a full pass plans the full pass on the range, and at the cap it stops for the
-  //   owner; fails_when=loopStep's fix test ignores touchedGate (it returned done "the step applied no edits");
+  // Value: protects=--touched-gate alone after a full pass plans the full pass on the range, at the cap it gets the read-only
+  //   full review of the final head (GST-3562 A), and after that it stops for the lane's Captain; fails_when=loopStep's fix test ignores touchedGate (it returned done "the step applied no edits");
   //   seam=nextStep; no_claim=the gate-class voices' ordering, which GST-967's cases cover
   test('--touched-gate with no other fix flag is a fix', () => {
     expect(nextStep({ fullPasses: 1, last: 'full', touchedGate: true })).toMatchObject({ step: 'full', reason: 'a fix touched a gate-class path: full pass on the range' });
-    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', touchedGate: true }).step).toBe('stop');
+    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', touchedGate: true })).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
+    expect(nextStep({ fullPasses: FULL_PASS_CAP + 1, last: 'full', touchedGate: true }).step).toBe('stop');
     expect(nextStep({ fullPasses: 1, last: 'full' })).toMatchObject({ step: 'done', reason: 'the step applied no edits' });
   });
 });

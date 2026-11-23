@@ -62,8 +62,9 @@ describe('the plan: a fix-check grant answering a stop buys its fix round (GST-2
     const n = nextStep({ fullPasses: 1, last: 'full', priorFull: 2, roundGrant: 'a-2', fixedBlocking: true, rangeRuntimeLines: 500 } as any, 'full');
     expect(['full', 'scoped', 'fix-check']).toContain(n.step);
   });
-  test('G4 (guard): the owner\'s in-run loop grant after a round-2 full pass still plans its one fix-check', () => {
-    expect(nextStep({ fullPasses: 2, last: 'full', fixedBlocking: true, granted: 'a-3' } as any).step).toBe('fix-check');
+  test('G4 (guard): an in-run loop grant after a round-2 full pass buys no fix-check: the fix gets the read-only full review (GST-3562 A); after a round-2 fix-check it still plans its one fix-check', () => {
+    expect(nextStep({ fullPasses: 2, last: 'full', fixedBlocking: true, granted: 'a-3' } as any)).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
+    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBlocking: true, fixChecks: 1, granted: 'a-3' } as any).step).toBe('fix-check');
   });
 });
 
