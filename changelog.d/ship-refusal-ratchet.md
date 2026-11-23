@@ -1,0 +1,1 @@
+**/ship can't quietly gain new refusals.** A new test lists the 131 ways /ship can refuse to continue today and fails when a new one appears without a written reason, so new stopping points have to justify themselves. test/ship-refusal-code-ratchet.test.ts (GST-3562)
