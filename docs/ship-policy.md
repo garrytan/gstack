@@ -3307,8 +3307,10 @@ manifest (`version` key only), npm and bun lockfiles (root `version` keys
 only, where `gstack-version-bump` writes; a dependency entry is `changed`),
 the CHANGELOG (the branch's own entry, `[Unreleased]` or its stamped top
 section, moved to the top under the new heading, with every released section
-keeping its heading, text and order; under `changelog_fragments`, also exactly the deleted
-fragments folded under the new heading, and those deletions are stamps), `stamp_paths` and `release_outputs` (every
+keeping its heading, text and order; under `changelog_fragments`, exactly the deleted
+fragments folded under the new heading, the same entries in any order, and those deletions
+are stamps, while the release check and the stamped train check compare the released
+sections themselves), `stamp_paths` and `release_outputs` (every
 removed/added pair must be an exact `(was X)` / `since: X` / `vX` rewrite (a quote around X in the first two forms included) with
 X the gated version, or a newer version of the repo's width that the
 stamp_paths stage moves (a tentative `*_KEY_VERSION` written as the next

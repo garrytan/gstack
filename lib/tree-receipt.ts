@@ -128,8 +128,11 @@ export function classifyFile(repoRoot: string, f: FileDiff, gated: string, curre
   if (policy.changelog && f.path === policy.changelog) {
     const expected = before === null ? null : foldIntoUnreleased(before, folded);
     if (expected !== null && after !== null && normalizeChangelog(expected) === normalizeChangelog(after)) {
+      // With folded fragments, classifyRelease (lib/release-stamp.ts) and stampMismatch (crew/lib/ship-queue-train-stamp.ts)
+      // compare the released sections themselves and name the rewritten release, so reheadOnly guards the plain re-heading only.
+      if (folded.length) return stamp('changelog-fragments');
       const why = reheadOnly(expected, after);
-      if (!why) return stamp(folded.length ? 'changelog-fragments' : 'changelog-heading');
+      if (!why) return stamp('changelog-heading');
       return changed('changelog', `${why}; a stamp only moves the branch's own entry to the top under the new version`);
     }
     return changed('changelog', folded.length ? 'entry text is not exactly the deleted fragments folded under the new heading' : 'entry text changed (only a heading move or re-heading is a stamp)');

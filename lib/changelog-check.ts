@@ -5,8 +5,9 @@
  * version, above its predecessor's entry. Duplicate version headings beyond
  * those the base branch already carries, and a top entry that is not VERSION,
  * are errors. The tree receipt accepts a CHANGELOG change as a stamp only when
- * `normalizeChangelog` finds the same entries and `reheadOnly` finds that one
- * move: every released section keeps its heading, text and order.
+ * `normalizeChangelog` finds the same entries and, when no fragments are
+ * folded, `reheadOnly` finds that one move: every released section keeps its
+ * heading, text and order.
  */
 import type { ResultCodeName } from './result-codes';
 
