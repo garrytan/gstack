@@ -413,6 +413,50 @@ describe("gstack-post owns the redaction scan", () => {
     }
   });
 
+  // Value: protects=a gstack-receipt-runs block's session id ("run": "<pid>-<epoch>-<hex>") posts through pr-body and pr-comment without a
+  //   pii.phone.e164 confirmation (gstack#4725), while a phone number in another field on the same line, a phone or truncated id in "run", a
+  //   non-canonical JSON line, a line without "head", or an unclosed gstack-receipt-runs block still needs one; fails_when=every /ship that
+  //   writes a receipt into a PR body with prior runs hits a false MEDIUM hold, or the exemption reaches past canonical run session ids;
+  //   why_new=the #4480 test covers only gstack-ship-receipt, not gstack-receipt-runs; seam=fake run; no_claim=real gh
+  test("a gstack-receipt-runs block's session id is not a phone number; a phone number anywhere else in the block still is", () => {
+    const HEAD_A = "abc123abc123abc123abc123abc123abc123abcd";
+    const HEAD_B = "def456def456def456def456def456def456def0";
+    const RUN_A = "4242424-1700000000-deadbeef";
+    const RUN_B = "3454314-1795338725-c32255b8";
+    const post = (args: string[], text: string, visibility: "public" | "private" = "private") => {
+      const f = fakeEnv({ files: { "/b": text }, visibility });
+      return { code: run([...args, "--body-file", "/b"], f), phones: f.stdout().split("\n").filter(l => l.startsWith("RULE: pii.phone.e164 ")), f };
+    };
+    const lineOf = (text: string, needle: string) => text.split("\n").findIndex(l => l.includes(needle)) + 1;
+
+    const standalone = `Body.\n\n\`\`\`gstack-receipt-runs\n${JSON.stringify({ head: HEAD_A, version: "1.0.0.0", run: RUN_A })}\n\`\`\`\n`;
+    const commentRes = post(["pr-comment", "1"], standalone, "private");
+    expect([commentRes.phones, commentRes.code]).toEqual([[], EXIT.posted]);
+    expect(commentRes.f.posts()).toHaveLength(1);
+
+    const firstBody = placeReceipt("## What changed\n\nFirst run.\n", orderReceipt({ schema_version: 1, pr: 4725, head: HEAD_A, base: "main", version: "1.0.0.0", run: RUN_A }));
+    const secondBody = placeReceipt(firstBody, orderReceipt({ schema_version: 1, pr: 4725, head: HEAD_B, base: "main", version: "1.0.0.0", run: RUN_B }));
+    expect(secondBody).toContain("```gstack-receipt-runs\n");
+    const prBodyRes = post(["pr-body", "4725", "--replace"], secondBody, "public");
+    expect([prBodyRes.phones, prBodyRes.code]).toEqual([[], EXIT.posted]);
+    expect(prBodyRes.f.posts()).toHaveLength(1);
+
+    const wrap = (line: string) => `Body.\n\n\`\`\`gstack-receipt-runs\n${line}\n\`\`\`\n`;
+    const holds: Array<[string, string, string]> = [
+      ["a phone in reason on the same line as a valid run", wrap(JSON.stringify({ head: HEAD_A, run: RUN_A, mark: "abandoned", by: "ops", reason: "call +14155552671" })), "call +14155552671"],
+      ["a phone in the run field", wrap(JSON.stringify({ head: HEAD_A, run: "+14155552671" })), '"+14155552671"'],
+      ["a truncated session id without random suffix", wrap(JSON.stringify({ head: HEAD_A, run: "4242424-1700000000" })), '"4242424-1700000000"'],
+      ["a non-canonical spaced JSON line", wrap(`{ "head": "${HEAD_A}", "run": "${RUN_A}" }`), RUN_A],
+      ["a JSON line missing head", wrap(JSON.stringify({ version: "1.0.0.0", run: RUN_A })), RUN_A],
+      ["an unclosed gstack-receipt-runs fence", `Body.\n\n\`\`\`gstack-receipt-runs\n${JSON.stringify({ head: HEAD_A, run: RUN_A })}\n`, RUN_A],
+    ];
+    for (const [name, text, needle] of holds) {
+      const { code, phones, f } = post(["pr-comment", "1"], text, "private");
+      expect([name, phones, code]).toEqual([name, [`RULE: pii.phone.e164 LINE: ${lineOf(text, needle)} PART: body`], EXIT.confirm]);
+      expect(f.posts()).toEqual([]);
+    }
+  });
+
   // Value: protects=a private PR's Approvals table (renderRecord, full mode) posts through pr-body without a pii.phone.e164 confirmation when a
   //   fix-check grant row's Covers cell names a run id like 507-7192673 (GST-3246, trail-read row 8), while the same digits in that row's
   //   Asked or Exact words cell, in prose, or in a table no Source footer closes still need one; fails_when=every private /ship body with such a

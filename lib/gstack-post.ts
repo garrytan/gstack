@@ -573,11 +573,13 @@ type Span = { line: number; from: number; to: number };
 const lineIdSpans = (text: string, line: number): Span[] => RECEIPT_LINE_IDS.flatMap(re => [...text.matchAll(re)].flatMap(m => m.indices!.slice(1).flatMap(ix => ix ? [{ line, from: ix[0] + 1, to: ix[1] }] : [])));
 
 /**
- * Where /ship's own receipt holds identifiers that pii.phone.e164 reads as phone numbers (GST-2047, gstack#4480): the 1-based line and column
+ * Where /ship's own receipt holds identifiers that pii.phone.e164 reads as phone numbers (GST-2047, gstack#4480, gstack#4725): the 1-based line and column
  * span of each value below. In every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
  * renderReceiptBlock's rendering of it: each ci_carried[].run, flaky_exception[].runs[] and issues.flakes[].run value that is a run id (11 to 20
  * digits, with an optional /attempt), the run value when it is a gstack-skill-start session id, and the RECEIPT_LINE_IDS values inside the
- * pregate and requires_remote[] values. On every line outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
+ * pregate and requires_remote[] values. In every closed ```gstack-receipt-runs``` block, for each line whose JSON is a plain object with a
+ * non-empty head string and is byte-identical to JSON.stringify(entry): its top-level run value when it is a gstack-skill-start session id.
+ * On every line outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
  * those writers' own output qualifies, so a hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in
  * prose, in any other code block (a receipt-prefixed line inside one included), on a line without a receipt prefix or under any other key still reports.
  */
@@ -592,6 +594,30 @@ function receiptIdSpans(text: string): Span[] {
     return !fence && RECEIPT_LINE.test(l) ? lineIdSpans(l, i + 1) : [];
   });
   for (let open = 0; open < lines.length; open++) {
+    if (lines[open] === "```" + RUNS_FENCE) {
+      const close = lines.indexOf("```", open + 1);
+      if (close < 0) break;
+      for (let i = open + 1; i < close; i++) {
+        const raw = lines[i]!;
+        let entry: Record<string, unknown>;
+        try { entry = JSON.parse(raw); } catch { continue; }
+        if (!entry || typeof entry !== "object" || Array.isArray(entry) || typeof entry.head !== "string" || !entry.head) continue;
+        if (JSON.stringify(entry) !== raw) continue;
+        let offset = 1;
+        for (const [k, v] of Object.entries(entry)) {
+          const keyPart = JSON.stringify(k) + ":";
+          const valPart = JSON.stringify(v);
+          if (k === "run" && typeof v === "string" && SESSION_ID.test(v)) {
+            const from = offset + keyPart.length + 1;
+            spans.push({ line: i + 1, from, to: from + valPart.length - 1 });
+            break;
+          }
+          offset += keyPart.length + valPart.length + 1;
+        }
+      }
+      open = close;
+      continue;
+    }
     if (lines[open] !== "```" + RECEIPT_FENCE) continue;
     const close = lines.indexOf("```", open + 1);
     if (close < 0) break;
