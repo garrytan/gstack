@@ -301,7 +301,7 @@ export interface CarryPlanInput {
   retargetedFrom?: string;
   /** A commit inside the reviewed range whose product change the base already holds (a stack parent that squash-merged under a receipt written against the base, GST-1199): productPatchId.from is then the range from it. */
   stackParent?: string;
-  /** A clean scoped review of product paths whose only difference is base context next to unchanged hunks (lib/ship-patch.ts, GST-384): the carry reason it adds. */
+  /** A clean scoped review of product paths the base merge spliced (comparePath 'spliced', lib/ship-patch.ts, GST-2975): the carry reason it adds. */
   scopedReview?: string;
   /** Product paths whose own added and removed lines, modes and symlink targets are the reviewed bytes and whose only difference is base context next to them (comparePath 'context', GST-3562 G): reviewed, with CI on HEAD as the check. */
   baseContext?: string[];
@@ -382,7 +382,7 @@ export function planCarry(input: CarryPlanInput): CarryPlan {
   const parent = input.retargetedFrom ?? input.stackParent?.slice(0, 12);
   const reasons: string[] = parent ? [`stack parent ${parent} landed`] : [];
   if (input.mergeCommits > 0) reasons.push(input.mergeCommits === 1 ? 'base merge' : `${input.mergeCommits} base merges`);
-  if (input.baseContext?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`base context moved next to unchanged own lines (${input.baseContext.join(', ')}; CI at head checks it)`);
+  if (input.baseContext?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`base context moved next to unchanged own lines (${input.baseContext.slice(0, CARRY_NAMED_PATHS).join(', ')}${input.baseContext.length > CARRY_NAMED_PATHS ? ` (+${input.baseContext.length - CARRY_NAMED_PATHS} more)` : ''}; CI at head checks it)`);
   if (input.scopedReview && input.productPatchId.from !== input.productPatchId.head) reasons.push(input.scopedReview);
   if (input.stampedRows?.length && input.productPatchId.from !== input.productPatchId.head) reasons.push(`a stamp on the branch's own rows (${input.stampedRows.join(', ')})`);
   if (input.testPatchId.from !== input.testPatchId.head) reasons.push('test-only change');

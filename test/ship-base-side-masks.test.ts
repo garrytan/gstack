@@ -216,3 +216,46 @@ describe('a base merge counts as reviewed only when the branch\'s own lines, mod
     }
   });
 });
+
+describe('a merge that chose its own order, a base mode flip, or bytes that are not UTF-8 never count as reviewed (GST-3562 G)', () => {
+  const P = 'src/tool.sh';
+  /** Four sides in one repository: A, the reviewed branch R on A, the base B on A, and the merge C of R and B with `resolved`. */
+  const sides = (base: string | Buffer, reviewed: string | Buffer, baseSide: string | Buffer, resolved: string | Buffer, baseExec = false) => {
+    const f = fx();
+    const put = (text: string | Buffer) => fs.writeFileSync(path.join(f.work, P), text);
+    fs.mkdirSync(path.join(f.work, 'src'), { recursive: true });
+    put(base); f.commit('A');
+    const A = f.git('rev-parse', 'HEAD').stdout.trim();
+    put(reviewed); f.commit('R');
+    const R = f.git('rev-parse', 'HEAD').stdout.trim();
+    f.git('checkout', '-q', '-b', 'side', A);
+    put(baseSide); if (baseExec) fs.chmodSync(path.join(f.work, P), 0o755); f.commit('B');
+    const B = f.git('rev-parse', 'HEAD').stdout.trim();
+    f.git('checkout', '-q', '-b', 'merged', R);
+    f.git('merge', '-q', '--no-commit', '--no-edit', B);
+    put(resolved); if (baseExec) fs.chmodSync(path.join(f.work, P), 0o755); f.commit('C');
+    return comparePath(f.work, { reviewedBase: A, reviewed: R, currentBase: B, current: f.git('rev-parse', 'HEAD').stdout.trim() }, P);
+  };
+  const at = (edit: Record<number, string[]>) => rows().trimEnd().split('\n').flatMap((l, i) => [edit[i + 1]?.[0] ?? l, ...(edit[i + 1]?.slice(1) ?? [])]).join('\n') + '\n';
+  const GUARD = 'export const guard = 1;';
+  const [X1, X2] = ['export const x1 = 1;', 'export const x2 = 2;'];
+  const R3 = 'export const r3 = 3;';
+
+  // Value: protects=no review is lost by G: an insertion whose place against lines the base inserted or replaced at the same
+  //   spot was chosen by the merge, a base exec-bit flip on a file the branch edits, and a diff of bytes that are not UTF-8 all
+  //   leave the reviewed state; fails_when=any compares as context (no reader) or the controls lose their verdicts;
+  //   seam=comparePath; no_claim=the routes, which the cases above cover for spliced and changed
+  test('same-spot insertions are spliced in either order; a base exec-bit flip and non-UTF-8 bytes are changed', () => {
+    expect(sides(rows(), at({ 3: [R3, GUARD] }), at({ 3: [R3, X1, X2] }), at({ 3: [R3, X1, GUARD, X2] }))).toBe('spliced');
+    expect(sides(rows(), at({ 3: [R3, GUARD] }), at({ 3: [R3, X1, X2] }), at({ 3: [R3, GUARD, X1, X2] }))).toBe('spliced');
+    expect(sides(rows(), at({ 3: [R3, GUARD] }), at({ 3: ['export const r3 = 30;'] }), at({ 3: ['export const r3 = 30;', GUARD] }))).toBe('spliced');
+    expect(sides(rows(), at({ 3: [R3, GUARD] }), at({ 10: ['export const r10 = 100;'] }), at({ 3: [R3, GUARD], 10: ['export const r10 = 100;'] }))).toBe('same');
+    expect(sides(rows(), rows(OWN), rows({ 5: 'export const r5 = 50;' }), rows({ 5: 'export const r5 = 50;', ...OWN }))).toBe('context');
+    expect(sides(rows(), rows(OWN), rows({ 5: 'export const r5 = 50;' }), rows({ 5: 'export const r5 = 50;', ...OWN }), true)).toBe('changed');
+    const latin = (own: number, five = 'r5 = 5') => Buffer.concat([Buffer.from(rows({ 5: `export const ${five};` }).split('export const r6 = 6;')[0]!), Buffer.from('export const r6 = "caf'), Buffer.from([own]), Buffer.from('";\n'), Buffer.from(rows().split('export const r6 = 6;\n')[1]!)]);
+    const plain = rows({ 6: 'export const r6 = "cafe";' });
+    expect(sides(rows(), latin(0xe9), rows({ 5: 'export const r5 = 50;' }), latin(0xe9, 'r5 = 50'))).toBe('changed');
+    expect(sides(rows(), latin(0xe9), rows({ 5: 'export const r5 = 50;' }), latin(0xe8, 'r5 = 50'))).toBe('changed');
+    expect(sides(rows(), plain, rows({ 5: 'export const r5 = 50;' }), rows({ 5: 'export const r5 = 50;', 6: 'export const r6 = "cafe";' }))).toBe('context');
+  });
+});

@@ -14,13 +14,16 @@
  *   the base took SAVE_VERSION 83 under the branch's 84, GST-1561) is changed: the PR's own added
  *   and removed lines must both be the reviewed bytes for a head to count as reviewed (GST-2673).
  *   A context path counts as reviewed (GST-3562 G): its own added and removed lines, file modes
- *   and symlink targets are the reviewed bytes, and CI on the merged head checks the base context
- *   next to them;
+ *   at both heads and symlink targets are the reviewed bytes, and CI on the merged head checks the
+ *   base context next to them;
  * - spliced: the base replaced the very lines one of the branch's hunks replaces and the merge kept
- *   both (GST-2975: each current line is the base's new line plus the tokens the branch added), so
- *   the PR's own lines are not the reviewed bytes and the path needs a scoped review of its hunks;
- * - changed: anything else, including the same lines moved to another place, a file-mode change, and any path whose
- *   patches cannot be read (an empty patch on both sides of a path the branch touches). A binary, empty or mode-only
+ *   both (GST-2975: each current line is the base's new line plus the tokens the branch added), or
+ *   the base added or replaced lines at the very spot a branch insertion sits, so the merge chose
+ *   the order of the two (GST-3562); the path needs a scoped review of its hunks;
+ * - changed: anything else, including the same lines moved to another place, a file-mode change (in either patch, or
+ *   between the reviewed and current heads of a context or spliced path), a diff git printed as bytes that are not
+ *   UTF-8 (two such bytes decode to the same character, so their comparison is lossy), and any path whose patches
+ *   cannot be read (an empty patch on both sides of a path the branch touches). A binary, empty or mode-only
  *   patch has no hunks to place, so it is same when its patch-id matches and changed otherwise.
  * Diffs skip external drivers and textconv, so a configured filter cannot hide a line.
  * Paths reach git as literal pathspecs from NUL-separated listings, so quoted names and glob
@@ -102,18 +105,24 @@ function mapper(base: ZeroHunk[]): (line: number) => number | null {
   };
 }
 
-/** Whether a branch hunk at the reviewed base's position lands where the current branch hunk sits. */
-function sameSpot(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null): boolean {
+/**
+ * Where a branch hunk at the reviewed base's position lands against the current branch hunk: 'exact' when it sits at the one
+ * place the base's change maps it to, 'among' when it is an insertion that sits between the same surviving neighbours but the
+ * base added or replaced lines there too, so the merge chose its order against them (GST-3562), and false otherwise.
+ */
+function sameSpot(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null): 'exact' | 'among' | false {
   if (r.oldCount > 0) {
     for (let k = 0; k < r.oldCount; k++) if (map(r.oldStart + k) !== c.oldStart + k) return false;
-    return true;
+    return 'exact';
   }
   let below = r.oldStart;
   while (below > 0 && map(below) === null) below--;
   let above = r.oldStart + 1;
   for (let guard = 0; map(above) === null && guard < 100_000; guard++) above++;
   const low = below > 0 ? map(below)! : 0;
-  return c.oldStart >= low && c.oldStart <= map(above)! - 1;
+  const high = map(above)! - 1;
+  if (c.oldStart < low || c.oldStart > high) return false;
+  return high > low ? 'among' : 'exact';
 }
 
 /**
@@ -159,7 +168,7 @@ function sideDiffs(repoRoot: string, s: PatchSides, rel: string): { diff: (from:
 export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathVerdict {
   const r3 = pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3);
   const c3 = pathDiff(repoRoot, s.currentBase, s.current, rel, 3);
-  if (r3 === null || c3 === null || (!r3.trim() && !c3.trim())) return 'changed';
+  if (r3 === null || c3 === null || (!r3.trim() && !c3.trim()) || r3.includes('\uFFFD') || c3.includes('\uFFFD')) return 'changed';
   const modes = (d: string) => d.split('\n').filter(l => /^(old mode|new mode|new file mode|deleted file mode) /.test(l)).join('\n');
   if (modes(r3) !== modes(c3)) return 'changed';
   const sides = sideDiffs(repoRoot, s, rel);
@@ -177,11 +186,15 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
     const map = mapper(b0);
     let spliced = false;
     for (const [i, h] of r0.entries()) {
-      if (h.body === c0[i]!.body && sameSpot(h, c0[i]!, map)) continue;
-      if (!splicedHunk(h, c0[i]!, b0)) return 'changed';
+      const spot = h.body === c0[i]!.body ? sameSpot(h, c0[i]!, map) : false;
+      if (spot === 'exact') continue;
+      if (spot !== 'among' && !splicedHunk(h, c0[i]!, b0)) return 'changed';
       spliced = true;
     }
-    return spliced ? 'spliced' : ids[0] === ids[1] ? 'same' : 'context';
+    if (ids[0] === ids[1] && !spliced) return 'same';
+    const mode = (ref: string) => git(repoRoot, ['ls-tree', '--full-tree', ref, '--', rel])?.split(' ')[0];
+    if (mode(s.reviewed) !== mode(s.current)) return 'changed';
+    return spliced ? 'spliced' : 'context';
   } finally {
     sides.done();
   }

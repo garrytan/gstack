@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
-import { bindReceipt, extractReceipt, placeReceipt } from '../lib/ship-receipt';
+import { bindReceipt, CARRY_NAMED_PATHS, extractReceipt, placeReceipt, planCarry } from '../lib/ship-receipt';
 import { RECHECK_RANGE_DIFF_CAP } from '../crew/lib/ship-recheck';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -242,5 +242,19 @@ describe('a receipt that records only what binding needs (GST-3562 H)', () => {
     expect(bindReceipt(body, '5', [x.from], { base: 'main' })).toMatchObject({ ok: true, head: x.from });
     const older = placeReceipt('## Summary\n', { ...slim, review_loop: { passes: 2, blocking_found: 1, deferred: 1, fixed: 1, rounds: 2 }, calls: 14, spend_usd: 3.25, docs_audit_read: { paths: ['README.md'], reviewer: READER, packet_sha256: 'a'.repeat(64) } } as any);
     expect(bindReceipt(older, '5', [x.from], { base: 'main' })).toMatchObject({ ok: true, head: x.from });
+  });
+});
+
+describe('the carry reason names at most CARRY_NAMED_PATHS moved-context paths (GST-3562 G)', () => {
+  // Value: protects=a PR that merges main often keeps its receipt line bounded: the reason names at most CARRY_NAMED_PATHS
+  //   paths and counts the rest; fails_when=every path is named on every hop and the PR body grows past GitHub's limit;
+  //   seam=planCarry; no_claim=none
+  test('25 context paths name 20 and count 5', () => {
+    const paths = Array.from({ length: 25 }, (_, i) => `src/f${String(i).padStart(2, '0')}.ts`);
+    const plan = planCarry({ from: 'a'.repeat(40), head: 'b'.repeat(40), changed: [], productPatchId: { from: 'p1', head: 'p2' }, testPatchId: { from: '', head: '' }, changedProduct: [], mergeCommits: 1, rangeDiff: '', baseContext: paths });
+    expect(plan.ok).toBe(true);
+    const reason = plan.ok ? plan.carry.reason : '';
+    expect(reason).toContain(`(${paths.slice(0, CARRY_NAMED_PATHS).join(', ')} (+5 more); CI at head checks it)`);
+    expect(reason).not.toContain(paths[CARRY_NAMED_PATHS]!);
   });
 });
