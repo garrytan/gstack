@@ -6236,9 +6236,11 @@ Step 3's conflict rules, run Steps 5-16 again, then rerun push. When the remote
 refused the update, the `STOP:` line quotes its reason; a merge will not help,
 so change what it names instead. GitHub's `GH007` means a commit carries an
 email address your account keeps private: set `git config user.email` to your
-GitHub noreply address (shown at github.com/settings/emails), rewrite the
-commits that carry the private one (`git commit --amend --reset-author --no-edit`
-for the last), repeat Step 16 and push. Never force-push.
+GitHub noreply address (shown at github.com/settings/emails), rewrite every
+commit that carries the private one
+(`git rebase origin/<base> --exec 'git commit --amend --reset-author --no-edit'`),
+repeat Step 16 and push. The quoted reason passes through the secret scanner
+first. Never force-push.
 
 <a id="push-git-failed"></a>
 ### `PUSH_GIT_FAILED`

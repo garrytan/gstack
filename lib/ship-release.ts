@@ -32,6 +32,7 @@ import { reviewRoundGrants } from './review-round-grant';
 import { dispositionedOn, gateDispositionText, gateKey, readGateDispositions } from './gate-dispositions';
 import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
+import { redactFindingSpans } from './redact-engine';
 import { resolveStateRoot } from './state-root';
 import { bumpVersion, cmpVersion, fmtVersion, parseVersion, versionWidth, type Bump } from './version-source';
 import { waitForRun } from './ci-carry';
@@ -833,11 +834,12 @@ function pushOnce(argv: readonly string[], cwd: string, r: Report): string {
   if (plain.length) { r.add(`BRANCH: refused ${plain.map(f => `"${f.match}"`).join(', ')}`); return refuse(`the branch name ${branch} is not plain words (docs/ship-policy.md#plain-titles): rename it with git branch -m <plain words>[-<issue code>], then rerun push --branch <new name>`); }
   const p = git(cwd, ['push', '-u', 'origin', branch], 600_000);
   if (p.status !== 0) {
-    if (/\bGH007\b|email privacy restrictions/.test(p.stderr)) return refuse('GitHub refused the push (GH007): a commit carries the private email address your account blocks from command-line pushes. Set git config user.email to your GitHub noreply address (github.com/settings/emails), rewrite the commits that carry the private one (git commit --amend --reset-author --no-edit for the last), repeat Step 16, then push; a fetch and merge will not fix it', 'PUSH_REJECTED');
-    if (/non-fast-forward|fetch first/.test(p.stderr)) return refuse('non-fast-forward: fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16, then push again; never force-push', 'PUSH_REJECTED');
-    const declined = /^remote: error: (.+)$/m.exec(p.stderr)?.[1] ?? /\[remote rejected\][^(\n]*\(([^)\n]+)\)/.exec(p.stderr)?.[1];
-    return declined ? refuse(`the remote refused the push (${declined.trim().slice(0, 240)}): change what it names, repeat Step 16, then push; a fetch and merge will not fix it; never force-push or bypass a guard`, 'PUSH_REJECTED')
-      : refuse(`push failed (${firstLine(p.stderr)}): repair the auth, hook or network cause, repeat Step 16, then push; never bypass a guard`, 'PUSH_GIT_FAILED');
+    if (/^remote: error: GH007:|\[remote rejected\][^\n]*\(push declined due to email privacy restrictions\)/m.test(p.stderr)) return refuse(`GitHub refused the push (GH007): a commit carries the private email address your account blocks from command-line pushes. Set git config user.email to your GitHub noreply address (github.com/settings/emails), rewrite every commit that carries the private one (git rebase origin/${flag('--base') ?? '<base>'} --exec 'git commit --amend --reset-author --no-edit'), repeat Step 16, then push; a fetch and merge will not fix it`, 'PUSH_REJECTED');
+    if (/^ ! \[rejected\][^\n]*\((?:non-fast-forward|fetch first)\)$/m.test(p.stderr)) return refuse('non-fast-forward: fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16, then push again; never force-push', 'PUSH_REJECTED');
+    const declined = (/^remote: error: (GH\d{3}:.+)$/m.exec(p.stderr) ?? /^remote: error: (.+)$/m.exec(p.stderr) ?? /^ ! \[remote rejected\][^(\n]*\(([^)\n]+)\)$/m.exec(p.stderr))?.[1];
+    const quoted = declined && redactFindingSpans(declined.replace(/[\x00-\x1f\x7f]/g, ' ').trim());
+    if (declined) return refuse(`the remote refused the push (${quoted ? quoted.slice(0, 240) : 'its reason is withheld: the secret scanner could not redact it'}): change what it names, repeat Step 16, then push; a fetch and merge will not fix it; never force-push or bypass a guard`, 'PUSH_REJECTED');
+    return refuse(`push failed (${firstLine(p.stderr)}): repair the auth, hook or network cause, repeat Step 16, then push; never bypass a guard`, 'PUSH_GIT_FAILED');
   }
   r.next('Step 18');
   return `PUSH: pushed remote=origin ref=${branch} head=${local}`;
