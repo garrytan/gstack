@@ -305,6 +305,26 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
   }, 120_000);
 });
 
+describe('the read-only final review reads the whole PR diff (GST-3562 A)', () => {
+  // Value: protects=the read-only final review of a PR at its round cap is staged on the merge base even when the driver passes the fix range as --diff-base, and the pass says no fix round follows; fails_when=the dispatcher honors --diff-base on that plan, or prints no READ_ONLY line;
+  //   why_new=#4741 round-1 second-model finding (the driver sends RANGE_BASE on every full repeat); seam=none; no_claim=the edit guard's prose is followed
+  test('an explicit --diff-base on the fix range is ignored and the whole branch is reviewed', () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
+    const mergeBase = sh('git merge-base main HEAD');
+    const rangeBase = sh('git rev-parse HEAD');
+    sh('for i in $(seq 1 24); do echo "export const f$i = $i;" >> src/fix.ts; done && git add -A && git commit -qm "fix: pre-landing review fixes"');
+    const out = path.join(dir, '.state/run/p2');
+    const p = bin(dir, env, ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--diff-base', rangeBase, '--', '--prior-rounds', '1', '--prior-full', '1', '--pass', '1', '--last', 'full', '--pass1-depth', 'standard', '--fixed-blocking', '--adversarial-ran', '--range-base', rangeBase.slice(0, 7)]);
+    expect(p.status, p.stdout + p.stderr).toBe(0);
+    expect(p.stdout).toMatch(/^NEXT: full \(read-only final review \(R51\)/m);
+    expect(p.stdout).toContain(`READ_ONLY: the final review reads the whole PR diff from the merge base (--diff-base ${rangeBase} ignored); no fix round follows it`);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    expect(m.diff_base).toBe(mergeBase);
+    expect(m.readers.every(r => (r.diff_base ?? m.diff_base) === mergeBase)).toBe(true);
+  }, 120_000);
+});
+
 describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () => {
   const clone = (at: string) => { fs.mkdirSync(at, { recursive: true }); expect(spawnSync('bash', ['-c', 'git init -q && git remote add origin https://github.com/sealed-org/BEAM.git'], { cwd: at, encoding: 'utf8', timeout: 30_000 }).status).toBe(0); };
   const made: string[] = [];

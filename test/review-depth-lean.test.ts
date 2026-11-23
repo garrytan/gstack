@@ -6,6 +6,7 @@ import { appendEvent, verify } from '../lib/review-ledger';
 import * as os from 'node:os';
 import { createHash } from 'node:crypto';
 import { matchRisk } from '../lib/review-risk';
+import { asMainBeforeGst3562 } from './helpers/gst3562-replay';
 import { renderBrief, sectionTexts, sliceDiff, sliceNote } from '../lib/review-brief';
 import { validatePolicy, DEFAULT_POLICY, REVIEW_POLICY_KEY_VERSION } from '../lib/ship-policy';
 
@@ -128,14 +129,20 @@ describe('R65 lean dispatch (GSTA-258 build C): one reviewer, once', () => {
     expect(roles(p)).toEqual(['adversarial-native:single:full:lane']);
     expect(roles(planReview(base({ shape: lean({ readerModel: 'cross-family' }) })))).toEqual(['adversarial-native:single:full:cross-family']);
   });
-  test('panel risk (opt-in, FOUN-64 item 1): a risk-class diff gets the printed full-depth panel; a fixed blocker re-runs the printed plan as round 2 (FOUN-32 §5)', () => {
+  test('panel risk (opt-in, FOUN-64 item 1): a risk-class diff gets the printed full-depth panel; a fixed blocker re-runs the printed plan as round 2 (FOUN-32 §5), a round-2 fix gets the read-only full review, and a lean fixed blocker gets the one reader\'s full pass (GST-3562 A)', () => {
     const today = roles(planReview(base({ paths: ['lib/billing.ts'], targeted: { classes: ['money'] }, shape: undefined })));
     const p = planReview(base({ paths: ['lib/billing.ts'], targeted: { classes: ['money'] } }));
     expect([p.depth, p.mode, roles(p)]).toEqual(['full', 'panel', today]);
     expect(today.length).toBeGreaterThan(1);
     expect(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 1, last: 'full', fixedBlocking: true } })).next.step).toBe('full');
-    expect(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 2, last: 'full', fixedBlocking: true } })).next.step).toBe('stop');
-    expect(planReview(base({ history: { fullPasses: 1, last: 'full', fixedBlocking: true } })).next.step).toBe('fix-check');
+    const readOnly = planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 2, last: 'full', fixedBlocking: true } }));
+    expect([readOnly.mode, readOnly.next.step, readOnly.next.reason, readOnly.next.readOnly]).toEqual(['panel', 'full', expect.stringContaining('read-only final review (R51)'), true]);
+    expect(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 1, last: 'full', fixedBlocking: true } })).next.readOnly).toBeUndefined();
+    expect(planReview(base({ paths: ['lib/billing.ts'], history: { priorRounds: 1, priorFull: 1, fullPasses: 1, last: 'full', fixedBlocking: true } })).next).toMatchObject({ step: 'full', readOnly: true, reason: expect.stringContaining('read-only final review (R51)') });
+    expect(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 3, last: 'full', fixedBlocking: true } })).next).toMatchObject({ step: 'stop', reason: expect.stringContaining("the lane's Captain decides") });
+    const leanFix = planReview(base({ history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
+    expect([leanFix.mode, leanFix.next.step, roles(leanFix)]).toEqual(['lean', 'full', ['adversarial-native:single:full:lane']]);
+    expect(leanFix.next.reason).toContain('GST-3562 A');
   });
   test('panel off: risk class gets one reader on the configured model with the merged panel brief; it carries the targeted classes', () => {
     const p = planReview(base({ paths: ['lib/billing.ts'], targeted: { classes: ['money'] }, shape: lean({ panel: 'off' }) }));
@@ -155,6 +162,36 @@ describe('R65 lean dispatch (GSTA-258 build C): one reviewer, once', () => {
     expect(roles(planReview(base({ paths: ['lib/billing.ts'], shape: lean({ panel: 'risk' }) })))).toEqual(today({ paths: ['lib/billing.ts'] }));
     expect(planReview(base({ shape: lean({ panel: 'risk' }) })).mode).toBe('lean');
     expect(planReview(base({ shape: lean({ panel: 'all' }) })).mode).toBe('panel');
+  });
+});
+
+describe('GST-3562 A no-loss replay across panels, prior rounds, round grants, the bot-review skip and targeted classes', () => {
+  // Value: protects=rule 15's no-loss rule for review depth: a step that stands where main planned a fix-check keeps a full-effort reader excluding nothing that fix-check read, plus main's other readers, under every panel, prior-round count, round grant, bot-review shape and targeted class; fails_when=a replacement pass dispatches no full-effort reader (the three corners #4737's read-only reviews found: a lean docs-only round 2, the same under a round grant, the bot-review skip on a repeat) or drops main's targeted or outside voice;
+  //   why_new=GST-3562 A; seam=planReview, asMainBeforeGst3562; no_claim=what the kept reader finds
+  test('every changed case is an allowed kind, and each fix-check it replaces keeps its reader', () => {
+    const kinds: Record<string, number> = {};
+    const fixtures: Record<string, string[]> = { docs: ['docs/a.md'], tests: ['test/a.test.ts'], code: ['src/app.ts'], risk: ['lib/billing.ts'], mixed: ['src/app.ts', 'docs/a.md'] };
+    const counted = scanNumbers({ 'docs/a.md': ['recall 87% (26/30)'] });
+    const bot = { id: 'r1', head: HEAD, reviewer: 'capy-ai[bot]' };
+    for (const [name, paths] of Object.entries(fixtures)) for (const panel of ['all', 'off', 'risk'] as const) for (const platform of ['off', 'on'] as const) for (const numbers of [none, counted])
+    for (const targeted of [undefined, { classes: ['money'] }, { classes: ['money'], ran: true }]) for (const priorFull of [0, 1, 2]) for (const roundGrant of [undefined, 'g-1']) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
+      const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8), priorFull, roundGrant };
+      const input = base({ paths, numbers, history, adversarialRan, ...(targeted ? { targeted } : {}), shape: lean({ panel, platform, platformReview: platform === 'on' ? bot : null }) });
+      const { kind } = asMainBeforeGst3562(input, planReview(input));
+      if (kind) kinds[`${name}:${kind}`] = (kinds[`${name}:${kind}`] ?? 0) + 1;
+    }
+    expect(kinds).toEqual({ 'docs:a': 4134, 'docs:b': 6336, 'docs:c': 576, 'docs:d': 1086, 'docs:e': 576, 'tests:a': 4134, 'tests:b': 6336, 'tests:c': 576, 'tests:d': 1086, 'tests:e': 576, 'code:a': 3984, 'code:b': 6336, 'code:c': 576, 'code:d': 1056, 'code:e': 576, 'risk:a': 2664, 'risk:b': 6624, 'risk:c': 336, 'risk:d': 456, 'risk:e': 1152, 'mixed:a': 3984, 'mixed:b': 6336, 'mixed:c': 576, 'mixed:d': 1056, 'mixed:e': 576 });
+  }, 60_000);
+  test('the three corners keep the one full-effort reader main\'s fix-check was', () => {
+    const bot = { id: 'r1', head: HEAD, reviewer: 'capy-ai[bot]' };
+    for (const panel of ['off', 'risk'] as const) for (const extra of [{}, { priorFull: 1, roundGrant: 'g-1' }, { priorFull: 2, roundGrant: 'g-1' }]) for (const platform of ['off', 'on'] as const) {
+      const p = planReview(base({ paths: ['docs/a.md'], history: { fullPasses: 1, last: 'full', fixedBlocking: true, ...extra }, shape: lean({ panel, platform, platformReview: platform === 'on' ? bot : null }) }));
+      expect([panel, extra, platform, p.next.step, roles(p)]).toEqual([panel, extra, platform, 'full', ['red-team:red-team:full:-']]);
+    }
+    for (const paths of [['docs/a.md'], ['test/a.test.ts']]) for (const panel of ['off', 'risk'] as const) {
+      const p = planReview(base({ paths, targeted: { classes: ['money'] }, history: { fullPasses: 1, last: 'full', fixedBlocking: true }, shape: lean({ panel }) }));
+      expect([paths, panel, roles(p).filter(r => r.startsWith('red-team') || r.startsWith('targeted'))]).toEqual([paths, panel, ['red-team:red-team:full:-', 'targeted:targeted:full:-']]);
+    }
   });
 });
 
@@ -216,20 +253,41 @@ describe('C6 platform depth (FOUN-32, founderstar#496): a planned skip needs the
     expect(planReview(base({ ...docs, shape: all(null) })).mode).toBe('panel');
     expect(planReview(base({ shape: all(ev) })).mode).toBe('panel');
   });
-  test('the platform skip is pass 1 only: a later step plans as lean', () => {
+  test('the platform skip is pass 1 only: a later step plans as lean, the one reader\'s full pass on the range (GST-3562 A)', () => {
     const p = planReview(base({ shape: on({ id: '1', head: HEAD, reviewer: 'capy-ai[bot]' }), history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
-    expect(p.next.step).toBe('fix-check');
+    expect([p.mode, p.next.step, roles(p)]).toEqual(['lean', 'full', ['adversarial-native:single:full:lane']]);
+    expect(p.next.reason).toContain('GST-3562 A');
   });
 });
 
 describe('R65 lean loop: one fix round, never more than 2 rounds', () => {
   const h = (o: object) => ({ fullPasses: 1, last: 'full' as const, lean: true, ...o });
-  test('non-risk: a fixed blocker earns one fix-check; below-floor fixes ship as notes', () => {
-    expect(nextStep(h({ fixedBlocking: true }), 'light').step).toBe('fix-check');
-    expect(nextStep(h({ fixedBelow: true }), 'light')).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
+  test('non-risk: a fixed blocker earns the one reader\'s full pass on the range (GST-3562 A); below-floor fixes ship as notes only when they change no runtime lines', () => {
+    expect(nextStep(h({ fixedBlocking: true }), 'light')).toMatchObject({ step: 'full', reason: expect.stringContaining("round 2 is the one reviewer's full pass on the range, never a fix-check (R51, GST-3562 A)") });
+    expect(nextStep(h({ fixedBelow: true, rangeRuntimeLines: 0 }), 'light')).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
+    for (const rangeRuntimeLines of [undefined, null, 2]) {
+      expect(nextStep(h({ fixedBelow: true, rangeRuntimeLines }), 'light')).toMatchObject({ step: 'full', reason: expect.stringContaining('below-floor fixes changed runtime lines') });
+      expect(nextStep(h({ fixedBelow: true, rangeRuntimeLines, fullPasses: 2 }), 'light')).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
+      expect(nextStep(h({ fixedBelow: true, rangeRuntimeLines, fullPasses: 3 }), 'light').step).toBe('stop');
+    }
   });
-  test('risk: any fix earns one scoped fix-check, a gate-class edit included, never a second full pass', () => {
-    for (const o of [{ fixedBlocking: true }, { fixedBelow: true }, { fixedBelow: true, touchedGate: true }]) expect(nextStep(h(o), 'full').step).toBe('fix-check');
+  test('risk: any fix earns the one reader\'s full pass on the range as round 2, a gate-class edit included (GST-3562 A); a round-2 fix gets one read-only full review, and a fix after it stops for the lane\'s Captain', () => {
+    for (const o of [{ fixedBlocking: true }, { fixedBelow: true }, { fixedBelow: true, touchedGate: true }]) {
+      expect(nextStep(h(o), 'full')).toMatchObject({ step: 'full', reason: expect.stringContaining('never a fix-check (R51, GST-3562 A)') });
+      expect(nextStep(h({ ...o, fullPasses: 2 }), 'full')).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
+      expect(nextStep(h({ ...o, fullPasses: 3 }), 'full')).toMatchObject({ step: 'stop', reason: expect.stringContaining("the lane's Captain decides") });
+    }
+  });
+  // Value: protects=the lean round 2 that replaced the fix-check keeps its second-model check of changed published numbers
+  //   (R12's published-number blocker); fails_when=a code PR whose fix changed a published number gets only the native reader in
+  //   round 2; why_new=GST-3562 A (PR #4737's second-model review); seam=leanPlan; no_claim=what the reader finds
+  test('round 2 on a code diff adds the second-model reader when the fix changed a published number, as the fix-check did', () => {
+    const numbers = scanNumbers({ 'docs/bench.md': ['3x faster'] });
+    const p = (reviewedNumbers: string) => planReview(base({ paths: ['src/app.ts', 'docs/bench.md'], numbers, reviewedNumbers, history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
+    const roles = (q: ReturnType<typeof planReview>) => q.dispatches.map(d => `${d.role}:${d.name}`);
+    expect(p('old').next.step).toBe('full');
+    expect(roles(p('old'))).toContain('outside-voice:outside-voice (numbers changed)');
+    expect(roles(p(numbers.fingerprint))).not.toContain('outside-voice:outside-voice (numbers changed)');
   });
   test('a fix-check blocker stops for the owner; a recorded grant adds one fix-check, never two', () => {
     expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 1 }), 'full').step).toBe('stop');
@@ -237,8 +295,9 @@ describe('R65 lean loop: one fix round, never more than 2 rounds', () => {
     expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 2, granted: 'apr_1' }), 'full').step).toBe('stop');
     expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, granted: 'apr_1' }), 'full').step).toBe('stop');
   });
-  test('planReview marks the loop lean and a fix-check dispatches one full-effort reader', () => {
-    expect(roles(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 1, last: 'full', fixedBlocking: true }, shape: lean({ panel: 'off' }) })))).toEqual(['fix-check:fix-check:full:-']);
+  test('planReview marks the loop lean and round 2 dispatches the one full-effort reader with the merged brief, never a fix-check (GST-3562 A)', () => {
+    const p = planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 1, last: 'full', fixedBlocking: true }, shape: lean({ panel: 'off' }) }));
+    expect([p.mode, p.next.step, roles(p)]).toEqual(['lean', 'full', ['adversarial-native:merged:full:lane']]);
   });
 });
 

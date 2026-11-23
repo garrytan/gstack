@@ -7957,8 +7957,9 @@ request already had its two full review rounds (R51), counted across every head 
 round. A PR at the cap whose own code changed gets one read-only full review of its
 final head; this stop then means that review found a blocker or a gate-class edit.
 `/ship` Step 1 prints the count as `PR_REVIEW_HISTORY:` and passes it on from
-`PR_REVIEW_FLAGS:`. A fix below the blocking floor finishes with its notes
-listed instead of stopping.
+`PR_REVIEW_FLAGS:`. Below-floor findings that review leaves unfixed ship as
+notes; a fix applied after it, even below the floor, stops for the lane's
+Captain (GST-3562 A).
 
 **Fix.** The lane's Captain decides. Ship with the open notes listed, park, or,
 when a finding above the floor is open in this PR's own change, buy the stopped

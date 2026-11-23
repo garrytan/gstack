@@ -97,18 +97,17 @@ incomplete coverage, which blocks until the reviewer is rerun.
    changed as no round, so it shows as `fix_checks=`. After round 2 the run
    finishes with its open notes listed in the PR body and receipt (an owner-ruled
    note is closed and listed: [ruled notes](ship-policy.md#ruled-notes)), or stops for
-   the owner when a blocking finding is open, or was fixed in round 2 and is
-   unverified, or a round-2 fix edited a gate-class path, naming it (path,
-   severity, problem). The cap limits fix rounds, not Step 11's voices: on gate
+   the owner when a blocking finding is open, naming it (path, severity,
+   problem); a round-2 fix, blocking, gate-class or below the floor, first gets
+   the read-only full review described below. The cap limits fix rounds, not Step 11's voices: on gate
    class a stop waits for Step 11's adversarial, outside and targeted voices
    (`NEXT: voices`), so gate code never reaches the owner's "ship with open
-   notes" without them (GST-967). A third round is the owner's
-   grant of one scoped fix-check (recorded in `review_loop_exception`), never the
-   loop's: once `gstack-approvals add` records the grant (its ask or scope
-   naming `review_loop_grant` and the stop head's sha),
-   `gstack-review-plan --grant <approval id> --range-base <round 2's PASS_HEAD>`
-   plans that fix-check in place of the stop after a round-2 full pass, or after
-   a round-2 fix-check that was the run's only one (`--fix-checks 1`, GEVA-223),
+   notes" without them (GST-967). A fix in round 2 gets one read-only full
+   review, never a fix-check (GST-3562 A). For one release, a grant recorded in
+   `review_loop_exception` (its ask or scope naming `review_loop_grant` and the
+   stop head's sha) still answers one row: `gstack-review-plan --grant <approval
+   id> --range-base <round 2's PASS_HEAD>` plans one more fix-check after a
+   round-2 fix-check that was the run's only one (`--fix-checks 1`, GEVA-223),
    with a fixed blocking finding or a gate-class edit, and refuses any other row,
    including a grant for a stop head before `--range-base` (an earlier /ship).
    A fix-check never earns another, so the grant cannot repeat, and a stop after
@@ -192,14 +191,17 @@ caught on another crew's PRs.
    show in neither,
    because each run's own fix round is the in-run table's call. A full pass past two
    stops with `PR_ROUND_CAP` and says how to record the stop and its grant
-   (item 6); a below-floor fix at the cap finishes with its notes listed. The stop is the lane's or Captain's call, never an owner ask
+   (item 6); a fix at the cap gets one read-only full review of the final head
+   (GST-3562 A), and a fix after that review stops for the lane's Captain. The stop is the lane's or Captain's call, never an owner ask
    ([troubleshooting](troubleshooting.md#pr-round-cap)).
 5. **Read-only final review.** A PR that already had two full rounds and whose
    own code changed since still gets one full review of its final head. It has
    no fix round: below-floor findings ship as notes, and a blocker (open or
    fixed) or a gate-class edit stops with `PR_ROUND_CAP` for the lane's Captain
-   to decide: ship with the note, park, or buy that review's fix round with a
-   fix-check grant (item 6). The count does not reopen.
+   to decide: ship with the note, park, or keep the fix and run /ship again for
+   one more read-only full review of the final head. A below-floor fix applied
+   after that review also stops for the Captain (GST-3562 A). The count does not
+   reopen.
 6. **Round grants.** Two kinds, each recorded with `gstack-approvals round-grant
    --pr <n> --head <sha> --reason <why> --by <lane or Captain>`, and each spent
    by the one run that claims it.
@@ -338,20 +340,24 @@ the same grant, whichever row records it:
 | a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |
 | a full pass that fixed a blocking finding, below the cap (full depth, a larger range, or a range or depth it could not read) | full pass on the range |
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
-| a full pass that fixed only below-floor findings | one fix-check (round 2) |
+| a full pass that fixed only below-floor findings | full pass on the range (round 2; GST-3562 A plans no new fix-check) |
 | a light pass 1 whose below-floor fixes change no runtime lines | done |
-| round 2 (a full pass or a fix-check) that fixed a blocking finding or edited a gate-class path | stop: name it for the owner, who may grant one scoped fix-check |
-| round 2 (a full pass or a fix-check) that fixed only below-floor findings | done: notes in the PR body |
+| round 2 that fixed anything, blocking or below the floor | one read-only full review of the final head, with no fix round (R51) |
+| round 2 on a light diff whose below-floor fixes change no runtime lines | done: notes in the PR body |
+| a fix after that read-only review | stop: the lane's Captain rules it a note, or the fix goes to a new /ship run's read-only full review |
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
-| a fix-check that found nothing blocking | done |
-| a fix-check that found a blocking finding | stop: name it for the owner |
+| a fix-check (granted before GST-3562) that found nothing blocking | done |
+| a fix-check (granted before GST-3562) that found a blocking finding | stop: name it for the owner |
 | a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
-| a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
+| the stop after a fix-check (granted before GST-3562) that was the run's only one, with the owner's recorded grant (`--grant <approval id>`) | one more scoped fix-check, after Step 11 on gate class, until a later release removes it; a grant after a round-2 full pass buys nothing, because the read-only full review replaces it |
 | a round-2 fix-check that stops the same way, with the owner's recorded grant and `--fix-checks 1` | one scoped fix-check (round 3), after Step 11 on gate class |
 | `--post-review` after a fix-check whose later edits are only release stamps and docs (`docsChangeSince`) | done, or the one targeted reader when a docs claim on a targeted-class diff needs it |
 | `--post-review` after a fix-check (edits after the review bound), with a new recorded grant at a stop head after the last fix-check's commit | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
 | a fix-check that stops in the loop, with a new recorded grant naming its own commit (`--range-base`, the stop it answers), after any number of fix-checks | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
 
+GST-3562 A retires the fix-check: `nextStep` plans none, and the rows that name
+one serve grants recorded before it, for one release. Its 3,932,160-case replay
+against main's table is `test/fixtures/review-pins/replays/GST-3562-A.json`.
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is
 logged as a `review-fix-check` row, so it never counts as a pass. No army, no
@@ -433,11 +439,11 @@ Under the opt-in `review.panel risk` (and `review.platform on` under any panel):
 
 | Diff | Pass 1 | After fixes (never more than 2 rounds) |
 |---|---|---|
-| Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | A fixed blocker re-runs the printed plan on the fixed head as round 2; below-floor fixes get one fix-check |
-| Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker or a gate-class edit gets one fix-check on the touched hunks; below-floor fixes ship as notes |
-| Docs | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
-| Tests, or code with no runtime lines (only registered outputs) | One batched reader on the class's checklists (Testing for tests, which leaves docs and registered outputs out of its diff); the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
-| Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included | none |
+| Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | Any fix re-runs the printed plan on the fixed range as round 2 (GST-3562 A); a fix in round 2 gets one read-only full review |
+| Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker, a gate-class edit or a below-floor fix that changes runtime lines gets the one reader's full pass on the range as round 2, adding the outside voice when the fix changed a published number (GST-3562 A); below-floor fixes with no runtime lines ship as notes |
+| Docs | The core read; the outside voice only when the diff publishes numbers | A full pass on the range after a fixed blocker, with the Red Team reader at full effort on the whole fix range, the reader main's fix-check was (GST-3562 A) |
+| Tests, or code with no runtime lines (only registered outputs) | One batched reader on the class's checklists (Testing for tests, which leaves docs and registered outputs out of its diff); the outside voice only when the diff publishes numbers | A full pass on the range after a fixed blocker: the batched reader plus the Red Team reader at full effort on the whole fix range (GST-3562 A) |
+| Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included; first review only (GST-3562 A) | The class's row above: a later round never takes the platform skip |
 
 `review.panel all`, the default, keeps today's panel and loop on every class. `risk` is
 opt-in because its one-reader shape has not passed its no-loss replay: build C's replay
@@ -707,9 +713,9 @@ the specialists, audits and watchers at the host default too
 - Standard reads thresholds on runtime lines, not the whole diff, so a test-heavy
   diff with few runtime lines dispatches fewer specialists.
 - R51: size never raises the depth; non-risky code is light at any size, and a risk
-  class makes it full. Two rounds is the cap, a fix-check
-  included: a blocker fixed in round 2 stops for the owner instead of earning a
-  fix-check, and a light pass 1 whose below-floor fixes change no runtime lines is done.
+  class makes it full. Two rounds is the cap: a fix made in round 2 gets one
+  read-only full review of the whole PR diff with no fix round (GST-3562 A), and a
+  light pass whose below-floor fixes change no runtime lines is done.
 - A JSON, CSV, TSV or raster data file no code names is docs, not runtime (GSTA-167
   part 4a). A binary image no code names is no longer a `binary_code_path` error
   that forces full depth; one that code names still is.

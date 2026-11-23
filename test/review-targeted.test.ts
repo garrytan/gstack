@@ -107,7 +107,7 @@ describe('the targeted brief', () => {
 describe('planReview dispatches the targeted reader', () => {
   const plan = (o: Partial<PlanInput>) => planReview({ paths: ['src/a.ts'], scope: {}, gateTagged: 0, diffLines: 5, numbers: scanNumbers({}), history: { fullPasses: 0, last: 'none' }, ...o } as PlanInput);
   const roles = (p: ReturnType<typeof plan>) => p.dispatches.map(d => `${d.role} ${d.effort}`);
-  test('at light, standard and full depth when a class hit, never when none did', () => {
+  test('at light, standard and full depth when a class hit, never when none did, and on the full pass on the range a below-floor fix now earns (GST-3562 A)', () => {
     expect(plan({ targeted: { classes: ['money'] } })).toMatchObject({ depth: 'light' });
     expect(roles(plan({ targeted: { classes: ['money'] } }))).toContain('targeted full');
     expect(plan({ diffLines: 80, perPath: [{ path: 'src/a.ts', lines: 80, binary: false }], targeted: { classes: ['secret'] }, floor: 'standard' }).depth).toBe('standard');
@@ -115,7 +115,9 @@ describe('planReview dispatches the targeted reader', () => {
     expect(plan({ gateTagged: 1, targeted: { classes: ['gate'] } }).depth).toBe('full');
     expect(roles(plan({ gateTagged: 1, targeted: { classes: ['gate'] } }))).toContain('targeted full');
     expect(roles(plan({ targeted: { classes: [] } }))).not.toContain('targeted full');
-    expect(roles(plan({ targeted: { classes: ['money'] }, history: { fullPasses: 1, last: 'full', fixedBelow: true } }))).toEqual(['fix-check full', 'targeted full']);
+    const below = plan({ targeted: { classes: ['money'] }, history: { fullPasses: 1, last: 'full', fixedBelow: true } });
+    expect([below.next.step, roles(below)]).toEqual(['full', ['specialist full', 'adversarial-native full', 'targeted full']]);
+    expect(below.next.reason).toContain('GST-3562 A');
     expect(plan({ targeted: { classes: ['money'] }, history: { fullPasses: 1, last: 'full' } }).dispatches).toEqual([]);
     const ran = plan({ targeted: { classes: ['money'], ran: true } });
     expect(roles(ran)).not.toContain('targeted full');
@@ -195,6 +197,13 @@ const R51: Record<string, { depth: string; panel: boolean; dropped?: string[] }>
   'money-light': { depth: 'full', panel: true }, 'money-path': { depth: 'full', panel: true }, 'money-removed': { depth: 'full', panel: true }, 'money-standard': { depth: 'full', panel: true },
   'auth-path': { depth: 'full', panel: true }, 'money-fix-check': { depth: 'full', panel: false }, 'money-pass2': { depth: 'full', panel: false }, 'gate-repeat': { depth: 'full', panel: false },
 };
+/**
+ * GST-3562 A (the Captain's rule-15 ruling of 2026-11-23, approval a-6ec01c09edf8: "Only B removes a reader that can block a
+ * merge. A replaces narrow re-checks with full rounds…"): /ship plans no new fix-check, so a fixture where main dispatched the
+ * fix-check now runs a full pass on the range. The check accepts the fix-check role's absence only when the printed REVIEW_PLAN
+ * reason carries "GST-3562 A" and the full panel is dispatched in its place; every other role assertion stands.
+ */
+const GST3562_FIX_CHECK_FIXTURES = ['money-fix-check'];
 const field = (out: string, prefix: string, key: string) => new RegExp(`^${prefix}.* ${key}=(\\S+)`, 'm').exec(out)?.[1];
 
 describe('gstack-review-plan prints TARGETED and dispatches the targeted reader', () => {
@@ -209,6 +218,7 @@ describe('gstack-review-plan prints TARGETED and dispatches the targeted reader'
     expect(Object.keys(MAIN).sort()).toEqual(Object.keys(FIXTURES).sort());
     expect(Object.keys(R51).sort()).toEqual(Object.keys(FIXTURES).sort());
     const role = (d: string) => d.split(' ')[0]!;
+    const replaced: string[] = [];
     for (const [name, f] of Object.entries(FIXTURES)) {
       const r = planRepo(f).run(f.args ?? []);
       expect(r.status, `${name}: ${r.stderr}`).toBe(0);
@@ -216,11 +226,19 @@ describe('gstack-review-plan prints TARGETED and dispatches the targeted reader'
       const want = MAIN[name]!, now = R51[name]!;
       expect(r.stdout, name).toContain(`REVIEW_DEPTH: ${now.depth} `);
       const roles = new Set(got.map(role));
-      expect([...new Set(want.main.map(role))].filter(x => !roles.has(x)), name).toEqual(now.dropped ?? []);
+      let dropped = [...new Set(want.main.map(role))].filter(x => !roles.has(x));
+      if (dropped.includes('fix-check')) {
+        expect(r.stdout.split('\n').find(l => l.startsWith('REVIEW_PLAN: ')), name).toMatch(/ reason="[^"]*GST-3562 A[^"]*"$/);
+        expect(FULL_PANEL.filter(x => !roles.has(x)), name).toEqual([]);
+        dropped = dropped.filter(x => x !== 'fix-check');
+        replaced.push(name);
+      }
+      expect(dropped, name).toEqual(now.dropped ?? []);
       if (now.panel) expect(FULL_PANEL.filter(x => !roles.has(x)), name).toEqual([]);
       expect(roles.has('targeted'), name).toBe(want.classes !== 'none');
       expect(field(r.stdout, 'TARGETED:', 'classes'), name).toBe(want.classes);
     }
+    expect(replaced).toEqual(GST3562_FIX_CHECK_FIXTURES);
   }, 180_000);
 
   test('the TARGETED line carries the rules hash and the brief\'s sha256; --targeted-ran skips the reader only for the same product patch', () => {

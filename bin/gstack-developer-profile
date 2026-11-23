@@ -809,17 +809,16 @@ do_narrative() {
 do_vibe() {
   ensure_profile
   cd "$ROOT_DIR"
-  cat "$PROFILE_FILE" | PROFILE_DATA="$(cat "$PROFILE_FILE")" bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
-    import('./scripts/archetypes.ts').then(async (mod) => {
-      const p = JSON.parse(process.env.PROFILE_DATA);
-      const dims = (p.inferred && p.inferred.values) || {
-        scope_appetite: 0.5, risk_tolerance: 0.5, detail_preference: 0.5,
-        autonomy: 0.5, architecture_care: 0.5,
-      };
-      const arch = mod.matchArchetype(dims);
-      console.log(arch.name);
-      console.log(arch.description);
-    });
+  cat "$PROFILE_FILE" | bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
+    const p = JSON.parse(await Bun.stdin.text());
+    const mod = await import('./scripts/archetypes.ts');
+    const dims = (p.inferred && p.inferred.values) || {
+      scope_appetite: 0.5, risk_tolerance: 0.5, detail_preference: 0.5,
+      autonomy: 0.5, architecture_care: 0.5,
+    };
+    const arch = mod.matchArchetype(dims);
+    console.log(arch.name);
+    console.log(arch.description);
   "
 }
 
