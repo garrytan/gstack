@@ -147,7 +147,14 @@ const rowSha = (r: ApprovalRow) => createHash('sha256').update(JSON.stringify(r)
 function runIdFor(token: string, cwd: string): string {
   const dir = path.resolve(cwd, token.replace(/^~(?=\/)/, process.env.HOME ?? '~'));
   if (!token.includes('/')) return token;
-  try { return String(JSON.parse(fs.readFileSync(path.join(dir, 'run.json'), 'utf8')).run ?? path.basename(dir)); } catch { return path.basename(dir); }
+  let run: Record<string, any> = {};
+  try { run = JSON.parse(fs.readFileSync(path.join(dir, 'run.json'), 'utf8')); } catch {}
+  if (run.run ?? run.id) return String(run.run ?? run.id);
+  const file = path.join(dir, 'decisions.jsonl');
+  if (!fs.existsSync(file)) return path.basename(dir);
+  let runs: Set<string>;
+  try { runs = new Set(fs.readFileSync(file, 'utf8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l)?.run).filter((r): r is string => typeof r === 'string' && !!r)); } catch { return ''; }
+  return runs.size === 1 ? [...runs][0]! : runs.size ? '' : path.basename(dir);
 }
 
 /** Resolve a Plan line against the approval store; `changedOnly` lists the PR's changed paths for the changelog-only exemption. */

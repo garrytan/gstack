@@ -41,6 +41,41 @@ function fixture(files: Record<string, Array<Partial<ApprovalRow> & { ask: strin
   return { cwd, env, ids };
 }
 
+describe('an interactive /autoplan run cited by its directory (#4402)', () => {
+  // Value: protects=a Plan line naming an interactive run's directory (no run.json) resolves through the run id its gate
+  //   rows carry, the id the import now records; fails_when=the path token still resolves to the shared directory name
+  //   "autoplan" and finds no row; why_new=path tokens were only resolved through run.json or the directory name; seam=none
+  test('a path token resolves through the run its decision rows carry', () => {
+    const id = 'feature-x-20261122-104500';
+    const f = fixture({ b: [{ ask: `Approve the plan (autoplan run ${id}, 1 decisions)`, source: `autoplan:${id}@gate_rev=1` }] });
+    const run = path.join(f.cwd, '.gstack', 'tmp', 'autoplan');
+    fs.mkdirSync(run, { recursive: true });
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ run: id, id: `${id}-p1`, status: 'approved', gate_rev: 1 }) + '\n');
+    const r = resolvePlan(parsePlanLine('Plan: approved: .gstack/tmp/autoplan'), { cwd: f.cwd, env: f.env });
+    expect(r.ok ? 'resolved' : r.failure.message).toBe('resolved');
+  });
+
+  // Value: protects=a Plan line naming a shared interactive folder that holds more than one run resolves to no run, so a later /autoplan in
+  //   the same checkout, or an approval imported before #4402 under the shared id "autoplan", never turns an unchanged PR body's citation into
+  //   another plan's approval, while the run id still resolves;
+  //   fails_when=the folder token follows whichever run was written last; why_new=the case above holds a single run; seam=none
+  test('a path token whose folder holds several runs resolves to none of them; the run id still does', () => {
+    const a = 'feature-x-autoplan-20261122-104500', b = 'feature-y-autoplan-20261122-114500';
+    const f = fixture({ b: [{ ask: `Approve the plan (autoplan run ${a}, 1 decisions)`, source: `autoplan:${a}@gate_rev=1` }, { ask: `Approve the plan (autoplan run ${b}, 1 decisions)`, source: `autoplan:${b}@gate_rev=1` }],
+      old: [{ ask: 'Approve the plan (autoplan run autoplan, 1 decisions)', source: 'autoplan:autoplan@gate_rev=1' }] });
+    const run = path.join(f.cwd, '.gstack', 'tmp', 'autoplan');
+    fs.mkdirSync(run, { recursive: true });
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), [a, b].map(id => JSON.stringify({ run: id, id: `${id}-p1`, status: 'approved', gate_rev: 1 })).join('\n') + '\n');
+    const byFolder = resolvePlan(parsePlanLine('Plan: approved: .gstack/tmp/autoplan'), { cwd: f.cwd, env: f.env });
+    expect(byFolder.ok ? 'resolved' : byFolder.failure.code).toBe('PLAN_UNRESOLVED');
+    const byId = resolvePlan(parsePlanLine(`Plan: approved: ${a}`), { cwd: f.cwd, env: f.env });
+    expect(byId.ok ? 'resolved' : byId.failure.message).toBe('resolved');
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ run: a, id: `${a}-p1`, status: 'approved', gate_rev: 1 }) + '\n{"run": "torn');
+    const torn = resolvePlan(parsePlanLine('Plan: approved: .gstack/tmp/autoplan'), { cwd: f.cwd, env: f.env });
+    expect(torn.ok ? 'resolved' : torn.failure.code).toBe('PLAN_UNRESOLVED');
+  });
+});
+
 describe('parsePlanLine', () => {
   test('reads approved, exempt and required, tolerating spacing and bold, and ignores fenced text', () => {
     expect(parsePlanLine('x\nPlan: approved: ap-20261107055041\n')).toEqual({ kind: 'approved', line: 'Plan: approved: ap-20261107055041', token: 'ap-20261107055041' });
