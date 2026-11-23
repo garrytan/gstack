@@ -27,7 +27,12 @@
  *   (run_changed otherwise). A pull_request run tested GitHub's merge commit,
  *   not its head, so it counts only when its tree.json names that head and a
  *   merge commit (sha) whose tree git computes equal to the head's tree: the
- *   head already contained its base, so the merge tested the head tree.
+ *   head already contained its base, so the merge tested the head tree. A lane
+ *   carry (the caller passes onlyBaseMoved, GST-3567) also counts it when the
+ *   merge commit is the head merged onto a commit of the base branch and the
+ *   pull request's own added and removed lines in it are byte-identical to the
+ *   head's own (lib/pregate/run-check.ts onlyBaseMoved):
+ *   only the base moved. Land's merged-tree CI never passes it.
  *
  * Profiles are the base branch's `.gstack/pregate.json` `run_profiles`, so a
  * pull request can tighten them but never relax them. The workflow a run
@@ -95,9 +100,12 @@ export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | '
 /** `docs_only`: a pull_request run whose gate skipped every skippable job on a change lib/docs-only.ts calls human docs only; it ran and recorded no tests (R81). */
 /** `tree_source`: `job-log` when tree.json came from the job log because the run held no artifact (HARN-118); absent for an artifact. */
 /** `rerun`: the files whose newest result came from a re-run attempt (tree.json `rerun_files`, gbrain#9690), with the run's `attempts`; set only when a file passed on a re-run (GST-3054). */
-export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[]; docs_only?: true; rerun?: string[]; attempts?: number[]; tree_source?: 'job-log' }
-/** `fix`: the one command that clears a refusal the caller can repair, such as a pull_request run that tested a merge with an older base. */
-export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string; fix?: string };
+/** `base_moved`: the pull_request run tested its head merged onto `base`, a newer base commit, with the pull request's own lines byte-identical (lib/pregate/run-check.ts onlyBaseMoved, GST-3567); `tree` is then the head's tree it counts for and `tested_tree` the merge's. */
+export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[]; docs_only?: true; rerun?: string[]; attempts?: number[]; tree_source?: 'job-log'; base_moved?: { merge: string; base: string; tested_tree: string } }
+/** `fix`: the one command that clears a refusal the caller can repair, such as a pull_request run that tested a merge with an older base. `notMoved`: why onlyBaseMoved did not count that run for its head. */
+export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string; fix?: string; notMoved?: string };
+/** What lib/pregate/run-check.ts onlyBaseMoved decides about a pull_request run's merge commit (GST-3567): the base it merged onto, or why it does not count for the head. */
+export type BaseMove = { ok: true; base: string } | { ok: false; why: string };
 
 const SHA = /^[0-9a-f]{40}$/;
 const RUN_EVENTS = ['push', 'workflow_dispatch', 'pull_request'];
@@ -184,7 +192,7 @@ export const normalPath = (f: string): string => f.replace(/^(\.\/)+/, '');
  * The verdict for run `runRef` under `profile`. `vetoHeads` are further heads
  * whose newer runs of the same workflow can veto (the consumer's own head).
  */
-export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; ignoreRun?: number; now: Date; unchanged?: (p: RunProfile) => string | null; docsOnly?: (head: string) => boolean; dispatchable?: boolean }): RunVerdict {
+export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; profileName: string; profile: RunProfile; vetoHeads?: string[]; ignoreRun?: number; now: Date; unchanged?: (p: RunProfile) => string | null; docsOnly?: (head: string) => boolean; dispatchable?: boolean; onlyBaseMoved?: (merge: string, head: string) => BaseMove }): RunVerdict {
   const id = parseRunRef(o.runRef, o.repo);
   if (id === null) return fail('run_ref_invalid', `${JSON.stringify(o.runRef)} is not a run id or a run URL on ${o.repo}`);
   const p = o.profile;
@@ -258,12 +266,15 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     const baseMoved = o.dispatchable === false
       ? `push a merge of the base to ${run.head_branch || '<branch>'}, or ask the pull request's author to (${p.workflow} cannot be dispatched for this run profile), then gstack-ci-carry wait`
       : `gh workflow run ${p.workflow} --ref ${run.head_branch || '<branch>'}, then gstack-ci-carry wait`;
+    let moved: RunEvidence['base_moved'];
     if (rec.tree !== headTree) {
       const testedMerge = pr && typeof rec.sha === 'string' && SHA.test(rec.sha) && deps.commitTree(rec.sha) === rec.tree;
-      if (testedMerge) return fail('tree_mismatch', `${at} tested merge commit ${(rec.sha as string).slice(0, 12)} (tree ${String(rec.tree)}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)`, baseMoved);
-      return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
+      if (!testedMerge) return fail('tree_mismatch', `${at} recorded tree ${String(rec.tree)}, but its head ${run.head_sha.slice(0, 12)} has tree ${headTree}`);
+      const m = o.onlyBaseMoved?.(rec.sha as string, run.head_sha);
+      if (!m?.ok) return { ...fail('tree_mismatch', `${at} tested merge commit ${(rec.sha as string).slice(0, 12)} (tree ${String(rec.tree)}), not its head ${run.head_sha.slice(0, 12)}'s tree ${headTree}: the pull request was behind its base (the base moved after the run, or the branch lacks its tip)${m ? `; it does not count for the head because ${m.why}` : ''}`, baseMoved), ...(m ? { notMoved: m.why } : {}) };
+      moved = { merge: rec.sha as string, base: m.base, tested_tree: rec.tree as string };
     }
-    if (pr) {
+    if (pr && !moved) {
       if (typeof rec.sha !== 'string' || !SHA.test(rec.sha)) return fail('artifact_mismatch', `${at}'s ${p.artifact} names no merge commit (sha) for its pull_request run`);
       const mergeTree = deps.commitTree(rec.sha);
       if (!mergeTree) return fail('api_error', `git cannot read the tree of merge commit ${rec.sha}`);
@@ -283,7 +294,7 @@ export function verifyRun(deps: RunDeps, o: { repo: string; runRef: string; prof
     const skipped = rec.skipped_files === undefined ? {} : { skipped: (rec.skipped_files as string[]).map(normalPath) };
     const rerun = ((rec.rerun_files ?? []) as string[]).map(normalPath);
     const reran = rerun.length ? { rerun, attempts: [...new Set((rec.attempts ?? []) as number[])].sort((a, b) => a - b) } : {};
-    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped, ...(skippedJobs.length ? { skipped_jobs: skippedJobs } : {}), ...reran, ...(fromLog ? { tree_source: 'job-log' as const } : {}) } };
+    return { ok: true, evidence: { run_id: id, run_attempt: run.run_attempt, head_sha: run.head_sha, tree: headTree, profile: o.profileName, event: run.event, finished_at: finishedAt!, files, tests, ...skipped, ...(skippedJobs.length ? { skipped_jobs: skippedJobs } : {}), ...reran, ...(fromLog ? { tree_source: 'job-log' as const } : {}), ...(moved ? { base_moved: moved } : {}) } };
   } catch (e: any) {
     return fail('api_error', `reading run ${id} failed: ${String(e?.message ?? e).slice(0, 300)}`);
   }
@@ -383,7 +394,8 @@ export function uncoveredFiles(inventory: string[], evidence: RunEvidence[], ski
 
 /** What a run check reads: the repository, the verifier's dependencies, the base branch's profiles and the clock. */
 /** `unchanged` (findCarry only): null when a profile's workflow and gate inputs match the base, else which file differs. */
-export interface RunSource { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; now: Date; unchanged?: (p: RunProfile) => string | null; docsOnly?: (head: string) => boolean; dispatchable?: (p: RunProfile) => boolean }
+/** `onlyBaseMoved`: onlyBaseMoved bound to the checkout and its base branch, so a lane carry counts a run whose base moved (GST-3567). */
+export interface RunSource { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; now: Date; unchanged?: (p: RunProfile) => string | null; docsOnly?: (head: string) => boolean; dispatchable?: (p: RunProfile) => boolean; onlyBaseMoved?: (merge: string, head: string) => BaseMove }
 export type FromRunVerdict = { ok: true; evidence: RunEvidence; receipt: string } | { ok: false; reason: string; detail: string };
 
 /**
@@ -395,7 +407,7 @@ export function verifyFromRun(src: RunSource, ref: string, names: string[], tree
   if (!names.length) return { ok: false, reason: 'no_profile', detail: 'the base branch declares no run_profiles entry for this machine\'s OS whose workflow holds a lane this machine runs (gstack\'s ci-reuse/free-tests, for example)' };
   const refusals: Array<{ reason: string; detail: string }> = [];
   for (const name of names) {
-    const v = verifyRun(src.deps, { repo: src.repo, runRef: ref, profileName: name, profile: src.profiles[name]!, vetoHeads: SHA.test(head) ? [head] : [], now: src.now });
+    const v = verifyRun(src.deps, { repo: src.repo, runRef: ref, profileName: name, profile: src.profiles[name]!, vetoHeads: SHA.test(head) ? [head] : [], now: src.now, onlyBaseMoved: src.onlyBaseMoved });
     if (!v.ok) { refusals.push({ reason: v.reason, detail: `${name}: ${v.detail}` }); continue; }
     const e = v.evidence;
     if (e.tree !== tree) return { ok: false, reason: 'tree_mismatch', detail: `run ${e.run_id} tested tree ${e.tree.slice(0, 12)}, not this tree ${tree.slice(0, 12)}` };
@@ -410,7 +422,7 @@ export function verifyFromRun(src: RunSource, ref: string, names: string[], tree
  * whose files passed only on a re-run adds `rerun=<files> attempts=<list>` (GST-3054): allowed, but never shown as a clean pass.
  */
 export function runReceiptFields(evidence: RunEvidence[], now: Date): string {
-  return `runs=${evidence.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} profiles=${evidence.map(e => e.profile).join(',')} heads=${[...new Set(evidence.map(e => e.head_sha.slice(0, 12)))].join(',')}${rerunMarker([...rerunByRun(evidence).values()])}${evidence.some(e => e.tree_source === 'job-log') ? ' tree_source=job-log' : ''} verified=${now.toISOString()}`;
+  return `runs=${evidence.map(e => `${e.run_id}/${e.run_attempt}`).join(',')} profiles=${evidence.map(e => e.profile).join(',')} heads=${[...new Set(evidence.map(e => e.head_sha.slice(0, 12)))].join(',')}${rerunMarker([...rerunByRun(evidence).values()])}${evidence.some(e => e.tree_source === 'job-log') ? ' tree_source=job-log' : ''}${evidence.some(e => e.base_moved) ? ` base_moved=${[...new Set(evidence.flatMap(e => (e.base_moved ? [e.base_moved.base.slice(0, 12)] : [])))].join(',')}` : ''} verified=${now.toISOString()}`;
 }
 
 /** The re-run record per carried run (`<id>/<attempt>`): the distinct re-run files and attempts across every profile that read that run, so two profiles on one run count each file once. */

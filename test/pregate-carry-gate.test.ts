@@ -69,6 +69,25 @@ describe.skipIf(process.platform === 'win32')('CI carry clears the remote gate o
     expect(file.verdict).toBe('requires-remote cleared');
   }, 120_000);
 
+  // Value: protects=clear --run (clearByRuns) takes the base-moved rule from its RunCheck, as the lane carry does (GST-3567);
+  //   fails_when=clearByRuns stops forwarding onlyBaseMoved, so pregate refuses a run accept counted; seam=RunCheck.onlyBaseMoved stub
+  test('clear --run counts a pull_request run whose base moved only through the check\'s onlyBaseMoved', async () => {
+    const repo = fixture();
+    const check = runCheck(repo, FREE);
+    const { file } = await carried(repo, check);
+    const head = repo.git('rev-parse', 'HEAD');
+    const tested = repo.git('rev-parse', 'HEAD~1^{tree}');
+    const merge = repo.git('commit-tree', tested, '-p', 'HEAD', '-m', 'test merge');
+    const pr = { ...check, deps: { ...check.deps, run: () => ({ ...check.deps.run(100), event: 'pull_request' }), artifact: () => ({ ...check.deps.artifact(100, 'tested-tree', 1), event: 'pull_request', sha: merge, head_sha: head, tree: tested }) } } as RunCheck;
+    const reopened = { ...file, requires_remote: [{ ...gate(file)!, receipt: null }] };
+    expect(clearDecision(reopened, LANE, { runs: ['100'], evidence: pr }, repo.work)).toMatchObject({ refused: 'PREGATE_RECEIPT_INVALID', message: expect.stringContaining('reason=tree_mismatch') });
+    const calls: string[][] = [];
+    const moved = { ...pr, onlyBaseMoved: (m: string, h: string) => { calls.push([m, h]); return { ok: true as const, base: head }; } } as RunCheck;
+    const d = clearDecision(reopened, LANE, { runs: ['100'], evidence: moved }, repo.work);
+    expect(calls).toEqual([[merge, head]]);
+    expect(d).toMatchObject({ refused: 'PREGATE_RECEIPT_INVALID', message: expect.stringContaining('reason=paid_only') });
+  }, 120_000);
+
   // Value: protects=the carry clears the gate only under clear --run's own checks; fails_when=a run that misses an inventory file clears it
   test('a run that misses a gate inventory file leaves the gate uncleared and says why', async () => {
     const repo = fixture();

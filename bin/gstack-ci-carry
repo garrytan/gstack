@@ -75,6 +75,7 @@ function find(): number {
   else out(v.ok ? `CI_CARRY: accepted ${v.receipt}` : `CI_CARRY: none (${v.reason}: ${v.detail})`);
   const from = v.ok && !argv.includes('--json') ? carriedFromLine(v.runs, head) : undefined;
   if (from) out(from);
+  if (!v.ok && !argv.includes('--json')) for (const d of v.diagnosis ?? []) out(`CARRY_DIAGNOSIS: ${d}`);
   return v.ok ? 0 : 1;
 }
 

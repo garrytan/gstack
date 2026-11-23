@@ -32,7 +32,7 @@ import { baseBranchOf, baseMismatchFix, describeSubstitution, substituteStampOnl
 import { EXCEPTION_RECEIPT, exceptionProblem, exceptionSummary, flakyDecision, flakyRuns, parseCases, redRunChanged, type FailureDeps, type FlakyInput } from './flaky-exception';
 import { buildRunCheck } from './run-check';
 import { resolveBaseBranch } from '../ship-policy';
-import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiJob, type ApiRun, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
+import { parseRunReceipt, parseRunRef, runChanged, runReceiptFields, uncoveredFiles, verifyRun, type ApiJob, type ApiRun, type BaseMove, type RemoteGateRuns, type RunDeps, type RunEvidence, type RunProfile } from '../run-evidence';
 import type { CheckDef, CheckResult, PregateContext, Stage } from './types';
 import { displayNamePattern, workflowCallers } from './workflows';
 
@@ -285,7 +285,7 @@ function userPolicyChange(file: PregateFile): string | null {
 
 export interface ClearInput { runUrl?: string; bundleLane?: string; receiptPath?: string; runs?: string[]; evidence?: RunCheck; flaky?: FlakyInput; allowRepoCommands?: boolean; /** The branch whose run profiles `evidence` holds (gstack-pregate clear: the record's own); absent, origin/HEAD's. */ base?: string }
 /** What a run clear needs: the base branch's run profiles, the verifier's dependencies, the clock, and the remote gate's inventory. */
-export interface RunCheck { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; gateRuns: RemoteGateRuns | null; now: Date; unchanged?: (p: RunProfile) => string | null; docsOnly?: (head: string) => boolean; dispatchable?: (p: RunProfile) => boolean; inventory: (command: string, tree: string, selected?: string[]) => string[] | { error: string }; failures?: FailureDeps }
+export interface RunCheck { repo: string; deps: RunDeps; profiles: Record<string, RunProfile>; gateRuns: RemoteGateRuns | null; now: Date; unchanged?: (p: RunProfile) => string | null; docsOnly?: (head: string) => boolean; dispatchable?: (p: RunProfile) => boolean; onlyBaseMoved?: (merge: string, head: string) => BaseMove; inventory: (command: string, tree: string, selected?: string[]) => string[] | { error: string }; failures?: FailureDeps }
 export type ClearDecision = { receipt: string; attested: boolean; substitution?: PregateReceiptSubstitution; exception?: PregateException } | { refused: 'usage' | 'PREGATE_RECEIPT_INVALID'; message: string; fix?: string };
 
 /**
@@ -430,7 +430,7 @@ function clearByRuns(file: PregateFile, lane: string, refs: string[], check: Run
   const verdicts = new Map<string, ReturnType<typeof verifyRun>>();
   const verdict = (name: string, ref: string) => {
     const key = `${name}\0${ref}`;
-    if (!verdicts.has(key)) verdicts.set(key, verifyRun(check.deps, { repo: check.repo, runRef: ref, profileName: name, profile: check.profiles[name]!, vetoHeads: file.head ? [file.head] : [], now: check.now }));
+    if (!verdicts.has(key)) verdicts.set(key, verifyRun(check.deps, { repo: check.repo, runRef: ref, profileName: name, profile: check.profiles[name]!, vetoHeads: file.head ? [file.head] : [], now: check.now, onlyBaseMoved: check.onlyBaseMoved }));
     return verdicts.get(key)!;
   };
   const missingProfile = names.find(name => !check.profiles[name]);
