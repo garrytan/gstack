@@ -183,7 +183,6 @@ Usage:
   gstack-cso inspect RUN
   gstack-cso read RUN PATH_OR_HANDLE
   gstack-cso history RUN [PATH_OR_HANDLE]
-  gstack-cso search RUN REGEX
   gstack-cso submit RUN SUBMISSION.json
   gstack-cso scan RUN gitleaks|osv|semgrep|zizmor|trivy|schemathesis [REQUEST.json]
   gstack-cso scanner-outcome RUN ARTIFACT_ID
@@ -1660,56 +1659,6 @@ async function read(args: string[]) {
     data = readBoundedStable(full, 1024 * 1024, 'Snapshot path');
   emit(data.toString('utf8'));
 }
-const SEARCH_PATTERN_LIMIT = 512,
-  SEARCH_LINE_LIMIT = 300,
-  SEARCH_OUTPUT_BUDGET = 96 * 1024,
-  SEARCH_UNSEARCHED_LISTED = 50;
-/** One regex over every readable snapshot file: the snapshot is verified once, matches print as path:line:text, and unreadable entries are listed as a coverage gap. */
-async function search(args: string[]) {
-  const { dir } = run(args);
-  if (args.length !== 1) throw new CsoError('INVALID_ARGUMENT', 'search requires one regular expression');
-  if (!args[0] || args[0].length > SEARCH_PATTERN_LIMIT)
-    throw new CsoError('INVALID_ARGUMENT', `Search pattern must be 1 to ${SEARCH_PATTERN_LIMIT} characters`);
-  let pattern: RegExp;
-  try {
-    pattern = new RegExp(args[0]);
-  } catch {
-    throw new CsoError('INVALID_ARGUMENT', 'Search pattern is not a valid regular expression');
-  }
-  const manifest = readSnapshotManifest(dir);
-  assertSnapshot(dir, manifest);
-  const readable = join(dir, 'readable'),
-    out: string[] = [],
-    unsearched: string[] = [];
-  let bytes = 0,
-    hidden = 0;
-  for (const entry of manifest.entries) {
-    if (entry.transformation === OUTSIDE_AUDIT_PATHS) continue;
-    const shown = publicSnapshotPath(manifest, entry.path, entry.pathId).path;
-    let text: string;
-    try {
-      text = readBoundedStable(containedFile(readable, entry.path), 1024 * 1024, 'Snapshot path').toString(
-        'utf8',
-      );
-    } catch {
-      unsearched.push(shown);
-      continue;
-    }
-    text.split('\n').forEach((line, index) => {
-      if (!pattern.test(line)) return;
-      const hit = `${shown}:${index + 1}:${line.slice(0, SEARCH_LINE_LIMIT)}`;
-      if (bytes + hit.length > SEARCH_OUTPUT_BUDGET) hidden++;
-      else (out.push(hit), (bytes += hit.length + 1));
-    });
-  }
-  if (!out.length && !hidden) out.push('[gstack-cso search: no matches]');
-  if (hidden) out.push(`[gstack-cso search: ${hidden} more matching lines not shown; narrow the pattern]`);
-  if (unsearched.length)
-    out.push(
-      `[gstack-cso search: ${unsearched.length} unsearched paths (withheld, unreadable or over 1 MiB), a coverage gap: ${unsearched.slice(0, SEARCH_UNSEARCHED_LISTED).join(', ')}${unsearched.length > SEARCH_UNSEARCHED_LISTED ? `, and ${unsearched.length - SEARCH_UNSEARCHED_LISTED} more` : ''}]`,
-    );
-  emit(out.join('\n'));
-}
 async function history(args: string[]) {
   const { dir } = run(args),
     manifest = readSnapshotManifest(dir);
@@ -2936,9 +2885,6 @@ export async function dispatchCsoCommand(
       return;
     case 'history':
       await history(args);
-      return;
-    case 'search':
-      await search(args);
       return;
     case 'submit':
       result = submit(args);
