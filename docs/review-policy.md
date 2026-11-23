@@ -231,7 +231,7 @@ caught on another crew's PRs.
    A run whose flags name a grant runs `gstack-ship-receipt claim` before its
    first dispatch, which writes a grant record into the runs block; a grant
    another run claimed, or a fix-check grant a counted fix-check already read
-   under (one logged with no claim included), is refused (`GRANT_SPENT`), a
+   under (one carrying no grant and logged after it included), is refused (`GRANT_SPENT`), a
    voided run's claim still
    spends it, and stop and grant records are never trimmed from the block. When
    the run record cannot save the claim, claim fails and the run starts no
@@ -1010,7 +1010,7 @@ grant whose stop head is newest in that range, the fix-check's own when several
 grants fall inside it (GST-1610). A `fix_checked` path the Step 14.5 audit
 hashed also doesn't stale that audit at stage 3: `DOCS: fresh` counts it as
 `fix_checked=<n>` in its carried list, since a clean fix-check read its current
-bytes (GST-3560). Authored docs keep the
+bytes and the path is unchanged since that read (GST-3560). Authored docs keep the
 stage 2.2 recheck, and a path the branch edited after the fix-check still routes by the
 rules above. Any other row prints
 `FIX_CHECK: not counted (<reason>)` and changes nothing. `gstack-review-log`

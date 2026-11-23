@@ -46,9 +46,13 @@ const nameOf = (b: OpenBlocker) => (typeof b === 'string' ? b : b.id);
 export const countedFixCheck = (r: Row, bind?: (row: Row) => boolean) => r?.skill === 'review-fix-check'
   && (r.fix_check_base !== undefined && bind ? bind(r) : r.completed === true && r.converged === true);
 
-/** A fix-check grant buys one counted fix-check: it is spent once a counted row carries it, or once a counted fix-check started after it was recorded. */
+/**
+ * A fix-check grant buys one counted fix-check: it is spent once a counted row carries it, or once a counted fix-check that
+ * carries no grant (an unclaimed read, such as one planned through gstack-review-plan --grant) started after it was recorded.
+ * A row a claim stamped with another grant was that grant's read, so it never spends this one (GST-3560).
+ */
 export const grantSpent = (rows: readonly Row[], g: Pick<ReviewRoundGrant, 'approval' | 'at'>, bind?: (row: Row) => boolean) =>
-  rows.some(r => countedFixCheck(r, bind) && (r.grant === g.approval || rowTime(r) > Date.parse(g.at)));
+  rows.some(r => countedFixCheck(r, bind) && (r.grant === g.approval || (!r.grant && rowTime(r) > Date.parse(g.at))));
 
 /**
  * The grant-and-row binding finish and write share (amendments A, B and H): a review-fix-check row gstack-review-log stamped from a

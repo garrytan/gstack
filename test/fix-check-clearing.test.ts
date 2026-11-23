@@ -209,6 +209,15 @@ describe('harness-evals#504: a fix-check grant answering a stop after a gate-cla
     expect(grantSpent([{ ...read('2026-11-21T00:00:00.000Z'), grant: 'a-2' }], g)).toBe(true);
   });
 
+  // Value: protects=two recorded grants each buy one read: a counted fix-check a claim stamped with grant a-3 was a-3's read, so
+  //   it leaves a-2 unspent however late it ran; fails_when=claim refuses a-2 with GRANT_SPENT after a-3's read; seam=grantSpent
+  test('a later read stamped with another grant leaves this grant unspent', () => {
+    const g = { approval: 'a-2', at: '2026-11-21T01:00:00.000Z' };
+    const read = { skill: 'review-fix-check', completed: true, converged: true, status: 'clean', review_binding: { state: 'verified', started_at: '2026-11-21T01:01:00.000Z' } };
+    expect(grantSpent([{ ...read, grant: 'a-3' }], g)).toBe(false);
+    expect(grantSpent([{ ...read, grant: 'a-3' }, read], g)).toBe(true);
+  });
+
   // Value: protects=the same through the CLI: --round-grant and --stop after --last fix-check with a gate-class fix plan next=fix-check
   //   with the fix-check reader only; fails_when=the plan prints next=stop; seam=gstack-review-plan
   test('gstack-review-plan plans the granted fix-check after a fix-check that edited a gate-class path', () => {

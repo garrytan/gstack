@@ -145,29 +145,33 @@ describe('record-ci reuses its own CI row at the same tree (GST-1795)', () => {
 describe('the record-ci bound covers finding the CI run, not the local remainder (GST-3560)', () => {
   const slow = (key: 'inventory' | 'per_file') => {
     const cfg = JSON.parse(BASE['.gstack/pregate.json']);
-    cfg.ship_lanes_from[FREE][key] = 'sleep 4; ' + cfg.ship_lanes_from[FREE][key];
+    cfg.ship_lanes_from[FREE][key] = 'sleep 8; ' + cfg.ship_lanes_from[FREE][key];
     const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify(cfg, null, 2) + '\n' });
     fixtures.push(f);
     world(f);
     return f;
   };
-  // Value: protects=HARN-64: record-ci's local per_file remainder ran 879.7 s against ci_record_timeout_s=900, so the bound meant
-  //   for finding and verifying the CI run also had to fit local test runs; fails_when=carryLane kills record-ci while the
-  //   remainder runs (carryNone record_failed) though the CI phase finished well inside the bound; seam=carryLane, record-ci --bound-s
-  test('a remainder that runs past the bound still carries', () => {
-    const f = slow('per_file');
-    const code = `const { carryLane } = await import(${JSON.stringify(path.join(import.meta.dir, '..', 'lib', 'ship-bin-common.ts'))}); console.log(JSON.stringify(carryLane(process.cwd(), 'main', { label: 'free', command: process.env.LANE_CMD }, 2)));`;
+  const carry = (f: ShipFx, bound: number) => {
+    const code = `const { carryLane } = await import(${JSON.stringify(path.join(import.meta.dir, '..', 'lib', 'ship-bin-common.ts'))}); console.log(JSON.stringify(await carryLane(process.cwd(), 'main', { label: 'free', command: process.env.LANE_CMD }, ${bound})));`;
     const r = f.run(process.execPath, [...bunIsolationArgs(), '-e', code], { LANE_CMD: FREE });
     expect(r.status, r.stderr).toBe(0);
-    expect([JSON.parse(r.stdout.trim().split('\n').at(-1)!), perFileRuns(f)]).toEqual([expect.objectContaining({ exit: 0, carried: '7/1', here: expect.any(String) }), 1]);
+    return JSON.parse(r.stdout.trim().split('\n').at(-1)!);
+  };
+  // Value: protects=HARN-64: record-ci's local per_file remainder ran 879.7 s against ci_record_timeout_s=900, so the bound meant
+  //   for finding and verifying the CI run also had to fit local test runs; fails_when=carryLane kills record-ci while the
+  //   remainder runs (carryNone record_failed) though the CI phase finished well inside the bound; seam=carryLane, CI_RECORD_PHASE
+  test('a remainder that runs past the bound still carries', () => {
+    const f = slow('per_file');
+    expect([carry(f, 6), perFileRuns(f)]).toEqual([expect.objectContaining({ exit: 0, carried: '7/1', here: expect.any(String) }), 1]);
   });
 
-  // Value: protects=the bound still holds for the CI phase: finding the run past --bound-s stops before any local run, and says
-  //   so; fails_when=the bound is dropped, or the remainder runs anyway; seam=gstack-evidence record-ci --bound-s
+  // Value: protects=the bound still holds while the CI run is found and verified: a lookup past it is stopped then, not after it
+  //   returns, and runs nothing here; fails_when=the bound is dropped or checked only after the lookup; seam=carryLane
   test('a CI phase past the bound stops as ci_record_timeout and runs nothing here', () => {
     const f = slow('inventory');
-    const r = f.run(EVIDENCE, ['record-ci', '--label', 'free', '--base', 'main', '--bound-s', '2', '--', FREE]);
-    expect([r.status, lineOf(r.stderr, 'CARRY_NONE'), perFileRuns(f)], r.stderr).toEqual([1, expect.stringMatching(/^CARRY_NONE: ci_record_timeout: finding and verifying the CI run took \d+ s, over the 2 s bound/), 0]);
-    for (const bad of ['0', '1.5', 'x']) expect(f.run(EVIDENCE, ['record-ci', '--label', 'free', '--base', 'main', '--bound-s', bad, '--', FREE]).status, bad).toBe(2);
+    const t0 = Date.now();
+    const got = carry(f, 3);
+    expect([got.carryNone, perFileRuns(f)]).toEqual([expect.stringMatching(/^ci_record_timeout: finding and verifying the CI run took over the 3 s bound/), 0]);
+    expect(Date.now() - t0).toBeLessThan(8_000);
   });
 });

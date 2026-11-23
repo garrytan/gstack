@@ -197,15 +197,30 @@ export function mappedLanes(cwd: string, base: string, list: { label: string; co
  * and records the CI-sourced ledger row; or, when the lane's inventory refuses this tree, the cleared remote gate for this exact
  * tree stands in (`remoteGate`, lib/remote-gate-stand-in.ts, GST-1688); or why neither held (`carryNone`), so the caller runs it.
  */
-export function carryLane(cwd: string, base: string, l: { label: string; command: string }, timeoutS = recordCiTimeout(shipPolicy(cwd, base), base).seconds): LaneResult {
-  const rec = bin(cwd, 'gstack-evidence', ['record-ci', '--label', l.label, '--base', base, '--bound-s', String(timeoutS), '--remote-gate-stands-in', '--', l.command], (timeoutS + LOCAL_RUNS_ALLOWANCE_S) * 1000);
+export async function carryLane(cwd: string, base: string, l: { label: string; command: string }, timeoutS = recordCiTimeout(shipPolicy(cwd, base), base).seconds): Promise<LaneResult> {
+  const inv = scriptInvocation(path.join(BIN_DIR, 'gstack-evidence'), ['record-ci', '--label', l.label, '--base', base, '--remote-gate-stands-in', '--', l.command]);
+  if (!inv.ok) return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: `record_failed: ${inv.error}` };
+  const rec = await new Promise<{ status: number | null; stderr: string; bound: boolean }>(resolve => {
+    const child = spawn(inv.cmd, inv.argv, { cwd, stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '', local = false, bound = false;
+    let timer = setTimeout(() => { bound = true; child.kill('SIGKILL'); }, timeoutS * 1000);
+    child.stderr.on('data', d => {
+      stderr = (stderr + d).slice(-200_000);
+      if (local || !/^CI_RECORD_PHASE: local /m.test(stderr)) return;
+      local = true;
+      clearTimeout(timer);
+      timer = setTimeout(() => child.kill('SIGKILL'), LOCAL_RUNS_ALLOWANCE_S * 1000);
+    });
+    child.on('close', status => { clearTimeout(timer); resolve({ status, stderr, bound }); });
+  });
+  if (rec.bound) return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: `ci_record_timeout: finding and verifying the CI run took over the ${timeoutS} s bound (ci_record_timeout_s); nothing was recorded` };
   const got = recordCiResult(rec.stderr);
   if (rec.status === 0 && got.remoteGate) return { label: l.label, exit: 0, testsRan: got.tests!, log: '-', remoteGate: got.remoteGate, standIn: got.standIn ?? 'not carried' };
   if (rec.status === 0 && got.runs) return { label: l.label, exit: 0, testsRan: got.files ? `${got.tests} (files)` : got.tests!, log: '-', carried: got.runs, ...(got.treeSource ? { treeSource: got.treeSource } : {}), ...(got.notOwed ? { notOwed: got.notOwed } : {}), ...(got.here ? { here: got.here } : {}), ...(got.exception ? { exception: got.exception } : {}), ...(got.reused ? { reused: got.reused } : {}), ...(got.from ? { from: got.from } : {}) };
   return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: got.none ?? `record_failed: ${firstLine(rec.stderr)}`, ...(got.diagnosis ? { diagnosis: got.diagnosis } : {}) };
 }
 
-/** How much longer than its bound a record-ci may run for the local runs of its per_file remainder or exception preflight, which the bound does not count (GST-3560). */
+/** How long a record-ci may run once it prints CI_RECORD_PHASE: local, for the local runs of its per_file remainder or exception preflight, which the bound does not count (GST-3560). */
 const LOCAL_RUNS_ALLOWANCE_S = 3600;
 
 /** The bound on one record-ci's finding and verifying of the CI run, in accept, finish and preflight alike (GST-1606, GST-3360, GST-3560): the base policy's `ci_record_timeout_s`, 600 s by default, clamped to 3600 s. */
@@ -230,11 +245,12 @@ export async function runLanes(cwd: string, list: { label: string; command: stri
   const mapped = opts.base ? mappedLanes(cwd, opts.base, list) : new Map<string, ShipLaneMapping>();
   const bound = mapped.size ? opts.recordCiTimeoutS ?? recordCiTimeout(shipPolicy(cwd, opts.base!), opts.base!).seconds : 0;
   const refused = list.map(l => !!opts.hold && mapped.has(l.label) && bin(cwd, 'gstack-ci-carry', ['find', '--base', opts.base!, '--command', l.command, '--allow-repo-commands']).status !== 0);
-  const carries = list.map((l, i) => (refused[i] ? carryLane(cwd, opts.base!, l, bound) : null));
+  const carries: (LaneResult | null)[] = [];
+  for (const [i, l] of list.entries()) carries.push(refused[i] ? await carryLane(cwd, opts.base!, l, bound) : null);
   const done = (c: LaneResult | null) => !!(c?.carried || c?.remoteGate);
   const held = () => list.map((l, i) => { const c = carries[i]; return c && done(c) ? c : { ...(c ?? { label: l.label, exit: null, testsRan: 'unknown', log: '-' }), held: true as const }; });
   if (opts.hold && carries.some(c => c && !done(c))) return held();
-  for (const [i, l] of list.entries()) if (!carries[i] && mapped.has(l.label)) carries[i] = carryLane(cwd, opts.base!, l, bound);
+  for (const [i, l] of list.entries()) if (!carries[i] && mapped.has(l.label)) carries[i] = await carryLane(cwd, opts.base!, l, bound);
   if (opts.hold && carries.some(c => c && !done(c))) return held();
   let next = 0;
   const worker = async () => {

@@ -4,7 +4,7 @@
  * IRON LAW ("no completion claims without fresh verification evidence").
  *
  *   gstack-evidence run [--reuse [--max-age <hours>]] --label <L> -- <cmd...>
- *   gstack-evidence record-ci --label <L> --base <base> [--bound-s <seconds>] [--remote-gate-stands-in] -- <cmd>
+ *   gstack-evidence record-ci --label <L> --base <base> [--remote-gate-stands-in] -- <cmd>
  *   gstack-evidence passed -- <cmd>
  *   gstack-evidence carried [--base <branch>] [--json]
  *   gstack-evidence check [--label <L> [--expect-cmd <exact string>]]... | --all
@@ -76,11 +76,10 @@
  * whose inventory command refuses HEAD's tree (inventory_failed) is recorded
  * as source "remote_gate" when the cleared pregate.json/remote_gate verifies
  * for that exact tree (lib/remote-gate-stand-in.ts, GST-1688); `carried`
- * never lists it, since no CI run carried it. With --bound-s <n> (gstack-ship-release
- * and gstack-ship-preflight pass ci_record_timeout_s), finding and verifying the
- * run must finish within n seconds, or it stops as CARRY_NONE: ci_record_timeout;
- * the local runs of a per_file remainder or exception preflight that follow do
- * not count against it (GST-3560).
+ * never lists it, since no CI run carried it. Before it runs any file here (a
+ * per_file remainder of CI-skipped files, or a test-lane exception's preflight),
+ * it prints CI_RECORD_PHASE: local, which ends the ci_record_timeout_s bound
+ * gstack-ship-release and gstack-ship-preflight hold it to (GST-3560).
  *
  * MACHINE-LOCAL by design: neither the ledger nor the logs are brain-synced.
  * A synced record citing an unsynced log would grade FRESH on a machine where
@@ -764,11 +763,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const base = get("--base");
   const command = sep < 0 ? "" : argv.slice(sep + 1).join(" ");
   const standIn = opts.includes("--remote-gate-stands-in");
-  const boundRaw = get("--bound-s");
-  const boundS = boundRaw === undefined ? undefined : /^[1-9]\d*$/.test(boundRaw) ? Number(boundRaw) : NaN;
-  const started = Date.now();
-  if (!label || !base || !command || Number.isNaN(boundS) || opts.length !== (standIn ? 5 : 4) + (boundRaw === undefined ? 0 : 2)) {
-    console.error("usage: gstack-evidence record-ci --label <L> --base <base> -- <command> (options: --bound-s <seconds>, --remote-gate-stands-in)");
+  if (!label || !base || !command || opts.length !== (standIn ? 5 : 4)) {
+    console.error("usage: gstack-evidence record-ci --label <L> --base <base> -- <command>");
     return 2;
   }
   const none = (reason: string, detail: string, diagnosis: string[] = []) => {
@@ -792,8 +788,6 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   const grants = readTestLaneExceptions(cwd);
   const atHead = grants.filter((g) => g.head === head);
   const v = findCarry(check, { profiles: m.profiles, head, tree, wtree, ...mappingCoverage(m, cwd), ...(atHead.length ? { excepted: atHead } : {}) });
-  const took = Math.round((Date.now() - started) / 1000);
-  if (boundS !== undefined && took > boundS) return none("ci_record_timeout", `finding and verifying the CI run took ${took} s, over the ${boundS} s bound (ci_record_timeout_s); local runs of CI-skipped or excepted files do not count against it`);
   const elsewhere = grants.filter((g) => g.head !== head).map((g) => `${g.approval} at ${g.head.slice(0, 12)}`);
   if (!v.ok && v.reason === "inventory_failed" && standIn) {
     const { remoteGateStandIn } = await import("../lib/remote-gate-stand-in");
@@ -830,6 +824,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   }
   let exception: BoundLaneException | undefined;
   const grant = atHead.find((g) => g.approval === v.exceptedBy);
+  const local = (v.excepted?.length && grant ? v.excepted.length : 0) + (v.remainder?.length ?? 0);
+  if (local) console.error(`CI_RECORD_PHASE: local files=${local} (the CI run is found and verified; ci_record_timeout_s does not bound these runs)`);
   if (v.excepted?.length && grant) {
     const preLabel = `${label}.excepted`;
     console.error(`gstack-evidence record-ci: test-lane exception ${grant.approval}: preflighting ${v.excepted.length} uncovered file(s) here at ${head.slice(0, 12)}, one at a time (label=${preLabel})`);
