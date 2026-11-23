@@ -407,6 +407,8 @@ describe('import --autoplan', () => {
     const refused: Array<[{ runId: string; words?: string }, string]> = [
       [{ runId: 'fix-4402-20261122-093321', words: 'do it, call 14155552671 if it breaks' }, 'words'],
       [{ runId: 'fix-4402-20261122-0933' }, 'ask'],
+      [{ runId: 'fix-4402-20261399-093321' }, 'ask'],
+      [{ runId: 'fix-4402-20261122-993321' }, 'ask'],
       [{ runId: 'call-415-555-2671-20261122-093321' }, 'ask'],
       [{ runId: '14155552671-20261122-093321' }, 'source'],
     ];

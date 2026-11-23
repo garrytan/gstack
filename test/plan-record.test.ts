@@ -70,6 +70,9 @@ describe('an interactive /autoplan run cited by its directory (#4402)', () => {
     expect(byFolder.ok ? 'resolved' : byFolder.failure.code).toBe('PLAN_UNRESOLVED');
     const byId = resolvePlan(parsePlanLine(`Plan: approved: ${a}`), { cwd: f.cwd, env: f.env });
     expect(byId.ok ? 'resolved' : byId.failure.message).toBe('resolved');
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ run: a, id: `${a}-p1`, status: 'approved', gate_rev: 1 }) + '\n{"run": "torn');
+    const torn = resolvePlan(parsePlanLine('Plan: approved: .gstack/tmp/autoplan'), { cwd: f.cwd, env: f.env });
+    expect(torn.ok ? 'resolved' : torn.failure.code).toBe('PLAN_UNRESOLVED');
   });
 });
 
