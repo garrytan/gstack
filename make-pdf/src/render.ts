@@ -220,11 +220,13 @@ export function sanitizeUntrustedHtml(html: string): string {
   // an attribute as &quot;, so the next straight quote closes the attribute
   // this handler text sits in, and the next "<" starts a tag (text such as
   // `a/onset=2` in a code span sits right before </code>). Eating either
-  // would leave an attribute or element open. Matching runs over the whole
-  // page, text included, so "/on…=" inside a URL or code is removed too.
+  // would leave an attribute or element open. The value may be empty, so the
+  // handler's name is always removed, even before a value that starts with
+  // "<" (onerror=<!--&#10;… runs its second line). Matching runs over the
+  // whole page, text included, so "/on…=" inside a URL or code goes too.
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"]*"/gi, "");
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^']*'/gi, "");
-  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`<]+/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`<]*/gi, "");
 
   // javascript: URLs in href/src/action/formaction (same attribute starts).
   s = s.replace(

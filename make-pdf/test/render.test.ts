@@ -461,6 +461,16 @@ describe("render() — quote entities never open attributes or tags", () => {
     expect(html).toContain("<p>See <code>a/</code> and <code>b</code> here.</p>");
   });
 
+  // An unquoted value can't hold a space, but the parser decodes &#10; to a
+  // line break, so onerror=<!--&#10;code runs "code" after the comment.
+  test("a handler whose unquoted value starts with < or a quote is still removed", () => {
+    for (const value of ["<!--a", "<!--&#10;document.title=1", "\"x", "'x", ""]) {
+      const html = render({ markdown: `<div>\n<img src=pic.png onerror=${value}>\n</div>\n` }).bodyHtml;
+      expect(liveScript(html)).toEqual([]);
+      expect(html).not.toMatch(/onerror/i);
+    }
+  });
+
   test("ordinary quotes still curl and ordinary attributes stay", () => {
     const html = render({ markdown: `She said "hi" -- it's fine. ![a](pic.png "A title")\n` }).bodyHtml;
     expect(html).toContain("\u201chi\u201d");
