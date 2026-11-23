@@ -118,14 +118,19 @@ describe('one grant kind: planner, claim and receipt accept either row (GST-3546
     expect(w.stderr).toContain(`FIX_CHECK_CLEAR: grant=${id} run=r2 closed=${ID}`);
   });
 
-  // Value: protects=GST-3546: gstack-review-plan --grant takes a round-grant fix-check row too, at the head it names;
-  //   fails_when=--grant refuses it ("no approved row ... naming review_loop_grant"); seam=gstack-review-plan --grant
-  test('the planner plans the fix-check for a round-grant fix-check row', () => {
+  // Value: protects=GST-3546: gstack-review-plan --grant takes a round-grant fix-check row too, at the head it names; since
+  //   GST-3562 A it buys the fix-check only at the stop after a round-2 fix-check, and after a round-2 full pass the fix gets the
+  //   read-only full review instead; fails_when=--grant refuses the row ("no approved row ... naming review_loop_grant"), or the
+  //   grant swaps the read-only review for a fix-check; seam=gstack-review-plan --grant
+  test('the planner takes a round-grant fix-check row: the fix-check after a round-2 fix-check, the read-only full review after a round-2 full pass', () => {
     const c = atCap([open(ID, FP)]);
     const id = grantId(ok(c.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', c.S, '--kind', 'fix-check', '--reason', 'Captain ruled: fix it', '--by', CAPTAIN, '--owner-ref', 'GSTA-36:2026-11-22T12:00:00Z', '--words', 'fix it'])));
     const plan = c.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--pass', '2', '--last', 'full', '--fixed-blocking', '--range-base', c.S, '--grant', id]);
     expect(plan.status, plan.stderr).toBe(0);
-    expect(plan.stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
+    expect(plan.stdout).toContain('NEXT: full (read-only final review (R51)');
+    const after = c.run('gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--fixed-blocking', '--range-base', c.S, '--grant', id]);
+    expect(after.status, after.stderr).toBe(0);
+    expect(after.stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
   });
 });
 

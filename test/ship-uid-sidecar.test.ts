@@ -35,7 +35,7 @@ const exceptionFile = (f: ShipFx, fixHead: string) => {
   fs.writeFileSync(file, JSON.stringify({ accepted_by: 'GStack Minder (rule 23 grant)', date: '2026-11-06', via: 'GSTA-36', reason: 'the CI fix after the granted fix-check, then ship', fix_check: { head: fixHead, findings: 1 } }));
   return file;
 };
-const behaviorStop = (p: string) => `STOP: behavior, tests or build inputs changed since review (${p}): insert 5–11.5 → 12–14 → 16 before Step 17; plan that Step 9 with gstack-review-plan --post-review, which at the round cap stops for the owner's grant of one scoped fix-check (stage 2.1)`;
+const behaviorStop = (p: string) => `STOP: behavior, tests or build inputs changed since review (${p}): insert 5–11.5 → 12–14 → 16 before Step 17; plan that Step 9 with gstack-review-plan --post-review, which at the round cap plans one read-only full review of the final head (stage 2.1)`;
 const UID = 'uid://cecaux1sm7mo\n';
 const SIDECAR = 'tests/cutscene_check.gd.uid';
 const CUTSCENE = (extra = '') => `extends Node\nfunc play(): return\n${extra}`;

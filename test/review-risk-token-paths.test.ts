@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { depthOfCommitInput, isGatePath, planReview, ROLE_EFFORT, scanNumbers } from '../lib/review-depth';
 import { matchRisk, secretPath } from '../lib/review-risk';
 import { targetedClasses } from '../lib/review-targeted';
+import { asMainBeforeGst3562 } from './helpers/gst3562-replay';
 
 const GODOT_TOKENS = ['class_name UIToken', 'extends RefCounted', 'const COLOR_PRIMARY := Color("#ff6a00")', 'const SPACING_MD := 12', 'const LABEL_PLAY := "Play"'];
 const BENIGN: Record<string, string[]> = {
@@ -126,6 +127,15 @@ describe('GST-1350: founderstar#546 shape, a copy-only edit to a Godot token fil
 const MAIN_1350_PLANS = 'bafc2b5329237dbb994ab85d5ee0a696e7bd479615f81206c9b4ce7507af108e';
 // GST-3187: on the stand-ins, a full pass whose only fix flag is touchedGate now plans its review where main planned done; those
 // cases are checked to be a review step and read back as main's plan (the same input with touchedGate unset).
+/**
+ * GST-3562 A (the Captain's rule-15 ruling of 2026-11-23, approval a-6ec01c09edf8: "Only B removes a reader that can block a
+ * merge. A replaces narrow re-checks with full rounds…"): both grids, the real paths (0) and the stand-ins (1), go through
+ * asMainBeforeGst3562 (test/helpers/gst3562-replay.ts) first, which checks each changed step is an allowed kind and plans it with
+ * main's table at 0408128, so this check still compares only the GST-1350 class and depth moves. Per grid: (a) 44 fix-checks
+ * become a full pass on the range, (d) 22 unread below-floor fixes get their review, (e) 132 cap stops become one read-only full
+ * review of the final head.
+ */
+const GST3562_1350_CASES = { '0:a': 44, '0:d': 22, '0:e': 132, '1:a': 44, '1:d': 22, '1:e': 132 };
 describe('GST-1350 no-loss check', () => {
   // Value: protects=the no-loss rule for review-depth changes: narrowing the token name drops readers only on benign token files;
   //   fails_when=a stand-in stops matching main's plans, a token file with a secret or a secrets, credentials or key file loses a
@@ -147,6 +157,7 @@ describe('GST-1350 no-loss check', () => {
       'token-json': ['token.json', 'token.json', [googleToken()]],
       'tokens-db': ['cache/tokens.db', 'cache/tokens.db', []],
     };
+    const gst3562: Record<string, number> = {};
     type Row = { name: string; fullPasses: number; last: string; bits: number; adversarialRan: boolean; targeted: string[]; class: string; depth: string; step: string; dispatches: { role: string; name: string; effort: string; checklists: string[] }[] };
     const grid = (pick: 0 | 1) => {
       const rows: Row[] = [];
@@ -157,7 +168,9 @@ describe('GST-1350 no-loss check', () => {
         for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
           const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
           const input = { paths, added, removed: {}, scope: {}, gateTagged: 0, diffLines: 40, consumed: [], numbers: none, history, adversarialRan, targeted: { classes: t } };
-          let p = planReview(input);
+          const replay = asMainBeforeGst3562(input, planReview(input));
+          if (replay.kind) gst3562[`${pick}:${replay.kind}`] = (gst3562[`${pick}:${replay.kind}`] ?? 0) + 1;
+          let p = replay.plan;
           if (pick && last === 'full' && bits === 8) {
             expect(['full', 'stop', 'voices']).toContain(p.next.step);
             p = planReview({ ...input, history: { ...history, touchedGate: false } });
@@ -195,5 +208,6 @@ describe('GST-1350 no-loss check', () => {
       'pem: code/light -> gate/full': 288, 'dotenv: code/light -> gate/full': 288, 'id-rsa: code/light -> gate/full': 288, 'secrets-dir: gate/full -> gate/full': 288, 'credentials-json: gate/full -> gate/full': 288,
       'token-json: gate/full -> gate/full': 288, 'tokens-db: gate/full -> gate/full': 288,
     }]);
+    expect(gst3562).toEqual(GST3562_1350_CASES);
   });
 });

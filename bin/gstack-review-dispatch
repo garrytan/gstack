@@ -417,7 +417,7 @@ function pass(): number {
   const j = runPlan('gstack-review-dispatch pass', base, planArgs, true);
   if (j.stopLine) { process.stderr.write(j.stopLine + '\n'); return EXIT.fail; }
   if (j.status !== 0) { process.stderr.write(j.stderr ?? ''); return EXIT.fail; }
-  const p = JSON.parse(j.stdout) as { next: { step: string }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null; review_exclude?: Record<string, unknown> & { state: string; excluded?: number; kept_files?: unknown; references?: unknown }; readers?: EffectiveReaders };
+  const p = JSON.parse(j.stdout) as { next: { step: string; readOnly?: true }; dispatches: Dispatch[]; targeted?: { classes: string[] }; fix_range?: { base: string } | null; review_exclude?: Record<string, unknown> & { state: string; excluded?: number; kept_files?: unknown; references?: unknown }; readers?: EffectiveReaders };
   const step = p.next.step;
   const fixChecks = step === 'fix-check' ? [] : p.dispatches.filter(d => d.role === 'fix-check');
   const planLines = [...text.stdout.trimEnd().split('\n'), ...fixChecks.map(d => `FIX_CHECK: planned effort=${d.effort} (Step 3.5 runs it on its own; not in this manifest)`)];
@@ -425,7 +425,9 @@ function pass(): number {
   const rangeBase = step === 'scoped' ? git(['rev-parse', '--verify', '--quiet', `${p.fix_range?.base ?? ''}^{commit}`])?.trim() : undefined;
   if (step === 'scoped' && !rangeBase) throw new BriefError('a scoped plan names no readable fix range base');
   const mergeBase = mergeBaseWith(base);
-  const diffBase = flag('--diff-base') ?? (planArgs.includes('--adversarial-ran') ? rangeBase : undefined) ?? mergeBase;
+  const explicitBase = p.next.readOnly ? undefined : flag('--diff-base');
+  if (p.next.readOnly) planLines.push(`READ_ONLY: the final review reads the whole PR diff from the merge base${flag('--diff-base') ? ` (--diff-base ${flag('--diff-base')} ignored)` : ''}; no fix round follows it`);
+  const diffBase = explicitBase ?? (planArgs.includes('--adversarial-ran') ? rangeBase : undefined) ?? mergeBase;
   if (!diffBase) throw new BriefError(`no merge base between ${base} and HEAD`);
   const root = git(['rev-parse', '--show-toplevel'])?.trim() ?? process.cwd();
   const extrasFile = flag('--extras');
