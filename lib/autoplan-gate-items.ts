@@ -190,7 +190,7 @@ export function dayOneItems(ctx: OwnerContext, narrowed: ChallengeRow[] = []): N
     const blocking = narrowed.find(f => f.narrows_quote === q.n && (f.severity === 'Critical' || f.severity === 'High'));
     const leave = blocking ? undefined : choice?.leave_out;
     const size = choice?.size ? `about ${choice.size}` : 'size not stated';
-    items.push({ idKind: 'uc', key: `quote:${wordKey(q.text).trim()}`, kind: 'approval', recommended: leave ? 'b' : 'a', item_class: 'owner_choice', changes: 'scope',
+    items.push({ idKind: 'uc', key: `quote:${q.n}`, kind: 'approval', recommended: leave ? 'b' : 'a', item_class: 'owner_choice', changes: 'scope',
       recommended_basis: blocking ? `your own words asked for it, and a ${blocking.severity} finding says the plan falls short of them` : leave ? `the plan's reason to leave it out: ${leave}` : 'your own words asked for it, and only your words are direction',
       cost: `a adds ${size} to this version and ${reopen}`,
       title: `Your words${quoteWhen(q) ? ` (${quoteWhen(q)})` : ''}: “${q.text}”, which this version doesn't fully do`,

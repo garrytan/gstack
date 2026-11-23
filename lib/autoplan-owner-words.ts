@@ -133,11 +133,15 @@ const SUFFIXES: Array<[string, string]> = [["n't", 'not'], ["'re", 'are'], ["'ve
 const IS_BASES = new Set(['it', 'that', 'there', 'here', 'what', 'who', 'where', 'he', 'she']);
 
 interface Token { key: string; start: number; end: number }
+/** A word: one character of a script written without spaces (Han, kana, Thai), or a run of other letters and digits. */
+const UNSPACED = String.raw`\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}`;
+const LETTER = String.raw`(?:(?![${UNSPACED}])[\p{L}\p{M}\p{N}])`;
+const WORD = new RegExp(String.raw`[${UNSPACED}]|${LETTER}+(?:['\u2019\u02bc]${LETTER}+)*`, 'gu');
 /** Words of `text` in the rendered (default) or raw view, with their original [start, end) offsets. */
 export function tokens(text: string, rendered = true): Token[] {
   const m = normalize(text, rendered);
   const out: Token[] = [];
-  for (const w of m.s.matchAll(/[\p{L}\p{M}\p{N}]+(?:['\u2019\u02bc][\p{L}\p{M}\p{N}]+)*/gu)) {
+  for (const w of m.s.matchAll(WORD)) {
     const start = m.from[w.index!]!, end = m.to[w.index! + w[0].length - 1]!;
     const key = w[0].normalize('NFKC').replace(/[\u2019\u02bc]/g, "'").toLowerCase();
     const suffix = SUFFIXES.find(([s]) => key.endsWith(s) && key.length > s.length);

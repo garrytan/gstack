@@ -16,6 +16,7 @@ import { readState } from '../lib/autoplan-state';
 import { recHash } from '../lib/gate-list';
 import { ROOT, SMALL_PLAN, resultOf } from './helpers/autoplan-run-fixture';
 import { capyRunner, phaseVia, readJsonl, readRunJson, writePlan } from './helpers/autoplan-capy';
+import { wordKey } from '../lib/autoplan-owner-text';
 
 setDefaultTimeout(60_000);
 const r = capyRunner();
@@ -330,5 +331,42 @@ describe("export --public drops the owner's own words (GST-1243)", () => {
     expect(r.ap(['export', '--out', out, '--public', pub]).status).toBe(0);
     expect(fs.readFileSync(path.join(pub, 'ceo-native.a5.bound.md'), 'utf8')).toContain(`Ops note: ${MARK}.`);
     expect(fs.readFileSync(path.join(pub, 'plan.md'))).toEqual(fs.readFileSync(path.join(out, 'plan.md')));
+  });
+});
+
+describe('a first-version export keeps no fragment of any owner quote (GST-3608)', () => {
+  const QUOTES = [
+    'blorptastic zanquiver mellowfrond grumbletide',
+    'zoëlqvist brûxelkorp façadrinth naïvequor',
+    '毎朝の予定をスヌーピー通知で教えてください',
+    '🚀 launchpadzz 🎉 fizzwickery 🌮 tacoloopz',
+  ];
+  const plan = [
+    '# Morning helper (synthetic first version)', '', '## Implementation plan', '',
+    'Add a morning summary job in lib/morning.ts that reads the calendar and sends one notification.', '',
+    "### Owner's words", '',
+    `- The owner, 2026-11-20 08:00Z: "${QUOTES[0]}" → does it`,
+    `- The owner, 2026-11-20 08:01Z: "${QUOTES[1]}" → choice; size: one day`,
+    `- The owner, 2026-11-20 08:02Z: "${QUOTES[2]}" → choice; size: two days; leave out: needs a second permission`,
+    `- The owner, 2026-11-20 08:03Z: "${QUOTES[3]}" → ruled out 2026-11-20: "${QUOTES[3]} never"`, '',
+    '### Day one', '', '| action | frequency | source | feature | route | first build | check |', '|---|---|---|---|---|---|---|',
+    '| reads the morning summary | daily | owner words 1 | Summary | notification | build 1 | the summary lists today |', '',
+    "### What it won't do yet", '', '- No weekly digest', '', '## Review record', ''].join('\n');
+  const fragments = (q: string) => [...new Set([...q.split(/\s+/), ...wordKey(q).trim().split(' ')].filter(w => [...w].length >= 3))];
+
+  test('accented, CJK and emoji quotes leave no 3+ character fragment, raw or normalized, anywhere in the public bytes', () => {
+    const dir = path.join(r.host.base, `owner${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir, plan), '--no-ui', '--no-dx', '--first-version']).status).toBe(0);
+    const narrowing = [{ id: 'F1', severity: 'Medium', title: 'The summary does less than the owner asked', changes: 'scope', narrows_quote: 2 }];
+    phaseVia(r, out, 'ceo', { native: narrowing, outside: [] });
+    expect(phaseVia(r, out, 'eng', { native: [], outside: [] }).outside.stdout).toContain('status=gate_pending');
+    expect(gateOf(out).items.filter((i: { item_class?: string }) => i.item_class === 'owner_choice').length).toBeGreaterThan(0);
+    const pub = path.join(dir, 'public');
+    const e = r.ap(['export', '--out', out, '--public', pub]);
+    expect(e.status, e.stderr).toBe(0);
+    const bytes = allText(pub);
+    const leaks = QUOTES.flatMap(q => fragments(q).filter(w => bytes.includes(w)));
+    expect(leaks).toEqual([]);
   });
 });
