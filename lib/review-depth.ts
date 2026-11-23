@@ -414,11 +414,11 @@ export interface NextStep { step: Step; reason: string }
  * blocking finding earns a second full pass on the range, scoped when `depth` (known
  * only to planReview) is below full and the fix range has at most SCOPED_RANGE_LINES
  * runtime lines; any other fix earns a full second pass on the range too, except a light pass whose fix range
- * changes no runtime lines (GST-3562 A: no new fix-check is planned); two rounds is the cap (R51), and capStep says what
- * a fix after the cap gets. A grant recorded before GST-3562 still adds its one scoped fix-check for one release.
+ * changes no runtime lines (GST-3562 A: no new fix-check is planned, and the dispatch keeps the full-effort reader the
+ * fix-check was: FIX_RANGE_ROUND); two rounds is the cap (R51), and capStep says what a fix after the cap gets.
  * The cap limits fix rounds, not Step 11's voices: on gate class any stop waits for them (GST-967),
- * and the owner's recorded grant (`granted`) turns the stop after a round-2 full pass with a fixed finding, or after a round-2
- * fix-check when `fixChecks` says it was the only one (GEVA-223), into its one fix-check; a fix-check never earns another, so
+ * and the owner's recorded grant (`granted`) turns the stop after a round-2 fix-check that was the run's only one
+ * (`fixChecks`, GEVA-223) into one more fix-check, for one release; a fix-check never earns another, so
  * the grant cannot repeat. Edits after the review bound (`postReview`) that follow a fix-check are a new stop, and a new grant
  * there adds one fix-check, the next link of the chain finish counts (GST-1676, docs/ship-policy.md#fix-check-chain). In the
  * loop, a grant the CLI bound to the last fix-check's own stop head (`chained`) adds one more the same way (GST-1681).
@@ -464,7 +464,10 @@ function prCapped(h: History, n: NextStep): NextStep {
   return { step: 'stop', reason: `PR_ROUND_CAP: this PR already had ${used} full review round${used === 1 ? '' : 's'} across its heads and /ship runs${h.roundGrant ? ` (round grant ${h.roundGrant} included)` : ''}; another needs a reason the lane or its Captain records with gstack-approvals round-grant, not an owner ask` };
 }
 
+const FIX_RANGE_ROUND = 'never a fix-check (R51, GST-3562 A)';
 const READ_ONLY_REVIEW = 'read-only final review (R51): fixes changed code after the last round, so the final head gets one full review of the whole PR diff (run it without diffBase) with no fix round (GST-3562 A)';
+/** GST-3562 A: a full pass that replaces a fix-check, or the read-only final review, keeps the one full-effort reader (excluding nothing) the fix-check was. */
+const needsFixReader = (n: NextStep, ds: Dispatch[], specs = 0) => (n.reason.endsWith(FIX_RANGE_ROUND) || n.reason.startsWith(READ_ONLY_REVIEW)) && !ds.some(d => d.effort === 'full' && d.exclude.length === specs);
 const CAPTAIN_DECIDES = "the lane's Captain decides (R51): ship with it as a ruled note, or keep the fix and run /ship again for one read-only full review of the final head";
 
 /**
@@ -494,7 +497,7 @@ function leanStep(h: History, depth?: Depth): NextStep {
   if (!h.fixedBlocking && !h.fixedBelow && !h.touchedGate) return { step: 'done', reason: 'the step applied no edits' };
   if (depth === 'light' && !h.fixedBlocking && !h.touchedGate && h.rangeRuntimeLines === 0) return { step: 'done', reason: 'light depth: the below-floor fixes change no runtime lines, so they ship as notes in the PR body and receipt (R65)' };
   if (h.fullPasses >= FULL_PASS_CAP) return capStep(h, depth);
-  return { step: 'full', reason: `${h.fixedBlocking ? 'a blocking finding was fixed' : h.touchedGate ? 'a fix touched a gate-class path' : depth === 'light' ? 'below-floor fixes changed runtime lines' : 'below-floor fixes on a risk-class diff'}: round 2 is the one reviewer's full pass on the range, never a fix-check (R51, GST-3562 A)` };
+  return { step: 'full', reason: `${h.fixedBlocking ? 'a blocking finding was fixed' : h.touchedGate ? 'a fix touched a gate-class path' : depth === 'light' ? 'below-floor fixes changed runtime lines' : 'below-floor fixes on a risk-class diff'}: round 2 is the one reviewer's full pass on the range, ${FIX_RANGE_ROUND}` };
 }
 
 function loopStep(h: History, depth?: Depth): NextStep {
@@ -514,7 +517,7 @@ function loopStep(h: History, depth?: Depth): NextStep {
     if (keep) return { step: 'full', reason: `a blocking finding was fixed and ${keep}: full pass on the range` };
     return { step: 'scoped', reason: `a blocking finding was fixed on a ${depth} diff with ${n} runtime lines in the fix range (<= ${SCOPED_RANGE_LINES}): scoped pass on the range` };
   }
-  return { step: 'full', reason: 'below-floor fixes changed code after round 1: round 2 is a full pass on the range, never a fix-check (R51, GST-3562 A)' };
+  return { step: 'full', reason: `below-floor fixes changed code after round 1: round 2 is a full pass on the range, ${FIX_RANGE_ROUND}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -712,6 +715,7 @@ export function planReviewAt(i: PlanInput, table: (h: History, depth: Depth) => 
     add('adversarial-native', 'adversarial', 'full');
     add('outside-voice', 'outside-voice', 'host');
   }
+  if (needsFixReader(next, dispatches, x?.specs.length)) add('red-team', 'red-team', 'full');
   if (i.targeted?.classes.length && ['full', 'scoped', 'fix-check', 'voices'].includes(next.step)) {
     if (i.targeted.ran) skipped.push('targeted (already read this product patch)');
     else add('targeted', 'targeted', ROLE_EFFORT.targeted);
@@ -772,6 +776,7 @@ function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextSt
     add('fix-check', 'fix-check', 'full');
     if (i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint) add('outside-voice', 'outside-voice (numbers changed)', 'host');
   }
+  if (needsFixReader(next, dispatches, x?.specs.length)) add('red-team', 'red-team', 'full');
   if (next.step === 'fix-check' && i.targeted?.classes.length) {
     if (i.targeted.ran) skipped.push('targeted (already read this product patch)');
     else add('targeted', 'targeted', ROLE_EFFORT.targeted);

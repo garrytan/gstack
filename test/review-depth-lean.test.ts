@@ -6,6 +6,7 @@ import { appendEvent, verify } from '../lib/review-ledger';
 import * as os from 'node:os';
 import { createHash } from 'node:crypto';
 import { matchRisk } from '../lib/review-risk';
+import { asMainBeforeGst3562 } from './helpers/gst3562-replay';
 import { renderBrief, sectionTexts, sliceDiff, sliceNote } from '../lib/review-brief';
 import { validatePolicy, DEFAULT_POLICY, REVIEW_POLICY_KEY_VERSION } from '../lib/ship-policy';
 
@@ -159,6 +160,29 @@ describe('R65 lean dispatch (GSTA-258 build C): one reviewer, once', () => {
     expect(roles(planReview(base({ paths: ['lib/billing.ts'], shape: lean({ panel: 'risk' }) })))).toEqual(today({ paths: ['lib/billing.ts'] }));
     expect(planReview(base({ shape: lean({ panel: 'risk' }) })).mode).toBe('lean');
     expect(planReview(base({ shape: lean({ panel: 'all' }) })).mode).toBe('panel');
+  });
+});
+
+describe('GST-3562 A no-loss replay under review.panel off and risk', () => {
+  // Value: protects=rule 15's no-loss rule for the lean table: a full pass that replaces main's fix-check keeps a full-effort reader excluding nothing that fix-check read, plus main's other readers; fails_when=a replacement pass dispatches no full-effort reader (the docs-only round 2 that 6f0f1ba's read-only review found) or drops main's targeted or outside voice;
+  //   why_new=GST-3562 A; seam=planReview, asMainBeforeGst3562; no_claim=what the kept reader finds
+  test('every changed lean case is an allowed kind, and each fix-check it replaces keeps its reader', () => {
+    const kinds: Record<string, number> = {};
+    const fixtures: Record<string, string[]> = { docs: ['docs/a.md'], tests: ['test/a.test.ts'], code: ['src/app.ts'], risk: ['lib/billing.ts'], mixed: ['src/app.ts', 'docs/a.md'] };
+    const counted = scanNumbers({ 'docs/a.md': ['recall 87% (26/30)'] });
+    for (const [name, paths] of Object.entries(fixtures)) for (const panel of ['off', 'risk'] as const) for (const numbers of [none, counted]) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
+      const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) };
+      const input = base({ paths, numbers, history, adversarialRan, shape: lean({ panel }) });
+      const { kind } = asMainBeforeGst3562(input, planReview(input));
+      if (kind) kinds[`${name}:${kind}`] = (kinds[`${name}:${kind}`] ?? 0) + 1;
+    }
+    expect(kinds).toEqual({ 'docs:a': 144, 'docs:d': 24, 'tests:a': 144, 'tests:d': 24, 'code:a': 144, 'code:d': 24, 'risk:a': 92, 'risk:d': 4, 'risk:e': 24, 'mixed:a': 144, 'mixed:d': 24 });
+  });
+  test('a docs-only round 2 after a fixed blocker keeps the one full-effort reader main\'s fix-check was', () => {
+    for (const panel of ['off', 'risk'] as const) {
+      const p = planReview(base({ paths: ['docs/a.md'], history: { fullPasses: 1, last: 'full', fixedBlocking: true }, shape: lean({ panel }) }));
+      expect([p.next.step, roles(p)]).toEqual(['full', ['red-team:red-team:full:-']]);
+    }
   });
 });
 

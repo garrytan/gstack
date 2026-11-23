@@ -7,7 +7,9 @@
  * asMainBeforeGst3562 plans the input with main's frozen transition table (mainNextStep) through planReviewAt. When that plan
  * equals the branch's, it returns the branch's plan. Otherwise it asserts the change is one of the kinds the ruling allows and
  * returns main's plan, so a grid hash frozen to an older main still matches after the earlier adapters run:
- *   a. main planned a fix-check; the branch plans a full or scoped pass on the same range.
+ *   a. main planned a fix-check; the branch plans a full or scoped pass on the same range that keeps main's readers: a
+ *      full-effort reader excluding nothing main's fix-check read, and each of main's other readers (the targeted brief may
+ *      ride on the one adversarial reader, as R65's merged reader carries it).
  *   b. both plans take the same stop, voices or done step and differ only in its reason text.
  *   c. main planned a fix-check at the cap after a read-only review had run; the branch stops for the lane's Captain (on gate
  *      class, Step 11's voices first).
@@ -36,5 +38,11 @@ export function asMainBeforeGst3562(input: PlanInput, plan: ReviewPlan): { plan:
     : undefined;
   expect([h, was, now, kind]).toEqual([h, was, now, expect.any(String)]);
   if (kind === 'b') expect({ ...plan, next: was }).toEqual(main);
+  if (kind === 'a') {
+    const lost = main.dispatches.filter(d => d.role === 'fix-check'
+      ? !plan.dispatches.some(p => p.effort === 'full' && p.exclude.every(e => d.exclude.includes(e)))
+      : !plan.dispatches.some(p => p.role === d.role || (d.role === 'targeted' && p.role === 'adversarial-native' && !!p.classes?.length)));
+    expect([h, plan.mode, lost]).toEqual([h, plan.mode, []]);
+  }
   return { plan: main, kind };
 }

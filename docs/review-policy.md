@@ -102,13 +102,12 @@ incomplete coverage, which blocks until the reviewer is rerun.
    severity, problem). The cap limits fix rounds, not Step 11's voices: on gate
    class a stop waits for Step 11's adversarial, outside and targeted voices
    (`NEXT: voices`), so gate code never reaches the owner's "ship with open
-   notes" without them (GST-967). A third round is the owner's
-   grant of one scoped fix-check (recorded in `review_loop_exception`), never the
-   loop's: once `gstack-approvals add` records the grant (its ask or scope
-   naming `review_loop_grant` and the stop head's sha),
-   `gstack-review-plan --grant <approval id> --range-base <round 2's PASS_HEAD>`
-   plans that fix-check in place of the stop after a round-2 full pass, or after
-   a round-2 fix-check that was the run's only one (`--fix-checks 1`, GEVA-223),
+   notes" without them (GST-967). A fix in round 2 gets one read-only full
+   review, never a fix-check (GST-3562 A). For one release, a grant recorded in
+   `review_loop_exception` (its ask or scope naming `review_loop_grant` and the
+   stop head's sha) still answers one row: `gstack-review-plan --grant <approval
+   id> --range-base <round 2's PASS_HEAD>` plans one more fix-check after a
+   round-2 fix-check that was the run's only one (`--fix-checks 1`, GEVA-223),
    with a fixed blocking finding or a gate-class edit, and refuses any other row,
    including a grant for a stop head before `--range-base` (an earlier /ship).
    A fix-check never earns another, so the grant cannot repeat, and a stop after
@@ -439,8 +438,8 @@ Under the opt-in `review.panel risk` (and `review.platform on` under any panel):
 |---|---|---|
 | Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | Any fix re-runs the printed plan on the fixed range as round 2 (GST-3562 A); a fix in round 2 gets one read-only full review |
 | Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker, a gate-class edit or a below-floor fix that changes runtime lines gets the one reader's full pass on the range as round 2, adding the outside voice when the fix changed a published number (GST-3562 A); below-floor fixes with no runtime lines ship as notes |
-| Docs | The core read; the outside voice only when the diff publishes numbers | A full pass on the range after a fixed blocker (GST-3562 A) |
-| Tests, or code with no runtime lines (only registered outputs) | One batched reader on the class's checklists (Testing for tests, which leaves docs and registered outputs out of its diff); the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
+| Docs | The core read; the outside voice only when the diff publishes numbers | A full pass on the range after a fixed blocker, with the Red Team reader at full effort on the whole fix range, the reader main's fix-check was (GST-3562 A) |
+| Tests, or code with no runtime lines (only registered outputs) | One batched reader on the class's checklists (Testing for tests, which leaves docs and registered outputs out of its diff); the outside voice only when the diff publishes numbers | A full pass on the range after a fixed blocker: the batched reader plus the Red Team reader at full effort on the whole fix range (GST-3562 A) |
 | Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included | none |
 
 `review.panel all`, the default, keeps today's panel and loop on every class. `risk` is
