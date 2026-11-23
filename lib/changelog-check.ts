@@ -4,8 +4,9 @@
  * or the version currently stamped on the branch) to the top under the new
  * version, above its predecessor's entry. Duplicate version headings beyond
  * those the base branch already carries, and a top entry that is not VERSION,
- * are errors. The tree receipt uses
- * `normalizeChangelog` to accept a heading move as a stamp, never a change.
+ * are errors. The tree receipt accepts a CHANGELOG change as a stamp only when
+ * `normalizeChangelog` finds the same entries and `reheadOnly` finds that one
+ * move: every released section keeps its heading, text and order.
  */
 import type { ResultCodeName } from './result-codes';
 
@@ -135,6 +136,35 @@ export function normalizeChangelog(text: string): string {
   const parsed = parseChangelog(text);
   const sections = parsed.sections.map(s => ['## <version>', ...s.lines.slice(1)].join('\n').replace(/\n+$/, '')).sort();
   return [parsed.header.join('\n').replace(/\n+$/, ''), ...sections].join('\n\u0000');
+}
+
+/**
+ * Why `after` is not `before` with one section re-headed at the top, the only CHANGELOG change a stamp makes
+ * (reheadChangelog), or null. The moved section is `[Unreleased]` when `before` has one, else its top section, and
+ * keeps its text; the header and every other section, headings included, stay line for line and in order. Trailing
+ * empty lines are ignored, as reheadChangelog trims them. normalizeChangelog blanks every heading and sorts the
+ * sections, so on its own it cannot see a renamed, moved or re-headed release.
+ */
+export function reheadOnly(before: string, after: string): string | null {
+  const trim = (lines: readonly string[]) => { const out = [...lines]; while (out.length && out[out.length - 1] === '') out.pop(); return out; };
+  const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((l, i) => l === b[i]);
+  const name = (s: ChangelogSection) => JSON.stringify(s.heading.replace(/^##\s+/, '').trim());
+  const was = parseChangelog(before), now = parseChangelog(after);
+  if (!same(trim(was.header), trim(now.header))) return 'the text above the first section changed';
+  if (!was.sections.length || !now.sections.length) return was.sections.length === now.sections.length ? null : 'a section was added or removed';
+  const movedAt = Math.max(0, was.sections.findIndex(s => s.unreleased));
+  const moved = was.sections[movedAt]!, top = now.sections[0]!;
+  if (!same(trim(moved.lines.slice(1)), trim(top.lines.slice(1)))) return `the top section ${name(top)} is not ${name(moved)} re-headed with its text unchanged`;
+  const rest = was.sections.filter((_, i) => i !== movedAt), kept = now.sections.slice(1);
+  for (let i = 0; i < Math.max(rest.length, kept.length); i++) {
+    const old = rest[i], cur = kept[i];
+    if (old && cur && same(trim(old.lines), trim(cur.lines))) continue;
+    if (!old || !cur) return old ? `released section ${name(old)} is missing` : `section ${name(cur!)} was added`;
+    if (kept.some(s => s.heading === old.heading)) return `released section ${name(old)} moved`;
+    if (same(trim(old.lines.slice(1)), trim(cur.lines.slice(1)))) return `released heading ${name(old)} renamed to ${name(cur)}`;
+    return `released section ${name(old)} changed`;
+  }
+  return null;
 }
 
 /**

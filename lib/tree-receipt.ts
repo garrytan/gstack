@@ -13,7 +13,7 @@
 import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { normalizeChangelog } from './changelog-check';
+import { normalizeChangelog, reheadOnly } from './changelog-check';
 import { foldIntoUnreleased, parseFragment, type Fragment } from './changelog-fragments';
 import { compareIdentity, executionIdentity, normalizeLockfile, readBundle, type EvidenceBundle, type ExecutionIdentity } from './evidence-bundle';
 import { parseUnifiedDiff, versionAtRef, type FileDiff, type GateAheadRecord } from './restamp';
@@ -126,7 +126,12 @@ export function classifyFile(repoRoot: string, f: FileDiff, gated: string, curre
     return changed('manifest', 'a field other than version changed');
   }
   if (policy.changelog && f.path === policy.changelog) {
-    if (before !== null && after !== null && normalizeChangelog(foldIntoUnreleased(before, folded)) === normalizeChangelog(after)) return stamp(folded.length ? 'changelog-fragments' : 'changelog-heading');
+    const expected = before === null ? null : foldIntoUnreleased(before, folded);
+    if (expected !== null && after !== null && normalizeChangelog(expected) === normalizeChangelog(after)) {
+      const why = reheadOnly(expected, after);
+      if (!why) return stamp(folded.length ? 'changelog-fragments' : 'changelog-heading');
+      return changed('changelog', `${why}; a stamp only moves the branch's own entry to the top under the new version`);
+    }
     return changed('changelog', folded.length ? 'entry text is not exactly the deleted fragments folded under the new heading' : 'entry text changed (only a heading move or re-heading is a stamp)');
   }
   const rule = matchesAny(policy.stamp_paths, f.path) ? 'stamp_paths' : matchesAny(policy.release_outputs, f.path) ? 'release_outputs' : matchesAny(policy.stamp_files, f.path) ? 'stamp_files' : null;

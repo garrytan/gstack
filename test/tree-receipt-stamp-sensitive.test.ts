@@ -9,6 +9,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { stampOnlyLine } from '../lib/stamp-only';
+import { spawnSync } from 'node:child_process';
+import * as os from 'node:os';
+import { reheadChangelog } from '../lib/changelog-check';
+import { parseUnifiedDiff } from '../lib/restamp';
+import { DEFAULT_POLICY } from '../lib/ship-policy';
+import { classifyFile } from '../lib/tree-receipt';
 import { BASE_POLICY, cleanup, ghShim, makeFixtureRepo, makePr, readFile, recordAndBundle, restamp, runBin, type FixtureRepo } from './helpers/restamp-fixture';
 
 const repos: FixtureRepo[] = [];
@@ -274,5 +280,68 @@ describe('tree receipt: identity and predecessor', () => {
     const r = receipt(repo, ['--gated', '0123456789abcdef0123456789abcdef01234567']);
     expect(r.status).toBe(EXIT.fail);
     expect(r.err).toMatch(/not a committed head here \(fetch it, or copy the gate-ahead worktree's object store\).*\(EVIDENCE_IDENTITY_UNKNOWN\)/);
+  });
+});
+
+// Value: protects=a CHANGELOG stamp is only reheadChangelog's move of one section to the top under a new heading; every released
+//   section keeps its heading, body and order; fails_when=a released heading renamed to another version, or two released sections
+//   swapped, classify as a stamp because normalizeChangelog blanks every heading and sorts sections; why_new=no test edited a
+//   released section beside a stamp (#3588); seam=classifyFile
+describe('tree receipt: a CHANGELOG stamp never renames or reorders a released section', () => {
+  const HEAD = '# Changelog\n\nAll notable changes.\n\n';
+  const R101 = '## [1.0.1] - 2026-10-28\n\n### Fixed\n\n- one oh one fix\n\n';
+  const R100 = '## [1.0.0] - 2026-10-01\n\n### Added\n\n- first release\n';
+  const BEFORE = `${HEAD}## [Unreleased]\n\n### Changed\n\n- the branch's own change\n\n${R101}${R100}`;
+  const DATE = '2026-11-23';
+  const stamped = () => reheadChangelog(BEFORE, { from: null, to: '1.0.2', date: DATE }).text;
+
+  /** classifyFile's verdict on CHANGELOG.md between a gated commit holding `before` and a current commit holding `after`. */
+  function verdict(before: string, after: string, oldV = '1.0.1', newV = '1.0.2') {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tree-receipt-changelog-'));
+    const git = (...args: string[]) => {
+      const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'core.autocrlf=false', ...args], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+      expect(r.status, r.stderr).toBe(0);
+      return r.stdout.trim();
+    };
+    try {
+      git('init', '-q');
+      const commit = (text: string) => { fs.writeFileSync(path.join(root, 'CHANGELOG.md'), text); git('add', 'CHANGELOG.md'); git('commit', '-q', '-m', 'c'); return git('rev-parse', 'HEAD'); };
+      const gatedHead = commit(before), currentHead = commit(after);
+      const [f] = parseUnifiedDiff(git('diff', '--unified=0', '--no-color', gatedHead, currentHead, '--', 'CHANGELOG.md') + '\n');
+      return classifyFile(root, f!, gatedHead, currentHead, DEFAULT_POLICY, 'VERSION', oldV, newV);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+
+  test('reheadChangelog moving [Unreleased] to the top under the new version is a stamp', () => {
+    expect(verdict(BEFORE, stamped())).toMatchObject({ verdict: 'stamp', rule: 'changelog-heading' });
+  });
+
+  test("a restamp of the branch's own stamped section is a stamp", () => {
+    const again = reheadChangelog(stamped(), { from: '1.0.2', to: '1.0.3', date: DATE }).text;
+    expect(verdict(stamped(), again, '1.0.2', '1.0.3')).toMatchObject({ verdict: 'stamp', rule: 'changelog-heading' });
+  });
+
+  test('a released heading renamed beside the stamp is a change', () => {
+    const renamed = stamped().replace('## [1.0.0] - 2026-10-01', '## [0.9.0] - 2020-01-01');
+    expect(renamed).not.toBe(stamped());
+    const v = verdict(BEFORE, renamed);
+    expect(v).toMatchObject({ verdict: 'changed', rule: 'changelog' });
+    expect(v.residual).toContain('[1.0.0] - 2026-10-01');
+  });
+
+  test('two released sections swapped beside the stamp are a change', () => {
+    const swapped = stamped().replace(`${R101}${R100}`, `${R100}\n${R101.replace(/\n+$/, '\n')}`);
+    expect(swapped).not.toBe(stamped());
+    const v = verdict(BEFORE, swapped);
+    expect(v).toMatchObject({ verdict: 'changed', rule: 'changelog' });
+    expect(v.residual).toContain('moved');
+  });
+
+  test('a released section moved to the top under the new version, with [Unreleased] left below, is a change', () => {
+    const own = BEFORE.slice(BEFORE.indexOf('## [Unreleased]'), BEFORE.indexOf(R101));
+    const hijacked = `${HEAD}${R101.replace('## [1.0.1] - 2026-10-28', `## [1.0.2] - ${DATE}`)}${own}${R100}`;
+    const v = verdict(BEFORE, hijacked);
+    expect(v).toMatchObject({ verdict: 'changed', rule: 'changelog' });
+    expect(v.residual).toContain('[Unreleased]');
   });
 });
