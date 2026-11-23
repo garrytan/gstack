@@ -73,12 +73,13 @@ gstack-cso recheck <finding> --repo <repo> [--run <original-run>]
 gstack-cso inspect <run>
 gstack-cso read <run> <path-or-handle>
 gstack-cso history <run> [path-or-handle]
+gstack-cso search <run> <regex>
 gstack-cso scan <run> <scanner> [request.json]
 gstack-cso scanner-outcome <run> <artifact-id>
 gstack-cso import-sarif <run> <results.sarif>
 gstack-cso submit <run> <submission.json>
-gstack-cso runtime-plan <run> <stack> --port <loopback-port>
-gstack-cso test-plan <run> <stack>
+gstack-cso runtime-plan <run> <node|bun|python|rails> --port <loopback-port>
+gstack-cso test-plan <run> <node|bun|python|rails>
 gstack-cso record-review <run> <request.json> --producer <identity>
 gstack-cso verify <run> <request.json>
 gstack-cso finish <run>
@@ -88,11 +89,11 @@ gstack-cso inspect-v2 <import-id>
 
 **Private control files.** Use `umask 077`, a mode-`0700` directory outside the audited repository, and mode-`0600` JSON. Pass absolute paths; remove each control file immediately after ingestion.
 
-**One-run invariant.** Invoke `start` exactly once per run and reuse the same ID. A refused `start` (`"ok":false`) holds no run: apply the one correction it names and start again; for the 64 MiB cap, `du -s` the top-level directories and pass `--paths` with every source directory, leaving out only vendored, generated, fixture and media trees. Once a `start` returns a run ID, never call `start` again.
+**One-run invariant.** Invoke `start` exactly once per run and reuse the same ID. A refused `start` (`"ok":false`) holds no run: apply the one correction it names and start again; for the 64 MiB cap, `du -s` the top level and pass at most 32 `--paths` prefixes (1024 characters) covering the source, leaving out vendored, generated, fixture and media trees. Once a `start` returns a run ID, never call `start` again.
 
 **Audited-source access invariant.** After `start`, inspect source only with that run's `inspect`, `read`, and `history`. Pass the exact `path` from `inspect`; `displayPath` is only a redacted label. Never use host `Read`/`Glob`/`Grep`; direct reads bypass redaction and identity.
 
-**Read the whole inventory.** `inspect` output often exceeds 200 KB, its file list after the report. Save `start` and `inspect` output to private files (removed after `finish`) and print only what you need. Search all non-test source through the helper, piping file names and never typing one into a command: `jq -r '.manifest.entries[].path' <inspect file> | while IFS= read -r f; do gstack-cso read <run> "$f" | grep -nH --label="$f" -E '<sinks>'; done`. Then read in full every attacker-reachable file: parsers, decoders, serializers, path, URL, redirect and auth code. Never narrow by file name.
+**Read the whole inventory.** Save `start` and `inspect` output to private files (removed after `finish`); read the run ID with `jq -r .runId`, never through `head` or `tail`. Check readiness, deadline, and coverage; `jq -r '.manifest.entries[].path'` lists every file. Search all source with `gstack-cso search <run> '<regex>'`, one call per pattern, which lists unsearched paths as a gap. Then read in full every attacker-reachable file: parsers, decoders, serializers, path, URL, redirect and auth code. Never narrow by file name.
 
 When a finding survives challenge, submit it to the helper **and surface it to the user immediately**; do not wait for the final report; this preserves evidence if the run is interrupted. Malformed model JSON gets **one bounded correction attempt**; then preserve a partial result.
 
@@ -134,7 +135,7 @@ This **CSO evidence rubric** governs CSO instead of shared review confidence ins
 - **Confidence:** how strongly evidence supports that precise claim, with unknowns and counterevidence; a number is not proof.
 - **Evidence:** candidate hypothesis, supported static evidence, or a helper-recorded reproduction. Code tracing can support a finding; it cannot establish that an application booted or a repair passed tests.
 
-**Report every finding the code supports; confidence carries doubt, never omission.** **Supported**: code you read traces attacker-controlled input to the defect and no inspected control blocks it; submit at medium or high confidence. A library's public API and parsed data are attacker-controlled when documented use passes untrusted input, even with callers outside the snapshot. A **candidate** has code evidence and one open question (an unread caller, an unclear default); daily runs submit only supported findings, so list candidates in a **Candidates (unconfirmed)** table, low confidence, with what would confirm each. Drop one only when code you read disproves it, naming that code; comprehensive runs submit candidates as **labeled hypotheses**.
+**Report every finding the code supports; confidence carries doubt, never omission.** **Supported**: code you read traces attacker-controlled input to the defect and no inspected control blocks it; submit at medium or high confidence. A library's public API and parsed data are attacker-controlled when documented use passes untrusted input, even with callers outside the snapshot. A **candidate** has code evidence and one open question (an unread caller, an unclear default): submit it as a low-confidence hypothesis saying what would confirm it; the report lists it under **Hypotheses (unconfirmed)**. Drop one only when code you read disproves it, naming that code.
 
 Do not apply blanket exclusions for development dependencies, availability/resource attacks, historical secrets, user-role prompt injection, or gstack-owned skills. UUIDs are not authorization; user-controlled URL paths can cross a sensitive boundary; environment variables may come from untrusted workflows; framework escape hatches can bypass safe defaults. Missing hardening alone needs a concrete failure scenario before becoming a finding.
 
@@ -155,7 +156,7 @@ Keep finding evidence, reproduction outcome, patch validation, test-completion a
 
 Finish every audit through the helper, including empty, cancelled, blocked, or interrupted audits when possible. Every report begins with **complete**, **partial**, or **not assessed**, followed by scope and material gaps; a `--paths` run states partial snapshot-inputs coverage and summarizes skipped paths. Completeness is independent of finding count. For an empty supported set, say **“No supported findings in the assessed scope.”**, or **not assessed** if nothing was. Lead incomplete reports with the helper's Status/Ran/Reason/Next lines. Never infer a clean result from setup failure or absent scanner output.
 
-Present a compact SECURITY FINDINGS table with stable finding ID, severity, confidence/rationale, evidence state, location, and impact. Each finding needs an attacker scenario, supporting references, counterevidence considered, and a concrete repair recommendation. Include coverage, transformations, scanner versions/outcomes/freshness, runtime prerequisites, timing, and proposed repair-candidate paths; list `runtime_tested` bundles only when an authenticated assertion witness produced one, each with its assertion, test-completion, and review assurance exactly as recorded, never implying self-reported project tests are authenticated. Daily candidates and comprehensive hypotheses each get a separate labeled table after it.
+Present a compact SECURITY FINDINGS table with stable finding ID, severity, confidence/rationale, evidence state, location, and impact. Each finding needs an attacker scenario, supporting references, counterevidence considered, and a concrete repair recommendation. Include coverage, transformations, scanner versions/outcomes/freshness, runtime prerequisites, timing, and proposed repair-candidate paths; list `runtime_tested` bundles only when an authenticated assertion witness produced one, each with its assertion, test-completion, and review assurance exactly as recorded, never implying self-reported project tests are authenticated. Hypotheses get a separate labeled table after it.
 
 Use `RunReportV3`, `FindingV3`, `CoverageRecord`, `VerificationManifest`, and `RepairBundle` from `lib/cso/contracts.ts` through the installed schema command. Helper validation/persistence is mandatory. If saving fails, report **PERSISTENCE_FAILED** and a safe summary; never claim the report was saved. If redaction fails, withhold the payload entirely; do not show raw excerpts to explain the failure.
 

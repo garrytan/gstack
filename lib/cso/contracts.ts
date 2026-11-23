@@ -974,7 +974,7 @@ export function renderReport(report: RunReportV3): string {
       : report.completeness === 'not assessed'
         ? ['No findings: nothing was assessed.']
         : ['No supported findings in the assessed scope.']),
-    ...(report.policy.mode === 'comprehensive'
+    ...(report.policy.mode === 'comprehensive' || report.findings.some((f) => f.evidence === 'hypothesis')
       ? [
           '',
           'Hypotheses (unconfirmed):',

@@ -1,9 +1,9 @@
 // Recall regressions for /cso, from the gstack-evals#443 real-advisory run (52 GitHub
 // security advisories, Opus 5.5): with /cso the audit named 3 of 51 advisories against 12
 // for a plain audit, reported 0.75 findings per session against 14.8, and in 5 of 10 misses
-// never opened a file the fix changed. Three causes are pinned here against the real helper:
-// a refused start that the skill told the model never to retry, an inventory the model could
-// not see in a shell result, and a report rule that dropped every finding short of proof.
+// never opened a file the fix changed. Pinned here against the real helper: a refused start
+// the skill told the model never to retry, one helper read per file inside a 600-second
+// budget, and a report rule (enforced by the helper) that dropped every finding short of proof.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -29,6 +29,11 @@ function git(repo: string, ...args: string[]): void {
 }
 function cso(repo: string, args: string[]) {
   return spawnSync(launcher, args, { cwd: repo, encoding: 'utf8', env: { HOME: root, GSTACK_HOME: state, PATH: process.env.PATH ?? '' }, timeout: 120_000, maxBuffer: 64 * MIB });
+}
+function findReport(dir: string, run: string): string {
+  for (const entry of fs.readdirSync(dir, { recursive: true }) as string[])
+    if (entry.endsWith(path.join(run, 'report.md'))) return path.join(dir, entry);
+  throw new Error('no report.md for ' + run);
 }
 function json(stdout: string): any {
   return JSON.parse(stdout.slice(stdout.indexOf('{')));
@@ -79,59 +84,73 @@ describe('/cso recall (gstack-evals#443)', () => {
     expect(cso(repo, ['finish', run]).status).toBe(0);
   });
 
-  test("the skill's search loop reads every listed file through the helper and never runs a file name", () => {
+  test('search reads every file in one call, never runs a file name, and lists what it could not search', () => {
     const repo = path.join(root, 'hostile');
     fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
     const hostile = 'src/a$(touch PWNED).js';
     fs.writeFileSync(path.join(repo, hostile), 'eval(input)\n');
-    fs.writeFileSync(path.join(repo, 'src/parse.js'), 'eval(input)\n');
+    fs.writeFileSync(path.join(repo, 'src/parse.js'), 'const x = 1;\neval(input)\n');
+    fs.writeFileSync(path.join(repo, 'src/big.js'), 'eval(input)\n' + 'x'.repeat(MIB + 16));
     git(repo, 'init', '-q');
     git(repo, 'add', '-A');
     git(repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
     const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
-    const inspectFile = path.join(root, 'hostile-inspect.json');
-    fs.writeFileSync(inspectFile, cso(repo, ['inspect', run]).stdout);
-    const loop = skill().match(/`(jq -r [^`]*\| while IFS= read -r f; do gstack-cso read [^`]*done)`/)?.[1];
-    expect(loop).toBeDefined();
-    const command = loop!.replace('<inspect file>', JSON.stringify(inspectFile)).replaceAll('<run>', run).replace('<sinks>', 'eval\\(').replaceAll('gstack-cso read', JSON.stringify(launcher) + ' read');
-    const result = spawnSync('bash', ['-c', command], { cwd: root, encoding: 'utf8', env: { HOME: root, GSTACK_HOME: state, PATH: process.env.PATH ?? '' }, timeout: 120_000 });
-    expect(result.stdout).toContain('src/parse.js:1:eval(input)');
-    expect(result.stdout).toContain(hostile + ':1:eval(input)');
+    expect(skill()).toContain("gstack-cso search <run> '<regex>'");
+    const found = cso(repo, ['search', run, 'eval\\(']);
+    expect(found.status).toBe(0);
+    expect(found.stdout).toContain('src/parse.js:2:eval(input)');
+    expect(found.stdout).toContain(hostile + ':1:eval(input)');
+    expect(found.stdout).toMatch(/1 unsearched paths .*coverage gap: src\/big\.js/);
     expect(fs.existsSync(path.join(root, 'PWNED'))).toBe(false);
     expect(fs.existsSync(path.join(repo, 'PWNED'))).toBe(false);
+    const none = cso(repo, ['search', run, 'zzz-no-such-text']).stdout;
+    expect(none).toContain('[gstack-cso search: no matches]');
+    expect(none).toMatch(/1 unsearched paths .*src\/big\.js/);
+    const bad = cso(repo, ['search', run, '(']);
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toContain('not a valid regular expression');
     expect(cso(repo, ['finish', run]).status).toBe(0);
   });
 
-  test('the report rule keeps every supported finding and lists candidates instead of dropping them', () => {
+  test('the report rule keeps every supported finding and lists hypotheses instead of dropping them', () => {
     const text = skill();
     for (const dropped of ['Daily reports hold only', 'Omit daily candidates', 'Prioritize unresolved high impact', 'demonstrated in-scope impact']) expect(text).not.toContain(dropped);
-    for (const kept of ['never typing one into a command', 'Report every finding the code supports', 'never omission', 'Candidates (unconfirmed)', 'even with callers outside the snapshot', 'Drop one only when code you read disproves it', 'Never narrow by file name']) expect(text).toContain(kept);
+    for (const kept of ['gstack-cso search', 'jq -r .runId', 'Report every finding the code supports', 'never omission', 'Hypotheses (unconfirmed)', 'even with callers outside the snapshot', 'Drop one only when code you read disproves it', 'Never narrow by file name']) expect(text).toContain(kept);
   });
 
-  test('the helper takes supported findings in a daily run and refuses hypotheses, as the skill says', () => {
+  test('a daily run keeps supported findings and low-confidence hypotheses, and the saved report labels the hypotheses', () => {
     const { repo } = library('report');
     const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
-    const finding = (evidence: string, confidence: string) => ({
-      title: 'Prototype pollution in parse', rootCause: 'parse copies attacker keys onto a plain object',
+    const finding = (evidence: string, confidence: string, title: string, rootCause: string) => ({
+      title, rootCause,
       location: { path: 'src/zz-format/parse.js', line: 1, symbol: 'parse' }, advisoryIds: [], severity: 'high', confidence,
       confidenceRationale: 'the loop assigns every key without a guard', evidence,
-      attackerControl: 'entries passed to the public parse API', impact: 'Object.prototype pollution in the caller',
+      attackerControl: 'entries passed to the public parse API', impact: 'a __proto__ entry sets the returned object\'s prototype, so properties the caller reads but never set come from the attacker',
       scenario: 'a caller parses untrusted entries including __proto__', trace: ['index.js parse', 'parse.js loop'],
       references: ['src/zz-format/parse.js:1'], recommendation: 'reject __proto__, constructor and prototype keys',
       challenge: { reviewer: 'sequential challenge; independent agent unavailable', independent: false, mode: 'sequential_fallback', callers: 'public API', controls: 'none found', counterevidence: 'none', conclusion: 'holds' },
     });
-    const submit = (evidence: string, confidence: string) => {
+    const submit = (evidence: string, confidence: string, title: string, rootCause: string) => {
       const dir = fs.mkdtempSync(path.join(root, 'submission-'));
       const file = path.join(dir, 'submission.json');
-      fs.writeFileSync(file, JSON.stringify({ findings: [finding(evidence, confidence)] }));
+      fs.writeFileSync(file, JSON.stringify({ findings: [finding(evidence, confidence, title, rootCause)] }));
       return cso(repo, ['submit', run, file]);
     };
-    const hypothesis = submit('hypothesis', 'low');
-    expect(hypothesis.status).not.toBe(0);
-    expect(hypothesis.stderr).toContain('Daily reports contain supported findings only');
-    const supported = submit('supported', 'medium');
+    const supported = submit('supported', 'medium', 'Prototype injection in parse', 'parse copies attacker keys onto a plain object');
     expect(supported.status).toBe(0);
     expect(json(supported.stdout).findings).toBe(1);
+    const hypothesis = submit('hypothesis', 'low', 'Prototype injection through caller-named keys', 'parse copies keys named by the caller');
+    expect(hypothesis.status).toBe(0);
+    expect(json(hypothesis.stdout).findings).toBe(2);
     expect(cso(repo, ['finish', run]).status).toBe(0);
+    const report = fs.readFileSync(findReport(state, run), 'utf8');
+    const supportedSection = report.slice(report.indexOf('Supported findings:'), report.indexOf('Hypotheses (unconfirmed):'));
+    const hypotheses = report.slice(report.indexOf('Hypotheses (unconfirmed):'));
+    expect(report.indexOf('Supported findings:')).toBeGreaterThan(-1);
+    expect(report.indexOf('Hypotheses (unconfirmed):')).toBeGreaterThan(report.indexOf('Supported findings:'));
+    expect(supportedSection).toContain('Prototype injection in parse');
+    expect(supportedSection).not.toContain('caller-named keys');
+    expect(hypotheses).toContain('Prototype injection through caller-named keys');
+    expect(hypotheses).not.toContain('Prototype injection in parse');
   });
 });
