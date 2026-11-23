@@ -450,6 +450,7 @@ describe("gstack-post owns the redaction scan", () => {
       ["a head that is not a 40-hex sha", runsBlock(JSON.stringify({ head: "main", run: RUN_A })), RUN_A],
       ["an unclosed runs block", `Body.\n\n\`\`\`gstack-receipt-runs\n${JSON.stringify({ head: HEAD_A, run: RUN_A })}\n`, RUN_A],
       ["a session id in prose after the block", runsBlock(JSON.stringify({ head: HEAD_A, run: RUN_B })) + `\nRun ${RUN_A} failed.\n`, `Run ${RUN_A}`],
+      ["a runs block inside another fence", `Body.\n\n\`\`\`\`markdown\n\`\`\`gstack-receipt-runs\n${JSON.stringify({ head: HEAD_A, run: RUN_A })}\n\`\`\`\n\`\`\`\`\n`, RUN_A],
       ["a session id in a json block", `Body.\n\n\`\`\`json\n${JSON.stringify({ head: HEAD_A, run: RUN_A })}\n\`\`\`\n`, RUN_A],
     ];
     for (const [name, text, needle] of holds) {

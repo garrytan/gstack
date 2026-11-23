@@ -54,6 +54,21 @@ describe('an interactive /autoplan run cited by its directory (#4402)', () => {
     const r = resolvePlan(parsePlanLine('Plan: approved: .gstack/tmp/autoplan'), { cwd: f.cwd, env: f.env });
     expect(r.ok ? 'resolved' : r.failure.message).toBe('resolved');
   });
+
+  // Value: protects=a Plan line naming a shared interactive folder that holds more than one run resolves to no run, so a later /autoplan in
+  //   the same checkout never turns an unchanged PR body's citation into another plan's approval, while the run id still resolves;
+  //   fails_when=the folder token follows whichever run was written last; why_new=the case above holds a single run; seam=none
+  test('a path token whose folder holds several runs resolves to none of them; the run id still does', () => {
+    const a = 'feature-x-autoplan-20261122-104500', b = 'feature-y-autoplan-20261122-114500';
+    const f = fixture({ b: [{ ask: `Approve the plan (autoplan run ${a}, 1 decisions)`, source: `autoplan:${a}@gate_rev=1` }, { ask: `Approve the plan (autoplan run ${b}, 1 decisions)`, source: `autoplan:${b}@gate_rev=1` }] });
+    const run = path.join(f.cwd, '.gstack', 'tmp', 'autoplan');
+    fs.mkdirSync(run, { recursive: true });
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), [a, b].map(id => JSON.stringify({ run: id, id: `${id}-p1`, status: 'approved', gate_rev: 1 })).join('\n') + '\n');
+    const byFolder = resolvePlan(parsePlanLine('Plan: approved: .gstack/tmp/autoplan'), { cwd: f.cwd, env: f.env });
+    expect(byFolder.ok ? 'resolved' : byFolder.failure.code).toBe('PLAN_UNRESOLVED');
+    const byId = resolvePlan(parsePlanLine(`Plan: approved: ${a}`), { cwd: f.cwd, env: f.env });
+    expect(byId.ok ? 'resolved' : byId.failure.message).toBe('resolved');
+  });
 });
 
 describe('parsePlanLine', () => {

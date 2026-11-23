@@ -577,7 +577,7 @@ const lineIdSpans = (text: string, line: number): Span[] => RECEIPT_LINE_IDS.fla
  * span of each value below. In every closed ```gstack-ship-receipt``` block whose JSON passes the receipt schema and is byte-identical to
  * renderReceiptBlock's rendering of it: each ci_carried[].run, flaky_exception[].runs[] and issues.flakes[].run value that is a run id (11 to 20
  * digits, with an optional /attempt), the run value when it is a gstack-skill-start session id, and the RECEIPT_LINE_IDS values inside the
- * pregate and requires_remote[] values. In every closed ```gstack-receipt-runs``` block (gstack#4725), the top-level run value of each line that is a
+ * pregate and requires_remote[] values. In every closed ```gstack-receipt-runs``` block that opens outside any other fence (gstack#4725), the top-level run value of each line that is a
  * JSON object byte-identical to its JSON.stringify rendering, with a 40-hex head and a run that is a gstack-skill-start session id. On every line
  * outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
  * those writers' own output qualifies, so a hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in
@@ -587,10 +587,11 @@ function receiptIdSpans(text: string): Span[] {
   const lines = text.split("\n");
   const rows = (v: unknown): number => v !== null && typeof v === "object" && Object.keys(v).length ? 2 + Object.values(v).reduce((n: number, c) => n + rows(c), 0) : 1;
   let fence = "";
+  const blocks: Array<{ open: number; close: number }> = [];
   const spans: Span[] = lines.flatMap((l, i) => {
     const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
-    if (f && !fence) { fence = f[1]!; return []; }
-    if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && !f[2]!.trim()) { fence = ""; return []; }
+    if (f && !fence) { fence = f[1]!; blocks.push({ open: i, close: -1 }); return []; }
+    if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && !f[2]!.trim()) { fence = ""; blocks.at(-1)!.close = i; return []; }
     return !fence && RECEIPT_LINE.test(l) ? lineIdSpans(l, i + 1) : [];
   });
   for (let open = 0; open < lines.length; open++) {
@@ -628,20 +629,16 @@ function receiptIdSpans(text: string): Span[] {
     receipt.issues?.flakes?.forEach((_, i) => span(["issues", "flakes", i, "run"]));
     open = close;
   }
-  for (let open = 0; open < lines.length; open++) {
-    if (lines[open] !== "```" + RUNS_FENCE) continue;
-    const close = lines.indexOf("```", open + 1);
-    if (close < 0) break;
+  for (const { open, close } of blocks) {
+    if (close < 0 || lines[open] !== "```" + RUNS_FENCE) continue;
     for (let i = open + 1; i < close; i++) {
       let entry: Record<string, unknown>;
-      try { entry = JSON.parse(lines[i]!); } catch { continue; }
-      if (entry === null || typeof entry !== "object" || Array.isArray(entry) || JSON.stringify(entry) !== lines[i]) continue;
+      try { entry = JSON.parse(lines[i]!); if (entry === null || typeof entry !== "object" || Array.isArray(entry) || JSON.stringify(entry) !== lines[i]) continue; } catch { continue; }
       if (typeof entry.head !== "string" || !/^[0-9a-f]{40}$/.test(entry.head) || typeof entry.run !== "string" || !SESSION_ID.test(entry.run)) continue;
       const before = Object.keys(entry).slice(0, Object.keys(entry).indexOf("run"));
       const from = JSON.stringify(Object.fromEntries(before.map(k => [k, entry[k]]))).length + (before.length ? 1 : 0) + '"run":'.length;
       spans.push({ line: i + 1, from, to: from + JSON.stringify(entry.run).length - 1 });
     }
-    open = close;
   }
   return spans;
 }

@@ -389,6 +389,36 @@ describe('import --autoplan', () => {
     expect(typed.status).not.toBe(0);
   });
 
+  // Value: protects=a run id interactive /autoplan minted before #4402 (<branch>-<YYYYMMDD-HHMMSS>) imports on a branch whose name ends in
+  //   digits, as the 14-digit minted shape does (GST-2047), while a phone number in the same row, a run id of another shape, a phone number
+  //   in the name half of the id, or the same id typed into add --ask still refuses; fails_when=an approval answered before the upgrade cannot
+  //   be imported after it, or the exemption reaches past the stamp; why_new=the GST-2047 test covers only the 14-digit stamp; seam=none
+  test('an interactive run id minted before #4402 imports on a numbered branch; a phone number elsewhere still refuses', () => {
+    const importWith = (o: { runId: string; words?: string }) => {
+      const run = tmp('appr-run-');
+      autoplanRun(run, [{ by: 'agent:GSTA-36', words: o.words ?? 'do it', at: '2026-11-22T09:40:00.000Z', p1: 'a' }]);
+      fs.writeFileSync(path.join(run, 'run.json'), JSON.stringify({ run: o.runId, status: 'complete' }));
+      return importAutoplan(run, 'b', 'Garry');
+    };
+    for (const runId of ['fix-4402-20261122-093321', 'gsta-802-20261122-093321', 'fix-12-20261122-093321']) {
+      const rows = importWith({ runId });
+      expect([runId, 'code' in rows ? rows.message : rows[0]!.source]).toEqual([runId, `autoplan:${runId}@gate_rev=1`]);
+    }
+    const refused: Array<[{ runId: string; words?: string }, string]> = [
+      [{ runId: 'fix-4402-20261122-093321', words: 'do it, call 14155552671 if it breaks' }, 'words'],
+      [{ runId: 'fix-4402-20261122-0933' }, 'ask'],
+      [{ runId: 'call-415-555-2671-20261122-093321' }, 'ask'],
+      [{ runId: '14155552671-20261122-093321' }, 'source'],
+    ];
+    for (const [o, field] of refused) {
+      const r = importWith(o);
+      expect([o, 'code' in r && r.code, 'code' in r && r.message.startsWith(`field ${field}: `) && r.message.includes('pii.phone.e164')]).toEqual([o, 'APPROVAL_RECORD_SECRET', true]);
+    }
+    const typed = bin(['add', '--ask', 'Approve the plan (autoplan run fix-4402-20261122-093321, 2 decisions)', '--words', 'do it', '--by', 'Garry', '--scope', 'the plan'], { cwd: repo(), env: { GSTACK_STATE_ROOT: tmp('appr-state-') } });
+    expect(typed.status).not.toBe(0);
+    expect(typed.out + typed.err).toContain('field ask: pii');
+  });
+
   // Value: protects=an interactive /autoplan run (no run.json; its gate rows carry the run id) imports under that run id,
   //   so the id can be cited and two interactive runs never share one gate state; fails_when=the import falls back to the
   //   shared directory name "autoplan"; why_new=every answered-gate import case wrote run.json (#4402); seam=none
