@@ -183,7 +183,7 @@ cso_compile_bun() {
     --no-compile-autoload-bunfig \
     --no-compile-autoload-tsconfig \
     --no-compile-autoload-package-json \
-    "$1" --outfile "$2"
+    "$1" "${@:3}" --outfile "$2"
   chmod +x "$2"
 }
 cso_compile_watchdog() {
@@ -229,7 +229,7 @@ cso_build_evaluation_candidate() {
   cp -R test/helpers "$source_root/test/"
   cp "$candidate_catalog" "$source_root/lib/cso/runtime-catalog.json"
   (cd "$source_root" && "$BUN_CMD" --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" scripts/cso-runtime-promotion.ts check-evaluation lib/cso/runtime-catalog.json)
-  (cd "$source_root" && cso_compile_bun lib/cso/cli.ts "$CSO_EVALUATION_UNIT/gstack-cso-core")
+  (cd "$source_root" && cso_compile_bun lib/cso/cli.ts "$CSO_EVALUATION_UNIT/gstack-cso-core" lib/cso/search-worker.ts)
   (cd "$source_root" && cso_compile_bun scripts/cso-eval-producer.ts "$CSO_EVALUATION_UNIT/cso-eval-producer")
   cso_compile_watchdog "$CSO_EVALUATION_UNIT/gstack-cso-watchdog"
   if [ "$(uname -s)" = Darwin ]; then
@@ -363,7 +363,7 @@ if [ -n "$CSO_EXE" ];then : > "$CSO_STAGE/.gstack-cso-generation.lock";fi
 
 # These are compile-time switches. Bun otherwise discovers configuration in
 # the audited working directory before the helper can apply its own policy.
-cso_compile_bun lib/cso/cli.ts "$CSO_STAGE_CORE"
+cso_compile_bun lib/cso/cli.ts "$CSO_STAGE_CORE" lib/cso/search-worker.ts
 cso_checkpoint core
 
 # POSIX process groups are required by the detached watchdog. Windows keeps
