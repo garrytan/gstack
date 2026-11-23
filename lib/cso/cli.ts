@@ -1463,8 +1463,6 @@ function acceptSubmission(dir: string, file: string) {
         normalizedLocation = resolveSnapshotPath(manifest, f.location.path, false, 'Finding path', true);
       if (normalizedLocation.path !== sourceLocation.path)
         throw new CsoError('INVALID_SCHEMA', 'Finding path identity changed during redaction');
-      if (report.policy.mode === 'daily' && f.evidence === 'hypothesis')
-        throw new CsoError('INVALID_SCHEMA', 'Daily reports contain supported findings only');
       const old = report.findings.findIndex((x) => x.fingerprint === f.fingerprint);
       if (old < 0) {
         report.findings.push(f);
