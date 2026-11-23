@@ -1446,8 +1446,10 @@ them (`ci_carried=<lane>:<run>/<attempt>`). A run whose `tree.json` lists
 from its job log adds `tree_source: "job-log"` to its entries and
 `tree_source=job-log` after them ([tree_log_step](#tree-log-step)). Each `record-ci` gets the base
 policy's [`ci_record_timeout_s`](ship-policy.md#ci-record-timeout) (600 s by
-default, 3600 s at most), in preflight's Step 5 and finish as well as in accept, and accept and
-preflight print it as `CI_RECORD_TIMEOUT:`.
+default, 3600 s at most) to find and verify the CI run, in preflight's Step 5 and finish as well as in accept, and accept and
+preflight print it as `CI_RECORD_TIMEOUT:`. The local runs that follow
+`CI_RECORD_PHASE: local` (a `per_file` remainder or an exception preflight)
+don't count against it and get up to an hour more.
 
 <a id="record-ci-reuse"></a>**record-ci reuses its own row at the same tree (GST-1795).** Step 5's
 carry and accept both call `record-ci`, so at an unchanged pushed tree the
