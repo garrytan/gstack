@@ -2496,7 +2496,7 @@ along the receipt's own history, `rewritten` once any hop was a rebase;
 skill=ship status=complete` line, and its summary line ends with
 `carried_from=<old12>`. `CARRY: current` means the receipt already names HEAD;
 `--dry-run` prints `CARRY: would carry …` and writes nothing. When the only
-difference is base context next to the branch's unchanged hunks and none of
+difference is a hunk the base merge spliced and none of
 carry's other checks would refuse, `--dry-run` refuses
 `RECEIPT_CARRY_SCOPED_REVIEW` without writing the packet; carry without
 `--dry-run` writes it.
@@ -2504,7 +2504,8 @@ carry's other checks would refuse, `--dry-run` refuses
 A changed product path, or a product patch-id that differs, is
 [`RECEIPT_CARRY_PRODUCT_CHANGED`](troubleshooting.md#receipt-carry-product-changed)
 (exit 3; the refusal names the paths), except when the only difference is
-base context next to the branch's unchanged hunks, which is
+base context next to the branch's unchanged hunks, which carries with no
+reader (GST-3562), or a hunk the base merge spliced, which is
 [`RECEIPT_CARRY_SCOPED_REVIEW`](troubleshooting.md#receipt-carry-scoped-review)
 until one fix-check reviewer clears the packet; a working tree with uncommitted
 changes is [`RECEIPT_CARRY_REFUSED`](troubleshooting.md#receipt-carry-refused).
@@ -2545,7 +2546,7 @@ generated skill file whose only branch-side difference after a base merge is
 that id compares as unchanged. A reviewed line that the base also replaced,
 where the current line is the base's new line plus exactly the tokens the
 branch added to the reviewed line (both sides appended an entry to one
-expected-value list), is base context: it goes to the one scoped reader, never
+expected-value list), is a spliced hunk: it goes to the one scoped reader, never
 through silently. A resolution that drops, invents or rewrites anything on the
 branch's own lines stays a changed path.
 
