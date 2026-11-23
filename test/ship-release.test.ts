@@ -331,6 +331,31 @@ describe('push (Step 17)', () => {
     expect(r.stdout).toContain('never force-push');
   });
 
+  // Value: protects=a push the remote refuses (GitHub's GH007 email privacy block, a protected branch) stops with the remote's own reason and what to change, never the fetch-and-merge route, and keeps PUSH_REJECTED;
+  //   fails_when=any output holding "rejected" is read as a non-fast-forward and sends the user into a merge and a rerun of Steps 5-16 (#4738); seam=git push against a bare origin whose pre-receive hook declines; no_claim=GitHub's exact wording beyond the GH007 code
+  test('a remote refusal stops with its reason, and GH007 says to use the no-reply email, not to merge (#4738)', () => {
+    const f = fx();
+    const hook = path.join(f.origin, 'hooks', 'pre-receive');
+    const decline = (lines: string[]) => fs.writeFileSync(hook, `#!/bin/sh\n${lines.map(l => `echo '${l}' >&2`).join('\n')}\nexit 1\n`, { mode: 0o755 });
+    decline(['error: GH007: Your push would publish a private email address.', 'You can make your email public or disable this protection by visiting:', 'https://github.com/settings/emails']);
+    const gh007 = f.run(RELEASE, ['push', '--branch', 'feat'], { GSTACK_SESSION_KIND: 'unattended' });
+    expect(gh007.status, gh007.stdout + gh007.stderr).toBe(3);
+    expect(gh007.stdout).toContain('GH007');
+    expect(gh007.stdout).toContain('user.email');
+    expect(gh007.stdout).toContain('noreply');
+    expect(gh007.stdout).not.toContain('non-fast-forward');
+    expect(gh007.stdout).not.toContain('merge the remote');
+    expect(lineOf(gh007.stdout, 'PUSH')).toBe('PUSH: failed reason=PUSH_REJECTED');
+    decline(['error: GH006: Protected branch update failed for refs/heads/feat.']);
+    const protectedBranch = f.run(RELEASE, ['push', '--branch', 'feat'], { GSTACK_SESSION_KIND: 'unattended' });
+    expect(protectedBranch.status).toBe(3);
+    expect(protectedBranch.stdout).toContain('GH006: Protected branch update failed');
+    expect(protectedBranch.stdout).not.toContain('non-fast-forward');
+    expect(protectedBranch.stdout).not.toContain('merge the remote');
+    expect(lineOf(protectedBranch.stdout, 'PUSH')).toBe('PUSH: failed reason=PUSH_REJECTED');
+    expect(f.git('ls-remote', '--heads', 'origin', 'refs/heads/feat').stdout.trim()).toBe('');
+  });
+
   // Value: protects=a never-pushed branch whose name breaks the repo's plain-words policy stops before the push, and a plain name pushes; fails_when=a coded or jargon branch name reaches origin, or a plain one is refused;
   //   why_new=plain public record (docs/ship-policy.md#plain-titles); seam=.gstack/plain-titles.json, git ls-remote; no_claim=branches already on origin
   test('a never-pushed branch name with a tracker code or coined term in its front stops; a plain name pushes', () => {

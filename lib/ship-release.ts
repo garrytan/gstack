@@ -833,8 +833,10 @@ function pushOnce(argv: readonly string[], cwd: string, r: Report): string {
   if (plain.length) { r.add(`BRANCH: refused ${plain.map(f => `"${f.match}"`).join(', ')}`); return refuse(`the branch name ${branch} is not plain words (docs/ship-policy.md#plain-titles): rename it with git branch -m <plain words>[-<issue code>], then rerun push --branch <new name>`); }
   const p = git(cwd, ['push', '-u', 'origin', branch], 600_000);
   if (p.status !== 0) {
-    const nff = /non-fast-forward|fetch first|rejected/.test(p.stderr);
-    return nff ? refuse('non-fast-forward: fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16, then push again; never force-push', 'PUSH_REJECTED')
+    if (/\bGH007\b|email privacy restrictions/.test(p.stderr)) return refuse('GitHub refused the push (GH007): a commit carries the private email address your account blocks from command-line pushes. Set git config user.email to your GitHub noreply address (github.com/settings/emails), rewrite the commits that carry the private one (git commit --amend --reset-author --no-edit for the last), repeat Step 16, then push; a fetch and merge will not fix it', 'PUSH_REJECTED');
+    if (/non-fast-forward|fetch first/.test(p.stderr)) return refuse('non-fast-forward: fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16, then push again; never force-push', 'PUSH_REJECTED');
+    const declined = /^remote: error: (.+)$/m.exec(p.stderr)?.[1] ?? /\[remote rejected\][^(\n]*\(([^)\n]+)\)/.exec(p.stderr)?.[1];
+    return declined ? refuse(`the remote refused the push (${declined.trim().slice(0, 240)}): change what it names, repeat Step 16, then push; a fetch and merge will not fix it; never force-push or bypass a guard`, 'PUSH_REJECTED')
       : refuse(`push failed (${firstLine(p.stderr)}): repair the auth, hook or network cause, repeat Step 16, then push; never bypass a guard`, 'PUSH_GIT_FAILED');
   }
   r.next('Step 18');

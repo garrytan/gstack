@@ -6224,8 +6224,14 @@ pushed. [The push line](unattended.md#push-line).
 branch lacks (non-fast-forward), or the remote refused the update. Nothing
 was pushed.
 
-**Fix.** Fetch and inspect the remote, merge it under Step 3's conflict
-rules, run Steps 5-16 again, then rerun push. Never force-push.
+**Fix.** For a non-fast-forward, fetch and inspect the remote, merge it under
+Step 3's conflict rules, run Steps 5-16 again, then rerun push. When the remote
+refused the update, the `STOP:` line quotes its reason; a merge will not help,
+so change what it names instead. GitHub's `GH007` means a commit carries an
+email address your account keeps private: set `git config user.email` to your
+GitHub noreply address (shown at github.com/settings/emails), rewrite the
+commits that carry the private one (`git commit --amend --reset-author --no-edit`
+for the last), repeat Step 16 and push. Never force-push.
 
 <a id="push-git-failed"></a>
 ### `PUSH_GIT_FAILED`
