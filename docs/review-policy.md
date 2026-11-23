@@ -97,9 +97,9 @@ incomplete coverage, which blocks until the reviewer is rerun.
    changed as no round, so it shows as `fix_checks=`. After round 2 the run
    finishes with its open notes listed in the PR body and receipt (an owner-ruled
    note is closed and listed: [ruled notes](ship-policy.md#ruled-notes)), or stops for
-   the owner when a blocking finding is open, or was fixed in round 2 and is
-   unverified, or a round-2 fix edited a gate-class path, naming it (path,
-   severity, problem). The cap limits fix rounds, not Step 11's voices: on gate
+   the owner when a blocking finding is open, naming it (path, severity,
+   problem); a round-2 fix, blocking, gate-class or below the floor, first gets
+   the read-only full review described below. The cap limits fix rounds, not Step 11's voices: on gate
    class a stop waits for Step 11's adversarial, outside and targeted voices
    (`NEXT: voices`), so gate code never reaches the owner's "ship with open
    notes" without them (GST-967). A fix in round 2 gets one read-only full
@@ -191,14 +191,17 @@ caught on another crew's PRs.
    show in neither,
    because each run's own fix round is the in-run table's call. A full pass past two
    stops with `PR_ROUND_CAP` and says how to record the stop and its grant
-   (item 6); a below-floor fix at the cap finishes with its notes listed. The stop is the lane's or Captain's call, never an owner ask
+   (item 6); a fix at the cap gets one read-only full review of the final head
+   (GST-3562 A), and a fix after that review stops for the lane's Captain. The stop is the lane's or Captain's call, never an owner ask
    ([troubleshooting](troubleshooting.md#pr-round-cap)).
 5. **Read-only final review.** A PR that already had two full rounds and whose
    own code changed since still gets one full review of its final head. It has
    no fix round: below-floor findings ship as notes, and a blocker (open or
    fixed) or a gate-class edit stops with `PR_ROUND_CAP` for the lane's Captain
-   to decide: ship with the note, park, or buy that review's fix round with a
-   fix-check grant (item 6). The count does not reopen.
+   to decide: ship with the note, park, or keep the fix and run /ship again for
+   one more read-only full review of the final head. A below-floor fix applied
+   after that review also stops for the Captain (GST-3562 A). The count does not
+   reopen.
 6. **Round grants.** Two kinds, each recorded with `gstack-approvals round-grant
    --pr <n> --head <sha> --reason <why> --by <lane or Captain>`, and each spent
    by the one run that claims it.
