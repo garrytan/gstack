@@ -29,7 +29,7 @@ import { normalizeLockfile } from '../../lib/evidence-bundle';
 import { stampMentions, rewriteStamps, versionAtRef } from '../../lib/restamp';
 import { loadPolicyFromHead, matchesAny, type ShipPolicy } from '../../lib/ship-policy';
 import type { BisectPrefixRecord, TrainGateRecord } from '../lib/ship-queue-train-verdict';
-import type { CasePanel } from '../lib/ship-queue-train-record';
+import { CASE_ID, type CasePanel } from '../lib/ship-queue-train-record';
 import { E2E_TIERS, LLM_JUDGE_TOUCHFILES } from '../../test/helpers/touchfiles-data';
 import { panelVerdict } from '../../test/helpers/eval-store';
 import { UNRECORDED_SHARD_MS, nonceScope, plannedSerialMs } from '../../scripts/eval-bg';
@@ -41,7 +41,6 @@ import { paidSelectionEnv } from '../../scripts/lib/paid-select';
 import { ROOT } from '../../scripts/lib/paid-types';
 
 const SHA = /^[0-9a-f]{40}$/;
-const CASE_ID = /^[A-Za-z0-9 _.:/-]{1,128}$/;
 export const JUDGE_FILE = 'test/skill-llm-eval.test.ts';
 /** T1 caps a train at 6 PRs, so a bisect has at most 7 prefixes (T0..T6). */
 export const MAX_PREFIXES = 7;

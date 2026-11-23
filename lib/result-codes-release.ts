@@ -701,7 +701,7 @@ export const RELEASE_RESULT_CODES = {
   PUSH_REJECTED: {
     anchor: 'push-rejected',
     summary: 'git push was rejected: the remote branch has commits this branch lacks (non-fast-forward) or the remote refused the update, so nothing was pushed',
-    fix: 'fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16 again, then rerun push; never force-push',
+    fix: 'for a non-fast-forward, fetch and merge the remote under Step 3\'s conflict rules, run Steps 5-16 again, then rerun push; when the remote refused the update (GH007 email privacy, a protected branch), change what the STOP: line names instead (for GH007, the noreply email on every commit); never force-push',
   },
   PUSH_GIT_FAILED: {
     anchor: 'push-git-failed',
