@@ -14,7 +14,7 @@
  *   event and jobs, the newest attempt, no newer red or running run on HEAD,
  *   max age, the run's own tree.json naming HEAD's tree, or a pull_request
  *   run's merge of HEAD onto a newer base commit with the pull request's own
- *   changes byte-identical: only the base moved, onlyBaseMoved, GST-3567);
+ *   lines byte-identical: only the base moved, onlyBaseMoved, GST-3567);
  *   every run executed tests;
  *   with an inventory command, the runs' tree.json files cover every file it
  *   prints (a lane carries only what CI provably ran); with named jobs instead

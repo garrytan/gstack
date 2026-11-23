@@ -1263,8 +1263,8 @@ no such run exists. The order after a push: wait for Free Tests
 a branch that does not contain the base tip it tested another tree.
 <a id="base-moved-carry"></a>That run still carries for HEAD when only the base
 moved (GST-3567): the merge commit is HEAD merged onto a commit of the base, and
-the pull request's own changes in it are byte-identical to HEAD's own
-(`lib/run-evidence.ts` `onlyBaseMoved`, used by every lane carry and by
+the pull request's own added and removed lines in it are byte-identical to
+HEAD's at the same places (`lib/pregate/run-check.ts` `onlyBaseMoved`, used by every lane carry and by
 `clear --run`, never by land's merged-tree CI; why that is safe:
 [ship-policy.md](ship-policy.md#ci-carry-base-moved)). The receipt adds
 `base_moved=<base commit>`. Otherwise `CI_CARRY` says

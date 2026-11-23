@@ -2963,10 +2963,12 @@ body plain: they become main's history.
   lane carry (`gstack-ship-release accept`, `gstack-evidence record-ci`,
   `gstack-ci-carry`, and pregate's own carry and `clear --run`) still counts
   the green run for your head when the merge commit's parents are a commit on
-  main and then your pushed head, and `git diff --raw` from that main commit
-  to the merge is byte-identical to the diff from your head's fork point to
-  your head: the same paths, modes and file contents on both sides, so main
-  changed only files your pull request leaves alone. The `CI_CARRY:` receipt
+  main and then your pushed head, and your pull request's own added and
+  removed lines in that merge are byte-identical to your head's, at the same
+  places (the zero-context patch-id and hunk positions `lib/review-round-grant.ts`
+  `ownLinesSame` compares for a base-only merge of a reviewed head). Main may
+  have changed other files, or other parts of the files you changed, but no
+  line you changed and none next to one. The `CI_CARRY:` receipt
   then adds `base_moved=<main commit>`. This is safe for two reasons. The run
   tested exactly your pull request's changes, on a main newer than the one
   your head forked from, so it tested no less than a run of your head's own
@@ -2976,8 +2978,8 @@ body plain: they become main's history.
   `land.merged_checks`, and its verification never takes this rule
   (`lib/land-merged-ci.ts` calls `verifyRun` without it). A repo whose `land`
   is `null` lands a stale base unchecked (`STALE_BASE: warn`) either way.
-  The run still doesn't carry when main also changed a file your pull request
-  changes, when the merge is of a commit other than your pushed head, or when
+  The run still doesn't carry when main also changed a line your pull request
+  changes or one next to it, when the merge is of a commit other than your pushed head, or when
   the run isn't green. A `CARRY_DIAGNOSIS:` line says which, and `tree_mismatch`
   keeps its fix: dispatch the workflow on the branch
   (`gh workflow run <workflow> --ref <branch>`), which tests your head's own

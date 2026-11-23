@@ -766,12 +766,13 @@ run this tree yet; `dirty_tree`: uncommitted work; `tree_mismatch`: the run
 tested a merge of the branch with main that counts for no commit here). A
 `pull_request` run that tested the branch merged onto a newer main still
 carries when only the base moved: the merge is of this pushed head, and the
-branch's own changes in it are byte-identical to the head's, so main changed
-only files the branch leaves alone. That is safe because the run tested
+branch's own added and removed lines in it are byte-identical to the head's at
+the same places, so main changed no line the branch changes and none next to
+one. That is safe because the run tested
 exactly the branch's changes on a newer main, and land checks the tree that
 lands with `land.merged_ci` ([ship-policy.md](ship-policy.md#ci-carry-base-moved)).
 When that rule refuses, a `CARRY_DIAGNOSIS:` line says why: main also changed
-a file the branch changes, or the merge is of another commit. A mapped lane is the full suite, which can
+a line the branch changes or one next to it, or the merge is of another commit. A mapped lane is the full suite, which can
 take most of an hour on a small machine (gbrain #9662: a 50-minute unit lane on
 4 CPUs), so preflight never starts it on its own, whatever the reason (GST-3019;
 a full preflight did until GST-3277).

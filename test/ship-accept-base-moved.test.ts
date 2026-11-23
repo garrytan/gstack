@@ -3,14 +3,15 @@
  * it was when the run started. When main moved past the head's fork point, that merge's tree is not the head's tree, so
  * accept refused CI_CARRY tree_mismatch and the lane had to merge main and run CI again, which never converges on a busy
  * repo. A green run still counts for the head when the merge commit is the head merged onto a base commit and the pull
- * request's own changes in it are byte-identical to the head's own changes: only the base moved. Land checks the tree that
+ * request's own added and removed lines in it are byte-identical to the head's, at the same places: only the base moved. Land checks the tree that
  * lands (land.merged_ci), and its verify never takes this rule.
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { onlyBaseMoved, verifyRun, type ApiRun, type RunDeps, type RunProfile, type TreeRecord } from '../lib/run-evidence';
+import { onlyBaseMoved } from '../lib/pregate/run-check';
+import { verifyRun, type ApiRun, type RunDeps, type RunProfile, type TreeRecord } from '../lib/run-evidence';
 import { fakeGhScript, type FakeWorld } from './helpers/fake-gh-runs';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -27,6 +28,9 @@ const BASE = {
   'src/b.ts': 'export const b = 1;\n// two\n// three\n// four\n// five\n// six\n// seven\n// eight\n',
 };
 const FEAT = { 'src/b.ts': 'export const b = 2;\n// two\n// three\n// four\n// five\n// six\n// seven\n// eight\n' };
+/** main's edit to the pull request's own file: far from its line 1 (#4722's shape: both edited docs/troubleshooting.md), or right next to it. */
+const FAR = { 'src/b.ts': 'export const b = 1;\n// two\n// three\n// four\n// five\n// six\n// seven\n// eight, edited on main\n' };
+const NEXT_TO = { 'src/b.ts': 'export const b = 1;\n// two, edited on main\n// three\n// four\n// five\n// six\n// seven\n// eight\n' };
 const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
 const sha = (f: ShipFx, ref: string) => f.git('rev-parse', ref).stdout.trim();
 const runs = (f: ShipFx) => { const p = path.join(f.root, 'free-runs'); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8').length : 0; };
@@ -82,9 +86,19 @@ describe('accept carries a run whose base moved when the pull request\'s own cha
     expect([found.status, found.stdout]).toEqual([0, expect.stringMatching(/^CI_CARRY: accepted ci-carry tree=.* base_moved=/)]);
   });
 
+  // Value: protects=main editing another part of a file the pull request also changes still carries: the pull request's own lines are
+  //   byte-identical at the same places (#4722's run 45089670503: main and the PR both edited docs/troubleshooting.md); fails_when=the
+  //   rule compares whole files and refuses; seam=fake gh, real git merge commit
+  test('main edited another part of the pull request\'s own file: the run still carries', () => {
+    const f = behind(FAR);
+    prRun(f, mergeCommit(f));
+    const found = f.run(path.join(BIN, 'gstack-ci-carry'), ['find', '--base', 'main']);
+    expect([found.status, found.stdout]).toEqual([0, expect.stringMatching(/^CI_CARRY: accepted ci-carry tree=.* base_moved=/)]);
+  });
+
   // Value: protects=the negative controls: a merge whose pull-request side differs from the head (a conflict resolution, another head),
   //   a base that also edited the pull request's own file, and a red run never carry; fails_when=any of them carries; seam=fake gh, real git
-  test('the pull request\'s own changes differ: an edited merge or a base that touched the same file refuses tree_mismatch', () => {
+  test('the pull request\'s own lines differ: an edited merge, or main editing the line next to the pull request\'s, refuses tree_mismatch', () => {
     const f = behind();
     const clean = mergeCommit(f);
     f.git('read-tree', clean.tree);
@@ -95,17 +109,17 @@ describe('accept carries a run whose base moved when the pull request\'s own cha
     prRun(f, mergeCommit(f, sha(f, 'HEAD'), { tree: edited }));
     const out = f.run(path.join(BIN, 'gstack-ci-carry'), ['find', '--base', 'main']).stdout;
     expect(out).toContain("tree_mismatch (the pull request's base moved after the run; fix: gh workflow run free.yml --ref feat, then gstack-ci-carry wait))");
-    expect(out).toContain("CARRY_DIAGNOSIS: run 7 tested a merge onto a newer base, but it does not count for the head: the pull request's own changes differ in the tested merge (1 path(s): src/b.ts), so more than the base moved (docs/pregate.md#base-moved-carry)");
+    expect(out).toContain("CARRY_DIAGNOSIS: run 7 tested a merge onto a newer base, but it does not count for the head: the pull request's own added and removed lines in the tested merge are not byte-identical to the head's at the same places (the base edited a line the pull request changes, or one next to it), so more than the base moved (docs/pregate.md#base-moved-carry)");
     expect(out).not.toContain('CI_CARRY: accepted');
 
-    const g = behind({ 'src/b.ts': 'export const b = 1;\n// two\n// three\n// four\n// five\n// six\n// seven\n// eight, edited on main\n' });
+    const g = behind(NEXT_TO);
     const both = mergeCommit(g);
     expect(both.tree).toMatch(/^[0-9a-f]{40}$/);
     prRun(g, both);
     const refused = accept(g);
     expect(refused.status).not.toBe(0);
     expect(refused.stdout).toContain('CI_CARRY: none label=free (no_verified_run: ci/free: run 7: tree_mismatch');
-    expect(refused.stdout).toContain("CARRY_DIAGNOSIS: run 7 tested a merge onto a newer base, but it does not count for the head: the pull request's own changes differ in the tested merge (1 path(s): src/b.ts)");
+    expect(refused.stdout).toContain("CARRY_DIAGNOSIS: run 7 tested a merge onto a newer base, but it does not count for the head: the pull request's own added and removed lines in the tested merge are not byte-identical");
     expect(runs(g)).toBe(0);
   });
 
@@ -126,7 +140,8 @@ describe('accept carries a run whose base moved when the pull request\'s own cha
     const f = behind();
     prRun(f, mergeCommit(f), { run: { conclusion: 'failure' } });
     const red = accept(f);
-    expect([red.status, red.stdout]).toEqual([expect.not.stringMatching(/^0$/), expect.stringContaining('STOP: free.yml run 7 failed (suite)')]);
+    expect(red.status).not.toBe(0);
+    expect(red.stdout).toContain('STOP: free.yml run 7 failed (suite)');
     expect(f.run(path.join(BIN, 'gstack-ci-carry'), ['find', '--base', 'main']).stdout).not.toContain('CI_CARRY: accepted');
   });
 });
@@ -142,7 +157,6 @@ describe('only lane carries take the rule; land\'s merged-tree CI never does (GS
       commitTree: s => { const r = f.git('rev-parse', '--verify', '--quiet', `${s}^{tree}`); return r.status === 0 ? r.stdout.trim() : null; },
     };
   }
-  const gitIn = (f: ShipFx) => (args: string[]) => { const r = f.git(...args); return r.status === 0 ? r.stdout : null; };
 
   // Value: protects=item 3 of GST-3567: land.merged_ci's verify (lib/land-merged-ci.ts ghCiDeps) calls verifyRun with no onlyBaseMoved, so a
   //   run that tested an older merge can never stand in for CI on the tree that lands; fails_when=verifyRun takes the rule by default
@@ -153,7 +167,7 @@ describe('only lane carries take the rule; land\'s merged-tree CI never does (GS
     const base = { repo: 'fx/fx', runRef: '7', profileName: 'ci/free', profile: PROFILE, now: new Date() };
     const land = verifyRun(d, base);
     expect(land.ok ? 'ok' : land.reason).toBe('tree_mismatch');
-    const carry = verifyRun(d, { ...base, onlyBaseMoved: (merge, head) => onlyBaseMoved(gitIn(f), { merge, head, baseRef: 'origin/main' }) });
+    const carry = verifyRun(d, { ...base, onlyBaseMoved: (merge, head) => onlyBaseMoved(f.work, { merge, head, baseRef: 'origin/main' }) });
     expect(carry.ok && carry.evidence).toEqual(expect.objectContaining({ tree: sha(f, 'HEAD^{tree}'), base_moved: { merge: m.merge, base: sha(f, 'origin/main'), tested_tree: m.tree } }));
   });
 
@@ -162,7 +176,7 @@ describe('only lane carries take the rule; land\'s merged-tree CI never does (GS
     const stray = f.git('commit-tree', sha(f, 'origin/main^{tree}'), '-p', 'origin/main', '-m', 'not on main').stdout.trim();
     const tree = f.git('merge-tree', '--write-tree', stray, 'HEAD').stdout.trim().split('\n')[0]!;
     const merge = f.git('commit-tree', tree, '-p', stray, '-p', 'HEAD', '-m', 'merge').stdout.trim();
-    const v = onlyBaseMoved(gitIn(f), { merge, head: sha(f, 'HEAD'), baseRef: 'origin/main' });
+    const v = onlyBaseMoved(f.work, { merge, head: sha(f, 'HEAD'), baseRef: 'origin/main' });
     expect(v).toEqual({ ok: false, why: expect.stringContaining('is not on origin/main') });
   });
 });

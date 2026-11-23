@@ -30,7 +30,8 @@
  *   head already contained its base, so the merge tested the head tree. A lane
  *   carry (the caller passes onlyBaseMoved, GST-3567) also counts it when the
  *   merge commit is the head merged onto a commit of the base branch and the
- *   pull request's own changes in it are byte-identical to the head's own:
+ *   pull request's own added and removed lines in it are byte-identical to the
+ *   head's own (lib/pregate/run-check.ts onlyBaseMoved):
  *   only the base moved. Land's merged-tree CI never passes it.
  *
  * Profiles are the base branch's `.gstack/pregate.json` `run_profiles`, so a
@@ -99,39 +100,12 @@ export type RunRefusal = 'run_ref_invalid' | 'other_repository' | 'fork_run' | '
 /** `docs_only`: a pull_request run whose gate skipped every skippable job on a change lib/docs-only.ts calls human docs only; it ran and recorded no tests (R81). */
 /** `tree_source`: `job-log` when tree.json came from the job log because the run held no artifact (HARN-118); absent for an artifact. */
 /** `rerun`: the files whose newest result came from a re-run attempt (tree.json `rerun_files`, gbrain#9690), with the run's `attempts`; set only when a file passed on a re-run (GST-3054). */
-/** `base_moved`: the pull_request run tested its head merged onto `base`, a newer base commit, with the pull request's own changes byte-identical (onlyBaseMoved, GST-3567); `tree` is then the head's tree it counts for and `tested_tree` the merge's. */
+/** `base_moved`: the pull_request run tested its head merged onto `base`, a newer base commit, with the pull request's own lines byte-identical (lib/pregate/run-check.ts onlyBaseMoved, GST-3567); `tree` is then the head's tree it counts for and `tested_tree` the merge's. */
 export interface RunEvidence { run_id: number; run_attempt: number; head_sha: string; tree: string; profile: string; event: string; finished_at: string; files: string[]; tests: number | null; skipped?: string[]; skipped_jobs?: string[]; docs_only?: true; rerun?: string[]; attempts?: number[]; tree_source?: 'job-log'; base_moved?: { merge: string; base: string; tested_tree: string } }
 /** `fix`: the one command that clears a refusal the caller can repair, such as a pull_request run that tested a merge with an older base. `notMoved`: why onlyBaseMoved did not count that run for its head. */
 export type RunVerdict = { ok: true; evidence: RunEvidence } | { ok: false; reason: RunRefusal; detail: string; fix?: string; notMoved?: string };
+/** What lib/pregate/run-check.ts onlyBaseMoved decides about a pull_request run's merge commit (GST-3567): the base it merged onto, or why it does not count for the head. */
 export type BaseMove = { ok: true; base: string } | { ok: false; why: string };
-
-/**
- * Whether pull_request merge commit `merge` is `head` merged onto a newer commit of the base with nothing else changed (GST-3567):
- * its parents are a commit on `baseRef` and then `head`, and `git diff --raw` from that base parent to the merge (what the pull
- * request changed in the tree CI tested) is byte-identical to the diff from the head's fork point to the head (what it changes on
- * its own branch): the same paths, modes and blobs on both sides, so the base moved only in files the pull request leaves alone.
- * `git` runs one read-only git command in the checkout: its stdout, or null on a non-zero exit.
- */
-export function onlyBaseMoved(git: (args: string[]) => string | null, o: { merge: string; head: string; baseRef: string }): BaseMove {
-  const no = (why: string): BaseMove => ({ ok: false, why });
-  const parents = (git(['rev-list', '--parents', '-n', '1', o.merge]) ?? '').trim().split(' ').slice(1);
-  if (parents.length !== 2 || parents[1] !== o.head || !SHA.test(parents[0]!)) return no(`merge commit ${o.merge.slice(0, 12)} is not a base commit merged with the head ${o.head.slice(0, 12)} (its parents: ${parents.map(p => p.slice(0, 12)).join(', ') || 'none'})`);
-  const base = parents[0]!;
-  if (git(['merge-base', '--is-ancestor', base, o.baseRef]) === null) return no(`its base parent ${base.slice(0, 12)} is not on ${o.baseRef}`);
-  const fork = (git(['merge-base', base, o.head]) ?? '').trim();
-  if (!SHA.test(fork)) return no(`git finds no fork point of ${o.head.slice(0, 12)} and ${base.slice(0, 12)}`);
-  const diff = (from: string, to: string) => git(['diff', '--raw', '--no-renames', '--full-index', '--no-ext-diff', from, to]);
-  const own = diff(fork, o.head);
-  const tested = diff(base, o.merge);
-  if (own === null || tested === null) return no(`git cannot diff ${own === null ? `${fork.slice(0, 12)}..${o.head.slice(0, 12)}` : `${base.slice(0, 12)}..${o.merge.slice(0, 12)}`}`);
-  if (own !== tested) {
-    const paths = (raw: string) => new Map(raw.split('\n').filter(Boolean).map(l => [l.slice(l.indexOf('\t') + 1), l]));
-    const a = paths(own), b = paths(tested);
-    const differ = [...new Set([...a.keys(), ...b.keys()])].filter(p => a.get(p) !== b.get(p)).sort();
-    return no(`the pull request's own changes differ in the tested merge (${differ.length} path(s): ${differ.slice(0, 3).join(', ')}${differ.length > 3 ? ', …' : ''}), so more than the base moved`);
-  }
-  return { ok: true, base };
-}
 
 const SHA = /^[0-9a-f]{40}$/;
 const RUN_EVENTS = ['push', 'workflow_dispatch', 'pull_request'];
