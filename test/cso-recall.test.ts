@@ -14,8 +14,6 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const launcher = path.join(ROOT, 'bin', process.platform === 'win32' ? 'gstack-cso-launcher.exe' : 'gstack-cso-launcher');
 const MIB = 1024 * 1024;
 const skill = () => fs.readFileSync(path.join(ROOT, 'cso/SKILL.md'), 'utf8');
-// Claude Code keeps at most this many characters of one Bash result by default.
-const SHELL_RESULT_CHARS = 30_000;
 let root = '';
 let state = '';
 beforeAll(() => {
@@ -64,15 +62,13 @@ describe('/cso recall (gstack-evals#443)', () => {
     expect(invariant).not.toMatch(/On failure, make one correction, then finish partial/);
   });
 
-  test('inspect hides the inventory from a shell result, and the skill names a command that lists all of it', () => {
+  test('the skill names a command that lists the whole inventory from real inspect output', () => {
     const { repo, files } = library('inventory');
     const start = cso(repo, ['start', '--repo', repo, '--offline']);
     expect(start.status).toBe(0);
     const run = json(start.stdout).runId as string;
     const inspect = cso(repo, ['inspect', run]);
     expect(inspect.status).toBe(0);
-    const shown = inspect.stdout.slice(0, SHELL_RESULT_CHARS);
-    expect(shown).not.toContain('src/zz-format/parse.js');
     const filter = skill().match(/jq -r '([^']+)'/)?.[1];
     expect(filter).toBe('.manifest.entries[].path');
     const listed = (json(inspect.stdout).manifest.entries as Array<{ path: string }>).map((entry) => entry.path).sort();
@@ -83,10 +79,33 @@ describe('/cso recall (gstack-evals#443)', () => {
     expect(cso(repo, ['finish', run]).status).toBe(0);
   });
 
+  test("the skill's search loop reads every listed file through the helper and never runs a file name", () => {
+    const repo = path.join(root, 'hostile');
+    fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+    const hostile = 'src/a$(touch PWNED).js';
+    fs.writeFileSync(path.join(repo, hostile), 'eval(input)\n');
+    fs.writeFileSync(path.join(repo, 'src/parse.js'), 'eval(input)\n');
+    git(repo, 'init', '-q');
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    const inspectFile = path.join(root, 'hostile-inspect.json');
+    fs.writeFileSync(inspectFile, cso(repo, ['inspect', run]).stdout);
+    const loop = skill().match(/`(jq -r [^`]*\| while IFS= read -r f; do gstack-cso read [^`]*done)`/)?.[1];
+    expect(loop).toBeDefined();
+    const command = loop!.replace('<inspect file>', JSON.stringify(inspectFile)).replaceAll('<run>', run).replace('<sinks>', 'eval\\(').replaceAll('gstack-cso read', JSON.stringify(launcher) + ' read');
+    const result = spawnSync('bash', ['-c', command], { cwd: root, encoding: 'utf8', env: { HOME: root, GSTACK_HOME: state, PATH: process.env.PATH ?? '' }, timeout: 120_000 });
+    expect(result.stdout).toContain('src/parse.js:1:eval(input)');
+    expect(result.stdout).toContain(hostile + ':1:eval(input)');
+    expect(fs.existsSync(path.join(root, 'PWNED'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, 'PWNED'))).toBe(false);
+    expect(cso(repo, ['finish', run]).status).toBe(0);
+  });
+
   test('the report rule keeps every supported finding and lists candidates instead of dropping them', () => {
     const text = skill();
     for (const dropped of ['Daily reports hold only', 'Omit daily candidates', 'Prioritize unresolved high impact', 'demonstrated in-scope impact']) expect(text).not.toContain(dropped);
-    for (const kept of ['Report every finding the code supports', 'never omission', 'Candidates (unconfirmed)', 'even with callers outside the snapshot', 'Drop one only when code you read disproves it', 'Never narrow by file name']) expect(text).toContain(kept);
+    for (const kept of ['never typing one into a command', 'Report every finding the code supports', 'never omission', 'Candidates (unconfirmed)', 'even with callers outside the snapshot', 'Drop one only when code you read disproves it', 'Never narrow by file name']) expect(text).toContain(kept);
   });
 
   test('the helper takes supported findings in a daily run and refuses hypotheses, as the skill says', () => {
