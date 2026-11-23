@@ -275,7 +275,7 @@ export function ownerWords(state: Pick<RunState, 'out' | 'phases' | 'gate' | 'ca
   note(state.carry?.words, undefined, false);
   let names: string[] = [];
   try { names = fs.readdirSync(out).filter(f => f === FILES.active || /^plan-source.*\.md$/.test(f) || /^plan-at-gate\.r\d+\.md$/.test(f) || /^plan-file\..+\.md$/.test(f)).sort(); } catch { /* no run directory */ }
-  for (const text of new Set(names.flatMap(f => parseOwnerWords(read(f) ?? '').quotes.map(q => q.text)))) note(text, undefined, false);
+  for (const text of new Set(names.flatMap(f => parseOwnerWords(read(f) ?? '').quotes.flatMap(q => [q.text, ...(q.line?.kind === 'ruled_out' ? [q.line.ruling] : [])])))) note(text, undefined, false);
 
   const deferred = new Map<string, string | undefined>();
   for (const r of journal) if (r.event === 'phase_deferred' && r.by === 'human' && typeof r.reason === 'string') deferred.set(r.reason, deferred.get(r.reason) ?? String(r.ts));
