@@ -1,0 +1,183 @@
+{
+  "application": {
+    "actors": [
+      "unauthenticated network client",
+      "authenticated user holding a bearer session token (alice, bob)",
+      "payment provider sending webhook events (intended)"
+    ],
+    "assets": [
+      "paid-plan entitlement state (payments Map)",
+      "premium revenue report",
+      "bearer session tokens",
+      "service availability"
+    ],
+    "entrypoints": [
+      "POST /webhook/payment (webhook.js:11-17, unauthenticated)",
+      "GET /reports/premium (webhook.js:5-10, bearer auth + paid-plan check)"
+    ],
+    "tenantBoundaries": [
+      "per-account entitlement keyed by accountId; account identity from sessions Map"
+    ],
+    "sensitiveOperations": [
+      "granting paid plan via payments.set on webhook event",
+      "serving premium revenue report"
+    ],
+    "invariants": [
+      "Only authenticated, provider-signed payment events may change an account's plan",
+      "Premium report is served only to accounts that actually paid",
+      "Malformed requests must not terminate the server process"
+    ]
+  },
+  "findings": [
+    {
+      "title": "Unauthenticated payment webhook lets anyone grant any account a paid plan",
+      "rootCause": "POST /webhook/payment applies payment events with no provider signature/secret verification, no replay protection, and no amount/account validation",
+      "location": {
+        "path": "webhook.js",
+        "line": 15,
+        "symbol": "payments.set (webhook handler)"
+      },
+      "advisoryIds": [],
+      "severity": "high",
+      "confidence": "high",
+      "confidenceRationale": "Entire request chain is in one file read in full: no middleware, no framework, package.json has no dependencies; the handler reads the raw body, parses it and writes plan:'paid' for the attacker-chosen accountId without any check.",
+      "evidence": "supported",
+      "attackerControl": "JSON body fields accountId and amount on an unauthenticated POST to /webhook/payment",
+      "impact": "Payment bypass / broken function-level authorization: attacker unlocks paid entitlement (premium revenue report) for their own or any account without paying; can also set arbitrary amount values.",
+      "scenario": "Bob (valid session 'bob-token', unpaid) sends POST /webhook/payment with body {\"accountId\":\"bob\",\"amount\":0}. Server responds 'payment applied'. Bob then sends GET /reports/premium with Authorization: Bearer bob-token and receives the premium revenue report instead of 402.",
+      "trace": [
+        "http.createServer request handler (webhook.js:4)",
+        "route check POST /webhook/payment (webhook.js:11)",
+        "body accumulation + JSON.parse (webhook.js:12-14)",
+        "payments.set(event.accountId, {plan:'paid'}) (webhook.js:15)",
+        "entitlement consumed by GET /reports/premium plan check (webhook.js:8)"
+      ],
+      "references": [
+        "webhook.js:11-17",
+        "webhook.js:8",
+        "OWASP Top 10:2025 A01 Broken Access Control / A07 Authentication Failures",
+        "OWASP API Security Top 10:2023 API5 Broken Function Level Authorization, API6 Unrestricted Access to Sensitive Business Flows",
+        "ASVS v5.0.0-8.2.2"
+      ],
+      "recommendation": "Verify the provider signature over the raw request body with a shared secret (HMAC, constant-time compare) before parsing; reject events with stale timestamps and dedupe by event ID; derive account and amount from the verified provider event (or fetch it from the provider API) and confirm amount/plan match an expected price before granting entitlement; reject unsigned requests with 401.",
+      "challenge": {
+        "reviewer": "sequential challenge; independent agent unavailable",
+        "independent": false,
+        "mode": "sequential_fallback",
+        "callers": "Only caller is the single http.createServer handler in webhook.js; app.js is a console.log baseline and package.json declares no dependencies or scripts, so no middleware or wrapper exists in the snapshot.",
+        "controls": "Checked for signature headers (none read), shared secret/env var (none), IP allowlist (none), auth on webhook route (none; sessions lookup only on GET /reports/premium), amount/accountId validation (none).",
+        "counterevidence": "A deployed reverse proxy/gateway could enforce webhook auth, but no infrastructure or deployment config exists in the repo and the server listens on port 3000 on all interfaces; such a control is unverified, not evidence of safety.",
+        "conclusion": "Finding survives: attacker-controlled body reaches the entitlement write with no inspected control blocking it."
+      }
+    },
+    {
+      "title": "Malformed webhook body crashes the server process (unhandled JSON.parse exception)",
+      "rootCause": "JSON.parse on attacker-supplied body inside the request 'end' event listener has no try/catch; the thrown SyntaxError is an uncaught exception that terminates the Node process",
+      "location": {
+        "path": "webhook.js",
+        "line": 14,
+        "symbol": "JSON.parse(body)"
+      },
+      "advisoryIds": [],
+      "severity": "medium",
+      "confidence": "high",
+      "confidenceRationale": "Exception is thrown in an EventEmitter listener outside the createServer callback's synchronous frame; no process 'uncaughtException' handler or try/catch exists in the snapshot, so Node's default behavior is process exit.",
+      "evidence": "supported",
+      "attackerControl": "Raw body of an unauthenticated POST /webhook/payment (e.g. the bytes 'x')",
+      "impact": "Single unauthenticated request causes denial of service and, because entitlement state is held only in memory, wipes all recorded payments (paying users lose access until events are replayed).",
+      "scenario": "Attacker sends POST /webhook/payment with body 'not-json'; JSON.parse throws in the 'end' listener; Node prints the uncaught SyntaxError and exits; all clients lose service and the payments Map is lost.",
+      "trace": [
+        "POST /webhook/payment (webhook.js:11)",
+        "req.on('end') listener (webhook.js:13)",
+        "JSON.parse(body) throws (webhook.js:14)"
+      ],
+      "references": [
+        "webhook.js:12-17",
+        "OWASP Top 10:2025 A10 Mishandling of Exceptional Conditions",
+        "ASVS v5.0.0-16.5.3"
+      ],
+      "recommendation": "Wrap parsing in try/catch and respond 400 on invalid JSON; validate the parsed object's shape; verify the signature before parsing; run under a supervisor and persist entitlement state durably.",
+      "challenge": {
+        "reviewer": "sequential challenge; independent agent unavailable",
+        "independent": false,
+        "mode": "sequential_fallback",
+        "callers": "Same single handler; no wrapping error domain or framework error middleware.",
+        "controls": "No try/catch, no process.on('uncaughtException'), no body parser with error handling, no process supervisor config in repo.",
+        "counterevidence": "An external supervisor may restart the process (unverified, not in repo); restart would still lose in-memory payment state and allows repeated crashing.",
+        "conclusion": "Finding survives; severity medium (availability plus loss of entitlement state, unauthenticated, trivially repeatable)."
+      }
+    },
+    {
+      "title": "Unbounded webhook request body accumulation enables memory exhaustion",
+      "rootCause": "Request body chunks are concatenated into a string with no size limit before parsing",
+      "location": {
+        "path": "webhook.js",
+        "line": 12,
+        "symbol": "req.on('data') body += chunk"
+      },
+      "advisoryIds": [],
+      "severity": "low",
+      "confidence": "medium",
+      "confidenceRationale": "No length check in code; Node http imposes no default body-size limit. Practical impact depends on runtime memory limits and Node's requestTimeout, which were not observed at runtime.",
+      "evidence": "supported",
+      "attackerControl": "Size and streaming rate of an unauthenticated POST body",
+      "impact": "Memory exhaustion / degraded service; superseded in practice by the trivial crash in the JSON.parse finding.",
+      "scenario": "Attacker opens several concurrent POST /webhook/payment requests each streaming hundreds of MB; the process accumulates them in memory until OOM.",
+      "trace": [
+        "POST /webhook/payment (webhook.js:11)",
+        "req.on('data') concatenation (webhook.js:12)"
+      ],
+      "references": [
+        "webhook.js:12",
+        "OWASP API Security Top 10:2023 API4 Unrestricted Resource Consumption",
+        "ASVS v5.0.0-2.4.1"
+      ],
+      "recommendation": "Enforce a maximum body size (check Content-Length and running byte count; destroy the request with 413 when exceeded) and authenticate before buffering.",
+      "challenge": {
+        "reviewer": "sequential challenge; independent agent unavailable",
+        "independent": false,
+        "mode": "sequential_fallback",
+        "callers": "Same single handler.",
+        "controls": "No Content-Length check, no byte counter, no server.maxRequestsPerSocket or body limit configured.",
+        "counterevidence": "Node 18+ default requestTimeout (300s) bounds slow requests in time but not size; a reverse proxy body limit may exist but is not in the repo.",
+        "conclusion": "Survives as low severity."
+      }
+    },
+    {
+      "title": "Static bearer session tokens hardcoded in source",
+      "rootCause": "Session tokens for named users are literal constants in webhook.js rather than issued secrets",
+      "location": {
+        "path": "webhook.js",
+        "line": 2,
+        "symbol": "sessions"
+      },
+      "advisoryIds": [],
+      "severity": "low",
+      "confidence": "low",
+      "confidenceRationale": "Tokens appear to be synthetic placeholders; open question is whether this sessions map is used outside a fixture/demo. If deployed as-is, anyone with source access can authenticate as alice or bob.",
+      "evidence": "hypothesis",
+      "attackerControl": "Authorization header value copied from the repository",
+      "impact": "Account impersonation for alice/bob on GET /reports/premium (still gated by paid plan, which the webhook finding bypasses).",
+      "scenario": "Reader of the repository sends Authorization: Bearer alice-token and is treated as alice.",
+      "trace": [
+        "GET /reports/premium (webhook.js:5)",
+        "sessions.get(token) (webhook.js:6)"
+      ],
+      "references": [
+        "webhook.js:2",
+        "webhook.js:6",
+        "OWASP Top 10:2025 A07 Authentication Failures"
+      ],
+      "recommendation": "Issue random, expiring session tokens at login and store them server-side (hashed); never commit token values. Confirm whether these tokens are used in any deployed environment.",
+      "challenge": {
+        "reviewer": "sequential challenge; independent agent unavailable",
+        "independent": false,
+        "mode": "sequential_fallback",
+        "callers": "sessions is read only at webhook.js:6.",
+        "controls": "No login/issuance flow, expiry, or env-based override exists.",
+        "counterevidence": "Token strings look like test placeholders; no deployment evidence. Kept as hypothesis rather than dropped because no code disproves deployed use.",
+        "conclusion": "Hypothesis: confirm whether this file is deployed with these tokens."
+      }
+    }
+  ]
+}

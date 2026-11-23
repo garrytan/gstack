@@ -1,0 +1,136 @@
+{
+  "coverage": [
+    {
+      "domain": "application-model",
+      "scope": "default",
+      "status": "assessed",
+      "method": "static read of all 3 snapshot files via helper",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "Actors, assets, entrypoints, invariants derived from webhook.js (changed), app.js, package.json; submitted application model"
+      ]
+    },
+    {
+      "domain": "attack-surface",
+      "scope": "default",
+      "status": "assessed",
+      "method": "static census of HTTP routes in diff and affected paths",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "Two routes: POST /webhook/payment (unauthenticated), GET /reports/premium (bearer + plan); 404 fallthrough; server listens on port 3000 all interfaces"
+      ]
+    },
+    {
+      "domain": "secrets",
+      "scope": "default",
+      "status": "assessed",
+      "method": "manual review of redacted current source and helper-retained history for base..HEAD (1 commit)",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "No provider credential prefixes found; hardcoded synthetic session tokens recorded as hypothesis finding; Gitleaks not run (offline static run, no qualified scanner profile requested)"
+      ]
+    },
+    {
+      "domain": "dependencies",
+      "scope": "default",
+      "status": "assessed",
+      "method": "manifest review",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "package.json declares no dependencies, scripts or lockfile; only node:http builtin used; OSV not run (offline)"
+      ]
+    },
+    {
+      "domain": "ci-cd",
+      "scope": "default",
+      "status": "not_applicable",
+      "method": "snapshot inventory review",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "No CI/CD workflow files in snapshot inventory (3 files: app.js, package.json, webhook.js)"
+      ]
+    },
+    {
+      "domain": "infrastructure",
+      "scope": "default",
+      "status": "not_applicable",
+      "method": "snapshot inventory review",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "No Dockerfile, IaC, or deployment configuration in snapshot; deployed gateway controls unknown and noted in finding challenges"
+      ]
+    },
+    {
+      "domain": "integrations",
+      "scope": "default",
+      "status": "assessed",
+      "method": "full trace of payment webhook handler",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "Webhook lacks signature, timestamp/replay, idempotency, amount validation; recorded as high finding; OWASP API 2023 API4/API5/API6 checked"
+      ]
+    },
+    {
+      "domain": "llm-agentic-mcp",
+      "scope": "default",
+      "status": "not_applicable",
+      "method": "snapshot inventory review",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "No LLM, agent, or MCP code in snapshot"
+      ]
+    },
+    {
+      "domain": "skill-supply-chain",
+      "scope": "default",
+      "status": "not_applicable",
+      "method": "snapshot inventory review",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "No skill definitions, hooks, plugins, or agent configuration in snapshot"
+      ]
+    },
+    {
+      "domain": "owasp-2025",
+      "scope": "default",
+      "status": "assessed",
+      "method": "OWASP Top 10:2025 mapping against diff and affected paths; ASVS 5.0.0 selected requirements",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "A01/A07 webhook authorization (finding), A10 unhandled JSON.parse (finding), A06 business flow (amount unvalidated), A05 no injection sinks, A02 no debug surface; ASVS 8.2.2, 16.5.3, 2.4.1 failed; 1.2.4/1.2.5/1.3.6/5.3.2 not applicable"
+      ]
+    },
+    {
+      "domain": "stride",
+      "scope": "default",
+      "status": "assessed",
+      "method": "STRIDE over webhook and premium report trust transitions",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "Spoofing: forged payment provider (finding); Tampering: arbitrary amount/account; DoS: crash and unbounded body (findings); Elevation: unpaid to paid entitlement; Info disclosure: premium report via forged entitlement; Repudiation: no event logging"
+      ]
+    },
+    {
+      "domain": "data-classification",
+      "scope": "default",
+      "status": "assessed",
+      "method": "static data flow review",
+      "gaps": [],
+      "exclusions": [],
+      "evidence": [
+        "Restricted: bearer session tokens (hardcoded); Confidential: premium revenue report, payment amounts held in memory only; no PII persistence or logging observed"
+      ]
+    }
+  ]
+}
