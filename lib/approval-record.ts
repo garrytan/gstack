@@ -186,10 +186,14 @@ function validDate(d: string): boolean {
 
 export interface NewRow { ask: string; words: string; by: string; scope: string; pending?: string; outcome?: string; date?: string; source?: string }
 
-/** An autoplan run id as gstack-autoplan mints it: the run directory's name, a hyphen, six random letters (since GST-3015), a hyphen, then a 14-digit time stamp. */
-const MINTED_RUN_ID = /^[A-Za-z0-9._-]{1,64}-\d{14}$/;
-/** The part of a minted run id the exemption covers: the 14-digit stamp and, when the name ends in a thread code, its digits. */
-const RUN_ID_STAMP = /(?:(?<!\d)\d{1,6}-)?\d{14}$/;
+/**
+ * An autoplan run id as gstack-autoplan mints it: the run directory's name, a hyphen, six random letters (since GST-3015), a hyphen, then a
+ * 14-digit time stamp; or as interactive /autoplan minted it before #4402: the branch name, a hyphen, then a YYYYMMDD-HHMMSS stamp that is
+ * a real calendar time.
+ */
+const MINTED_RUN_ID = /^[A-Za-z0-9._-]{1,64}-(?:\d{14}|\d{4}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])-(?:[01]\d|2[0-3])[0-5]\d[0-5]\d)$/;
+/** The part of a minted run id the exemption covers: the stamp and, when the name ends in a thread code or issue number, its digits. */
+const RUN_ID_STAMP = /(?:(?<!\d)\d{1,6}-)?(?:\d{14}|\d{8}-\d{6})$/;
 
 /**
  * A fix-check round grant's scope as gstack-approvals round-grant writes it (lib/review-round-grant.ts): its stop= token is the
@@ -389,10 +393,20 @@ export function approvalsGrantStopSpans(text: string): Array<{ line: number; fro
   return spans;
 }
 
-interface DecisionLike { id?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; answer_words?: string; words_by?: string; carried_from?: string; label?: string; chosen_text?: string;
+interface DecisionLike { id?: string; run?: string; title?: string; status?: string; chosen?: string | null; recommended?: string | null; gate_rev?: number; answered_at?: string; answered_by?: string; reply?: string; owner_reply?: string; answer_words?: string; words_by?: string; carried_from?: string; label?: string; chosen_text?: string;
   carried_gate_from?: string; carried_gate_rev?: number; carried_answered_by?: string; carried_under?: string; carry_check?: string }
 
 const stripRef = (t: string) => t.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
+
+/**
+ * The run id an autoplan run directory answers to: run.json's, else the newest run its gate rows carry (an interactive
+ * /autoplan writes no run.json and appends every run to the same directory, #4402), else the directory name.
+ */
+export function autoplanRunId(runDir: string, run: Record<string, any>, rows: readonly { run?: unknown }[]): string {
+  if (run.run ?? run.id) return String(run.run ?? run.id);
+  const newest = [...rows].reverse().find(r => typeof r.run === 'string' && r.run.length > 0)?.run;
+  return typeof newest === 'string' ? newest : path.basename(runDir);
+}
 
 /**
  * Rows for every answered gate in an autoplan run: one row per answer event (gate_rev, time, answerer), covering
@@ -417,8 +431,9 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
   const plan = reviewedPlan(runDir, run);
   const planTitle = firstTitle(plan.text) ?? 'the plan';
   const planSha = plan.sha;
-  const runId = String(run.run ?? run.id ?? path.basename(runDir));
-  const answered = rows.filter(r => r.status && r.status !== 'pending' && r.answered_at && !r.carried_from);
+  const runId = autoplanRunId(runDir, run, rows);
+  const own = (run.run ?? run.id) || !rows.some(r => r.run === runId) ? rows : rows.filter(r => r.run === runId);
+  const answered = own.filter(r => r.status && r.status !== 'pending' && r.answered_at && !r.carried_from);
   if (!answered.length) return { code: 'APPROVAL_IMPORT_UNANSWERED', message: `no answered gate in ${runDir}` };
   const groups = new Map<string, DecisionLike[]>();
   for (const r of answered) {
@@ -433,7 +448,7 @@ export function importAutoplan(runDir: string, branch: string, by?: string): App
     const outcome: Outcome = !p1 ? 'pending' : p1.chosen === 'a' || p1.chosen === 'b' ? 'approved' : p1.chosen === 'e' ? 'rejected' : 'pending';
     const items = group.filter(r => r !== p1);
     const changed = items.filter(r => r.chosen && r.recommended && r.chosen !== r.recommended);
-    const stillPending = rows.filter(r => r.gate_rev === rev && r.status === 'pending');
+    const stillPending = own.filter(r => r.gate_rev === rev && r.status === 'pending');
     const answerer = first.answered_by ?? 'unknown';
     const carried = p1?.carried_gate_from ? p1 : undefined;
     const relayed = carried?.carried_answered_by && carried.carried_answered_by !== 'human' ? `, relayed by ${carried.carried_answered_by}` : '';

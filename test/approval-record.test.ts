@@ -389,6 +389,105 @@ describe('import --autoplan', () => {
     expect(typed.status).not.toBe(0);
   });
 
+  // Value: protects=a run id interactive /autoplan minted before #4402 (<branch>-<YYYYMMDD-HHMMSS>) imports on a branch whose name ends in
+  //   digits, as the 14-digit minted shape does (GST-2047), while a phone number in the same row, a run id of another shape, a phone number
+  //   in the name half of the id, or the same id typed into add --ask still refuses; fails_when=an approval answered before the upgrade cannot
+  //   be imported after it, or the exemption reaches past the stamp; why_new=the GST-2047 test covers only the 14-digit stamp; seam=none
+  test('an interactive run id minted before #4402 imports on a numbered branch; a phone number elsewhere still refuses', () => {
+    const importWith = (o: { runId: string; words?: string }) => {
+      const run = tmp('appr-run-');
+      autoplanRun(run, [{ by: 'agent:GSTA-36', words: o.words ?? 'do it', at: '2026-11-22T09:40:00.000Z', p1: 'a' }]);
+      fs.writeFileSync(path.join(run, 'run.json'), JSON.stringify({ run: o.runId, status: 'complete' }));
+      return importAutoplan(run, 'b', 'Garry');
+    };
+    for (const runId of ['fix-4402-20261122-093321', 'gsta-802-20261122-093321', 'fix-12-20261122-093321']) {
+      const rows = importWith({ runId });
+      expect([runId, 'code' in rows ? rows.message : rows[0]!.source]).toEqual([runId, `autoplan:${runId}@gate_rev=1`]);
+    }
+    const refused: Array<[{ runId: string; words?: string }, string]> = [
+      [{ runId: 'fix-4402-20261122-093321', words: 'do it, call 14155552671 if it breaks' }, 'words'],
+      [{ runId: 'fix-4402-20261122-0933' }, 'ask'],
+      [{ runId: 'fix-4402-20261399-093321' }, 'ask'],
+      [{ runId: 'fix-4402-20261122-993321' }, 'ask'],
+      [{ runId: 'call-415-555-2671-20261122-093321' }, 'ask'],
+      [{ runId: '14155552671-20261122-093321' }, 'source'],
+    ];
+    for (const [o, field] of refused) {
+      const r = importWith(o);
+      expect([o, 'code' in r && r.code, 'code' in r && r.message.startsWith(`field ${field}: `) && r.message.includes('pii.phone.e164')]).toEqual([o, 'APPROVAL_RECORD_SECRET', true]);
+    }
+    const typed = bin(['add', '--ask', 'Approve the plan (autoplan run fix-4402-20261122-093321, 2 decisions)', '--words', 'do it', '--by', 'Garry', '--scope', 'the plan'], { cwd: repo(), env: { GSTACK_STATE_ROOT: tmp('appr-state-') } });
+    expect(typed.status).not.toBe(0);
+    expect(typed.out + typed.err).toContain('field ask: pii');
+  });
+
+  // Value: protects=an interactive /autoplan run (no run.json; its gate rows carry the run id) imports under that run id,
+  //   so the id can be cited and two interactive runs never share one gate state; fails_when=the import falls back to the
+  //   shared directory name "autoplan"; why_new=every answered-gate import case wrote run.json (#4402); seam=none
+  test('an interactive run without run.json imports under the run id its gate rows carry', () => {
+    const run = path.join(tmp('appr-run-'), 'autoplan');
+    fs.mkdirSync(run);
+    const id = 'feature-x-20261122-104500';
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: id, id: `${id}-p1`, label: 'P1', title: 'Plan approval',
+      options: ['a', 'b'], recommended: 'a', kind: 'approval', status: 'approved', gate_rev: 1, chosen: 'a', answered_at: '2026-11-22T10:50:00.000Z', reply: 'a' }) + '\n');
+    const rows = importAutoplan(run, 'b', 'owner');
+    if ('code' in rows) throw new Error(rows.message);
+    expect(rows.map(r => r.source)).toEqual([`autoplan:${id}@gate_rev=1`]);
+    expect(rows[0]!.ask).toContain(`autoplan run ${id}`);
+  });
+
+  // Value: protects=a second interactive run appended to the same autoplan directory imports under its own run id with only
+  //   its own answers; fails_when=mixed run ids fall back to the directory name and pool both runs' answers; why_new=the
+  //   interactive case held a single run; seam=none
+  test('a second interactive run appended to the same directory imports under its own run id', () => {
+    const run = path.join(tmp('appr-run-'), 'autoplan');
+    fs.mkdirSync(run);
+    const row = (id: string, at: string) => JSON.stringify({ schema_version: 1, run: id, id: `${id}-p1`, label: 'P1', title: 'Plan approval',
+      options: ['a', 'b'], recommended: 'a', kind: 'approval', status: 'approved', gate_rev: 1, chosen: 'a', answered_at: at, reply: 'a' }) + '\n';
+    const a = 'feature-x-20261122-104500', b = 'feature-y-20261122-114500';
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), row(a, '2026-11-22T10:50:00.000Z'));
+    const first = importAutoplan(run, 'b', 'owner');
+    if ('code' in first) throw new Error(first.message);
+    expect(first.map(r => r.source)).toEqual([`autoplan:${a}@gate_rev=1`]);
+    fs.appendFileSync(path.join(run, 'decisions.jsonl'), row(b, '2026-11-22T11:50:00.000Z'));
+    const second = importAutoplan(run, 'b', 'owner');
+    if ('code' in second) throw new Error(second.message);
+    expect(second.map(r => r.source)).toEqual([`autoplan:${b}@gate_rev=1`]);
+  });
+
+  // Value: protects=an abandoned older interactive run's pending rows do not mark a newer approved run as unanswered;
+  //   fails_when=stillPending counts pending rows from every run in the directory; why_new=the newest-run selection
+  //   left the pending count pooled; seam=none
+  test('an abandoned older run leaves no unanswered decisions on the newer approved run', () => {
+    const run = path.join(tmp('appr-run-'), 'autoplan');
+    fs.mkdirSync(run);
+    const a = 'feature-x-20261122-104500', b = 'feature-y-20261122-114500';
+    fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: a, id: `${a}-d1`, label: 'D1', title: 'Abandoned decision', status: 'pending', gate_rev: 1 }) + '\n'
+      + JSON.stringify({ schema_version: 1, run: b, id: `${b}-p1`, label: 'P1', title: 'Plan approval', options: ['a', 'b'], recommended: 'a', kind: 'approval',
+        status: 'approved', gate_rev: 1, chosen: 'a', answered_at: '2026-11-22T11:50:00.000Z', reply: 'a' }) + '\n');
+    const rows = importAutoplan(run, 'b', 'owner');
+    if ('code' in rows) throw new Error(rows.message);
+    expect(rows.map(r => [r.source, r.outcome, r.pending])).toEqual([[`autoplan:${b}@gate_rev=1`, 'approved', 'none']]);
+  });
+
+  // Value: protects=the run id interactive /autoplan mints (autoplan/SKILL.md.tmpl's RUN_ID line) imports on a branch whose name ends in
+  //   digits; fails_when=the id puts those digits straight before the date stamp, which pii.phone.e164 and pii.cc read as a phone or card
+  //   number, so the import is refused (#4402); why_new=the interactive cases above use branch names without digits; seam=none
+  test('the run id interactive /autoplan mints on a numbered branch imports', () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf8');
+    const stamp = /^DATETIME=\$\(date \+([^)]+)\)$/m.exec(tmpl)![1]!.replace(/%([YmdHMS])/g, (_, c: string) => ({ Y: '2026', m: '11', d: '22', H: '09', M: '33', S: '21' } as Record<string, string>)[c]!);
+    const minted = (/^_ID=([^;\s]+);/m.exec(tmpl) ?? /^echo "RUN_ID=([^"]+)"/m.exec(tmpl))![1]!.replace(/\$\{?BRANCH\}?/, '<branch>').replace(/\$\{?DATETIME\}?/, stamp);
+    const run = path.join(tmp('appr-run-'), 'autoplan');
+    fs.mkdirSync(run);
+    for (const branch of ['fix-4402', 'gsta-802', '4402']) {
+      const id = minted.replace('<branch>', branch);
+      fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: id, id: `${id}-p1`, label: 'P1', title: 'Plan approval',
+        options: ['a', 'b'], recommended: 'a', kind: 'approval', status: 'approved', gate_rev: 1, chosen: 'a', answered_at: '2026-11-22T10:50:00.000Z', reply: 'a' }) + '\n');
+      const rows = importAutoplan(run, 'b', 'owner');
+      expect([branch, 'code' in rows ? rows.message : rows.map(r => r.source)]).toEqual([branch, [`autoplan:${id}@gate_rev=1`]]);
+    }
+  });
+
   test('an unanswered gate imports nothing and says why', () => {
     const run = tmp('appr-run-');
     fs.writeFileSync(path.join(run, 'decisions.jsonl'), JSON.stringify({ schema_version: 1, run: 'run-1', id: 'run-1-p1', label: 'P1', status: 'pending', gate_rev: 1 }) + '\n');

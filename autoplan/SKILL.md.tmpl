@@ -202,7 +202,7 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
 DATETIME=$(date +%Y%m%d-%H%M%S)
 echo "SLUG=$SLUG"
 echo "RESTORE_PATH=$_AP/${BRANCH}-autoplan-restore-${DATETIME}.md"
-echo "RUN_ID=${BRANCH}-${DATETIME}"; ~/.claude/skills/gstack/bin/gstack-autoplan-timing estimate --run "${BRANCH}-${DATETIME}" --out "$_AP"
+_ID=${BRANCH}-autoplan-$DATETIME; echo "RUN_ID=$_ID"; ~/.claude/skills/gstack/bin/gstack-autoplan-timing estimate --run "$_ID" --out "$_AP"
 ```
 
 Before scope/review:
