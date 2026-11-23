@@ -56,11 +56,13 @@ describe('an interactive /autoplan run cited by its directory (#4402)', () => {
   });
 
   // Value: protects=a Plan line naming a shared interactive folder that holds more than one run resolves to no run, so a later /autoplan in
-  //   the same checkout never turns an unchanged PR body's citation into another plan's approval, while the run id still resolves;
+  //   the same checkout, or an approval imported before #4402 under the shared id "autoplan", never turns an unchanged PR body's citation into
+  //   another plan's approval, while the run id still resolves;
   //   fails_when=the folder token follows whichever run was written last; why_new=the case above holds a single run; seam=none
   test('a path token whose folder holds several runs resolves to none of them; the run id still does', () => {
     const a = 'feature-x-autoplan-20261122-104500', b = 'feature-y-autoplan-20261122-114500';
-    const f = fixture({ b: [{ ask: `Approve the plan (autoplan run ${a}, 1 decisions)`, source: `autoplan:${a}@gate_rev=1` }, { ask: `Approve the plan (autoplan run ${b}, 1 decisions)`, source: `autoplan:${b}@gate_rev=1` }] });
+    const f = fixture({ b: [{ ask: `Approve the plan (autoplan run ${a}, 1 decisions)`, source: `autoplan:${a}@gate_rev=1` }, { ask: `Approve the plan (autoplan run ${b}, 1 decisions)`, source: `autoplan:${b}@gate_rev=1` }],
+      old: [{ ask: 'Approve the plan (autoplan run autoplan, 1 decisions)', source: 'autoplan:autoplan@gate_rev=1' }] });
     const run = path.join(f.cwd, '.gstack', 'tmp', 'autoplan');
     fs.mkdirSync(run, { recursive: true });
     fs.writeFileSync(path.join(run, 'decisions.jsonl'), [a, b].map(id => JSON.stringify({ run: id, id: `${id}-p1`, status: 'approved', gate_rev: 1 })).join('\n') + '\n');

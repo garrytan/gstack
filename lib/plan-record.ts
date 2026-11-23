@@ -150,8 +150,8 @@ function runIdFor(token: string, cwd: string): string {
   let run: Record<string, any> = {};
   try { run = JSON.parse(fs.readFileSync(path.join(dir, 'run.json'), 'utf8')); } catch {}
   let rows: { run?: unknown }[] = [];
-  try { rows = fs.readFileSync(path.join(dir, 'decisions.jsonl'), 'utf8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l)); } catch {}
-  if (!(run.run ?? run.id) && new Set(rows.map(r => r.run).filter(r => typeof r === 'string' && r)).size > 1) return path.basename(dir);
+  try { rows = fs.readFileSync(path.join(dir, 'decisions.jsonl'), 'utf8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l)).filter(r => r && typeof r === 'object'); } catch {}
+  if (!(run.run ?? run.id) && new Set(rows.map(r => r.run).filter(r => typeof r === 'string' && r)).size > 1) return '';
   return autoplanRunId(dir, run, rows);
 }
 
