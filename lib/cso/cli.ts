@@ -1685,64 +1685,75 @@ async function search(args: string[]) {
   } catch {
     throw new CsoError('INVALID_ARGUMENT', 'Search pattern is not a valid regular expression');
   }
-  const manifest = readSnapshotManifest(dir);
+  const stopAt = Date.now() + seconds * 1000,
+    manifest = readSnapshotManifest(dir);
   assertSnapshot(dir, manifest);
   const readable = join(dir, 'readable'),
-    files: Array<{ shown: string; text: string }> = [],
-    unsearched: string[] = [];
-  let noCopy = 0;
+    files: Array<{ path: string; shown: string }> = [],
+    unsearched: string[] = [],
+    windowed: string[] = [],
+    out: string[] = [];
+  let noCopy = 0,
+    bytes = 0,
+    hidden = 0,
+    failed = false,
+    current = '',
+    settle: ((done: boolean) => void) | undefined,
+    unfinished: string[] = [];
   for (const entry of manifest.entries) {
-    if (entry.transformation === OUTSIDE_AUDIT_PATHS) continue;
-    const shown = publicSnapshotPath(manifest, entry.path, entry.pathId).path;
+    const transformation = entry.transformation ?? '';
+    if (transformation === OUTSIDE_AUDIT_PATHS) continue;
     if (
-      entry.transformation === 'withheld: binary or redaction failed' ||
-      entry.transformation?.startsWith('excluded: symlink')
+      /^(withheld|excluded):/.test(transformation) &&
+      transformation !== 'withheld: exceeds the 1 MiB redacting-reader limit' &&
+      !fs.existsSync(containedFile(readable, entry.path))
     ) {
       noCopy++;
       continue;
     }
-    try {
-      files.push({
-        shown,
-        text: readBoundedStable(containedFile(readable, entry.path), 1024 * 1024, 'Snapshot path').toString(
-          'utf8',
-        ),
-      });
-    } catch (error) {
-      if (!(error instanceof CsoError) || error.code !== 'MISSING_INPUT') throw error;
-      unsearched.push(shown);
-    }
+    files.push({ path: entry.path, shown: publicSnapshotPath(manifest, entry.path, entry.pathId).path });
   }
   const worker = new Worker(new URL('./search-worker.ts', import.meta.url).href),
-    stopAt = Date.now() + seconds * 1000,
-    ask = (message: object) =>
-      new Promise<any>((resolve, reject) => {
-        const timer = setTimeout(() => resolve(undefined), Math.max(0, stopAt - Date.now()));
-        worker.onmessage = (event) => (clearTimeout(timer), resolve(event.data));
-        worker.onerror = () => (
-          clearTimeout(timer),
-          reject(new CsoError('INVALID_SCHEMA', 'Search worker failed'))
-        );
+    step = (message: object) =>
+      new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), Math.max(0, stopAt - Date.now()));
+        settle = (done) => (clearTimeout(timer), resolve(done));
         worker.postMessage(message);
-      }),
-    out: string[] = [];
-  let bytes = 0,
-    hidden = 0,
-    unfinished: string[] = [];
-  if (!(await ask({ pattern: args[0] }))) unfinished = files.map((file) => file.shown);
-  for (let index = 0; !unfinished.length && index < files.length; index++) {
-    const reply = await ask({ text: files[index].text });
-    if (!reply) {
-      unfinished = files.slice(index).map((file) => file.shown);
-      break;
-    }
-    for (const hit of reply.hits as Array<{ line: number; text: string }>) {
-      const line = `${files[index].shown}:${hit.line}:${hit.text}`;
+      });
+  worker.onmessage = (event) => {
+    const reply = event.data as { hit?: { line: number; text: string }; done?: boolean; windowed?: boolean };
+    if (reply.hit) {
+      const line = `${current}:${reply.hit.line}:${reply.hit.text}`;
       if (bytes + Buffer.byteLength(line) > SEARCH_OUTPUT_BUDGET) hidden++;
       else (out.push(line), (bytes += Buffer.byteLength(line) + 1));
     }
+    if (reply.windowed) windowed.push(current);
+    if (reply.done) settle?.(true);
+  };
+  worker.onerror = () => ((failed = true), settle?.(true));
+  try {
+    if (!(await step({ pattern: args[0] }))) unfinished = files.map((file) => file.shown);
+    for (let index = 0; !failed && !unfinished.length && index < files.length; index++) {
+      current = files[index].shown;
+      let text: string;
+      try {
+        text = readBoundedStable(
+          containedFile(readable, files[index].path),
+          1024 * 1024,
+          'Snapshot path',
+        ).toString('utf8');
+      } catch (error) {
+        if (!(error instanceof CsoError) || error.code !== 'MISSING_INPUT') throw error;
+        unsearched.push(current);
+        continue;
+      }
+      if (Date.now() >= stopAt || !(await step({ text })))
+        unfinished = files.slice(index).map((file) => file.shown);
+    }
+  } finally {
+    worker.terminate();
   }
-  worker.terminate();
+  if (failed) throw new CsoError('INVALID_SCHEMA', 'Search worker failed');
   if (!out.length && !hidden) out.push('[gstack-cso search: no matches]');
   if (hidden) out.push(`[gstack-cso search: ${hidden} more matching lines not shown; narrow the pattern]`);
   if (unfinished.length)
@@ -1753,9 +1764,13 @@ async function search(args: string[]) {
     out.push(
       `[gstack-cso search: ${unsearched.length} unsearched paths (unreadable or over 1 MiB), a coverage gap: ${listed(unsearched)}]`,
     );
+  if (windowed.length)
+    out.push(
+      `[gstack-cso search: ${windowed.length} paths have lines over 4096 characters, matched in overlapping 4 KiB windows where ^, $, lookbehind and matches over 256 characters are approximate: ${listed(windowed)}]`,
+    );
   if (noCopy)
     out.push(
-      `[gstack-cso search: ${noCopy} binary, symlink or unredactable paths have no readable copy; inspect lists them]`,
+      `[gstack-cso search: ${noCopy} paths the snapshot excluded or withheld have no readable copy; inspect and report.md list them]`,
     );
   emit(out.join('\n'));
   if (unfinished.length)

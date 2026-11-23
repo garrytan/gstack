@@ -939,12 +939,18 @@ export function saveReport(dir: string, report: RunReportV3): void {
 function readableReport(report: RunReportV3): string {
   const text = renderReport(report),
     next = '\nSnapshot transformations:\n';
-  if (report.policy.mode === 'comprehensive' || !report.findings.some((f) => f.evidence === 'hypothesis'))
+  const at = text.indexOf(next);
+  if (
+    at < 0 ||
+    report.policy.mode === 'comprehensive' ||
+    !report.findings.some((f) => f.evidence === 'hypothesis')
+  )
     return text;
   const full = renderReport({ ...report, policy: { ...report.policy, mode: 'comprehensive' } });
-  return text.replace(
-    next,
-    full.slice(full.indexOf('\nHypotheses (unconfirmed):\n'), full.indexOf(next)) + next,
+  return (
+    text.slice(0, at) +
+    full.slice(full.indexOf('\nHypotheses (unconfirmed):\n'), full.indexOf(next)) +
+    text.slice(at)
   );
 }
 export function loadReport(dir: string): RunReportV3 {

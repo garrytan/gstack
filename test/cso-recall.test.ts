@@ -92,6 +92,8 @@ describe('/cso recall (gstack-evals#443)', () => {
     fs.writeFileSync(path.join(repo, 'src/parse.js'), 'const x = 1;\neval(input)\n');
     fs.writeFileSync(path.join(repo, 'src/big.js'), 'eval(input)\n' + 'x'.repeat(MIB + 16));
     fs.writeFileSync(path.join(repo, 'src/min.js'), 'a(b,c);'.repeat(140_000) + 'eval(late)');
+    fs.mkdirSync(path.join(repo, '.gstack'));
+    fs.writeFileSync(path.join(repo, '.gstack/state.js'), 'eval(input)\n');
     git(repo, 'init', '-q');
     git(repo, 'add', '-A');
     git(repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
@@ -102,7 +104,10 @@ describe('/cso recall (gstack-evals#443)', () => {
     expect(found.stdout).toContain('src/parse.js:2:eval(input)');
     expect(found.stdout).toContain(hostile + ':1:eval(input)');
     expect(found.stdout).toMatch(/src\/min\.js:1:[a-c(),;]{100}eval\(late\)/);
-    expect(found.stdout).toMatch(/1 unsearched paths .*coverage gap: src\/big\.js/);
+    expect(found.stdout).toMatch(/1 unsearched paths .*coverage gap: src\/big\.js\]/);
+    expect(found.stdout).not.toContain('.gstack/state.js');
+    expect(found.stdout).toContain('1 paths the snapshot excluded or withheld have no readable copy');
+    expect(found.stdout).toMatch(/1 paths have lines over 4096 characters.*: src\/min\.js\]/);
     expect(fs.existsSync(path.join(root, 'PWNED'))).toBe(false);
     expect(fs.existsSync(path.join(repo, 'PWNED'))).toBe(false);
     const none = cso(repo, ['search', run, 'zzz-no-such-text']).stdout;
@@ -119,7 +124,7 @@ describe('/cso recall (gstack-evals#443)', () => {
     const repo = path.join(root, 'minified');
     fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
     fs.writeFileSync(path.join(repo, 'src/a.js'), 'eval(first)\n');
-    fs.writeFileSync(path.join(repo, 'src/b.min.js'), 'x'.repeat(MIB - 64));
+    fs.writeFileSync(path.join(repo, 'src/b.min.js'), 'eval(second)\n' + 'x'.repeat(MIB - 64));
     git(repo, 'init', '-q');
     git(repo, 'add', '-A');
     git(repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
@@ -130,9 +135,10 @@ describe('/cso recall (gstack-evals#443)', () => {
     expect(quadratic.stdout).toContain('[gstack-cso search: no matches]');
     expect(Date.now() - started).toBeLessThan(30_000);
     started = Date.now();
-    const runaway = cso(repo, ['search', run, '(x+x+)+y|eval\\(first', '--seconds', '2']);
+    const runaway = cso(repo, ['search', run, '(x+x+)+y|eval\\((first|second)', '--seconds', '2']);
     expect(runaway.status).toBe(0);
     expect(runaway.stdout).toContain('src/a.js:1:eval(first)');
+    expect(runaway.stdout).toContain('src/b.min.js:1:eval(second)');
     expect(runaway.stdout).toMatch(/stopped at the 2-second limit; 1 paths not searched, a coverage gap: src\/b\.min\.js/);
     expect(Date.now() - started).toBeLessThan(20_000);
     expect(cso(repo, ['finish', run]).status).toBe(0);
@@ -165,14 +171,14 @@ describe('/cso recall (gstack-evals#443)', () => {
     const supported = submit('supported', 'medium', 'Prototype injection in parse', 'parse copies attacker keys onto a plain object');
     expect(supported.status).toBe(0);
     expect(json(supported.stdout).findings).toBe(1);
-    const hypothesis = submit('hypothesis', 'low', 'Prototype injection through caller-named keys', 'parse copies keys named by the caller');
+    const hypothesis = submit('hypothesis', 'low', "Prototype injection through caller-named keys $' and $&", 'parse copies keys named by the caller');
     expect(hypothesis.status).toBe(0);
     expect(json(hypothesis.stdout).findings).toBe(2);
     expect(cso(repo, ['finish', run]).status).toBe(0);
     const saved = json(fs.readFileSync(findReport(state, run, 'report.json'), 'utf8')).findings as Array<{ title: string; evidence: string; confidence: string }>;
     expect(saved.map((f) => [f.title, f.evidence, f.confidence]).sort()).toEqual([
       ['Prototype injection in parse', 'supported', 'medium'],
-      ['Prototype injection through caller-named keys', 'hypothesis', 'low'],
+      ["Prototype injection through caller-named keys $' and $&", 'hypothesis', 'low'],
     ]);
     const report = fs.readFileSync(findReport(state, run, 'report.md'), 'utf8');
     const supportedSection = report.slice(report.indexOf('Supported findings:'), report.indexOf('Hypotheses (unconfirmed):'));
@@ -182,5 +188,7 @@ describe('/cso recall (gstack-evals#443)', () => {
     expect(supportedSection).not.toContain('caller-named keys');
     expect(hypotheses).toContain('Prototype injection through caller-named keys');
     expect(hypotheses).not.toContain('Prototype injection in parse');
+    expect(hypotheses).toContain('$&');
+    expect(report.split('Snapshot transformations:').length).toBe(2);
   });
 });
