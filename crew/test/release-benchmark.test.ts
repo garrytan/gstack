@@ -58,6 +58,19 @@ describe('release-benchmark: reading the records', () => {
     expect(parsed('t', rec('INCOMPLETE')).models).toEqual({});
   });
 
+  test('a vs_none with a non-numeric field is dropped rather than crashing the cut, and record text cannot start a workflow command', () => {
+    const odd = (vs: unknown) => ({ ...rec('NO_CHANGE'), models: { 'claude-opus-5-5': { host: 'claude-code', n: 390, d: 0, lo: -4, hi: 4, vs_none: vs } } });
+    for (const vs of [{ d: null, lo: null, hi: null }, {}, null]) {
+      const s = status(records(['weekly-2026-w48', odd(vs)]));
+      expect(s.state).toBe('clear');
+      expect(s.line).toContain('claude-opus-5-5 +0.0 [-4.0, +4.0] on 390 pairs; 1 flag');
+    }
+    expect(status(records(['weekly-2026-w48', rec('NO_CHANGE')])).line).toContain('; vs no gstack -2.1 [-6.0, +1.7]');
+    const injected = status(records(['weekly-2026-w48', rec('NO_CHANGE')], ['weekly-2026-w49', { ...rec('INCOMPLETE', { week: '2026-W49', start: '2026-12-05T06:00:00Z' }), incomplete_reason: 'x\n::stop-commands::tok' }]));
+    expect(injected.line).toContain('the newer weekly-2026-w49 is INCOMPLETE (x ::stop-commands::tok)');
+    expect(injected.line).not.toContain('\n');
+  });
+
   test('readRecords lists weekly tags only, retries each call once, and any failure makes the whole read unreadable', () => {
     const calls: string[][] = [];
     let flaky = 1;

@@ -18,7 +18,7 @@ import {
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git, type TrainEvidence,
 } from '../scripts/release-cut';
 import { changeLine, changeSources, changesIn, type NotesSources } from '../scripts/release-notes';
-import { BENCHMARK } from '../lib/release-benchmark';
+import { BENCHMARK, waiverFromTag } from '../lib/release-benchmark';
 
 const bases: string[] = [];
 // A cut made a moment ago clears the 72-hour floor at this clock.
@@ -578,6 +578,20 @@ describe('release-cut: train evidence gates a commit whose backstop never settle
 });
 
 describe('release-cut: cutting, hotfixes and the forward-only stable', () => {
+  // Value: protects=a benchmark waiver cutRelease writes into the annotated tag is the one waiverFromTag reads back, so a retry of a half-finished cut is not
+  // held again; fails_when=the tag message's waiver label or layout drifts from the reader's pattern; why_new=the waiverFromTag test parses a hand-written
+  // message; seam=none; no_claim=none beyond protects
+  test('a waiver cutRelease writes into the tag is read back by waiverFromTag', () => {
+    const f = fixture();
+    const first = planRelease({ repo: f.repo, git: f.git, gh: f.gh });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(waiverFromTag(f.git, first.plan.tag)).toBeNull();
+    const cut = cutRelease(first.plan, { repo: f.repo, git: f.git, gh: f.gh, notesDir: f.base, waiver: 'accepted after review' });
+    expect(cut.ok, cut.lines.join('\n')).toBe(true);
+    expect(waiverFromTag(f.git, first.plan.tag)).toBe('accepted after review');
+  });
+
   test('a cut tags, moves stable and publishes; re-running reports nothing new; a hotfix ref promotes a later main commit with a compare link', () => {
     const f = fixture();
     const first = planRelease({ repo: f.repo, git: f.git, gh: f.gh });

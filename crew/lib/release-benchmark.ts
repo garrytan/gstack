@@ -29,12 +29,13 @@ export type Records = { ok: true; records: WeeklyRecord[] } | { ok: false; why: 
 export interface BenchmarkStatus { state: 'none' | 'clear' | 'hold' | 'unreadable'; line: string; record: WeeklyRecord | null }
 export interface Gate { action: 'pass' | 'wait' | 'refuse'; code?: 'REFUSED_BENCHMARK' | 'STABLE_STALE' | 'BENCHMARK_UNKNOWN'; line?: string; level?: 'notice' | 'warning' | 'error' }
 
-const short = (s: string) => s.trim().slice(0, 200);
+const clean = (s: unknown) => String(s).replace(/[\u0000-\u001f\u007f]+/g, ' ');
+const short = (s: string) => clean(s.trim()).slice(0, 200);
 const retried = (gh: Gh, args: string[]) => { const r = gh(args); return r.status === 0 ? r : gh(args); };
 const num = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
 const f1 = (x: number) => (x >= 0 ? '+' : '') + x.toFixed(1);
 
-/** One record, checked: schema 1, a known verdict, a run start, 40-hex shas, numeric model rows, and a verdict its model rows agree with (HOLD exactly when some row's interval lies wholly below 0). */
+/** One record, checked: schema 1, a known verdict, a run start, 40-hex shas, numeric model rows, and a verdict its model rows agree with (HOLD exactly when some row's interval lies wholly below 0). A vs_none with a non-numeric field is dropped, since it never decides; text is stripped of control characters so it cannot start a workflow command in the job log. */
 export function parseRecord(tag: string, text: string): WeeklyRecord | string {
   let r: any;
   try { r = JSON.parse(text); } catch { return tag + "'s " + BENCHMARK.asset + ' is not JSON'; }
@@ -44,11 +45,16 @@ export function parseRecord(tag: string, text: string): WeeklyRecord | string {
   if (!Number.isFinite(start)) return tag + ': window.start is not a time';
   if (!SHA.test(r.candidate?.sha ?? '') || !SHA.test(r.stable?.sha ?? '')) return tag + ': candidate or stable is not a 40-hex sha';
   const models = (r.models && typeof r.models === 'object' ? r.models : {}) as Record<string, ModelRow>;
-  for (const [id, m] of Object.entries(models)) if (![m?.n, m?.d, m?.lo, m?.hi].every(num)) return tag + ': model row ' + id + ' is not numeric';
-  if (Object.values(models).some((m) => m.hi < 0) !== (r.verdict === 'HOLD')) return tag + ': verdict ' + r.verdict + ' disagrees with its model rows (verdict mismatch)';
+  const rows: Record<string, ModelRow> = {};
+  for (const [id, m] of Object.entries(models)) {
+    if (![m?.n, m?.d, m?.lo, m?.hi].every(num)) return tag + ': model row ' + clean(id) + ' is not numeric';
+    const v = m.vs_none;
+    rows[clean(id)] = { host: m.host, n: m.n, d: m.d, lo: m.lo, hi: m.hi, ...(v && [v.d, v.lo, v.hi].every(num) ? { vs_none: { d: v.d, lo: v.lo, hi: v.hi } } : {}) };
+  }
+  if (Object.values(rows).some((m) => m.hi < 0) !== (r.verdict === 'HOLD')) return tag + ': verdict ' + r.verdict + ' disagrees with its model rows (verdict mismatch)';
   return {
-    tag, week: String(r.week ?? tag), verdict: r.verdict, start, candidate: { sha: r.candidate.sha }, stable: { tag: String(r.stable.tag ?? '?'), sha: r.stable.sha },
-    models, flags: Array.isArray(r.flags) ? r.flags.map(String) : [], incomplete_reason: r.incomplete_reason ?? null,
+    tag, week: clean(r.week ?? tag), verdict: r.verdict, start, candidate: { sha: r.candidate.sha }, stable: { tag: clean(r.stable.tag ?? '?'), sha: r.stable.sha },
+    models: rows, flags: Array.isArray(r.flags) ? r.flags.map(clean) : [], incomplete_reason: r.incomplete_reason == null ? null : clean(r.incomplete_reason),
     stale_after: typeof r.stale_after?.verdict === 'string' ? r.stale_after.verdict : null,
   };
 }
@@ -70,7 +76,7 @@ export function readRecords(gh: Gh, repo: string = BENCHMARK.repo): Records {
   return { ok: true, records };
 }
 
-/** gstack-evals' order (lanes/weekly-stable/resolve.ts byWeekDesc): newest week first, a -r<k> correction before the records it follows. */
+/** gstack-evals' order (lanes/weekly-stable/cli.ts holdFromReleases: run start, then resolve.ts byWeekDesc): newest run first, and on a tie a -r<k> correction before the record it follows. */
 const byTag = (a: string, b: string) => (a.slice(0, 15) !== b.slice(0, 15) ? (a.slice(0, 15) < b.slice(0, 15) ? 1 : -1) : Number(b.slice(17) || 0) - Number(a.slice(17) || 0));
 export const newestFirst = (records: WeeklyRecord[]) => [...records].sort((a, b) => b.start - a.start || byTag(a.tag, b.tag));
 

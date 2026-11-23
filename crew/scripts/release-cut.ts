@@ -72,7 +72,7 @@ import { FLOOR_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily,
 import { KIND_LABEL, NOTES_CAP, changeSources, changelogEntries, compareVersions, releaseKind, releaseNotes } from './release-notes';
 import { bucketClass } from '../../lib/ci-gate';
 import { headCheckRows, type AsideRuns } from '../../lib/ci-head-checks';
-import { BENCHMARK, benchmarkGate, benchmarkStatus, readRecords, waiverFromTag } from '../lib/release-benchmark';
+import { BENCHMARK, benchmarkGate, benchmarkStatus, readRecords, waiverFromTag, type BenchmarkStatus, type Records } from '../lib/release-benchmark';
 
 export { FLOOR_HOURS, SCHEDULED_GRACE_HOURS };
 export { NOTES_CAP, changelogEntries, compareVersions, releaseKind, releaseNotes };
@@ -672,7 +672,9 @@ if (import.meta.main) {
   // BENCHMARK.hold on, a standing HOLD waits, goes red or refuses the cut as benchmarkGate says.
   const p = planned.plan;
   const waiver = waiverArg !== undefined ? sanitizeReason(waiverArg) : p.tagExists === 'same' ? waiverFromTag(git, p.tag) : null;
-  const bench = benchmarkStatus({ read: readRecords(runGh), git, candidate: p.sha, stable: p.prevStable, now: Date.now() });
+  const benchOf = (read: Records) => benchmarkStatus({ read, git, candidate: p.sha, stable: p.prevStable, now: Date.now() });
+  let bench: BenchmarkStatus;
+  try { bench = benchOf(readRecords(runGh)); } catch (e) { bench = benchOf({ ok: false, why: 'the records could not be judged: ' + String(e).replace(/\s+/g, ' ').slice(0, 200) }); }
   const gate = benchmarkGate(bench, { trigger: p.stableAt ? null : trigger, important: trigger === 'hand' ? importantChanges(git, p.prevStable, p.sha) : important, exception: p.exception?.kind ?? null, waiver });
   const described = describePlan(p, dryRun && gate.action === 'pass'), at = described.findIndex(l => l.startsWith('DRY_RUN:'));
   described.splice(at < 0 ? described.length : at, 0, bench.line, ...(gate.line ? [gate.line] : []));
