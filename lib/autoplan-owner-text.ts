@@ -58,7 +58,7 @@ export function parseLine(line: string): OwnerLine | undefined {
   return out;
 }
 
-/** The time a quote names: the part of its attribution after the first comma (`Garry Tan, 2026-11-23 10:04Z`), or ''. */
+/** The time a quote names: the part of its attribution after the first comma (`The owner, 2026-11-23 10:04Z`), or ''. */
 export const quoteWhen = (q: Pick<OwnerQuote, 'who'>): string => (q.who.includes(',') ? q.who.slice(q.who.indexOf(',') + 1).trim() : '');
 
 /**

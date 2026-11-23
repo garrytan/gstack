@@ -132,7 +132,7 @@ const DRIVE: Record<Manifest['build']['platform'], (m: Manifest) => string> = {
   ios: m => phone(m), android: m => phone(m),
   web: () => 'open the first link in a browser on that kind of device',
   macos: m => (m.play.target.kind === 'real'
-    ? "drive the owner's own Mac through the Aside CLI, preferably over Tailscale (the aside-on-dyson-sphere skill); use computer use only where the browser can't reach, and never while he is using the Mac"
+    ? "drive the owner's own Mac through the Aside CLI, preferably over Tailscale; use computer use only where the browser can't reach, and never while he is using the Mac"
     : `use the Mac named as the target (${m.play.target.name}); install this exact build (deploy ${m.build.deploy ?? m.build.testflight}) the way the steps say`),
   server: m => `work on ${m.play.target.name} over its shell or CLI as the steps say, with this exact build (deploy ${m.build.deploy ?? m.build.testflight}); save a terminal capture (.txt or .log) as evidence where a screenshot shows nothing`,
 };
