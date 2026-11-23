@@ -99,7 +99,7 @@ gstack-cso inspect-v2 <import-id>
 
 **Audited-source access invariant.** After `start`, inspect source only with that run's `inspect`, `read`, and `history`. Pass the exact `path` from `inspect`; `displayPath` is only a redacted label. Never use host `Read`/`Glob`/`Grep`; direct reads bypass redaction and identity.
 
-**Read the whole inventory.** `inspect` output often exceeds 200 KB, file list last. Check readiness, deadline, and coverage. Save `start` and `inspect` output to private files (removed after `finish`) and print only what you need; `jq -r '.manifest.entries[].path'` lists every file. Search all non-test source through the helper (`for f in <paths>; do gstack-cso read <run> "$f" | grep -nH --label="$f" -E '<sinks>'; done`), then read in full every attacker-reachable file: parsers, decoders, serializers, path, URL, redirect and auth code. Never narrow by file name.
+**Read the whole inventory.** `inspect` output often exceeds 200 KB, its file list after the report. Check readiness, deadline, and coverage. Save `start` and `inspect` output to private files (removed after `finish`) and print only what you need; `jq -r '.manifest.entries[].path'` lists every file. Search all non-test source through the helper (`for f in <paths>; do gstack-cso read <run> "$f" | grep -nH --label="$f" -E '<sinks>'; done`), then read in full every attacker-reachable file: parsers, decoders, serializers, path, URL, redirect and auth code. Never narrow by file name.
 
 When a finding survives challenge, submit it to the helper **and surface it to the user immediately**; do not wait for the final report; this preserves evidence if the run is interrupted. Malformed model JSON gets **one bounded correction attempt**; then preserve a partial result.
 
