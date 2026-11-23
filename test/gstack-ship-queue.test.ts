@@ -429,32 +429,6 @@ describe('ready', () => {
     expect(line(unrequired.out, 'REVIEW_TARGETED:')).toBe('REVIEW_TARGETED: required=none receipt=legacy verdict=ok');
   }, 120_000);
 
-  // Value: protects=GST-3562 M: a current pregate record whose own checks all passed and that waits only on requires-remote lanes READYs
-  //   when CI is green at the head, with no clear or CI carry, and still refuses when CI is red or a local check failed;
-  //   fails_when=ready demands a remote clear CI already covers, or lets green CI hide a failed local check; why_new=GST-3562 M;
-  //   seam=ready's pregate verdict; no_claim=real gh and CI (shims)
-  test('a pregate pass waiting only on requires-remote lanes READYs on green CI at the head (GST-3562 M), never on red CI or a failed local check', () => {
-    const repo = fixture();
-    const head = makePr(repo, 'pr-remote');
-    const tree = runBin(repo, 'gstack-wtree', []).out.trim();
-    const file = path.join(repo.root, 'pregate-remote.json');
-    const obligation = { lane: 'free-tests/windows', platform: 'windows', workflow: 'free-tests.yml', job: 'windows', tests: ['test/a.test.ts'], receipt: null };
-    const write = (checks: unknown[]) => fs.writeFileSync(file, JSON.stringify({ schema_version: 1, tree, head, verdict: 'requires-remote', checks, requires_remote: [obligation] }));
-    const stateRoot = path.join(repo.root, 'empty-state-root');
-    const run = (checks: object) => queue(repo, ['ready', '--pr', '1', '--pregate', file], { ...ghQueueShim(repo, { prs: { '1': { headRefOid: head, body: shippedBody('1', head) } }, checks: { [head]: checks } }), GSTACK_STATE_ROOT: stateRoot });
-    write(FULL_CHECKS.map(c => c.id === 'lanes' ? { id: 'lanes', status: 'requires-remote' } : c));
-    const ok = run(green);
-    expect([ok.status, ok.err]).toEqual([EXIT.ok, '']);
-    expect(line(ok.out, 'PREGATE:')).toContain(`(PREGATE_REMOTE_UNCLEARED) — accepted: every check passed here and CI is green at ${head.slice(0, 12)}`);
-    const redCi = run({ check_runs: [{ status: 'completed', conclusion: 'failure' }] });
-    expect(redCi.status).toBe(EXIT.refused);
-    expect(redCi.err).toMatch(/CI is not green/);
-    write(FULL_CHECKS.map(c => c.id === 'lanes' ? { id: 'lanes', status: 'requires-remote' } : c.id === 'secrets' ? { id: 'secrets', status: 'fail' } : c));
-    const failed = run(green);
-    expect(failed.status).toBe(EXIT.refused);
-    expect(line(failed.out, 'PREGATE:')).toMatch(/\(PREGATE_LANE_FAILED\)$/);
-  }, 120_000);
-
   // Value: protects=the re-READY after a slot's stamp push accepts the receipt /ship wrote for the pinned head, and only then;
   // fails_when=ready binds the receipt to HEAD alone (every stamped READY turns QUEUE_RECEIPT_STALE) or accepts any ancestor's receipt;
   // why_new=the READY test above binds receipts to the exact head only; seam=none; no_claim=real gh and CI (shims; unit only)

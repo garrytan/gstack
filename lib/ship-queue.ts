@@ -380,14 +380,12 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
   // waiting on a remote receipt another checkout holds; a record whose own checks failed or stayed incomplete (the diff's doing
   // or the environment's) is final.
   let useMirror = true;
-  let remoteOnly: PregateFile | null = null;
   if (fs.existsSync(pregateFile)) {
     const read = readPregateFile(pregateFile);
     if (read.file) {
       const v = verifyPregate(ctx.repoRoot, read.file, treeNow, ctx.base);
       pregateOk = v.ok;
       if (v.ok) accepted = read.file;
-      if (!v.ok && v.code === 'PREGATE_REMOTE_UNCLEARED' && v.current !== false) remoteOnly = read.file;
       useMirror = !v.ok && v.code !== 'PREGATE_LANE_FAILED' && v.code !== 'PREGATE_INCOMPLETE' && v.code !== 'PREGATE_ENVIRONMENT';
       pregateLine = `PREGATE: ${read.file.verdict} tree=${read.file.tree.slice(0, 12)} head=${(read.file.head ?? '').slice(0, 12)} checks=${read.file.checks.length}${v.ok ? '' : ` — ${v.message} (${v.code})`}`;
     } else pregateLine = `PREGATE: unreadable (${read.errors[0]?.message ?? 'invalid'})`;
@@ -402,11 +400,6 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
       accepted = read.file;
       pregateLine = `PREGATE: ${read.file.verdict} tree=${read.file.tree.slice(0, 12)} head=${(read.file.head ?? '').slice(0, 12)} checks=${read.file.checks.length} (from the state root's pregate/by-tree/${treeNow.tree.slice(0, 12)}.json, recorded by another checkout)`;
     } else if (gap) pregateLine += `; the state root's mirror for this tree cannot stand in: ${gap}`;
-  }
-  if (!pregateOk && remoteOnly && ci.green) {
-    pregateOk = true;
-    accepted = remoteOnly;
-    pregateLine += ` — accepted: every check passed here and CI is green at ${head.slice(0, 12)}, which covers the requires-remote lanes (GST-3562 M; no clear or CI carry needed)`;
   }
   const foreign = accepted && exceptionConsumerProblem(accepted, head, o.pr);
   if (foreign) { pregateOk = false; accepted = null; pregateLine += ` — ${foreign} (PREGATE_REMOTE_UNCLEARED)`; }

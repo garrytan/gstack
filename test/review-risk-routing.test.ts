@@ -59,12 +59,14 @@ describe('UI text and SVGs stay code (R51: the docs paths are deferred to an all
 });
 
 describe('round 2 never ships an unread gate edit', () => {
-  // Value: protects=a gate-class edit after round 1 always gets the owner's eyes; fails_when=a round-2 or fix-check gate edit
-  //   returns done; seam=nextStep
-  test('a gate edit in round 2 or in the fix-check stops for the owner; a plain below-floor fix there finishes', () => {
-    expect(nextStep({ fullPasses: 2, last: 'full', fixedBelow: true, touchedGate: true })).toMatchObject({ step: 'stop', reason: expect.stringContaining('gate-class') });
+  // Value: protects=a gate-class edit after round 1 is always read again or goes to the owner (GST-3562 A: round 2's gate edit
+  //   gets the read-only full review of the final head, a gate edit after it stops); fails_when=a round-2 or fix-check gate
+  //   edit returns done; seam=nextStep
+  test('a gate edit in round 2 gets the read-only full review, one after it or in a fix-check stops for the owner; a plain below-floor fix on a light no-runtime range finishes', () => {
+    expect(nextStep({ fullPasses: 2, last: 'full', fixedBelow: true, touchedGate: true })).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
+    expect(nextStep({ fullPasses: 3, last: 'full', fixedBelow: true, touchedGate: true }).step).toBe('stop');
     expect(nextStep({ fullPasses: 1, last: 'fix-check', touchedGate: true })).toMatchObject({ step: 'stop', reason: expect.stringContaining('gate-class') });
-    expect(nextStep({ fullPasses: 2, last: 'full', fixedBelow: true }).step).toBe('done');
+    expect(nextStep({ fullPasses: 2, last: 'full', fixedBelow: true, rangeRuntimeLines: 0 }, 'light').step).toBe('done');
   });
 });
 

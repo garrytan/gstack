@@ -10,6 +10,22 @@ import { withWorkspace } from '../lib/review-brief';
 import { PARENT_ONLY_QA, type Manifest } from '../lib/review-pass';
 import { ROOT, BIN, spec, manifest, repo, host, runPass, bin } from './helpers/review-pass-harness';
 
+/**
+ * GST-3562 A: the planner plans a fix-check only for a grant recorded before it, for one release. Commit a fix, record the owner's
+ * grant at that stop head, and return the plan flags of the round-2 stop it answers.
+ */
+function legacyGrantFlags(dir: string, env: NodeJS.ProcessEnv): string[] {
+  const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+  const rangeBase = sh('git rev-parse HEAD').stdout.trim();
+  expect(sh('echo "export const fix = 1;" >> src/a.ts && git commit -qam fix').status).toBe(0);
+  const stopHead = sh('git rev-parse HEAD').stdout.trim();
+  env.GSTACK_APPROVALS_MIRROR = '0';
+  delete env.GSTACK_APPROVALS_DIR;
+  const a = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${stopHead.slice(0, 12)})`, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
+  expect(a.status, a.stderr).toBe(0);
+  return ['--pass', '2', '--last', 'full', '--fixed-blocking', '--adversarial-ran', '--range-base', rangeBase, '--grant', JSON.parse(a.stdout).added[0]];
+}
+
 describe('Capy pass program (fake host, real bins)', () => {
   test('Step 11 notes its own growth from its first dispatch, not from the pass\'s starting reading', async () => {
     const { dir, env } = repo();
@@ -112,7 +128,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     fs.mkdirSync(files, { recursive: true });
     const fc: Record<string, string> = {};
     for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n'], ['callers', 'none\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
-    const planFlags = ['--pass', '1', '--last', 'full', '--fixed-below'];
+    const planFlags = legacyGrantFlags(dir, env);
     const missing = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fc0'), pass: 'x19fc0', planFlags });
     expect(missing).toContain('STOP: gstack-review-dispatch pass exited');
     expect(missing).toContain('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests');
@@ -140,7 +156,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     fs.mkdirSync(files, { recursive: true });
     const fc: Record<string, string> = {};
     for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
-    const res = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fcr'), pass: 'x52fc', planFlags: ['--pass', '1', '--last', 'full', '--fixed-below'], fixCheck: fc, logStart: ['review'] });
+    const res = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fcr'), pass: 'x52fc', planFlags: legacyGrantFlags(dir, env), fixCheck: fc, logStart: ['review'] });
     expect(res).toMatch(/REVIEW_LOG_START: review-fix-check token=\S+/);
     expect(res).not.toMatch(/REVIEW_LOG_START: review token=/);
   }, 240_000);

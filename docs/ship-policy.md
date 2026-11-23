@@ -293,10 +293,7 @@ nothing ([what to do](troubleshooting.md#ci-superseded)).
 
 It refuses (`QUEUE_NOT_READY`) when the working tree has tracked edits, HEAD
 is not the PR's pushed head, CI at that exact head is not green, or the pregate
-result is not a current pass. A current record whose own checks all passed and
-that waits only on requires-remote lanes counts as a pass when CI is green at
-the head, so no clear or CI carry is needed (GST-3562 M; `land` already refuses
-any red or pending check at the pin). It also refuses (`QUEUE_RECEIPT_MISSING`,
+result is not a current pass, and (`QUEUE_RECEIPT_MISSING`,
 `QUEUE_RECEIPT_STALE`) when the PR body carries no /ship receipt for that
 head: /ship runs before every READY ([details](#ship-before-ready)). It also
 refuses `QUEUE_RECEIPT_DEPTH_RAISED` when the receipt's review depth is below
