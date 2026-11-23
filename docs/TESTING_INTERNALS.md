@@ -206,11 +206,12 @@ GSTA-203 first chose 10 × `ubicloud-standard-8` at k = 4 by a 3-run A/B against
 20 × `ubicloud-standard-4` at k = 1 (the PR that set them has the table). GST-3303
 moved to `ubicloud-standard-16` at k = 8 once `test/review-pass.test.ts` was
 split: two trial runs cut the slowest shard job from 222–226 s to 155–158 s, for
-about $0.085 more per run. The 2026-11-23 weekly CI audit moved it back to
-`ubicloud-standard-8` at k = 4: shard jobs got faster (4.4 to 2.6 min p50), but a
-whole run only went from 6.2 to 5.8 min p50, because the macOS jobs and the final
-aggregate job set the finish, while a run's Ubicloud cost rose from $0.23 to
-$0.31 p50. A `workflow_dispatch` run may
+about $0.085 more per run. It went back to `ubicloud-standard-8` at k = 4 after
+the 2026-11-23 weekly CI audit (a sample of 100 Free Tests runs from that week):
+on 16 cores, shard jobs took 2.6 min p50 against 4.4 on 8 cores, but a whole run
+only went from 6.2 to 5.8 min p50, because the macOS jobs and the final aggregate
+job set the finish, while a run's Ubicloud cost went from $0.23 to $0.31 p50.
+A `workflow_dispatch` run may
 override them with `free_runner` (`ubicloud-standard-2`, `-4`, `-8` or `-16`),
 `free_shards` (1–40) and `free_jobs` (1–8) for runner-sizing experiments only;
 its job summary says so, and it is never cited as a PR or train Free Tests result.
