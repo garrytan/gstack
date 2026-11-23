@@ -11,7 +11,8 @@ import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ghArtifactDeps, ghRunDeps, runInventory, type RunProfile } from '../run-evidence';
+import { ghArtifactDeps, ghRunDeps, runInventory, type BaseMove, type RunProfile } from '../run-evidence';
+import { ownLinesSame } from '../review-round-grant';
 import { classifyDocsOnly } from '../docs-only';
 import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';
@@ -58,6 +59,34 @@ export function gateInputsChanged(root: string, base: string, p: RunProfile): st
   return null;
 }
 
+const SHA = /^[0-9a-f]{40}$/;
+const refreshedBases = new Set<string>();
+
+/**
+ * Whether pull_request merge commit `merge` is `head` merged onto a newer commit of the base with only the base moved (GST-3567):
+ * its parents are a commit on `baseRef` and then `head`, and the pull request's own added and removed lines in the merge are
+ * byte-identical to the head's own, at the same places (ownLinesSame, the rule a base-only merge of a reviewed head meets). So
+ * the run that tested the merge tested exactly the pull request's changes, on a newer base. GitHub merges onto the base as it was
+ * when the run started, often newer than this checkout's `origin/<base>`, so a base parent missing from it fetches that branch
+ * once per process before refusing.
+ */
+export function onlyBaseMoved(root: string, o: { merge: string; head: string; baseRef: string }): BaseMove {
+  const git = (args: string[], timeout = 30_000) => spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout });
+  const listed = git(['rev-list', '--parents', '-n', '1', o.merge]);
+  const parents = listed.status === 0 ? (listed.stdout ?? '').trim().split(' ').slice(1) : [];
+  if (parents.length !== 2 || parents[1] !== o.head || !SHA.test(parents[0]!)) return { ok: false, why: `merge commit ${o.merge.slice(0, 12)} is not a base commit merged with the head ${o.head.slice(0, 12)} (its parents: ${parents.map(p => p.slice(0, 12)).join(', ') || 'none'})` };
+  const base = parents[0]!;
+  const onBase = () => git(['merge-base', '--is-ancestor', base, o.baseRef]).status === 0;
+  const branch = o.baseRef.startsWith('origin/') ? o.baseRef.slice('origin/'.length) : null;
+  if (!onBase() && branch && !refreshedBases.has(`${root}\0${branch}`)) {
+    refreshedBases.add(`${root}\0${branch}`);
+    git(['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], 120_000);
+  }
+  if (!onBase()) return { ok: false, why: `its base parent ${base.slice(0, 12)} is not on ${o.baseRef}${branch ? ', even after fetching it' : ''}` };
+  if (!ownLinesSame(root, o.baseRef, o.head, o.merge)) return { ok: false, why: `the pull request's own added and removed lines in the tested merge are not byte-identical to the head's at the same places (the base edited a line the pull request changes, or one next to it), so more than the base moved` };
+  return { ok: true, base };
+}
+
 /**
  * `profiled` says whether `lane` may have a run profile: an unreadable base counts as profiled, so a lane is
  * recorded unverified only once the base shows it has none. `policy: 'head'` reads the branch's profiles instead, only
@@ -74,6 +103,7 @@ export function buildRunCheck(root: string, lane: string | null, allowRepoComman
     repo, deps: ghRunDeps(repo, root), failures: ghArtifactDeps(repo), profiles: loaded.config.run_profiles, gateRuns: loaded.config.remote_gate_runs, now: new Date(),
     unchanged: p => gateInputsChanged(root, base, p),
     dispatchable: p => canDispatch(root, policy === 'head' ? 'HEAD' : `origin/${base}`, p),
+    onlyBaseMoved: (merge, head) => onlyBaseMoved(root, { merge, head, baseRef: `origin/${base}` }),
     docsOnly: head => {
       const mb = spawnSync('git', ['merge-base', `origin/${base}`, head], { cwd: root, encoding: 'utf8', timeout: 30_000 });
       try { return mb.status === 0 && classifyDocsOnly({ root, base: mb.stdout.trim(), head, policyRef: `origin/${base}` }).docsOnly; } catch { return false; }

@@ -112,6 +112,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'executes registered native documentation callbacks with their real Linux inotify write observer before the model boundary',
   },
   {
+    file: 'test/docsync-stopped-audit-snapshot.test.ts',
+    reason: 'spawns the installed bin/gstack-docs-candidate shebang script directly (Windows CreateProcess does not parse shebangs)',
+  },
+  {
     file: 'test/setup-gbrain-fixture.test.ts',
     reason: 'the fixture invokes real POSIX detector/verifier helpers through executable shebang wrappers',
   },
@@ -455,6 +459,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/ship-accept-record-timeout.test.ts',
     reason: 'drives bin/gstack-ship-release, gstack-evidence, gstack-ship-policy and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-accept-head-policy.test.ts, which windows-latest fails at the first bin spawn (windows-scoped-shard, run 41607840098)',
+  },
+  {
+    file: 'test/ship-accept-base-moved.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-ci-carry, gstack-evidence and gstack-pregate (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-accept-record-timeout.test.ts, which windows-latest fails at the first bin spawn (windows-scoped-shard, run 41607840098)',
   },
   {
     file: 'test/ship-mechanical-retake.test.ts',

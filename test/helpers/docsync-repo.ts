@@ -58,14 +58,15 @@ export interface DocsCandidateRecord {
 
 /**
  * The installed snapshot command for the fixture's audit selection: every tracked or new path except the
- * user's personal note, with the handbook docs root, against main's commit. Returned as argv; the first
- * element is the installed helper, so the command is the literal form the observation interface admits.
+ * user's personal note, with the handbook docs root, against main's commit, and the invocation record as its
+ * --run like /ship's Prepare. Returned as argv; the first element is the installed helper, so the command is
+ * the literal form the observation interface admits.
  */
-export function docsSnapshotArgv(fixture: { repo: string; skills: string }, auditId: string, out: string): string[] {
+export function docsSnapshotArgv(fixture: { repo: string; skills: string; invocation: string }, auditId: string, out: string): string[] {
   const inventory = repoInventory(fixture.repo);
   return [path.join(fixture.skills, 'bin/gstack-docs-candidate'), 'snapshot', '--out', out, '--audit-id', auditId,
     '--mode', 'edit', '--base', gitAt(fixture.repo, 'rev-parse', 'main'),
-    ...inventory.filter(p => p !== 'personal-note.txt').flatMap(p => ['--select', p]), '--docs', 'handbook'];
+    ...inventory.filter(p => p !== 'personal-note.txt').flatMap(p => ['--select', p]), '--docs', 'handbook', '--run', fixture.invocation];
 }
 
 /** Git blob id of content, the hash representation of `DocsCandidateRecord.hashes`. */

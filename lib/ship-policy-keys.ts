@@ -58,7 +58,7 @@ export const LAND_DOCS_ONLY_SKIP_KEY_VERSION = '1.99.0.0';
 export const HISTORY_NO_REWRITE_KEY_VERSION = '1.100.0.0';
 export const LAND_MERGE_COMMIT_PATHS_KEY_VERSION = '1.100.0.0';
 export const REVIEW_CONTENT_KEY_VERSION = '1.102.0.0';
-export const REVIEW_VENDORED_KEY_VERSION = '1.102.3.0';
+export const REVIEW_VENDORED_KEY_VERSION = '1.103.0.0';
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',
