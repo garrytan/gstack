@@ -18,6 +18,7 @@ import {
   gateVerdict, gitIn, planRelease, readTrainNotes, releaseNotes, sanitizeReason, stableMovedAt, verifyRegression, verifySecurity, type Gh, type Git, type TrainEvidence,
 } from '../scripts/release-cut';
 import { changeLine, changeSources, changesIn, type NotesSources } from '../scripts/release-notes';
+import { BENCHMARK } from '../lib/release-benchmark';
 
 const bases: string[] = [];
 // A cut made a moment ago clears the 72-hour floor at this clock.
@@ -743,7 +744,11 @@ describe.skipIf(process.platform === 'win32')('release-cut: the workflow entry p
     expect(written).toContain('<details><summary>Release notes</summary>');
     expect(written).toContain('- Fourth trims the preamble.');
     expect(execFileSync('git', ['ls-remote', f.origin, 'refs/heads/stable', 'refs/tags/v1.0.3'], { encoding: 'utf8', timeout: 30_000 }).trim()).toBe('');
-    expect(fs.readFileSync(path.join(f.base, 'gh.log'), 'utf8')).not.toContain('gh release');
+    // The only release calls a dry run makes read gstack-evals' weekly benchmark records; none touches this repo's releases.
+    const releaseCalls = fs.readFileSync(path.join(f.base, 'gh.log'), 'utf8').split('\n').filter(l => l.startsWith('gh release'));
+    expect(releaseCalls.length).toBeGreaterThan(0);
+    expect(releaseCalls.filter(l => !l.startsWith('gh release list --repo ' + BENCHMARK.repo + ' '))).toEqual([]);
+    expect(dry.stdout).toContain('BENCHMARK: unreadable (gh release list failed');
 
     const usage = run('--dry-run');
     expect(usage.status).toBe(2);
