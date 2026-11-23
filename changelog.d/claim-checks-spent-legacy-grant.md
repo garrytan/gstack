@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+**A fix-check grant that a fix-check already used can no longer be claimed for a second read.** `gstack-ship-receipt claim` now also checks the review log: when a counted fix-check already read under the grant (one that carries it, or one that carries no grant and was logged after the grant was recorded, such as a read planned through `gstack-review-plan --grant` with no claim), claim refuses with `GRANT_SPENT`. /ship finish no longer reports the docs audit stale for a path a clean fix-check read and nothing changed since; `DOCS: fresh` lists it as `fix_checked=<n>`. `ci_record_timeout_s` now bounds only finding and verifying the CI run: the local runs of CI-skipped files that `gstack-evidence record-ci` does afterwards get up to an hour more, so a long remainder no longer runs into the bound, and a slow CI lookup is still stopped at the bound, as `ci_record_timeout`. (GST-3560)

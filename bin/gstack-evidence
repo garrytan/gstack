@@ -76,7 +76,10 @@
  * whose inventory command refuses HEAD's tree (inventory_failed) is recorded
  * as source "remote_gate" when the cleared pregate.json/remote_gate verifies
  * for that exact tree (lib/remote-gate-stand-in.ts, GST-1688); `carried`
- * never lists it, since no CI run carried it.
+ * never lists it, since no CI run carried it. Before it runs any file here (a
+ * per_file remainder of CI-skipped files, or a test-lane exception's preflight),
+ * it prints CI_RECORD_PHASE: local, which ends the ci_record_timeout_s bound
+ * gstack-ship-release and gstack-ship-preflight hold it to (GST-3560).
  *
  * MACHINE-LOCAL by design: neither the ledger nor the logs are brain-synced.
  * A synced record citing an unsynced log would grade FRESH on a machine where
@@ -821,6 +824,8 @@ async function cmdRecordCi(argv: string[]): Promise<number> {
   }
   let exception: BoundLaneException | undefined;
   const grant = atHead.find((g) => g.approval === v.exceptedBy);
+  const local = (v.excepted?.length && grant ? v.excepted.length : 0) + (v.remainder?.length ?? 0);
+  if (local) console.error(`CI_RECORD_PHASE: local files=${local} (the CI run is found and verified; ci_record_timeout_s does not bound these runs)`);
   if (v.excepted?.length && grant) {
     const preLabel = `${label}.excepted`;
     console.error(`gstack-evidence record-ci: test-lane exception ${grant.approval}: preflighting ${v.excepted.length} uncovered file(s) here at ${head.slice(0, 12)}, one at a time (label=${preLabel})`);

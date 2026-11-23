@@ -6,7 +6,9 @@
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { fakeGhScript, type FakeWorld } from './helpers/fake-gh-runs';
 import { findFilesBySuffix } from './helpers/scratch-repo';
 import { lineOf, PREFLIGHT, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
@@ -138,5 +140,47 @@ describe('record-ci reuses its own CI row at the same tree (GST-1795)', () => {
     expect(f.run(EVIDENCE, ['run', '--label', 'free', '--', FREE]).status).toBe(0);
     const again = recordCi(f);
     expect([again.status, perFileRuns(f), lineOf(again.stderr, 'CI_RECORD_REUSED')], again.stderr).toEqual([0, 2, '']);
+  });
+});
+
+describe('the record-ci bound covers finding the CI run, not the local remainder (GST-3560)', () => {
+  const slow = (key: 'inventory' | 'per_file') => {
+    const cfg = JSON.parse(BASE['.gstack/pregate.json']);
+    cfg.ship_lanes_from[FREE][key] = 'sleep 8; ' + cfg.ship_lanes_from[FREE][key];
+    const f = shipFixture({ ...BASE, '.gstack/pregate.json': JSON.stringify(cfg, null, 2) + '\n' });
+    fixtures.push(f);
+    world(f);
+    return f;
+  };
+  const carry = (f: ShipFx, bound: number) => {
+    const code = `const { carryLane } = await import(${JSON.stringify(path.join(import.meta.dir, '..', 'lib', 'ship-bin-common.ts'))}); console.log(JSON.stringify(await carryLane(process.cwd(), 'main', { label: 'free', command: process.env.LANE_CMD }, ${bound})));`;
+    const r = f.run(process.execPath, [...bunIsolationArgs(), '-e', code], { LANE_CMD: FREE });
+    expect(r.status, r.stderr).toBe(0);
+    return JSON.parse(r.stdout.trim().split('\n').at(-1)!);
+  };
+  // Value: protects=HARN-64: record-ci's local per_file remainder ran 879.7 s against ci_record_timeout_s=900, so the bound meant
+  //   for finding and verifying the CI run also had to fit local test runs; fails_when=carryLane kills record-ci while the
+  //   remainder runs (carryNone record_failed) though the CI phase finished well inside the bound; seam=carryLane, CI_RECORD_PHASE
+  test('a remainder that runs past the bound still carries', () => {
+    const f = slow('per_file');
+    expect([carry(f, 6), perFileRuns(f)]).toEqual([expect.objectContaining({ exit: 0, carried: '7/1', here: expect.any(String) }), 1]);
+  });
+
+  // Value: protects=the bound still holds while the CI run is found and verified: a lookup past it is stopped then, not after it
+  //   returns, and runs nothing here; fails_when=the bound is dropped or checked only after the lookup; seam=carryLane
+  test('a CI phase past the bound stops as ci_record_timeout and runs nothing here', () => {
+    const f = slow('inventory');
+    const t0 = Date.now();
+    const got = carry(f, 3);
+    expect([got.carryNone, perFileRuns(f)]).toEqual([expect.stringMatching(/^ci_record_timeout: finding and verifying the CI run took over the 3 s bound/), 0]);
+    expect(Date.now() - t0).toBeLessThan(8_000);
+  });
+
+  // Value: protects=a record-ci that cannot start returns record_failed for its lane, as the synchronous spawn did, so accept,
+  //   finish and preflight report it; fails_when=the spawn error is unhandled and the tool crashes; seam=carryLane
+  test('a record-ci that cannot start returns record_failed instead of crashing', async () => {
+    const { carryLane } = await import('../lib/ship-bin-common');
+    const got = await carryLane(path.join(fs.realpathSync(os.tmpdir()), 'gstack-no-such-checkout-' + process.pid), 'main', { label: 'free', command: FREE }, 5);
+    expect([got.exit, got.carryNone]).toEqual([null, expect.stringMatching(/^record_failed: /)]);
   });
 });

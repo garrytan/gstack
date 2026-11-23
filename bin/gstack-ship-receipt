@@ -1062,17 +1062,24 @@ function cmdStop(rest: string[]): number {
 }
 
 /** Before a granted round's first dispatch: this run spends the grant, so no other run can buy the same round with it. */
-function cmdClaim(rest: string[]): number {
+async function cmdClaim(rest: string[]): Promise<number> {
   const run = flag(rest, '--run'), id = flag(rest, '--grant');
   if (!run || !/^[\w.:-]{1,120}$/.test(run) || !id) { process.stderr.write('gstack-ship-receipt claim: --run <the /ship run id> and --grant <approval id> are required\n'); return EXIT.usage; }
   const repoRoot = git(['rev-parse', '--show-toplevel']);
   if (!repoRoot) { process.stderr.write('gstack-ship-receipt claim: run it inside the git checkout\n'); return EXIT.usage; }
   const read = readBody(rest);
   if (!read.ok) { process.stderr.write(`gstack-ship-receipt claim: ${read.why}; fix: ${read.fix}\n`); return EXIT.fail; }
-  const g = readReviewRoundGrants(repoRoot).find(x => x.approval === id);
+  const grants = readReviewRoundGrants(repoRoot), g = grants.find(x => x.approval === id);
   if (!g) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_UNKNOWN', `no approved fix-check or round grant ${id} (a gstack-approvals round-grant row, or an owner's review_loop_grant <head> row) in this branch's approval record`)}\n`); return EXIT.refused; }
   const other = receiptRuns(read.body).find(r => r.mark === 'grant' && r.grant === id && r.run !== run);
   if (other) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${other.run}: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
+  const held = receiptRuns(read.body).some(r => r.mark === 'grant' && r.grant === id && r.run === run);
+  if (!held && g.kind === 'fix-check') {
+    const rows = reviewRows(repoRoot);
+    if (!rows) { process.stderr.write(`gstack-ship-receipt claim: gstack-review-read failed, so whether a fix-check already spent grant ${id} is unknown; not claimed, so do not dispatch\n`); return EXIT.fail; }
+    const { bindFixCheckRow, grantSpent } = await import('../lib/fix-check-clearing');
+    if (grantSpent(rows, g, row => bindFixCheckRow(repoRoot, row, grants, { open: true }).ok)) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `a counted fix-check already read under grant ${id} (it carries the grant, or started after the grant was recorded): a grant buys one round; the lane or its Captain records a new one (docs/troubleshooting.md#pr-round-cap)`)}\n`); return EXIT.refused; }
+  }
   const err = postBody(rest, read.pr, placeRunEntry(read.body, grantMarker({ head: g.head, run, grant: id })));
   if (err) { process.stderr.write(`gstack-ship-receipt claim: ${err}; not claimed, so do not dispatch\n`); return EXIT.fail; }
   const handedOff = !flag(rest, '--body') && hostPublishes();
