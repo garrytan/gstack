@@ -1267,7 +1267,9 @@ the pull request's own added and removed lines in it are byte-identical to
 HEAD's at the same places (`lib/pregate/run-check.ts` `onlyBaseMoved`, used by every lane carry and by
 `clear --run`, never by land's merged-tree CI; why that is safe:
 [ship-policy.md](ship-policy.md#ci-carry-base-moved)). The receipt adds
-`base_moved=<base commit>`. Otherwise `CI_CARRY` says
+`base_moved=<base commit>`. GitHub merges onto the base as it was when the run
+started, so when that base commit is newer than your checkout's `origin/main`,
+the check fetches main once before it refuses. Otherwise `CI_CARRY` says
 `none (no_verified_run: … tree_mismatch)`, with a `CARRY_DIAGNOSIS:` line
 when the rule refused: dispatch Free Tests
 on the branch

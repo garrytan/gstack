@@ -60,20 +60,29 @@ export function gateInputsChanged(root: string, base: string, p: RunProfile): st
 }
 
 const SHA = /^[0-9a-f]{40}$/;
+const refreshedBases = new Set<string>();
 
 /**
  * Whether pull_request merge commit `merge` is `head` merged onto a newer commit of the base with only the base moved (GST-3567):
  * its parents are a commit on `baseRef` and then `head`, and the pull request's own added and removed lines in the merge are
  * byte-identical to the head's own, at the same places (ownLinesSame, the rule a base-only merge of a reviewed head meets). So
- * the run that tested the merge tested exactly the pull request's changes, on a newer base.
+ * the run that tested the merge tested exactly the pull request's changes, on a newer base. GitHub merges onto the base as it was
+ * when the run started, often newer than this checkout's `origin/<base>`, so a base parent missing from it fetches that branch
+ * once per process before refusing.
  */
 export function onlyBaseMoved(root: string, o: { merge: string; head: string; baseRef: string }): BaseMove {
-  const git = (args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  const git = (args: string[], timeout = 30_000) => spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout });
   const listed = git(['rev-list', '--parents', '-n', '1', o.merge]);
   const parents = listed.status === 0 ? (listed.stdout ?? '').trim().split(' ').slice(1) : [];
   if (parents.length !== 2 || parents[1] !== o.head || !SHA.test(parents[0]!)) return { ok: false, why: `merge commit ${o.merge.slice(0, 12)} is not a base commit merged with the head ${o.head.slice(0, 12)} (its parents: ${parents.map(p => p.slice(0, 12)).join(', ') || 'none'})` };
   const base = parents[0]!;
-  if (git(['merge-base', '--is-ancestor', base, o.baseRef]).status !== 0) return { ok: false, why: `its base parent ${base.slice(0, 12)} is not on ${o.baseRef}` };
+  const onBase = () => git(['merge-base', '--is-ancestor', base, o.baseRef]).status === 0;
+  const branch = o.baseRef.startsWith('origin/') ? o.baseRef.slice('origin/'.length) : null;
+  if (!onBase() && branch && !refreshedBases.has(`${root}\0${branch}`)) {
+    refreshedBases.add(`${root}\0${branch}`);
+    git(['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], 120_000);
+  }
+  if (!onBase()) return { ok: false, why: `its base parent ${base.slice(0, 12)} is not on ${o.baseRef}${branch ? ', even after fetching it' : ''}` };
   if (!ownLinesSame(root, o.baseRef, o.head, o.merge)) return { ok: false, why: `the pull request's own added and removed lines in the tested merge are not byte-identical to the head's at the same places (the base edited a line the pull request changes, or one next to it), so more than the base moved` };
   return { ok: true, base };
 }

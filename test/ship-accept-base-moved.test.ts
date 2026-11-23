@@ -177,6 +177,21 @@ describe('only lane carries take the rule; land\'s merged-tree CI never does (GS
     const tree = f.git('merge-tree', '--write-tree', stray, 'HEAD').stdout.trim().split('\n')[0]!;
     const merge = f.git('commit-tree', tree, '-p', stray, '-p', 'HEAD', '-m', 'merge').stdout.trim();
     const v = onlyBaseMoved(f.work, { merge, head: sha(f, 'HEAD'), baseRef: 'origin/main' });
-    expect(v).toEqual({ ok: false, why: expect.stringContaining('is not on origin/main') });
+    expect(v).toEqual({ ok: false, why: expect.stringContaining('is not on origin/main, even after fetching it') });
+  });
+
+  // Value: protects=GitHub merging onto a main newer than the checkout's origin/main still counts: onlyBaseMoved fetches the base once
+  //   before refusing; fails_when=a stale origin/main refuses the carry and the lane reruns CI for nothing; seam=real git, local origin
+  test('onlyBaseMoved: a base parent newer than the checkout\'s origin/main is fetched, then counts', () => {
+    const f = behind();
+    const stale = sha(f, 'origin/main');
+    f.advanceBase({ 'src/e.ts': 'export const e = 5;\n' });
+    expect(f.git('fetch', '-q', '--refmap=', 'origin', '+refs/heads/main:refs/ci-tested/main').status).toBe(0);
+    const tested = sha(f, 'refs/ci-tested/main');
+    const tree = f.git('merge-tree', '--write-tree', tested, 'HEAD').stdout.trim().split('\n')[0]!;
+    const merge = f.git('commit-tree', tree, '-p', tested, '-p', 'HEAD', '-m', 'merge').stdout.trim();
+    expect([sha(f, 'origin/main'), tested]).toEqual([stale, expect.not.stringMatching(stale)]);
+    expect(onlyBaseMoved(f.work, { merge, head: sha(f, 'HEAD'), baseRef: 'origin/main' })).toEqual({ ok: true, base: tested });
+    expect(sha(f, 'origin/main')).toBe(tested);
   });
 });
