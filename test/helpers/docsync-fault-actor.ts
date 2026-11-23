@@ -81,7 +81,7 @@ function stderrExcerpt(root: string, stderr: string): string {
  */
 function installedSnapshot(s: DocsActorState, auditId: string, out: string): { record: DocsCandidateRecord; command: string } {
   const repo = path.join(s.root, 'repo');
-  const argv = docsSnapshotArgv({ repo, skills: path.join(s.root, '.claude/skills/gstack') }, auditId, out);
+  const argv = docsSnapshotArgv({ repo, skills: path.join(s.root, '.claude/skills/gstack'), invocation: path.join(s.root, 'ship-invocation.md') }, auditId, out);
   const run = spawnSync(argv[0]!, argv.slice(1), { cwd: repo, encoding: 'utf8', timeout: SNAPSHOT_TIMEOUT_MS,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } });
   const stderr = run.stderr || '';

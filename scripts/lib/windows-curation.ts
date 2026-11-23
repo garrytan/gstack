@@ -112,6 +112,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'executes registered native documentation callbacks with their real Linux inotify write observer before the model boundary',
   },
   {
+    file: 'test/docsync-stopped-audit-snapshot.test.ts',
+    reason: 'spawns the installed bin/gstack-docs-candidate shebang script directly (Windows CreateProcess does not parse shebangs)',
+  },
+  {
     file: 'test/setup-gbrain-fixture.test.ts',
     reason: 'the fixture invokes real POSIX detector/verifier helpers through executable shebang wrappers',
   },
