@@ -2304,10 +2304,12 @@ ruling after the run stops.
 uses). The line names the field and the detector rule, never the matched text. Exit 3.
 Nothing was written, locally or to the Drive mirror. `import --autoplan` skips a
 `pii.phone.e164` or `pii.cc` finding that starts inside the autoplan run id's
-14-digit stamp, or the thread-code digits right before it, where import places
+time stamp, or the thread-code digits right before it, where import places
 the id (the ask's `autoplan run <id>` and the source's `autoplan:<id>@`), when
 the id has the minted shape `<name>-<14 digits>` (GST-2047; since GST-3015 the
-name ends in six random letters); a phone number in
+name ends in six random letters) or the shape interactive /autoplan minted
+before #4402, `<branch>-YYYYMMDD-HHMMSS` with a real calendar date and time;
+a phone number in
 the rest of the directory name, the same id anywhere else, and every other
 finding in the row still refuse.
 Likewise a `pii.phone.e164` finding that starts inside the `stop=` run id of a
@@ -2430,8 +2432,10 @@ under `## Approvals`. A PR whose only changes are changelog fragments needs no l
 
 **Meaning.** `Plan: approved: <token>` names no approval row on this machine. A run id must
 match a row source `autoplan:<id>@gate_rev=<n>` in any branch's file of the repository's
-approval store (the state root plus every Drive mirror); a row id must exist and be a plan
-approval, not a `ruled_note`, `review_loop_grant` or `test_lane_exception` row. A public
+approval store (the state root plus every Drive mirror); a run folder path resolves to the
+run id in its `run.json`, else, for an interactive /autoplan folder with no `run.json`, to the
+one run its `decisions.jsonl` records (a folder holding several runs resolves to none, so cite
+the run id instead); a row id must exist and be a plan approval, not a `ruled_note`, `review_loop_grant` or `test_lane_exception` row. A public
 repo's `Plan: approved (record r-<id>)` must hash from a row id this machine can read; when it
 is the redacted Approvals block's own id (a hash of a whole record), the message says so.
 
@@ -3333,6 +3337,15 @@ exact tokens it finds in these positions:
   `1234567-1794900000-0a1b2c3d`), and the 12-hex shas in the `pregate` value
   (`@<tree> (<n> checks, current for <head>)`) and the `requires_remote`
   values (`heads=`, `tree=`) (#4480);
+- in a closed `gstack-receipt-runs` block (the earlier /ship runs listed
+  under the receipt) that opens outside any other fenced code block, the
+  top-level `run` value of a line whose JSON matches its `JSON.stringify`
+  rendering byte for byte, with a 40-hex `head` and a `run` shaped like that
+  session id (#4725). A phone number in another field of the same line, a
+  `run` of any other shape, a session id under another key, a spaced or
+  reordered line, and a block inside another fence or left open still
+  report. Only `pii.phone.e164` is skipped there: a session id that also
+  reads as a card number still asks;
 - on a line outside any fenced code block that opens with `SHIP_RECEIPT:`,
   `CI_CARRY:`, `PREGATE:` or `READY_RECEIPT:` (bare, after `- `, `* ` or
   `> `, or after a backtick), the
