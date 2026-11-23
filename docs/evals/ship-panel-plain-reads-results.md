@@ -11,7 +11,7 @@ The model judge failed its label check, so real problems other than the planted 
 
 - **The panel beat one plain read clearly on Opus.** The panel caught 71 of 90 planted bugs (78.9%), and one plain read caught 38 of 90 (42.2%). The difference is −36.7 points (−48.7 to −24.6). On Sol the panel caught 58 of 90 (64.4%) and one plain read caught 46 of 90 (51.1%), a difference of −13.3 (−28.7 to +2.0).
 - **The second-model reviewer adds real catches.** Two plain reads plus the reviewer, compared with two plain reads alone, gained +14.4 points on Opus (+5.9 to +23.0) and +10.0 on Sol (+1.8 to +18.2).
-- **A second plain read helps Opus, not Sol.** Opus gained +17.8 (+9.9 to +25.7) from a second read. Sol gained +1.1 (−2.9 to +5.1): its two reads mostly found the same things.
+- **A second plain read helps Opus, not Sol.** Opus gained +17.8 (+9.9 to +25.7) from a second read. Sol gained +1.1 (−2.9 to +5.1): its two reads mostly found the same things. On Sol this contrast also carries the network rule: in one trial (N3, trial 3), the first read caught the plant but the second read fetched from GitHub, so the pooled pair scored zero.
 
 ## What didn't
 
@@ -35,7 +35,7 @@ Every arm, on both models, 30 cases and 3 trials per case. "Caught" counts trial
 | `gpt-6.2-sol#no-gstack-x2` | GPT-6.2 Sol | two plain reads | 47 | 52.2% | −12.2 (−28.2 to +3.8) | $1.00 | $1.92 | unscored |
 | `gpt-6.2-sol#plain-x2-voice` | GPT-6.2 Sol | two plain reads + second-model reviewer on Opus | 56 | 62.2% | −2.2 (−20.0 to +15.6) | $1.41 | $2.26 | unscored |
 
-Secondary contrasts, paired, no bar:
+Secondary contrasts, paired, no bar. The plain arms are nested, so on Opus a pooled arm never scores below the arm inside it. On Sol the network rule zeroes a whole pooled arm when any of its runs fetched GitHub, so N2 lost the one catch N1 had made in trial 3 of N3. The Sol N2 minus N1 interval therefore reflects both the second read and that rule: 2 cases gained a catch and 1 case lost one.
 
 | Contrast | Claude Opus 5.5 | GPT-6.2 Sol |
 |---|---|---|
