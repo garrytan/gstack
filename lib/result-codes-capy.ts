@@ -13,7 +13,7 @@ export const CAPY_RESULT_CODES = {
   APPROVAL_RECORD_INVALID: {
     anchor: 'approval-record-invalid',
     summary: 'an approval row is missing a required field, holds a value outside its enum, or exceeds a length cap',
-    fix: 'rerun gstack-approvals add with every required flag (--ask, --words, --scope, --by) inside the caps it names; nothing was written',
+    fix: 'rerun the command this line names with the flag its detail names, inside its caps (gstack-approvals --help lists each command\'s flags); nothing was written',
   },
   APPROVAL_RULING_RUN_OPEN: {
     anchor: 'approval-ruling-run-open',

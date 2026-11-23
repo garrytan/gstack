@@ -500,3 +500,68 @@ describe('import --autoplan --stack', () => {
     expect(bin(['import', '--autoplan', tmp('appr-run-'), '--branch', 'feature/one', '--stack', 'feature/one'], { cwd }).status).toBe(2);
   });
 });
+
+// Value: protects=each --owner-ref refusal of rule and round-grant names the one check that failed and the ref shape OWNER_REF accepts, never echoes the rejected ref, and every APPROVAL_RECORD_INVALID fix clause stops pointing at add's flags;
+//   fails_when=a bad ref, a missing --words and a missing --by print one shared sentence again, the refusal prints the raw ref, or fix: sends rule, round-grant, lane-exception or gate to add (--ask, --scope) (#4718, idea from @Barack-zero-to-one in #4720);
+//   why_new=no test read the refusal text, only its exit code; seam=gstack-approvals rule|round-grant|lane-exception|gate
+describe('APPROVAL_RECORD_INVALID names the failed check and no other command (#4718)', () => {
+  const committed = () => {
+    const cwd = repo();
+    spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd, timeout: 30_000 });
+    return { cwd, env: { GSTACK_STATE_ROOT: tmp('appr-state-') } };
+  };
+  const split = (err: string) => { const at = err.indexOf('; fix: '); return { why: err.slice(0, at), fix: err.slice(at + 7) }; };
+  const RULE = ['rule', '--finding', 'a.txt:1:docs', '--head', 'HEAD', '--reason', 'synthetic'];
+  const REF = 'SHIP-161:2026-11-22T18:42:14Z';
+  const BAD = 'ship-161:2026-11-22T18:40:00Z';
+
+  test('rule: a bad ref is refused for its shape alone, without echoing it; a good ref still records', () => {
+    const o = committed();
+    const r = bin([...RULE, '--words', 'A', '--by', 'owner', '--owner-ref', BAD], o);
+    expect([r.status, r.err]).toEqual([2, expect.stringContaining('(APPROVAL_RECORD_INVALID)')]);
+    const { why } = split(r.err);
+    expect(why).toContain('--owner-ref');
+    expect(why).toMatch(/uppercase/);
+    expect(why).not.toContain(BAD);
+    expect(why).not.toContain('--words');
+    expect(why).not.toContain('--by');
+    const ok = bin([...RULE, '--words', 'A', '--by', 'owner', '--owner-ref', REF], o);
+    expect(ok.status, ok.err).toBe(0);
+  });
+
+  test('rule: a good ref without --words names --words alone, and without --by names --by alone', () => {
+    const noWords = split(bin([...RULE, '--by', 'owner', '--owner-ref', REF], committed()).err).why;
+    expect(noWords).toContain('--words');
+    expect(noWords).not.toContain('--by');
+    expect(noWords).not.toMatch(/uppercase/);
+    const noBy = split(bin([...RULE, '--words', 'A', '--owner-ref', REF], committed()).err).why;
+    expect(noBy).toContain('--by');
+    expect(noBy).not.toContain('--words');
+    expect(noBy).not.toMatch(/uppercase/);
+  });
+
+  test('round-grant: a bad ref is refused for its shape alone; a good ref without --words names --words', () => {
+    const grant = ['round-grant', '--pr', '7', '--head', 'HEAD', '--kind', 'extra-round', '--reason', 'r', '--by', 'Captain'];
+    const bad = split(bin([...grant, '--owner-ref', 'ship-161:x', '--words', 'w'], committed()).err).why;
+    expect(bad).toMatch(/uppercase/);
+    expect(bad).not.toContain('ship-161');
+    expect(bad).not.toContain('--words');
+    const noWords = split(bin([...grant, '--owner-ref', REF], committed()).err).why;
+    expect(noWords).toContain('--words');
+    expect(noWords).not.toMatch(/uppercase/);
+  });
+
+  test('the fix clause of rule, round-grant, lane-exception and gate names no flag of add', () => {
+    const o = committed();
+    for (const args of [[...RULE, '--words', 'A', '--by', 'owner', '--owner-ref', BAD], ['round-grant'], ['lane-exception'], ['gate']]) {
+      const r = bin(args, o);
+      expect([args[0], r.status, r.err]).toEqual([args[0], 2, expect.stringContaining('(APPROVAL_RECORD_INVALID)')]);
+      const { fix } = split(r.err);
+      expect(fix).not.toContain('gstack-approvals add');
+      expect(fix).not.toContain('--ask');
+      expect(fix).not.toContain('--scope');
+      expect(fix).toContain('nothing was written');
+    }
+  });
+});
+
