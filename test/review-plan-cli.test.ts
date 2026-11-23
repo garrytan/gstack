@@ -150,13 +150,16 @@ describe('gstack-review-plan', () => {
     expect(plan(capStop).stdout).toContain('NEXT: full (read-only final review (R51)');
     const granted = plan([...capStop, '--grant', id]);
     expect(granted.status, granted.stderr).toBe(0);
-    expect(granted.stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
-    expect(granted.stdout).toContain('DISPATCH: fix-check fix-check effort=full');
+    expect(granted.stdout).toContain('NEXT: full (read-only final review (R51)');
+    expect(granted.stdout).not.toContain('DISPATCH: fix-check');
+    const afterFixCheck = ['--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--fixed-blocking', '--range-base', passHead];
+    expect(plan([...afterFixCheck, '--grant', id]).stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
+    expect(plan([...afterFixCheck, '--grant', id]).stdout).toContain('DISPATCH: fix-check fix-check effort=full');
     commit(3);
-    expect(plan([...capStop, '--grant', id]).stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
+    expect(plan([...afterFixCheck, '--grant', id]).stdout).toContain(`NEXT: fix-check (the owner's grant ${id}`);
     expect(plan(['--pass', '2', '--last', 'fix-check', '--fixed-blocking', '--range-base', passHead, '--grant', id]).stdout).toContain('NEXT: stop');
     for (const other of refusedIds) {
-      const refused = plan([...capStop, '--grant', other]);
+      const refused = plan([...afterFixCheck, '--grant', other]);
       expect([other, refused.status, refused.stdout]).toEqual([other, 3, '']);
       expect(refused.stderr).toContain(`--grant ${other}`);
     }

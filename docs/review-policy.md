@@ -347,7 +347,7 @@ the same grant, whichever row records it:
 | a fix-check (granted before GST-3562) that found nothing blocking | done |
 | a fix-check (granted before GST-3562) that found a blocking finding | stop: name it for the owner |
 | a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
-| a stop at the cap with a grant recorded before GST-3562 (`--grant <approval id>`), for one release | one scoped fix-check (round 3), after Step 11 on gate class |
+| the stop after a fix-check (granted before GST-3562) that was the run's only one, with the owner's recorded grant (`--grant <approval id>`) | one more scoped fix-check, after Step 11 on gate class, until a later release removes it; a grant after a round-2 full pass buys nothing, because the read-only full review replaces it |
 | a round-2 fix-check that stops the same way, with the owner's recorded grant and `--fix-checks 1` | one scoped fix-check (round 3), after Step 11 on gate class |
 | `--post-review` after a fix-check whose later edits are only release stamps and docs (`docsChangeSince`) | done, or the one targeted reader when a docs claim on a targeted-class diff needs it |
 | `--post-review` after a fix-check (edits after the review bound), with a new recorded grant at a stop head after the last fix-check's commit | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
@@ -437,9 +437,9 @@ Under the opt-in `review.panel risk` (and `review.platform on` under any panel):
 
 | Diff | Pass 1 | After fixes (never more than 2 rounds) |
 |---|---|---|
-| Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | A fixed blocker re-runs the printed plan on the fixed head as round 2; below-floor fixes get one fix-check |
-| Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker or a gate-class edit gets one fix-check on the touched hunks; below-floor fixes ship as notes |
-| Docs | The core read; the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
+| Risk class: gate class, an R51 class (money, auth, secret, security, data), `eval` (scorer, judge and grader paths) or `policy` (`review.risk_paths`) | The full-depth plan as printed: the batched specialist, Red Team, native adversarial, outside voice and the targeted reader | Any fix re-runs the printed plan on the fixed range as round 2 (GST-3562 A); a fix in round 2 gets one read-only full review |
+| Non-risk code | One native adversarial reader (`DISPATCH: adversarial-native single`) at the lane's reasoning, on `review.reader_model` (`lane` by default), carrying the code checklists and the Red Team checklist; it also carries the targeted brief when the diff has a targeted class | A fixed blocker, a gate-class edit or a below-floor fix that changes runtime lines gets the one reader's full pass on the range as round 2, adding the outside voice when the fix changed a published number (GST-3562 A); below-floor fixes with no runtime lines ship as notes |
+| Docs | The core read; the outside voice only when the diff publishes numbers | A full pass on the range after a fixed blocker (GST-3562 A) |
 | Tests, or code with no runtime lines (only registered outputs) | One batched reader on the class's checklists (Testing for tests, which leaves docs and registered outputs out of its diff); the outside voice only when the diff publishes numbers | One fix-check after a fixed blocker |
 | Docs or tests with no numeric, results or prereg claims, under `review.platform on`, with capy-ai[bot]'s review on the PR at HEAD | No reader: `NEXT: platform` and a planned `SKIP:` for every reader, the core read included | none |
 
@@ -711,9 +711,9 @@ the specialists, audits and watchers at the host default too
 - Standard reads thresholds on runtime lines, not the whole diff, so a test-heavy
   diff with few runtime lines dispatches fewer specialists.
 - R51: size never raises the depth; non-risky code is light at any size, and a risk
-  class makes it full. Two rounds is the cap, a fix-check
-  included: a blocker fixed in round 2 stops for the owner instead of earning a
-  fix-check, and a light pass 1 whose below-floor fixes change no runtime lines is done.
+  class makes it full. Two rounds is the cap: a fix made in round 2 gets one
+  read-only full review of the whole PR diff with no fix round (GST-3562 A), and a
+  light pass whose below-floor fixes change no runtime lines is done.
 - A JSON, CSV, TSV or raster data file no code names is docs, not runtime (GSTA-167
   part 4a). A binary image no code names is no longer a `binary_code_path` error
   that forces full depth; one that code names still is.

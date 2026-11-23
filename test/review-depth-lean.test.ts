@@ -229,9 +229,14 @@ describe('C6 platform depth (FOUN-32, founderstar#496): a planned skip needs the
 
 describe('R65 lean loop: one fix round, never more than 2 rounds', () => {
   const h = (o: object) => ({ fullPasses: 1, last: 'full' as const, lean: true, ...o });
-  test('non-risk: a fixed blocker earns the one reader\'s full pass on the range (GST-3562 A); below-floor fixes ship as notes', () => {
+  test('non-risk: a fixed blocker earns the one reader\'s full pass on the range (GST-3562 A); below-floor fixes ship as notes only when they change no runtime lines', () => {
     expect(nextStep(h({ fixedBlocking: true }), 'light')).toMatchObject({ step: 'full', reason: expect.stringContaining("round 2 is the one reviewer's full pass on the range, never a fix-check (R51, GST-3562 A)") });
-    expect(nextStep(h({ fixedBelow: true }), 'light')).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
+    expect(nextStep(h({ fixedBelow: true, rangeRuntimeLines: 0 }), 'light')).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
+    for (const rangeRuntimeLines of [undefined, null, 2]) {
+      expect(nextStep(h({ fixedBelow: true, rangeRuntimeLines }), 'light')).toMatchObject({ step: 'full', reason: expect.stringContaining('below-floor fixes changed runtime lines') });
+      expect(nextStep(h({ fixedBelow: true, rangeRuntimeLines, fullPasses: 2 }), 'light')).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
+      expect(nextStep(h({ fixedBelow: true, rangeRuntimeLines, fullPasses: 3 }), 'light').step).toBe('stop');
+    }
   });
   test('risk: any fix earns the one reader\'s full pass on the range as round 2, a gate-class edit included (GST-3562 A); a round-2 fix gets one read-only full review, and a fix after it stops for the lane\'s Captain', () => {
     for (const o of [{ fixedBlocking: true }, { fixedBelow: true }, { fixedBelow: true, touchedGate: true }]) {
@@ -239,6 +244,17 @@ describe('R65 lean loop: one fix round, never more than 2 rounds', () => {
       expect(nextStep(h({ ...o, fullPasses: 2 }), 'full')).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
       expect(nextStep(h({ ...o, fullPasses: 3 }), 'full')).toMatchObject({ step: 'stop', reason: expect.stringContaining("the lane's Captain decides") });
     }
+  });
+  // Value: protects=the lean round 2 that replaced the fix-check keeps its second-model check of changed published numbers
+  //   (R12's published-number blocker); fails_when=a code PR whose fix changed a published number gets only the native reader in
+  //   round 2; why_new=GST-3562 A (PR #4737's second-model review); seam=leanPlan; no_claim=what the reader finds
+  test('round 2 on a code diff adds the second-model reader when the fix changed a published number, as the fix-check did', () => {
+    const numbers = scanNumbers({ 'docs/bench.md': ['3x faster'] });
+    const p = (reviewedNumbers: string) => planReview(base({ paths: ['src/app.ts', 'docs/bench.md'], numbers, reviewedNumbers, history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
+    const roles = (q: ReturnType<typeof planReview>) => q.dispatches.map(d => `${d.role}:${d.name}`);
+    expect(p('old').next.step).toBe('full');
+    expect(roles(p('old'))).toContain('outside-voice:outside-voice (numbers changed)');
+    expect(roles(p(numbers.fingerprint))).not.toContain('outside-voice:outside-voice (numbers changed)');
   });
   test('a fix-check blocker stops for the owner; a recorded grant adds one fix-check, never two', () => {
     expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 1 }), 'full').step).toBe('stop');

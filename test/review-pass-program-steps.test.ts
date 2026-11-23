@@ -11,8 +11,8 @@ import { PARENT_ONLY_QA, type Manifest } from '../lib/review-pass';
 import { ROOT, BIN, spec, manifest, repo, host, runPass, bin } from './helpers/review-pass-harness';
 
 /**
- * GST-3562 A: the planner plans a fix-check only for a grant recorded before it, for one release. Commit a fix, record the owner's
- * grant at that stop head, and return the plan flags of the round-2 stop it answers.
+ * GST-3562 A: the planner plans a fix-check only for a grant answering the stop after a round-2 fix-check (GEVA-223), until a
+ * later release removes it. Commit a fix, record the owner's grant at that stop head, and return the plan flags of that stop.
  */
 function legacyGrantFlags(dir: string, env: NodeJS.ProcessEnv): string[] {
   const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
@@ -23,7 +23,7 @@ function legacyGrantFlags(dir: string, env: NodeJS.ProcessEnv): string[] {
   delete env.GSTACK_APPROVALS_DIR;
   const a = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${stopHead.slice(0, 12)})`, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
   expect(a.status, a.stderr).toBe(0);
-  return ['--pass', '2', '--last', 'full', '--fixed-blocking', '--adversarial-ran', '--range-base', rangeBase, '--grant', JSON.parse(a.stdout).added[0]];
+  return ['--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--fixed-blocking', '--adversarial-ran', '--range-base', rangeBase, '--grant', JSON.parse(a.stdout).added[0]];
 }
 
 describe('Capy pass program (fake host, real bins)', () => {
@@ -197,7 +197,7 @@ describe('Capy pass program (fake host, real bins)', () => {
 
   // Value: protects=the pass program dispatches the owner's granted fix-check from the plan, as decision 3.5 runs any fix-check, instead of PASS: none; fails_when=a recorded grant still prints PASS: none next=stop and the lane renders, sends and collects the fix-check by hand (C6-36 after-opus-grant);
   //   why_new=GST-967; seam=the pass program; no_claim=the fix-check reviewer's verdict
-  test('GST-967: a recorded grant after round 2 runs its one scoped fix-check through the program', async () => {
+  test('GST-967: a recorded grant after the round-2 fix-check runs its one scoped fix-check through the program (GST-3562 A: a grant after a round-2 full pass buys none)', async () => {
     const { dir, env } = repo();
     const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
     const add = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${head.slice(0, 12)})`, '--words', 'one scoped fix-check after round 2', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, env: { ...env, GSTACK_APPROVALS_MIRROR: '0' }, encoding: 'utf8', timeout: 60_000 });
@@ -208,7 +208,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const fc: Record<string, string> = {};
     for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n'], ['callers', 'none\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
     const h = host(dir, env);
-    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/gfc'), pass: 'x30gfc', planFlags: ['--pass', '2', '--last', 'full', '--fixed-blocking', '--range-base', head, '--grant', id], fixCheck: fc, logStart: ['review-fix-check'] });
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/gfc'), pass: 'x30gfc', planFlags: ['--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--fixed-blocking', '--range-base', head, '--grant', id], fixCheck: fc, logStart: ['review-fix-check'] });
     expect(res).not.toContain('PASS: none');
     expect(res).toContain(`NEXT: fix-check (the owner's grant ${id}`);
     expect(h.creates.map(c => c.title)).toEqual(['ship x30gfc fix-check']);

@@ -11,8 +11,8 @@
  *   b. both plans take the same stop, voices or done step and differ only in its reason text.
  *   c. main planned a fix-check at the cap after a read-only review had run; the branch stops for the lane's Captain (on gate
  *      class, Step 11's voices first).
- *   d. main was done with an unread below-floor fix; the branch reviews it (a full pass, a stop or the voices before one, or the
- *      fix-check an old grant still buys).
+ *   d. main was done with an unread below-floor fix; the branch reviews it (a full pass, a read-only full review, or a stop or
+ *      the voices before one).
  *   e. main stopped (or ran the voices before stopping) on a blocker fixed or a gate edit made at the cap; the branch gives the
  *      final head one read-only full review.
  */
