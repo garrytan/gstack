@@ -10,6 +10,8 @@
  * An open issue still assigned to the thread refuses too until it is
  * re-assigned to a live thread or closed. Every run prints a handoff stub
  * (PR, branch, head, CI at that head, open issues) for a successor brief.
+ * A PR that closed without merging prints a NOTE, never a refusal: if the
+ * close was a shelve, it links a write-up (docs/shelved-attempt.md).
  *
  * landedIssues serves the land step: the tracker codes in a merged PR's
  * trailing title group (R76), which the Captain then closes with
@@ -137,9 +139,11 @@ export function checkThread(raw: unknown, o: CheckOptions): CheckResult {
   if (isFailure(list)) return fail(list);
 
   const live: LivePr[] = [];
+  const unmerged: string[] = [];
   for (const p of thread.prs) {
     const pr = readPr(o.ghFor(p.repo), p.repo, p.number);
     if (isFailure(pr)) return fail(pr);
+    if (pr.state === 'CLOSED') unmerged.push(p.repo + '#' + p.number);
     if (pr.state !== 'OPEN') continue;
     let ci: string;
     try {
@@ -158,6 +162,7 @@ export function checkThread(raw: unknown, o: CheckOptions): CheckResult {
     ...live.map(p => 'ORPHAN: pr ' + p.repo + '#' + p.number + ' open head=' + p.head.slice(0, 12) + ' ci=' + p.ci + ' (R91: never archive a thread that holds an open PR; it stays until the PR merges or closes)'),
     ...work.map(i => 'ORPHAN: issue ' + i.code + ' ' + i.state + ' (re-assign it to a live thread or close it)'),
     ...openIssues.filter(i => NOT_WORK.has(i.state)).map(i => 'NOTE: issue ' + i.code + ' ' + i.state + ' (not live work; re-assign or close it when the work is dropped)'),
+    ...unmerged.map(ref => 'NOTE: pr ' + ref + ' closed without merging (if it was shelved, cut or null, its close links a write-up: docs/shelved-attempt.md)'),
   ];
   const verdict = live.length || work.length ? 'refused' : 'clean';
   lines.push('ARCHIVE_CHECK: ' + verdict + ' thread=' + o.thread + ' prs=' + live.length + ' issues=' + work.length);

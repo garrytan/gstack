@@ -327,11 +327,23 @@ went stale and conflicting, and started to look like junk.
   outside PRs with no verdict after 5 days, and re-own each one. Nothing is closed for
   being old.
 - **Close only as landed, superseded or dropped.** A crew PR closes only as landed (link
-  the merge commit), superseded (link the replacement) or dropped (quote the decision).
+  the merge commit), superseded (link the replacement) or dropped (quote the decision, and
+  link the write-up when an attempt was shelved: [Write it up before you shelve it](#write-it-up-before-you-shelve-it)).
   Anything else is salvage: a live owner rebuilds it onto current main, in the area's next
   wave when the queue is long. Old and conflicting is how finished work looks when its
   owner went away, not a reason to close it. Age a PR by its `createdAt`: bots touch every
   PR, so "last updated" means nothing.
+
+## Write it up before you shelve it
+
+When an attempt closes as failed, shelved, cut, null or not now (an experiment, an eval
+arm, a prototype, a dropped PR), the lane writes a short write-up first, from
+[docs/shelved-attempt.md](../../docs/shelved-attempt.md): takeaways, what worked, what
+didn't with its numbers, why it's shelved, what would reopen it, where the data is, what
+wasn't done, what went wrong on our side, and cost. Every close links it: the issue's
+Canceled comment, the PR's close comment, the lane's report and a "Why null?" verdict.
+Before archiving, `gstack-archive-check thread` prints a `NOTE:` for each PR that closed
+without merging; when that close was a shelve, check the write-up is linked.
 
 ## Keep issues tidy
 

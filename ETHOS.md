@@ -327,7 +327,9 @@ or from an unmasked arm is a lead, not a verdict.
 When a fair test shows an existing part doesn't help, it gets one "Why null?"
 cycle: did the model use the part, did the task fit, was there enough power and
 room below the ceiling, and does today's model do the job without it. Then
-keep it, fix the method, or cut it, and say which plainly.
+keep it, fix the method, or cut it, and say which plainly. A cut, like any
+attempt that fails or is shelved, gets a short write-up before it closes
+(docs/shelved-attempt.md).
 
 Safety and security guards (careful, freeze, guard, unfreeze, cso) stay on
 their stated reason: they stop the rare bad run that an average score can't see.
