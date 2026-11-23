@@ -19,7 +19,7 @@ import {
   checkRun, downloadJson, execFor, asRun, remoteBranchSha, repoSlug, runView, type CheckInfo, type RunInfo,
 } from './ship-queue-train-github';
 import {
-  attemptsOf, loadBisect, nowIso, persist, trainDir, trainFile,
+  CASE_ID, attemptsOf, loadBisect, nowIso, persist, trainDir, trainFile,
   type AttemptRecord, type BisectRecord, type CasePanel, type GateOutcome, type PrefixResult, type TrainRecord,
 } from './ship-queue-train-record';
 import {
@@ -222,11 +222,16 @@ function bisectOutcome(env: TrainEnv, t: TrainRecord, b: BisectRecord): TrainOut
 /** The commits a bisect tests: T0 and the plain prefixes, or for a stamped train T0 and S_1..S_k, the chain its gate ran. */
 const bisectPrefixes = (t: TrainRecord) => t.stamped ? [t.prefixes[0]!, ...t.stamped] : t.prefixes;
 
+/** Why a red attempt's cases cannot be bisected, or null: each red case must be a case id one of the gate's own panels holds. */
+export function redCasesOutsidePlan(red: Pick<AttemptRecord, 'red_cases' | 'panels'>): string | null {
+  const id = red.red_cases.find(c => !CASE_ID.test(c) || !red.panels.some(p => p.case === c));
+  return id === undefined ? null : `red case ${id} is not in the gate's plan`;
+}
+
 /** Validate bisect inputs: red cases from the gate's own plan, every prefix an ancestor of train/<nonce>'s head. */
 function bisectInputs(env: TrainEnv, t: TrainRecord, red: AttemptRecord): string | null {
-  for (const id of red.red_cases) {
-    if (!/^[A-Za-z0-9_.:/-]{1,128}$/.test(id) || !red.panels.some(p => p.case === id)) return `red case ${id} is not in the gate's plan`;
-  }
+  const outside = redCasesOutsidePlan(red);
+  if (outside) return outside;
   const ref = `refs/gstack/${t.branch}`;
   const f = git(env.ctx.repoRoot, ['fetch', '--no-tags', '-q', env.remote, `+refs/heads/${t.branch}:${ref}`]);
   if (!f.ok) return `cannot fetch ${t.branch}: ${f.err.slice(0, 120)}`;

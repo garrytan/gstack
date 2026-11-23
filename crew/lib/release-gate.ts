@@ -32,7 +32,7 @@ import { MAX_BISECT_CASES, MAX_PREFIXES, RELEASE_BISECT_ARTIFACT, RELEASE_BISECT
 import type { ReleaseGatePolicy } from '../../lib/release-gate-policy';
 import { loadPolicyFromBase, mergePolicy, validatePolicy } from '../../lib/ship-policy';
 import {
-  NOTES_REF, fetchNotes, nowIso, persist, repoIdentity,
+  CASE_ID, NOTES_REF, fetchNotes, nowIso, persist, repoIdentity,
   type PrefixResult, type ReleaseBisect, type ReleaseBisectRound, type ReleaseRecord,
 } from './ship-queue-train-record';
 
@@ -47,7 +47,6 @@ export const MAX_BISECT_ROUNDS = 4;
 /** An open gate (a run past its budget, or a red gate's running bisect) on an older commit is finished first for this many cadences; after that it stops holding up main's head. */
 export const OPEN_GATE_CADENCES = 3;
 const SHA = /^[0-9a-f]{40}$/;
-const CASE_ID = /^[A-Za-z0-9 _.:/-]{1,128}$/;
 const HOUR = 3_600_000;
 const GH_MS = 60_000;
 

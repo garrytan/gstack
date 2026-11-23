@@ -2278,8 +2278,15 @@ holds an open /ship run, and for `lane-exception` a `--files` list that is
 empty or holds whitespace. `add` refuses a `ruled_note` or
 `test_lane_exception` scope ([ruled notes](ship-policy.md#ruled-notes),
 [test-lane exceptions](ship-policy.md#test-lane-exceptions)).
+`rule` and `round-grant` refuse an `--owner-ref` that is not
+`<thread code>:<message id or timestamp>`, where the thread code looks like
+`GSTA-36` (an uppercase letter, then uppercase letters or digits, a dash and a
+number from 1), and an `--owner-ref` given without `--words` (for `rule`, also
+without `--by`). Each of these checks prints its own line, and the shape
+refusal never repeats the rejected ref.
 
-**Fix.** Rerun with every required flag inside the caps the line names. A
+**Fix.** Rerun the same command with the flag the line names, inside its caps
+(`gstack-approvals --help` lists each command's flags). A
 ruling or a test-lane exception is the owner's: record it from the owner's
 session, outside the lane's /ship run.
 
@@ -6237,8 +6244,16 @@ pushed. [The push line](unattended.md#push-line).
 branch lacks (non-fast-forward), or the remote refused the update. Nothing
 was pushed.
 
-**Fix.** Fetch and inspect the remote, merge it under Step 3's conflict
-rules, run Steps 5-16 again, then rerun push. Never force-push.
+**Fix.** For a non-fast-forward, fetch and inspect the remote, merge it under
+Step 3's conflict rules, run Steps 5-16 again, then rerun push. When the remote
+refused the update, the `STOP:` line quotes its reason; a merge will not help,
+so change what it names instead. GitHub's `GH007` means a commit carries an
+email address your account keeps private: set `git config user.email` to your
+GitHub noreply address (shown at github.com/settings/emails), rewrite every
+commit that carries the private one
+(`git rebase origin/<base> --exec 'git commit --amend --reset-author --no-edit'`),
+repeat Step 16 and push. The quoted reason passes through the secret scanner
+first. Never force-push.
 
 <a id="push-git-failed"></a>
 ### `PUSH_GIT_FAILED`
