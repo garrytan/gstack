@@ -930,10 +930,22 @@ export function saveReport(dir: string, report: RunReportV3): void {
     );
   }
   try {
-    atomicWriteSync(join(dir, 'report.md'), renderReport(safe), { mode: 0o600 });
+    atomicWriteSync(join(dir, 'report.md'), readableReport(safe), { mode: 0o600 });
   } catch {
     throw new CsoError('PERSISTENCE_FAILED', 'JSON was saved but the readable report could not be written');
   }
+}
+/** A daily report.md also lists saved hypotheses, in the section the shared renderer writes for comprehensive runs. */
+function readableReport(report: RunReportV3): string {
+  const text = renderReport(report),
+    next = '\nSnapshot transformations:\n';
+  if (report.policy.mode === 'comprehensive' || !report.findings.some((f) => f.evidence === 'hypothesis'))
+    return text;
+  const full = renderReport({ ...report, policy: { ...report.policy, mode: 'comprehensive' } });
+  return text.replace(
+    next,
+    full.slice(full.indexOf('\nHypotheses (unconfirmed):\n'), full.indexOf(next)) + next,
+  );
 }
 export function loadReport(dir: string): RunReportV3 {
   const v = readJson(join(dir, 'report.json'));

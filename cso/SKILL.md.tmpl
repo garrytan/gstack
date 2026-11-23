@@ -80,6 +80,7 @@ gstack-cso recheck <finding> --repo <repo> [--run <original-run>]
 gstack-cso inspect <run>
 gstack-cso read <run> <path-or-handle>
 gstack-cso history <run> [path-or-handle]
+gstack-cso search <run> <regex> [--seconds N]
 gstack-cso scan <run> <scanner> [request.json]
 gstack-cso scanner-outcome <run> <artifact-id>
 gstack-cso import-sarif <run> <results.sarif>
@@ -99,7 +100,7 @@ gstack-cso inspect-v2 <import-id>
 
 **Audited-source access invariant.** After `start`, inspect source only with that run's `inspect`, `read`, and `history`. Pass the exact `path` from `inspect`; `displayPath` is only a redacted label. Never use host `Read`/`Glob`/`Grep`; direct reads bypass redaction and identity.
 
-**Read the whole inventory.** Save `start` and `inspect` output to private files (removed after `finish`); read the run ID with `jq -r .runId`, never through `head` or `tail`. Check readiness, deadline, and coverage; `jq -r '.manifest.entries[].path'` lists every file. Then read in full every attacker-reachable file: parsers, decoders, serializers, path, URL, redirect and auth code. Never narrow by file name.
+**Read the whole inventory.** Save `start` and `inspect` output to private files (removed after `finish`); read the run ID with `jq -r .runId`, never through `head` or `tail`. Check readiness, deadline, and coverage; page `jq -r '.manifest.entries[].path'` through `sed -n '1,500p'`, then 501-1000, to the end. Search source with `gstack-cso search <run> '<regex>'`, one pattern per call; it stops at 60 s and lists unsearched paths as a gap. Then read in full every attacker-reachable file: parsers, decoders, serializers, path, URL, redirect and auth code. Never narrow by file name.
 
 When a finding survives challenge, submit it to the helper **and surface it to the user immediately**; do not wait for the final report; this preserves evidence if the run is interrupted. Malformed model JSON gets **one bounded correction attempt**; then preserve a partial result.
 
@@ -133,7 +134,7 @@ This **CSO evidence rubric** governs CSO instead of shared review confidence ins
 - **Confidence:** how strongly evidence supports that precise claim, with unknowns and counterevidence; a number is not proof.
 - **Evidence:** candidate hypothesis, supported static evidence, or a helper-recorded reproduction. Code tracing can support a finding; it cannot establish that an application booted or a repair passed tests.
 
-**Report every finding the code supports; confidence carries doubt, never omission.** **Supported**: code you read traces attacker-controlled input to the defect and no inspected control blocks it; submit at medium or high confidence. A library's public API and parsed data are attacker-controlled when documented use passes untrusted input, even with callers outside the snapshot. A **candidate** has code evidence and one open question (an unread caller, an unclear default): submit it as a low-confidence hypothesis saying what would confirm it, and list it under **Hypotheses (unconfirmed)** in your report. Drop one only when code you read disproves it, naming that code.
+**Report every finding the code supports; confidence carries doubt, never omission.** **Supported**: code you read traces attacker-controlled input to the defect and no inspected control blocks it; submit at medium or high confidence. A library's public API and parsed data are attacker-controlled when documented use passes untrusted input, even with callers outside the snapshot. A **candidate** has code evidence and one open question (an unread caller, an unclear default): submit it as a low-confidence hypothesis saying what would confirm it; report.md and your report list it under **Hypotheses (unconfirmed)**. Drop one only when code you read disproves it, naming that code.
 
 Do not apply blanket exclusions for development dependencies, availability/resource attacks, historical secrets, user-role prompt injection, or gstack-owned skills. UUIDs are not authorization; user-controlled URL paths can cross a sensitive boundary; environment variables may come from untrusted workflows; framework escape hatches can bypass safe defaults. Missing hardening alone needs a concrete failure scenario before becoming a finding.
 

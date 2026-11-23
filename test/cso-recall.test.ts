@@ -84,13 +84,67 @@ describe('/cso recall (gstack-evals#443)', () => {
     expect(cso(repo, ['finish', run]).status).toBe(0);
   });
 
+  test('search reads every file in one call, never runs a file name, and lists what it could not search', () => {
+    const repo = path.join(root, 'hostile');
+    fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+    const hostile = 'src/a$(touch PWNED).js';
+    fs.writeFileSync(path.join(repo, hostile), 'eval(input)\n');
+    fs.writeFileSync(path.join(repo, 'src/parse.js'), 'const x = 1;\neval(input)\n');
+    fs.writeFileSync(path.join(repo, 'src/big.js'), 'eval(input)\n' + 'x'.repeat(MIB + 16));
+    fs.writeFileSync(path.join(repo, 'src/min.js'), 'a(b,c);'.repeat(140_000) + 'eval(late)');
+    git(repo, 'init', '-q');
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    expect(skill()).toContain("gstack-cso search <run> '<regex>'");
+    const found = cso(repo, ['search', run, 'eval\\(']);
+    expect(found.status).toBe(0);
+    expect(found.stdout).toContain('src/parse.js:2:eval(input)');
+    expect(found.stdout).toContain(hostile + ':1:eval(input)');
+    expect(found.stdout).toMatch(/src\/min\.js:1:[a-c(),;]{100}eval\(late\)/);
+    expect(found.stdout).toMatch(/1 unsearched paths .*coverage gap: src\/big\.js/);
+    expect(fs.existsSync(path.join(root, 'PWNED'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, 'PWNED'))).toBe(false);
+    const none = cso(repo, ['search', run, 'zzz-no-such-text']).stdout;
+    expect(none).toContain('[gstack-cso search: no matches]');
+    expect(none).toMatch(/1 unsearched paths .*src\/big\.js/);
+    const bad = cso(repo, ['search', run, '(']);
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toContain('not a valid regular expression');
+    expect(cso(repo, ['search', run, 'x', '--seconds', '61']).stderr).toContain('--seconds must be a whole number from 1 to 60');
+    expect(cso(repo, ['finish', run]).status).toBe(0);
+  });
+
+  test('search stays fast on a one-line 1 MiB file and stops a runaway pattern at its time limit with the hits found so far', () => {
+    const repo = path.join(root, 'minified');
+    fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'src/a.js'), 'eval(first)\n');
+    fs.writeFileSync(path.join(repo, 'src/b.min.js'), 'x'.repeat(MIB - 64));
+    git(repo, 'init', '-q');
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    let started = Date.now();
+    const quadratic = cso(repo, ['search', run, '.*password']);
+    expect(quadratic.status).toBe(0);
+    expect(quadratic.stdout).toContain('[gstack-cso search: no matches]');
+    expect(Date.now() - started).toBeLessThan(30_000);
+    started = Date.now();
+    const runaway = cso(repo, ['search', run, '(x+x+)+y|eval\\(first', '--seconds', '2']);
+    expect(runaway.status).toBe(0);
+    expect(runaway.stdout).toContain('src/a.js:1:eval(first)');
+    expect(runaway.stdout).toMatch(/stopped at the 2-second limit; 1 paths not searched, a coverage gap: src\/b\.min\.js/);
+    expect(Date.now() - started).toBeLessThan(20_000);
+    expect(cso(repo, ['finish', run]).status).toBe(0);
+  }, 90_000);
+
   test('the report rule keeps every supported finding and lists hypotheses instead of dropping them', () => {
     const text = skill();
     for (const dropped of ['Daily reports hold only', 'Omit daily candidates', 'Prioritize unresolved high impact', 'demonstrated in-scope impact']) expect(text).not.toContain(dropped);
-    for (const kept of ['jq -r .runId', 'Report every finding the code supports', 'never omission', 'Hypotheses (unconfirmed)', 'even with callers outside the snapshot', 'Drop one only when code you read disproves it', 'Never narrow by file name']) expect(text).toContain(kept);
+    for (const kept of ['jq -r .runId', "sed -n '1,500p'", 'gstack-cso search', 'Report every finding the code supports', 'never omission', 'Hypotheses (unconfirmed)', 'even with callers outside the snapshot', 'Drop one only when code you read disproves it', 'Never narrow by file name']) expect(text).toContain(kept);
   });
 
-  test('a daily run saves supported findings and low-confidence hypotheses, and report.md shows only the supported ones', () => {
+  test('a daily run saves supported findings and low-confidence hypotheses, and report.md lists them in separate sections', () => {
     const { repo } = library('report');
     const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
     const finding = (evidence: string, confidence: string, title: string, rootCause: string) => ({
@@ -121,8 +175,12 @@ describe('/cso recall (gstack-evals#443)', () => {
       ['Prototype injection through caller-named keys', 'hypothesis', 'low'],
     ]);
     const report = fs.readFileSync(findReport(state, run, 'report.md'), 'utf8');
-    expect(report).toContain('Supported findings:');
-    expect(report).toContain('Prototype injection in parse');
-    expect(report).not.toContain('caller-named keys');
+    const supportedSection = report.slice(report.indexOf('Supported findings:'), report.indexOf('Hypotheses (unconfirmed):'));
+    const hypotheses = report.slice(report.indexOf('Hypotheses (unconfirmed):'), report.indexOf('Snapshot transformations:'));
+    expect(report.indexOf('Hypotheses (unconfirmed):')).toBeGreaterThan(report.indexOf('Supported findings:'));
+    expect(supportedSection).toContain('Prototype injection in parse');
+    expect(supportedSection).not.toContain('caller-named keys');
+    expect(hypotheses).toContain('Prototype injection through caller-named keys');
+    expect(hypotheses).not.toContain('Prototype injection in parse');
   });
 });
