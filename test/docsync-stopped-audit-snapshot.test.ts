@@ -28,7 +28,8 @@ function bashResult(command: string): SkillTestResult {
       { type: 'tool_result', tool_use_id: 'docs-command', content: '', is_error: false },
     ] }, tool_use_result: { stdout: '', stderr: '', interrupted: false, isImage: false } },
   ].map(event => JSON.stringify(event)));
-  return { ...parsed, exitReason: 'success' } as SkillTestResult;
+  return { toolCalls: parsed.toolCalls, transcript: parsed.transcript, browseErrors: [], exitReason: 'success', duration: 0, output: '',
+    costEstimate: { inputChars: 0, outputChars: 0, estimatedTokens: 0, estimatedCost: 0, turnsUsed: 0 }, model: '', firstResponseMs: 0, maxInterTurnMs: 0 };
 }
 
 function snapshot(argv: string[]): { status: number | null; stderr: string } {
