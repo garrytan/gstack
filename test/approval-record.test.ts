@@ -444,7 +444,7 @@ describe('import --autoplan', () => {
   test('the run id interactive /autoplan mints on a numbered branch imports', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md.tmpl'), 'utf8');
     const stamp = /^DATETIME=\$\(date \+([^)]+)\)$/m.exec(tmpl)![1]!.replace(/%([YmdHMS])/g, (_, c: string) => ({ Y: '2026', m: '11', d: '22', H: '09', M: '33', S: '21' } as Record<string, string>)[c]!);
-    const minted = (/^_RID=([^;\s]+);/m.exec(tmpl) ?? /^echo "RUN_ID=([^"]+)"/m.exec(tmpl))![1]!.replace(/\$\{?BRANCH\}?/, '<branch>').replace(/\$\{?DATETIME\}?/, stamp);
+    const minted = (/^_ID=([^;\s]+);/m.exec(tmpl) ?? /^echo "RUN_ID=([^"]+)"/m.exec(tmpl))![1]!.replace(/\$\{?BRANCH\}?/, '<branch>').replace(/\$\{?DATETIME\}?/, stamp);
     const run = path.join(tmp('appr-run-'), 'autoplan');
     fs.mkdirSync(run);
     for (const branch of ['fix-4402', 'gsta-802', '4402']) {
