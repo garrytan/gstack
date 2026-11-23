@@ -88,7 +88,7 @@ describe('accept carries a run whose base moved when the pull request\'s own cha
     const f = behind();
     const clean = mergeCommit(f);
     f.git('read-tree', clean.tree);
-    const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: f.work, input: 'export const b = 99;\n', encoding: 'utf8' }).stdout.trim();
+    const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: f.work, input: 'export const b = 99;\n', encoding: 'utf8', timeout: 30_000 }).stdout.trim();
     f.git('update-index', '--cacheinfo', `100644,${blob},src/b.ts`);
     const edited = f.git('write-tree').stdout.trim();
     f.git('read-tree', 'HEAD');
