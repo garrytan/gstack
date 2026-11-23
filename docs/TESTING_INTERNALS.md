@@ -199,14 +199,18 @@ one duration-packed `--ci-plan`, 10 ordinary `--ci-run` shards plus a separate
 exclusive-fixture shard, and a `--ci-verify` aggregate. CI shards still run on
 independent machines without ordering unrelated jobs. Three workflow-level
 constants in `free-tests.yml` set that size for every event: `FREE_SUITE_RUNNER`
-(`ubicloud-standard-16`), `FREE_SUITE_SHARDS` (`'10'`) and `FREE_SUITE_JOBS`
-(`'8'`, the [sub-shards](#sub-shards-inside-one-ci-job) each shard runs side by
+(`ubicloud-standard-8`), `FREE_SUITE_SHARDS` (`'10'`) and `FREE_SUITE_JOBS`
+(`'4'`, the [sub-shards](#sub-shards-inside-one-ci-job) each shard runs side by
 side), which `free-plan` resolves into the shards' runner, shard count and plan.
 GSTA-203 first chose 10 × `ubicloud-standard-8` at k = 4 by a 3-run A/B against
 20 × `ubicloud-standard-4` at k = 1 (the PR that set them has the table). GST-3303
 moved to `ubicloud-standard-16` at k = 8 once `test/review-pass.test.ts` was
 split: two trial runs cut the slowest shard job from 222–226 s to 155–158 s, for
-about $0.085 more per run. A `workflow_dispatch` run may
+about $0.085 more per run. The 2026-11-23 weekly CI audit moved it back to
+`ubicloud-standard-8` at k = 4: shard jobs got faster (4.4 to 2.6 min p50), but a
+whole run only went from 6.2 to 5.8 min p50, because the macOS jobs and the final
+aggregate job set the finish, while a run's Ubicloud cost rose from $0.23 to
+$0.31 p50. A `workflow_dispatch` run may
 override them with `free_runner` (`ubicloud-standard-2`, `-4`, `-8` or `-16`),
 `free_shards` (1–40) and `free_jobs` (1–8) for runner-sizing experiments only;
 its job summary says so, and it is never cited as a PR or train Free Tests result.
@@ -1658,7 +1662,7 @@ refresh to a maintainer.
   (`GSTACK_FREE_JOBS=2`, 60-minute job): at four, files that pass nightly failed
   under the load and the recording outran its old 30-minute job. The recorder stays on
   `ubicloud-standard-8` while the free-suite shards run on `FREE_SUITE_RUNNER`
-  (`ubicloud-standard-16` at k = 8, the same two vCPUs per sub-shard); both are
+  (`ubicloud-standard-8` at k = 4, the same two vCPUs per sub-shard); both are
   Ubicloud standard runners. When either recording adds
   or drops a test file, it force-updates the `bot/free-duration-seeds` branch,
   opens or refreshes one seed PR whose body states the ratchet result, and
