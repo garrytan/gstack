@@ -413,10 +413,9 @@ export interface NextStep { step: Step; reason: string }
  * The transition table (docs/review-policy.md#transitions). Pass 1 is full. A fixed
  * blocking finding earns a second full pass on the range, scoped when `depth` (known
  * only to planReview) is below full and the fix range has at most SCOPED_RANGE_LINES
- * runtime lines; any other fix earns one fix-check, except a light pass whose fix range
- * changes no runtime lines; two rounds is the cap (R51: a scoped pass or a fix-check is
- * one): after round 2, below-floor fixes finish with notes, and a blocker open or fixed
- * there, or a gate-class edit there, stops for the owner, whose grant may add one scoped fix-check.
+ * runtime lines; any other fix earns a full second pass on the range too, except a light pass whose fix range
+ * changes no runtime lines (GST-3562 A: no new fix-check is planned); two rounds is the cap (R51), and capStep says what
+ * a fix after the cap gets. A grant recorded before GST-3562 still adds its one scoped fix-check for one release.
  * The cap limits fix rounds, not Step 11's voices: on gate class any stop waits for them (GST-967),
  * and the owner's recorded grant (`granted`) turns the stop after a round-2 full pass with a fixed finding, or after a round-2
  * fix-check when `fixChecks` says it was the only one (GEVA-223), into its one fix-check; a fix-check never earns another, so
@@ -429,7 +428,8 @@ export function nextStep(h: History, depth?: Depth): NextStep {
     ? { step: 'stop', reason: `fix-check grant ${h.grantedStop} answers the stop, but there is no fix to read since its head: commit the fix (a base merge, an empty or reverted change is none), then ask again` }
     : { step: 'fix-check', reason: `fix-check grant ${h.grantedStop} buys the stopped review's fix round: one scoped fix-check of the PR's own change since the stop's head, never a new full review and never a second fix-check` };
   const n = prCapped(h, h.lean ? leanStep(h, depth) : loopStep(h, depth));
-  if (n.step !== 'stop') return n;
+  const legacyGrant = !h.lean && !!h.granted && !h.blockingOpen && h.last === 'full' && h.fullPasses === FULL_PASS_CAP && !!(h.fixedBlocking || h.touchedGate);
+  if (n.step !== 'stop' && !legacyGrant) return n;
   if (h.gate && !h.adversarialRan) return { step: 'voices', reason: `gate class: Step 11's ${h.lean ? 'one reader' : 'voices (adversarial, outside, targeted)'} run${h.lean ? 's' : ''} before the owner's exit, then ask again with --adversarial-ran (${n.reason})` };
   const afterFixCheck = h.last === 'fix-check' && h.fullPasses === FULL_PASS_CAP - 1 && h.fixChecks === 1;
   if (h.postReview && h.last === 'fix-check' && h.granted && !h.blockingOpen) return { step: 'fix-check', reason: `the owner's grant ${h.granted} adds one scoped fix-check for the edits after the last fix-check, a new link of the fix-check chain (docs/ship-policy.md#fix-check-chain); a later post-review edit needs a grant of its own` };
@@ -451,21 +451,38 @@ function prCapped(h: History, n: NextStep): NextStep {
   if (prior >= cap) {
     if (h.last === 'none') return n.step === 'full' || n.step === 'scoped' ? { step: 'full', reason: `read-only final review (R51): this PR already had ${prior} full review rounds on earlier heads, so this head gets one full review with no fix round; a blocker goes to the lane's Captain as a decision and the count does not reopen` } : n;
     if (n.step === 'done') return n;
+    if (h.fixedBelow && !h.fixedBlocking && !h.blockingOpen && !h.touchedGate && n.step !== 'stop') return { step: 'stop', reason: `a fix followed the read-only final review: ${CAPTAIN_DECIDES}` };
     if (!h.fixedBlocking && !h.blockingOpen && !h.touchedGate && n.step !== 'stop') return { step: 'done', reason: `read-only final review done (R51): its below-floor findings ship as notes in the PR body and receipt, with no fix round` };
-    return { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review of a PR that already had ${prior} full review rounds found a blocker; the lane's Captain decides (ship with the note, park, or buy its fix round with a fix-check grant naming the stop gstack-ship-receipt stop records), not an owner ask` };
+    return { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review of a PR that already had ${prior} full review rounds found a blocker; the lane's Captain decides (ship with the note, park, or keep the fix and run /ship again for one more read-only full review of the final head), not an owner ask` };
   }
   if (!prior || (n.step !== 'full' && n.step !== 'scoped')) return n;
   const used = prior + h.fullPasses;
   if (used < cap) return { ...n, reason: `${n.reason}; this PR already had ${prior} full review round${prior === 1 ? '' : 's'} on earlier heads, so this is its full round ${used + 1} of ${cap}${used + 1 === cap ? ', the last' : ''}` };
   if (h.roundGrant && used === cap && prior === cap - 1 && h.fullPasses === 1 && h.last === 'full') return { ...n, reason: `${n.reason}; round grant ${h.roundGrant} bought pass 1 as this PR's full round ${cap}, and this is that round's fix round, its last` };
-  if (h.last !== 'none' && !h.fixedBlocking && !h.blockingOpen && !h.touchedGate) return { step: 'done', reason: `PR round cap ${cap} reached (${prior} on earlier heads): the below-floor fixes ship as notes in the PR body and receipt` };
+  if (h.last !== 'none' && !h.blockingOpen) return used === cap
+    ? { step: 'full', reason: `${READ_ONLY_REVIEW}; this PR already had ${prior} full review round${prior === 1 ? '' : 's'} on earlier heads` }
+    : { step: 'stop', reason: `a fix followed the read-only final review: ${CAPTAIN_DECIDES}` };
   return { step: 'stop', reason: `PR_ROUND_CAP: this PR already had ${used} full review round${used === 1 ? '' : 's'} across its heads and /ship runs${h.roundGrant ? ` (round grant ${h.roundGrant} included)` : ''}; another needs a reason the lane or its Captain records with gstack-approvals round-grant, not an owner ask` };
+}
+
+const READ_ONLY_REVIEW = 'read-only final review (R51): fixes changed code after the last round, so the final head gets one full review with no fix round (GST-3562 A)';
+const CAPTAIN_DECIDES = "the lane's Captain decides (R51): ship with it as a ruled note, or keep the fix and run /ship again for one read-only full review of the final head";
+
+/**
+ * A step that applied fixes in the last allowed round (GST-3562 A, R51): the final head gets one read-only full review, unless
+ * the fixes are below-floor and change no runtime lines on a light diff; a fix after that read-only review stops for the lane's
+ * Captain. Code a fix changed never ships unread now that the fix-check is gone.
+ */
+function capStep(h: History, depth?: Depth): NextStep {
+  if (h.fullPasses > FULL_PASS_CAP) return { step: 'stop', reason: `a fix followed the read-only final review: ${CAPTAIN_DECIDES}` };
+  if (!h.fixedBlocking && !h.touchedGate && depth === 'light' && h.rangeRuntimeLines === 0) return { step: 'done', reason: `round cap ${FULL_PASS_CAP} reached: the below-floor fixes change no runtime lines and ship as notes in the PR body and receipt` };
+  return { step: 'full', reason: READ_ONLY_REVIEW };
 }
 
 /**
  * R65's lean table (GSTA-258): pass 1 is the one reviewer; any fix on a risk-class diff, and a fixed blocker or a gate-class
- * edit on any diff, earns one scoped fix-check (round 2, the cap); below-floor fixes on a light diff ship as notes. After the
- * fix-check a blocker or gate-class edit stops for the owner, whose recorded grant adds one more fix-check, never two.
+ * edit on any diff, earns the one reviewer's full pass on the range (round 2, the cap; GST-3562 A); below-floor fixes on a
+ * light diff ship as notes; capStep says what a fix after round 2 gets.
  */
 function leanStep(h: History, depth?: Depth): NextStep {
   if (h.last === 'none') return { step: 'full', reason: 'pass 1: one reviewer reads the whole diff (R65)' };
@@ -477,7 +494,8 @@ function leanStep(h: History, depth?: Depth): NextStep {
   if (h.blockingOpen) return { step: 'stop', reason: 'a blocking finding is still open in fix scope: name it for the owner' };
   if (!h.fixedBlocking && !h.fixedBelow && !h.touchedGate) return { step: 'done', reason: 'the step applied no edits' };
   if (depth === 'light' && !h.fixedBlocking && !h.touchedGate) return { step: 'done', reason: 'light depth: the below-floor fixes ship as notes in the PR body and receipt without a fix-check (R65)' };
-  return { step: 'fix-check', reason: `${h.fixedBlocking ? 'a blocking finding was fixed' : h.touchedGate ? 'a fix touched a gate-class path' : 'below-floor fixes on a risk-class diff'}: one scoped fix-check reads the touched hunks (round 2, the cap)` };
+  if (h.fullPasses >= FULL_PASS_CAP) return capStep(h, depth);
+  return { step: 'full', reason: `${h.fixedBlocking ? 'a blocking finding was fixed' : h.touchedGate ? 'a fix touched a gate-class path' : 'below-floor fixes on a risk-class diff'}: round 2 is the one reviewer's full pass on the range, never a fix-check (R51, GST-3562 A)` };
 }
 
 function loopStep(h: History, depth?: Depth): NextStep {
@@ -487,9 +505,7 @@ function loopStep(h: History, depth?: Depth): NextStep {
   if (h.blockingOpen && h.fullPasses >= FULL_PASS_CAP) return { step: 'stop', reason: `a blocking finding is open after ${FULL_PASS_CAP} rounds: name it for the owner` };
   if (h.blockingOpen) return { step: 'stop', reason: 'a blocking finding is still open in fix scope: name it for the owner' };
   if (!fixed) return { step: 'done', reason: 'the step applied no edits' };
-  if (h.fullPasses >= FULL_PASS_CAP) return h.fixedBlocking || h.touchedGate
-    ? { step: 'stop', reason: `${h.fixedBlocking ? 'a blocking finding was fixed' : 'a fix edited a gate-class path'} in round ${FULL_PASS_CAP}, the cap: name it for the owner, whose grant may add one scoped fix-check (review_loop_exception)` }
-    : { step: 'done', reason: `round cap ${FULL_PASS_CAP} reached: the below-floor fixes ship as notes in the PR body and receipt` };
+  if (h.fullPasses >= FULL_PASS_CAP) return capStep(h, depth);
   if (!h.fixedBlocking && !h.touchedGate && depth === 'light' && h.rangeRuntimeLines === 0) return { step: 'done', reason: 'light depth: the below-floor fixes change no runtime lines, so they ship as notes without a fix-check' };
   if (h.fixedBlocking || h.touchedGate) {
     if (!h.fixedBlocking) return { step: 'full', reason: 'a fix touched a gate-class path: full pass on the range' };
@@ -499,7 +515,7 @@ function loopStep(h: History, depth?: Depth): NextStep {
     if (keep) return { step: 'full', reason: `a blocking finding was fixed and ${keep}: full pass on the range` };
     return { step: 'scoped', reason: `a blocking finding was fixed on a ${depth} diff with ${n} runtime lines in the fix range (<= ${SCOPED_RANGE_LINES}): scoped pass on the range` };
   }
-  return { step: 'fix-check', reason: 'only below-floor fixes: one fix-check reads the touched hunks (round 2)' };
+  return { step: 'full', reason: 'below-floor fixes changed code after round 1: round 2 is a full pass on the range, never a fix-check (R51, GST-3562 A)' };
 }
 
 // ---------------------------------------------------------------------------
@@ -615,13 +631,18 @@ export function keepCommand(d: Dispatch): string | null {
 
 /** The reviewers the next step dispatches at its depth, with each role's effort tier and excluded pathspecs. */
 export function planReview(i: PlanInput): ReviewPlan {
+  return planReviewAt(i, (h, d) => nextStep(h, d));
+}
+
+/** planReview with the transition table passed in, so a no-loss replay can plan the step an earlier table chose. */
+export function planReviewAt(i: PlanInput, table: (h: History, depth: Depth) => NextStep): ReviewPlan {
   const c = classifyDiff(i);
   const depth = decideDepth(c, c.runtimeLines ?? (CLASS_RANK[c.class] >= CLASS_RANK.code ? i.diffLines : 0), i.floor);
   const { class: cls, runtimeLines } = depth;
   const sh = i.shape;
   const platformNow = !!sh && sh.platform === 'on' && sh.platformReview?.head === sh.head && i.history.fullPasses === 0 && !riskClass(c, depth) && platformFits(c.class, i.paths, depth.runtimeLines, i.numbers);
   const panel = !platformNow && (!sh || sh.panel === 'all' || (sh.panel === 'risk' && riskClass(c, depth)));
-  const next = nextStep({ ...i.history, gate: cls === 'gate', adversarialRan: !!i.adversarialRan, lean: !panel }, depth.depth);
+  const next = table({ ...i.history, gate: cls === 'gate', adversarialRan: !!i.adversarialRan, lean: !panel }, depth.depth);
   if (!panel) return leanPlan(i, c, depth, next);
   const h = i.history;
   const raise = depth.depth === 'light' && (h.fixedBlocking || h.blockingOpen || i.criticalFound);

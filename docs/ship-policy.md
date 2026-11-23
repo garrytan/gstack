@@ -293,7 +293,10 @@ nothing ([what to do](troubleshooting.md#ci-superseded)).
 
 It refuses (`QUEUE_NOT_READY`) when the working tree has tracked edits, HEAD
 is not the PR's pushed head, CI at that exact head is not green, or the pregate
-result is not a current pass, and (`QUEUE_RECEIPT_MISSING`,
+result is not a current pass. A current record whose own checks all passed and
+that waits only on requires-remote lanes counts as a pass when CI is green at
+the head, so no clear or CI carry is needed (GST-3562 M; `land` already refuses
+any red or pending check at the pin). It also refuses (`QUEUE_RECEIPT_MISSING`,
 `QUEUE_RECEIPT_STALE`) when the PR body carries no /ship receipt for that
 head: /ship runs before every READY ([details](#ship-before-ready)). It also
 refuses `QUEUE_RECEIPT_DEPTH_RAISED` when the receipt's review depth is below
@@ -1806,7 +1809,10 @@ construction:
    continues to Step 10: the loop ships with its deferred and noted items named in
    the PR body. A blocking finding still open after the last allowed step stops
    the run and names the finding (path, severity, problem) for the owner instead
-   of a third round; the owner may grant one scoped fix-check.
+   of a third round. A fix applied in the last allowed round gets one read-only
+   full review of the final head with no fix round (GST-3562 A); a fix after it
+   stops for the owner. Grants recorded before GST-3562 still buy one scoped
+   fix-check for one release.
 
 <a id="what-ends-a-run"></a>
 **What ends a /ship run (GST-3260).** Preflight opens the run in the checkout's

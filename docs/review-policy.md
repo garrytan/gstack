@@ -338,20 +338,24 @@ the same grant, whichever row records it:
 | a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |
 | a full pass that fixed a blocking finding, below the cap (full depth, a larger range, or a range or depth it could not read) | full pass on the range |
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
-| a full pass that fixed only below-floor findings | one fix-check (round 2) |
+| a full pass that fixed only below-floor findings | full pass on the range (round 2; GST-3562 A plans no new fix-check) |
 | a light pass 1 whose below-floor fixes change no runtime lines | done |
-| round 2 (a full pass or a fix-check) that fixed a blocking finding or edited a gate-class path | stop: name it for the owner, who may grant one scoped fix-check |
-| round 2 (a full pass or a fix-check) that fixed only below-floor findings | done: notes in the PR body |
+| round 2 that fixed anything, blocking or below the floor | one read-only full review of the final head, with no fix round (R51) |
+| round 2 on a light diff whose below-floor fixes change no runtime lines | done: notes in the PR body |
+| a fix after that read-only review | stop: the lane's Captain rules it a note, or the fix goes to a new /ship run's read-only full review |
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
-| a fix-check that found nothing blocking | done |
-| a fix-check that found a blocking finding | stop: name it for the owner |
+| a fix-check (granted before GST-3562) that found nothing blocking | done |
+| a fix-check (granted before GST-3562) that found a blocking finding | stop: name it for the owner |
 | a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |
-| a round-2 full pass that stops for a fixed blocking finding or a gate-class edit, with the owner's recorded grant (`--grant <approval id>`) | one scoped fix-check (round 3), after Step 11 on gate class |
+| a stop at the cap with a grant recorded before GST-3562 (`--grant <approval id>`), for one release | one scoped fix-check (round 3), after Step 11 on gate class |
 | a round-2 fix-check that stops the same way, with the owner's recorded grant and `--fix-checks 1` | one scoped fix-check (round 3), after Step 11 on gate class |
 | `--post-review` after a fix-check whose later edits are only release stamps and docs (`docsChangeSince`) | done, or the one targeted reader when a docs claim on a targeted-class diff needs it |
 | `--post-review` after a fix-check (edits after the review bound), with a new recorded grant at a stop head after the last fix-check's commit | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
 | a fix-check that stops in the loop, with a new recorded grant naming its own commit (`--range-base`, the stop it answers), after any number of fix-checks | one scoped fix-check, the next link of the fix-check chain, after Step 11 on gate class |
 
+GST-3562 A retires the fix-check: `nextStep` plans none, and the rows that name
+one serve grants recorded before it, for one release. Its 3,932,160-case replay
+against main's table is `test/fixtures/review-pins/replays/GST-3562-A.json`.
 A **fix-check** is one reviewer reading the touched hunks, the fix list, the
 test results and the callers of every changed symbol, at full effort. It is
 logged as a `review-fix-check` row, so it never counts as a pass. No army, no
