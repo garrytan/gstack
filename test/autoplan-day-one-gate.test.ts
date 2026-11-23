@@ -532,8 +532,52 @@ describe('first versions: the owner page quotes the owner and letters what it le
 
   test('a High finding that narrows a quote the owner ruled out still reaches the gate as its own item', () => {
     const list = buildGate(makeRun('ruled-narrow', { plan: plan(CASE4), round2: narrowing({ quote: 3 }), round1: false, ui: false }), 1);
-    expect(covering(list, `${RUN}-ceo-r2-native-1`)).toBeDefined();
+    const item = covering(list, `${RUN}-ceo-r2-native-1`)!;
+    expect([item.recommended, item.options[0]!.text, item.options[0]!.changes_plan]).toEqual(['a', 'keep your ruling', false]);
+    expect(item.why).toContain('you ruled it out on 2026-11-12: “never touch my calendar, I mean it”');
+    expect(item.why).not.toContain('no quoted owner line says otherwise');
     expect(byClass(list, 'owner_choice').filter(i => i.title.includes('calendar'))).toEqual([]);
+  });
+
+  test('negative control: the same finding on a quote that is still open stays a build-it choice, not a keep-your-ruling item', () => {
+    const list = buildGate(makeRun('open-narrow', { plan: plan(CASE4), round2: narrowing({ quote: 1 }), round1: false, ui: false }), 1);
+    const item = covering(list, `${RUN}-ceo-r2-native-1`) ?? byClass(list, 'owner_choice').find(i => i.title.includes('two-way'))!;
+    expect([item.item_class, item.recommended]).toEqual(['owner_choice', 'a']);
+    expect(list.items.some(i => i.options.some(o => o.text === 'keep your ruling'))).toBe(false);
+  });
+
+  describe("the default reply never changes or overrides an owner line, whatever kind of finding touches it", () => {
+    type Kind = { name: string; native: Row[]; outside?: Row[] };
+    const finding = (voice: 'native' | 'outside', quote: number, severity: FindingRow['severity'] = 'High') =>
+      ({ id: `${RUN}-ceo-r2-${voice}-1`, severity, title: 'Read-only contacts does less than what the owner asked for', changes: 'scope', resolution: 'make contacts read and write', narrows_quote: quote } as Row);
+    const KINDS: Kind[] = [
+      { name: 'narrows a does-it quote', native: [finding('native', 1)] },
+      { name: 'narrows an open choice quote (High)', native: [finding('native', 2)] },
+      { name: 'narrows an open choice quote (Medium)', native: [finding('native', 2, 'Medium')] },
+      { name: 'narrows a ruled-out quote (High)', native: [finding('native', 3)] },
+      { name: 'narrows a ruled-out quote (Medium)', native: [finding('native', 3, 'Medium')] },
+      { name: 'a paired finding: ruled-out native, open outside', native: [finding('native', 3)], outside: [finding('outside', 1)] },
+      { name: 'a paired finding: open native, ruled-out outside', native: [finding('native', 1)], outside: [finding('outside', 3)] },
+      { name: 'a paired finding: both on a does-it quote', native: [finding('native', 1)], outside: [finding('outside', 1)] },
+    ];
+    test.each(KINDS.map(k => [k.name, k] as const))('%s', (_, kind) => {
+      const state = makeRun(`rec-${kind.name.replace(/\W+/g, '-')}`, { plan: plan(CASE4), round2: { native: kind.native.map(r => row('ceo', 'native', r)), outside: (kind.outside ?? []).map(r => row('ceo', 'outside', r)) }, round1: false, ui: false });
+      const list = buildGate(state, 1);
+      const chosen = rec(list);
+      const quotes = parseOwnerWords(CASE4).quotes;
+      for (const r of [...kind.native, ...(kind.outside ?? [])]) {
+        const q = quotes.find(x => x.n === r.narrows_quote)!;
+        const items = list.items.filter(i => i.title.includes(r.id) || (q.line?.kind !== 'ruled_out' && i.item_class === 'owner_choice' && i.title.includes(q.text)));
+        expect(items.length, `${r.id} reaches the gate`).toBeGreaterThan(0);
+        for (const item of items) {
+          expect(item.item_class, `${r.id}: never a plain proposal`).not.toBe('proposal');
+          expect(item.why ?? '').not.toContain('no quoted owner line says otherwise');
+          const option = item.options.find(o => o.key === (chosen[item.id] ?? item.recommended))!;
+          if (q.line?.kind === 'ruled_out') expect([item.id, option.changes_plan], `${r.id}: the default keeps the ruling`).toEqual([item.id, false]);
+          else if (item.item_class === 'owner_choice' && (r.severity === 'High' || r.severity === 'Critical' || q.line?.kind === 'does')) expect([item.id, option.text.startsWith('build it')], `${r.id}: the default builds what was asked`).toEqual([item.id, true]);
+        }
+      }
+    });
   });
 
   test('--first-version makes a plan with no Day one section a first version; a plain backend plan stays as it was', () => {
