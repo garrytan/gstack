@@ -14,6 +14,8 @@
  */
 
 import { expect } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import { judgePanel, judgePanelMajority, judgePanelMedian, judgePanelReasoning, judgeRecommendation } from './helpers/llm-judge';
 import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
@@ -117,6 +119,24 @@ Net: ...`);
     expect(noRec.present).toBe(false);
     expect(noRec.has_because).toBe(false);
     expect(noRec.reason_substance).toBe(1);
+
+    // REAL CAPTURES on either side of the 3/4 line, from the auq-format-gate
+    // runs after #4630 moved this judge from Haiku 4.5 to Haiku 5.5. Haiku 4.5
+    // scored both 5; Haiku 5.5 scored 44955253712 at 3 in 25 of 25 samples and
+    // 44962016350 at 4 or 5 in 15 of 15, as did Sonnet 5.5. A judge swap that
+    // moves either side changes what the gate passes.
+    const fixture = (run: string) =>
+      fs.readFileSync(path.join(import.meta.dir, 'fixtures', 'judge-recommendation', `auq-format-gate-${run}.txt`), 'utf8');
+    const contrasted = await judgeRecommendationPanel(fixture('44962016350'));
+    expect(
+      contrasted.reason_substance,
+      `expected >=4 for a plan-specific reason that names the tradeoff against adding scope; got ${contrasted.reason_substance}: ${contrasted.reasoning}`,
+    ).toBeGreaterThanOrEqual(4);
+    const categoryLed = await judgeRecommendationPanel(fixture('44955253712'));
+    expect(
+      categoryLed.reason_substance,
+      `expected <4 for a reason resting on the plan's category with no tradeoff; got ${categoryLed.reason_substance}: ${categoryLed.reasoning}`,
+    ).toBeLessThan(4);
 
     // CROSS-MODEL synthesis recommendations: when /codex or the Claude
     // adversarial subagent emit a synthesis Recommendation line, it follows

@@ -1,0 +1,38 @@
+Review mode
+
+D1 — Which review mode should this CEO review of the developer pricing tier plan use?
+Project/branch/task: Reviewing plan.md ("developer-friendly" pricing tier) on branch main.
+ELI10: The mode decides how hard I push on scope. I can push it bigger, offer add-ons one at a time, keep the scope as written and stress-test it, or cut it to the smallest useful version. This plan is a pricing change, not code. It has no file list, and its main premise (price is what stops developers) was never checked with a single developer.
+Stakes if we pick wrong: If we expand a plan built on a guess, more work goes into the guess. If we cut too early, we might drop the one experiment that would test it.
+Recommendation: Hold scope because the plan fits no clear category (a business pricing change with zero planned files), and its untested premise needs stress-testing before anything gets added.
+Note: options differ in kind, not coverage — no completeness score.
+Pros / cons:
+A) Hold scope (recommended)
+  ✅ Goes straight after the untested premise and the vague "more signups" metric before any scope is added
+  ✅ Checks failure modes, edge cases (who qualifies, abuse, revenue loss from existing users switching down) and observability
+  ❌ Won't put forward bigger growth ideas beyond pricing, like free credits, OSS programs or better docs
+B) Selective expansion
+  ✅ Keeps the current scope and also offers each possible add-on as a separate yes/defer/skip choice
+  ✅ Brings up options next to pricing that might fix developer adoption better than a cheaper tier
+  ❌ Spends review time on add-ons before anyone has confirmed that pricing is the real barrier
+C) Scope expansion
+  ✅ Aims for the ideal developer adoption strategy, not just one price change, and could find a 10x better path
+  ✅ Brings up at least five adjacent quick wins that could make developers happy during onboarding
+  ❌ Makes an unproven hypothesis bigger; more work rides on a premise nobody has tested yet
+D) Scope reduction
+  ✅ Cuts down to the smallest test, such as five developer interviews or a pricing-page A/B test, before building a tier
+  ✅ Lowest cost and risk; you learn whether price matters before you touch billing or packaging
+  ❌ May postpone a real launch if the team already has data on price friction that isn't in the plan
+Net: Stress-test the guess as written (A), shop for add-ons (B/C), or shrink to a cheap test of the guess first (D).
+
+Hold scope (recommended)
+Keep scope as written; stress-test premise, metric, edge cases, failure modes. ✅ Attacks the untested price premise and vague signup metric first ✅ Covers tier abuse, downgrade cannibalization, observability ❌ Won't propose non-pricing adoption ideas
+
+Selective expansion
+Hold current scope, then offer each expansion one at a time to add/defer/skip. ✅ You choose every addition individually ✅ Can surface non-pricing adoption levers ❌ Spends effort on add-ons before the premise is validated
+
+Scope expansion
+Push for the ideal developer adoption strategy, 10x value for 2x effort. ✅ Could find a much better path than a cheaper tier ✅ Includes a 5+ item quick-win scan ❌ Expands work riding on an untested hypothesis
+
+Scope reduction
+Cut to the minimum viable test of the premise before building a tier. ✅ Cheapest path to learning if price is the real barrier ✅ Avoids billing and packaging changes until validated ❌ May delay a launch if the team has unstated price data
