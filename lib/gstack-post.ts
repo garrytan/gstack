@@ -569,7 +569,7 @@ const RECEIPT_LINE_IDS = [
   /(?<=(?<![\w-])ci_carried=(?:[\w.\/-]+:\d{11,20}\/\d{1,4},)*[\w.\/-]+:)(\d{11,20})(?=\/\d{1,4}(?![\w\/]))/dg,
   /@([0-9a-f]{12}) \(\d+ checks, current for ([0-9a-f]{12})\)/dg,
 ];
-type Span = { line: number; from: number; to: number };
+type Span = { line: number; from: number; to: number; card?: true };
 const lineIdSpans = (text: string, line: number): Span[] => RECEIPT_LINE_IDS.flatMap(re => [...text.matchAll(re)].flatMap(m => m.indices!.slice(1).flatMap(ix => ix ? [{ line, from: ix[0] + 1, to: ix[1] }] : [])));
 
 /**
@@ -582,6 +582,8 @@ const lineIdSpans = (text: string, line: number): Span[] => RECEIPT_LINE_IDS.fla
  * outside a fenced code block that opens with a receipt-line prefix (RECEIPT_LINE), its RECEIPT_LINE_IDS values. Only
  * those writers' own output qualifies, so a hand-written, schema-invalid, malformed or unclosed block exempts nothing, and the same number in
  * prose, in any other code block (a receipt-prefixed line inside one included), on a line without a receipt prefix or under any other key still reports.
+ * The two session-id spans (the receipt's run and each runs line's run) are marked card: a pii.cc finding is skipped only when its whole digit
+ * run lies inside one of them (gstack#4725); every other span clears pii.phone.e164 only.
  */
 function receiptIdSpans(text: string): Span[] {
   const lines = text.split("\n");
@@ -612,16 +614,16 @@ function receiptIdSpans(text: string): Span[] {
       }
       return { line, v };
     };
-    const span = (path: Array<string | number>, shape = /^\d{11,20}(?:\/\d{1,4})?$/) => {
+    const span = (path: Array<string | number>, shape = /^\d{11,20}(?:\/\d{1,4})?$/, card?: true) => {
       const { line, v } = at(path);
       if (!shape.test(typeof v === "number" ? String(v) : typeof v === "string" ? v : "")) return;
       const t = lines[line]!;
       const key = path.at(-1);
       const from = t.length - t.trimStart().length + (typeof key === "string" ? JSON.stringify(key).length + 2 : 0) + 1;
-      spans.push({ line: line + 1, from, to: from + JSON.stringify(v).length - 1 });
+      spans.push({ line: line + 1, from, to: from + JSON.stringify(v).length - 1, ...(card ? { card } : {}) });
     };
     const ids = (path: Array<string | number>) => { const { line } = at(path); spans.push(...lineIdSpans(lines[line]!, line + 1)); };
-    span(["run"], SESSION_ID);
+    span(["run"], SESSION_ID, true);
     if (typeof receipt.pregate === "string") ids(["pregate"]);
     receipt.requires_remote?.forEach((_, i) => ids(["requires_remote", i]));
     receipt.ci_carried?.forEach((_, i) => span(["ci_carried", i, "run"]));
@@ -637,7 +639,7 @@ function receiptIdSpans(text: string): Span[] {
       if (typeof entry.head !== "string" || !/^[0-9a-f]{40}$/.test(entry.head) || typeof entry.run !== "string" || !SESSION_ID.test(entry.run)) continue;
       const before = Object.keys(entry).slice(0, Object.keys(entry).indexOf("run"));
       const from = JSON.stringify(Object.fromEntries(before.map(k => [k, entry[k]]))).length + (before.length ? 1 : 0) + '"run":'.length;
-      spans.push({ line: i + 1, from, to: from + JSON.stringify(entry.run).length - 1 });
+      spans.push({ line: i + 1, from, to: from + JSON.stringify(entry.run).length - 1, card: true });
     }
   }
   return spans;
@@ -650,9 +652,12 @@ function scanParts(parts: Array<[Part, string]>, vis: RepoVisibility, selfEmail:
   for (const [part, text] of parts) {
     const result = scan(text, { repoVisibility: vis, allowlist, ...(selfEmail ? { selfEmail } : {}) });
     oversize ||= result.oversize;
-    const runIds = result.findings.some(f => f.id === "pii.phone.e164") ? [...receiptIdSpans(text), ...approvalsGrantStopSpans(text)] : [];
+    const runIds: Span[] = result.findings.some(f => f.id === "pii.phone.e164" || f.id === "pii.cc") ? [...receiptIdSpans(text), ...approvalsGrantStopSpans(text)] : [];
+    const lines = text.split("\n");
+    const cardEnd = (f: Finding) => { const re = /\b(?:\d[ -]?){13,19}\b/y; re.lastIndex = f.col - 1; return re.exec(lines[f.line - 1] ?? "") ? re.lastIndex : Infinity; };
     for (const finding of result.findings) {
       if (finding.id === "pii.phone.e164" && runIds.some(s => s.line === finding.line && s.from <= finding.col && finding.col <= s.to)) continue;
+      if (finding.id === "pii.cc" && runIds.some(s => s.card && s.line === finding.line && s.from <= finding.col && cardEnd(finding) <= s.to)) continue;
       found.push({ part, finding });
     }
   }
