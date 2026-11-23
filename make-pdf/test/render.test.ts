@@ -453,6 +453,14 @@ describe("render() — quote entities never open attributes or tags", () => {
     expect(html).toContain(">k</a>");
   });
 
+  // Handler removal runs over the whole page, so handler-looking text in a
+  // code span is removed; it must stop before the closing </code> tag.
+  test("removing handler-looking text never eats a tag", () => {
+    const html = render({ markdown: "See `a/onset=2` and `b onset=3` here.\n" }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(html).toContain("<p>See <code>a/</code> and <code>b</code> here.</p>");
+  });
+
   test("ordinary quotes still curl and ordinary attributes stay", () => {
     const html = render({ markdown: `She said "hi" -- it's fine. ![a](pic.png "A title")\n` }).bodyHtml;
     expect(html).toContain("\u201chi\u201d");

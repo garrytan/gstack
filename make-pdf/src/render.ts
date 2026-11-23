@@ -216,12 +216,15 @@ export function sanitizeUntrustedHtml(html: string): string {
   // Event handler attributes (on* in any case). The browser starts an
   // attribute name after whitespace, a "/" or a closing quote
   // (<img src="x"/onerror=…>, <img src="x"onerror=…>), so all four count.
-  // An unquoted value stops at a quote: marked writes a quote inside an
-  // attribute as &quot;, so the next straight quote closes the attribute
-  // this handler text sits in, and eating it would leave that attribute open.
+  // An unquoted value stops at a quote or "<": marked writes a quote inside
+  // an attribute as &quot;, so the next straight quote closes the attribute
+  // this handler text sits in, and the next "<" starts a tag (text such as
+  // `a/onset=2` in a code span sits right before </code>). Eating either
+  // would leave an attribute or element open. Matching runs over the whole
+  // page, text included, so "/on…=" inside a URL or code is removed too.
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"]*"/gi, "");
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^']*'/gi, "");
-  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`]+/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`<]+/gi, "");
 
   // javascript: URLs in href/src/action/formaction (same attribute starts).
   s = s.replace(
@@ -561,8 +564,8 @@ function extractFirstHeading(html: string): string | null {
 
 /**
  * Decode HTML entities in plain text extracted from rendered HTML. Distinct
- * from decodeTypographicEntities (which runs on in-pipeline HTML and preserves
- * &amp; because &amp;amp; can be legitimate there). This runs on text destined
+ * from smartypants, which reads only quote entities, only in text, and leaves
+ * &amp; alone because &amp;amp; can be legitimate there. This runs on text destined
  * for <title>, cover, and TOC entries where &amp; MUST become & or escapeHtml
  * produces &amp;amp;.
  *
