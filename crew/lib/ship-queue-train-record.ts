@@ -69,6 +69,8 @@ export interface TrainRecord {
   landing?: Record<string, LandingRecord>;
   effects: Array<{ at: string; what: string }>; error: string | null; created_at: string; updated_at: string;
 }
+/** A gate case id a bisect can name: a judge case id holds a space ("<skill>/SKILL.md workflow") and no comma, which joins the cases dispatch input; train bisect, the release bisect and the CI route (crew/scripts/train-gate.ts) share it. */
+export const CASE_ID = /^[A-Za-z0-9 _.:/-]{1,128}$/;
 export type AttemptPurpose = 'gate' | 'rebuild' | 'infra-redispatch' | 'bisect';
 export type GateOutcome = 'PENDING' | 'GREEN' | 'RED' | 'INCOMPLETE';
 export interface CasePanel {
