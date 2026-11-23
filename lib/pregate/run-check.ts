@@ -11,7 +11,7 @@ import { spawnSync } from '../spawn-sync';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ghArtifactDeps, ghRunDeps, runInventory, type RunProfile } from '../run-evidence';
+import { ghArtifactDeps, ghRunDeps, onlyBaseMoved, runInventory, type RunProfile } from '../run-evidence';
 import { classifyDocsOnly } from '../docs-only';
 import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';
@@ -74,6 +74,10 @@ export function buildRunCheck(root: string, lane: string | null, allowRepoComman
     repo, deps: ghRunDeps(repo, root), failures: ghArtifactDeps(repo), profiles: loaded.config.run_profiles, gateRuns: loaded.config.remote_gate_runs, now: new Date(),
     unchanged: p => gateInputsChanged(root, base, p),
     dispatchable: p => canDispatch(root, policy === 'head' ? 'HEAD' : `origin/${base}`, p),
+    onlyBaseMoved: (merge, head) => onlyBaseMoved(args => {
+      const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024 });
+      return r.status === 0 ? r.stdout ?? '' : null;
+    }, { merge, head, baseRef: `origin/${base}` }),
     docsOnly: head => {
       const mb = spawnSync('git', ['merge-base', `origin/${base}`, head], { cwd: root, encoding: 'utf8', timeout: 30_000 });
       try { return mb.status === 0 && classifyDocsOnly({ root, base: mb.stdout.trim(), head, policyRef: `origin/${base}` }).docsOnly; } catch { return false; }

@@ -2955,9 +2955,33 @@ body plain: they become main's history.
   note each name a sha, so after any push, a merge of main included, land
   refuses until checks are green and `ready` has run at the new head (the
   receipt itself can [carry across a base merge](#carrying-a-receipt-across-a-base-merge-or-a-test-only-fix)).
-  A `pull_request` CI run tests GitHub's merge commit rather than your branch,
-  so on a branch behind main `gstack-ci-carry` reports `tree_mismatch`:
-  dispatch the workflow on the branch (`gh workflow run <workflow> --ref <branch>`).
+  A `pull_request` CI run tests GitHub's merge commit rather than your branch:
+  your branch merged onto main as main was when the run started.
+- <a id="ci-carry-base-moved"></a>**A green run carries across a base move
+  when only the base moved (GST-3567).** When main has moved past your
+  branch's fork point, that merge commit's tree is not your head's tree. The
+  lane carry (`gstack-ship-release accept`, `gstack-evidence record-ci`,
+  `gstack-ci-carry`, and pregate's own carry and `clear --run`) still counts
+  the green run for your head when the merge commit's parents are a commit on
+  main and then your pushed head, and `git diff --raw` from that main commit
+  to the merge is byte-identical to the diff from your head's fork point to
+  your head: the same paths, modes and file contents on both sides, so main
+  changed only files your pull request leaves alone. The `CI_CARRY:` receipt
+  then adds `base_moved=<main commit>`. This is safe for two reasons. The run
+  tested exactly your pull request's changes, on a main newer than the one
+  your head forked from, so it tested no less than a run of your head's own
+  tree would have. And neither run tested the tree that lands: under
+  `merge: direct`, [`land --pin`](#land-direct) checks that tree itself with
+  `land.merged_ci` (CI on the pin merged onto the tip) and
+  `land.merged_checks`, and its verification never takes this rule
+  (`lib/land-merged-ci.ts` calls `verifyRun` without it). A repo whose `land`
+  is `null` lands a stale base unchecked (`STALE_BASE: warn`) either way.
+  The run still doesn't carry when main also changed a file your pull request
+  changes, when the merge is of a commit other than your pushed head, or when
+  the run isn't green. A `CARRY_DIAGNOSIS:` line says which, and `tree_mismatch`
+  keeps its fix: dispatch the workflow on the branch
+  (`gh workflow run <workflow> --ref <branch>`), which tests your head's own
+  tree, or, when it can't be dispatched, merge main and push.
 - <a id="ci-carry-rerun"></a>**A carried run that passed only after a re-run is marked, not refused.**
   When only a run's failed jobs were re-run, its `tree.json` may list
   `rerun_files` (the files whose newest result came from a re-run attempt) and

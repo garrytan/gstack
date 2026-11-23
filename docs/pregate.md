@@ -951,7 +951,8 @@ once:
   `tree.json` must name the head (`head_sha`) and the merge commit (`sha`), and
   the tree git computes for that merge commit must equal the head's tree: the
   head already contained its base, so the merge tested exactly the head tree
-  (`tree_mismatch` otherwise). The API answers with
+  (`tree_mismatch` otherwise), unless only the base moved
+  ([below](#base-moved-carry)). The API answers with
   the newest attempt, so an earlier green attempt under a newer red one is
   refused, and the run is read again after the evidence is collected: a new
   attempt meanwhile is `run_changed`. A newer run of the same workflow on the
@@ -1259,8 +1260,16 @@ the Ubicloud VM (`gstack-pregate --stage tests --remote`) is an opt-in for when
 no such run exists. The order after a push: wait for Free Tests
 (`gstack-ci-carry wait --base main`), then `gstack-pregate
 --allow-repo-commands`. A `pull_request` run tests GitHub's merge commit, so on
-a branch that does not contain the base tip it tested another tree and
-`CI_CARRY` says `none (no_verified_run: … tree_mismatch)`: dispatch Free Tests
+a branch that does not contain the base tip it tested another tree.
+<a id="base-moved-carry"></a>That run still carries for HEAD when only the base
+moved (GST-3567): the merge commit is HEAD merged onto a commit of the base, and
+the pull request's own changes in it are byte-identical to HEAD's own
+(`lib/run-evidence.ts` `onlyBaseMoved`, used by every lane carry and by
+`clear --run`, never by land's merged-tree CI; why that is safe:
+[ship-policy.md](ship-policy.md#ci-carry-base-moved)). The receipt adds
+`base_moved=<base commit>`. Otherwise `CI_CARRY` says
+`none (no_verified_run: … tree_mismatch)`, with a `CARRY_DIAGNOSIS:` line
+when the rule refused: dispatch Free Tests
 on the branch
 (`gh workflow run free-tests.yml --ref <branch>`), which tests HEAD's own tree,
 and wait again. When the pull_request run tested that merge commit, the

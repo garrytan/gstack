@@ -763,7 +763,15 @@ command `origin/<base>`'s `.gstack/pregate.json` maps in `ship_lanes_from`,
 and no verified CI run carries it at this tree: the `CI_CARRY: none
 label=<label> (<reason>)` line above the STOP says why (`no_run`: CI has not
 run this tree yet; `dirty_tree`: uncommitted work; `tree_mismatch`: the run
-tested a merge with an older base). A mapped lane is the full suite, which can
+tested a merge of the branch with main that counts for no commit here). A
+`pull_request` run that tested the branch merged onto a newer main still
+carries when only the base moved: the merge is of this pushed head, and the
+branch's own changes in it are byte-identical to the head's, so main changed
+only files the branch leaves alone. That is safe because the run tested
+exactly the branch's changes on a newer main, and land checks the tree that
+lands with `land.merged_ci` ([ship-policy.md](ship-policy.md#ci-carry-base-moved)).
+When that rule refuses, a `CARRY_DIAGNOSIS:` line says why: main also changed
+a file the branch changes, or the merge is of another commit. A mapped lane is the full suite, which can
 take most of an hour on a small machine (gbrain #9662: a 50-minute unit lane on
 4 CPUs), so preflight never starts it on its own, whatever the reason (GST-3019;
 a full preflight did until GST-3277).

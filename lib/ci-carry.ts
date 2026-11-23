@@ -12,7 +12,9 @@
  *   the lookup, so admitted dirty or untracked work never carries;
  *   each run passes verifyRun (same-repository head, the profile's workflow,
  *   event and jobs, the newest attempt, no newer red or running run on HEAD,
- *   max age, the run's own tree.json naming HEAD's tree);
+ *   max age, the run's own tree.json naming HEAD's tree, or a pull_request
+ *   run's merge of HEAD onto a newer base commit with the pull request's own
+ *   changes byte-identical: only the base moved, onlyBaseMoved, GST-3567);
  *   every run executed tests;
  *   with an inventory command, the runs' tree.json files cover every file it
  *   prints (a lane carries only what CI provably ran); with named jobs instead
@@ -79,13 +81,15 @@ function newestVerified(src: RunSource, name: string, profile: RunProfile, heads
   const twins = heads.slice(1).map(h => h.slice(0, 12));
   if (!listed.length) return no('no_run', `no ${profile.workflow} run (${profile.events.join(', ')}) on ${heads[0]!.slice(0, 12)}${twins.length ? ` or on ${twins.join(', ')}, which git reads as the same tree` : ''} yet`);
   const refusals: string[] = [];
+  const notMoved: string[] = [];
   const docsOnly = src.docsOnly && ((sha: string) => src.docsOnly!(sha) && (sha === heads[0] || src.docsOnly!(heads[0]!)));
   for (const run of listed) {
-    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: heads, now: src.now, unchanged: src.unchanged, docsOnly, dispatchable: src.dispatchable?.(profile) });
+    const v = verifyRun(src.deps, { repo: src.repo, runRef: String(run.id), profileName: name, profile, vetoHeads: heads, now: src.now, unchanged: src.unchanged, docsOnly, dispatchable: src.dispatchable?.(profile), onlyBaseMoved: src.onlyBaseMoved });
     if (v.ok) return v;
     refusals.push(`run ${run.id}: ${v.reason}${v.reason === 'rerun_malformed' || v.reason === 'tree_log_unbound' || (v.reason === 'artifact_missing' && profile.tree_log_step) ? ` (${v.detail})` : ''}${v.fix ? ` (the pull request's base moved after the run; fix: ${v.fix})` : ''}`);
+    if (v.notMoved) notMoved.push(`run ${run.id} tested a merge onto a newer base, but it does not count for the head: ${v.notMoved} (docs/pregate.md#base-moved-carry)`);
   }
-  return no('no_verified_run', `${name}: ${refusals.join('; ')}`);
+  return { ...no('no_verified_run', `${name}: ${refusals.join('; ')}`), ...(notMoved.length ? { diagnosis: notMoved } : {}) };
 }
 
 /**
