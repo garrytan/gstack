@@ -1,1 +1,0 @@
-**Train bisect now accepts a red judge case whose name holds a space.** A judge case such as `setup-browser-cookies/SKILL.md workflow` was refused as outside the gate's plan, because bisect's own id check left out the space that the release bisect and the CI route already allow; all three now share one rule. (#3580) Idea and first version by @Barack-zero-to-one in #4724
