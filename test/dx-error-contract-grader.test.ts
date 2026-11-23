@@ -18,6 +18,8 @@ describe('dx-error-contract-review grader (free controls for the paid case)', ()
     for (const path of ['P1', 'P2', 'P3', 'P4', 'P5']) expect(DX_ERROR_CONTRACT_PLAN).toContain(`### Error path ${path} `);
     expect(DX_ERROR_CONTRACT_PLAN).toContain('## Implementation plan');
     expect(DX_ERROR_CONTRACT_PLAN).toContain('(PROJECT_NOT_FOUND); fix: run');
+    expect(DX_ERROR_CONTRACT_PLAN).toContain('nothing was changed: pull stages files');
+    expect(DX_ERROR_CONTRACT_PLAN).toContain('(NETWORK_UNREACHABLE, exit 5) and unexpected crashes (INTERNAL_CRASH, exit 70) both print');
   });
 
   test('the grader keys on the title and severity shapes the product prompt asks for', () => {

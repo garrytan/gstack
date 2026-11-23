@@ -33,14 +33,19 @@ bearer token from ACME_TOKEN) so users can paste it into a bug report. On a conf
 files?" confirmation.
 
 ### Error path P2 (acmesync pull)
-A missing project prints to stderr and exits 4:
+Every pull failure goes to stderr with its own non-zero exit code and a stable code whose doc anchor is
+https://acme.example/errors#<CODE>; \`--json\` emits the same fields as an RFC 9457 object with \`code\`,
+\`fix\`, \`recovery: {action, side_effects}\` and that \`type\` URL. Tokens are masked in every message.
+A missing project exits 4:
 \`acmesync pull: project 'web' not found in ./acme.toml (PROJECT_NOT_FOUND); fix: run 'acmesync projects list', then 'acmesync pull <name>'. Nothing was changed.\`
-Network failures print the operation, the underlying error, acmesync and API versions, the config
-file in use and the names of the env vars read, plus "safe to retry; nothing was written; retries
-at most 3 times with backoff, then stop". \`--json\` emits the same fields as an RFC 9457 object with
-\`code\`, \`fix\`, \`recovery: {action, side_effects}\` and a \`type\` URL to
-https://acme.example/errors#PROJECT_NOT_FOUND. Unexpected crashes write the stack trace to
-~/.acme/logs/crash-<timestamp>.log and print that path. Tokens are masked in every message.
+Network failures (NETWORK_UNREACHABLE, exit 5) and unexpected crashes (INTERNAL_CRASH, exit 70) both print
+the operation and project name, the underlying error, acmesync and API versions, the config file in use and
+the names of the env vars read. A network failure adds "safe to retry; nothing was written; retries at most
+3 times with backoff, then stop" and, once the retries are used up, ends with "fix: check that
+https://api.acme.example is reachable from this machine, then rerun acmesync pull; if it still fails, send
+this message to Acme support". A crash writes the stack trace to ~/.acme/logs/crash-<timestamp>.log and
+prints that path, plus "nothing was changed: pull stages files in ./.acme/staging and swaps them in with one
+rename; rerun acmesync pull once, and if it crashes again send that log to Acme support".
 
 ### Error path P3 (GET /v1/projects/{id} on the Acme API)
 An unknown id returns HTTP 404 with an RFC 9457 body: \`type\`
