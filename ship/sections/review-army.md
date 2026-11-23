@@ -717,9 +717,9 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
    note, never a pass).
 
 1. **Apply the cap before any edit, then classify.** With the classified output in
-   hand and nothing edited yet: if `CYCLES >= 3`, or under `frozen` `PASS >= 3` with
-   a blocking finding in `scope: fix`, skip items 2–3 (no fix is applied on a capped
-   pass), complete items 3.5–6 with the findings unfixed, and take decision 2 below.
+   hand and nothing edited yet: if `CYCLES >= 3`, or the pass printed `READ_ONLY:` (the
+   read-only final review), or under `frozen` `PASS >= 3` with a blocking finding in
+   `scope: fix`, skip items 2–3 (no fix is applied on a capped pass), complete items 3.5–6 with the findings unfixed, and take decision 2 below.
    Otherwise: Classify only unmatched or reopened findings as AUTO-FIX or ASK when
    the classified output marks them `scope: fix`, per the Fix-First Heuristic in
    checklist.md. Critical findings lean toward ASK; informational lean toward AUTO-FIX.

@@ -40,7 +40,7 @@ export function asMainBeforeGst3562(input: PlanInput, plan: ReviewPlan): { plan:
   if (kind === 'b') expect({ ...plan, next: was }).toEqual(main);
   if (kind === 'a') {
     const lost = main.dispatches.filter(d => d.role === 'fix-check'
-      ? !plan.dispatches.some(p => p.effort === 'full' && p.exclude.every(e => d.exclude.includes(e)))
+      ? !plan.dispatches.some(p => p.role !== 'targeted' && p.effort === 'full' && p.exclude.every(e => d.exclude.includes(e)))
       : !plan.dispatches.some(p => p.role === d.role || (d.role === 'targeted' && p.role === 'adversarial-native' && !!p.classes?.length)));
     expect([h, plan.mode, lost]).toEqual([h, plan.mode, []]);
   }

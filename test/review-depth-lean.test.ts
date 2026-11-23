@@ -136,7 +136,9 @@ describe('R65 lean dispatch (GSTA-258 build C): one reviewer, once', () => {
     expect(today.length).toBeGreaterThan(1);
     expect(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 1, last: 'full', fixedBlocking: true } })).next.step).toBe('full');
     const readOnly = planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 2, last: 'full', fixedBlocking: true } }));
-    expect([readOnly.mode, readOnly.next.step, readOnly.next.reason]).toEqual(['panel', 'full', expect.stringContaining('read-only final review (R51)')]);
+    expect([readOnly.mode, readOnly.next.step, readOnly.next.reason, readOnly.next.readOnly]).toEqual(['panel', 'full', expect.stringContaining('read-only final review (R51)'), true]);
+    expect(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 1, last: 'full', fixedBlocking: true } })).next.readOnly).toBeUndefined();
+    expect(planReview(base({ paths: ['lib/billing.ts'], history: { priorRounds: 1, priorFull: 1, fullPasses: 1, last: 'full', fixedBlocking: true } })).next).toMatchObject({ step: 'full', readOnly: true, reason: expect.stringContaining('read-only final review (R51)') });
     expect(planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 3, last: 'full', fixedBlocking: true } })).next).toMatchObject({ step: 'stop', reason: expect.stringContaining("the lane's Captain decides") });
     const leanFix = planReview(base({ history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
     expect([leanFix.mode, leanFix.next.step, roles(leanFix)]).toEqual(['lean', 'full', ['adversarial-native:single:full:lane']]);
@@ -163,8 +165,8 @@ describe('R65 lean dispatch (GSTA-258 build C): one reviewer, once', () => {
   });
 });
 
-describe('GST-3562 A no-loss replay across panels, prior rounds, round grants and the bot-review skip', () => {
-  // Value: protects=rule 15's no-loss rule for review depth: a step that stands where main planned a fix-check keeps a full-effort reader excluding nothing that fix-check read, plus main's other readers, under every panel, prior-round count, round grant and bot-review shape; fails_when=a replacement pass dispatches no full-effort reader (the three corners #4737's read-only reviews found: a lean docs-only round 2, the same under a round grant, the bot-review skip on a repeat) or drops main's targeted or outside voice;
+describe('GST-3562 A no-loss replay across panels, prior rounds, round grants, the bot-review skip and targeted classes', () => {
+  // Value: protects=rule 15's no-loss rule for review depth: a step that stands where main planned a fix-check keeps a full-effort reader excluding nothing that fix-check read, plus main's other readers, under every panel, prior-round count, round grant, bot-review shape and targeted class; fails_when=a replacement pass dispatches no full-effort reader (the three corners #4737's read-only reviews found: a lean docs-only round 2, the same under a round grant, the bot-review skip on a repeat) or drops main's targeted or outside voice;
   //   why_new=GST-3562 A; seam=planReview, asMainBeforeGst3562; no_claim=what the kept reader finds
   test('every changed case is an allowed kind, and each fix-check it replaces keeps its reader', () => {
     const kinds: Record<string, number> = {};
@@ -172,19 +174,23 @@ describe('GST-3562 A no-loss replay across panels, prior rounds, round grants an
     const counted = scanNumbers({ 'docs/a.md': ['recall 87% (26/30)'] });
     const bot = { id: 'r1', head: HEAD, reviewer: 'capy-ai[bot]' };
     for (const [name, paths] of Object.entries(fixtures)) for (const panel of ['all', 'off', 'risk'] as const) for (const platform of ['off', 'on'] as const) for (const numbers of [none, counted])
-    for (const priorFull of [0, 1, 2]) for (const roundGrant of [undefined, 'g-1']) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
+    for (const targeted of [undefined, { classes: ['money'] }, { classes: ['money'], ran: true }]) for (const priorFull of [0, 1, 2]) for (const roundGrant of [undefined, 'g-1']) for (const fullPasses of [0, 1, 2]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) for (const adversarialRan of [false, true]) {
       const history = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8), priorFull, roundGrant };
-      const input = base({ paths, numbers, history, adversarialRan, shape: lean({ panel, platform, platformReview: platform === 'on' ? bot : null }) });
+      const input = base({ paths, numbers, history, adversarialRan, ...(targeted ? { targeted } : {}), shape: lean({ panel, platform, platformReview: platform === 'on' ? bot : null }) });
       const { kind } = asMainBeforeGst3562(input, planReview(input));
       if (kind) kinds[`${name}:${kind}`] = (kinds[`${name}:${kind}`] ?? 0) + 1;
     }
-    expect(kinds).toEqual({ 'docs:a': 1378, 'docs:b': 2112, 'docs:c': 192, 'docs:d': 362, 'docs:e': 192, 'tests:a': 1378, 'tests:b': 2112, 'tests:c': 192, 'tests:d': 362, 'tests:e': 192, 'code:a': 1328, 'code:b': 2112, 'code:c': 192, 'code:d': 352, 'code:e': 192, 'risk:a': 888, 'risk:b': 2208, 'risk:c': 112, 'risk:d': 152, 'risk:e': 384, 'mixed:a': 1328, 'mixed:b': 2112, 'mixed:c': 192, 'mixed:d': 352, 'mixed:e': 192 });
-  });
+    expect(kinds).toEqual({ 'docs:a': 4134, 'docs:b': 6336, 'docs:c': 576, 'docs:d': 1086, 'docs:e': 576, 'tests:a': 4134, 'tests:b': 6336, 'tests:c': 576, 'tests:d': 1086, 'tests:e': 576, 'code:a': 3984, 'code:b': 6336, 'code:c': 576, 'code:d': 1056, 'code:e': 576, 'risk:a': 2664, 'risk:b': 6624, 'risk:c': 336, 'risk:d': 456, 'risk:e': 1152, 'mixed:a': 3984, 'mixed:b': 6336, 'mixed:c': 576, 'mixed:d': 1056, 'mixed:e': 576 });
+  }, 60_000);
   test('the three corners keep the one full-effort reader main\'s fix-check was', () => {
     const bot = { id: 'r1', head: HEAD, reviewer: 'capy-ai[bot]' };
     for (const panel of ['off', 'risk'] as const) for (const extra of [{}, { priorFull: 1, roundGrant: 'g-1' }, { priorFull: 2, roundGrant: 'g-1' }]) for (const platform of ['off', 'on'] as const) {
       const p = planReview(base({ paths: ['docs/a.md'], history: { fullPasses: 1, last: 'full', fixedBlocking: true, ...extra }, shape: lean({ panel, platform, platformReview: platform === 'on' ? bot : null }) }));
       expect([panel, extra, platform, p.next.step, roles(p)]).toEqual([panel, extra, platform, 'full', ['red-team:red-team:full:-']]);
+    }
+    for (const paths of [['docs/a.md'], ['test/a.test.ts']]) for (const panel of ['off', 'risk'] as const) {
+      const p = planReview(base({ paths, targeted: { classes: ['money'] }, history: { fullPasses: 1, last: 'full', fixedBlocking: true }, shape: lean({ panel }) }));
+      expect([paths, panel, roles(p).filter(r => r.startsWith('red-team') || r.startsWith('targeted'))]).toEqual([paths, panel, ['red-team:red-team:full:-', 'targeted:targeted:full:-']]);
     }
   });
 });

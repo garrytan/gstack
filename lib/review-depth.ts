@@ -410,9 +410,10 @@ export interface History {
 /**
  * keepReader (GST-3562 A): this step stands where main's table planned a fix-check, or is the read-only final review, so its
  * dispatch keeps one full-effort reader that excludes nothing (the reader the fix-check was). The table sets it; prCapped's
- * spreads carry it; the dispatch reads it, never the reason text.
+ * spreads carry it; the dispatch reads it, never the reason text. readOnly marks the read-only final review: the dispatcher
+ * stages it on the PR's merge base whatever --diff-base the driver passes, and Step 3's edit guard applies no fix on it.
  */
-export interface NextStep { step: Step; reason: string; keepReader?: true }
+export interface NextStep { step: Step; reason: string; keepReader?: true; readOnly?: true }
 
 /**
  * The transition table (docs/review-policy.md#transitions). Pass 1 is full. A fixed
@@ -464,12 +465,12 @@ function prCapped(h: History, n: NextStep): NextStep {
   if (used < cap) return { ...n, reason: `${n.reason}; this PR already had ${prior} full review round${prior === 1 ? '' : 's'} on earlier heads, so this is its full round ${used + 1} of ${cap}${used + 1 === cap ? ', the last' : ''}` };
   if (h.roundGrant && used === cap && prior === cap - 1 && h.fullPasses === 1 && h.last === 'full') return { ...n, reason: `${n.reason}; round grant ${h.roundGrant} bought pass 1 as this PR's full round ${cap}, and this is that round's fix round, its last` };
   if (h.last !== 'none' && !h.blockingOpen) return used === cap
-    ? { step: 'full', reason: `${READ_ONLY_REVIEW}; this PR already had ${prior} full review round${prior === 1 ? '' : 's'} on earlier heads`, keepReader: true }
+    ? { step: 'full', reason: `${READ_ONLY_REVIEW}; this PR already had ${prior} full review round${prior === 1 ? '' : 's'} on earlier heads`, keepReader: true, readOnly: true }
     : { step: 'stop', reason: `a fix followed the read-only final review: ${CAPTAIN_DECIDES}` };
   return { step: 'stop', reason: `PR_ROUND_CAP: this PR already had ${used} full review round${used === 1 ? '' : 's'} across its heads and /ship runs${h.roundGrant ? ` (round grant ${h.roundGrant} included)` : ''}; another needs a reason the lane or its Captain records with gstack-approvals round-grant, not an owner ask` };
 }
 
-const READ_ONLY_REVIEW = 'read-only final review (R51): fixes changed code after the last round, so the final head gets one full review of the whole PR diff (run it without diffBase) with no fix round (GST-3562 A)';
+const READ_ONLY_REVIEW = 'read-only final review (R51): fixes changed code after the last round, so the final head gets one full review of the whole PR diff (the dispatcher stages it on the merge base) with no fix round (GST-3562 A)';
 const CAPTAIN_DECIDES = "the lane's Captain decides (R51): ship with it as a ruled note, or keep the fix and run /ship again for one read-only full review of the final head";
 
 /**
@@ -480,7 +481,7 @@ const CAPTAIN_DECIDES = "the lane's Captain decides (R51): ship with it as a rul
 function capStep(h: History, depth?: Depth): NextStep {
   if (h.fullPasses > FULL_PASS_CAP) return { step: 'stop', reason: `a fix followed the read-only final review: ${CAPTAIN_DECIDES}` };
   if (!h.fixedBlocking && !h.touchedGate && depth === 'light' && h.rangeRuntimeLines === 0) return { step: 'done', reason: `round cap ${FULL_PASS_CAP} reached: the below-floor fixes change no runtime lines and ship as notes in the PR body and receipt` };
-  return { step: 'full', reason: READ_ONLY_REVIEW, keepReader: true };
+  return { step: 'full', reason: READ_ONLY_REVIEW, keepReader: true, readOnly: true };
 }
 
 /**
@@ -779,7 +780,7 @@ function leanPlan(i: PlanInput, c: ClassResult, depth: DepthResult, next: NextSt
     if (i.numbers.publishes && i.reviewedNumbers !== undefined && i.reviewedNumbers !== i.numbers.fingerprint) add('outside-voice', 'outside-voice (numbers changed)', 'host');
   }
   if (next.keepReader && !dispatches.some(d => d.effort === 'full' && d.exclude.length === (x?.specs.length ?? 0))) add('red-team', 'red-team', 'full');
-  if (next.step === 'fix-check' && i.targeted?.classes.length) {
+  if ((next.step === 'fix-check' || (next.keepReader && !dispatches.some(d => d.classes?.length))) && i.targeted?.classes.length) {
     if (i.targeted.ran) skipped.push('targeted (already read this product patch)');
     else add('targeted', 'targeted', ROLE_EFFORT.targeted);
   }
