@@ -437,8 +437,8 @@ function literalDocsCommandAllowed(text: string, fixture: ReturnType<typeof fixt
     if (rest[0] !== 'snapshot' || rest.length % 2 !== 1) return false;
     const flags = rest.slice(1).filter((_, i) => i % 2 === 0);
     const values = rest.slice(1).filter((_, i) => i % 2 === 1);
-    return flags.every(flag => ['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--run', '--pre', '--carry'].includes(flag)) &&
-      flags.filter(flag => flag === '--out').length === 1 && flags.every((flag, i) => !['--out', '--pre', '--carry'].includes(flag) || privateJson(values[i]));
+    return flags.every(flag => ['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--run', '--pre', '--carry', '--carry-stopped'].includes(flag)) &&
+      flags.filter(flag => flag === '--out').length === 1 && flags.every((flag, i) => !['--out', '--pre', '--carry', '--carry-stopped'].includes(flag) || privateJson(values[i]));
   }
   const marker = 'GSTACK_SESSION_KIND=spawned';
   const start = path.join(fixture.skills, 'bin/gstack-skill-start').split(path.sep).join('/');
