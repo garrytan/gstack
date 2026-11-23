@@ -6,6 +6,7 @@
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import { fakeGhScript, type FakeWorld } from './helpers/fake-gh-runs';
@@ -173,5 +174,13 @@ describe('the record-ci bound covers finding the CI run, not the local remainder
     const got = carry(f, 3);
     expect([got.carryNone, perFileRuns(f)]).toEqual([expect.stringMatching(/^ci_record_timeout: finding and verifying the CI run took over the 3 s bound/), 0]);
     expect(Date.now() - t0).toBeLessThan(8_000);
+  });
+
+  // Value: protects=a record-ci that cannot start returns record_failed for its lane, as the synchronous spawn did, so accept,
+  //   finish and preflight report it; fails_when=the spawn error is unhandled and the tool crashes; seam=carryLane
+  test('a record-ci that cannot start returns record_failed instead of crashing', async () => {
+    const { carryLane } = await import('../lib/ship-bin-common');
+    const got = await carryLane(path.join(fs.realpathSync(os.tmpdir()), 'gstack-no-such-checkout-' + process.pid), 'main', { label: 'free', command: FREE }, 5);
+    expect([got.exit, got.carryNone]).toEqual([null, expect.stringMatching(/^record_failed: /)]);
   });
 });

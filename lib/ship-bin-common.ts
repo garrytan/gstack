@@ -211,6 +211,7 @@ export async function carryLane(cwd: string, base: string, l: { label: string; c
       clearTimeout(timer);
       timer = setTimeout(() => child.kill('SIGKILL'), LOCAL_RUNS_ALLOWANCE_S * 1000);
     });
+    child.on('error', e => { clearTimeout(timer); resolve({ status: null, stderr: [e.message, stderr].filter(Boolean).join('\n'), bound: false }); });
     child.on('close', status => { clearTimeout(timer); resolve({ status, stderr, bound }); });
   });
   if (rec.bound) return { label: l.label, exit: null, testsRan: 'unknown', log: '-', carryNone: `ci_record_timeout: finding and verifying the CI run took over the ${timeoutS} s bound (ci_record_timeout_s); nothing was recorded` };
