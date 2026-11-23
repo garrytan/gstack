@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { RunReportV3 } from '../lib/cso/contracts';
-import { DIFF_MODE_BASE, DIFF_MODE_CHANGE, withFixture, requireReport, expectDailyFinding, expectDiffModeReport, type Fixture } from './helpers/cso-e2e-report';
+import { DIFF_MODE_BASE, DIFF_MODE_CHANGE, withFixture, requireReport, expectDailyFinding, expectDiffModeReport, isWebhookAuthFinding, type Fixture } from './helpers/cso-e2e-report';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const launcher = path.join(ROOT, 'bin', process.platform === 'win32' ? 'gstack-cso-launcher.exe' : 'gstack-cso-launcher');
@@ -56,7 +56,9 @@ describe('cso e2e report contract (release gate 45216872389)', () => {
       const hypothesis = report.findings.find(item => item.evidence === 'hypothesis')!;
       expect(() => expectDailyFinding({ ...hypothesis, confidence: 'medium' })).toThrow();
       const downgraded: RunReportV3 = structuredClone(report);
-      for (const item of downgraded.findings) Object.assign(item, { evidence: 'hypothesis', confidence: 'low' });
+      const targets = downgraded.findings.filter(isWebhookAuthFinding);
+      expect(targets).toHaveLength(1);
+      Object.assign(targets[0], { evidence: 'hypothesis', confidence: 'low' });
       expect(() => expectDiffModeReport(downgraded, f)).toThrow();
       const outside: RunReportV3 = structuredClone(report);
       outside.findings[0].location.path = 'app.js';

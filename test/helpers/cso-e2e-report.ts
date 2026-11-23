@@ -33,7 +33,9 @@ http.createServer((req, res) => {
 
 export interface Fixture { repo: string; state: string; original: Map<string, string>; }
 export function git(repo: string, ...args: string[]): string {
-  const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 5000 });
+  // Seed commits must not depend on the host's Git configuration (signing, hooks, templates).
+  const result = spawnSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8', timeout: 5000,
+    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' } });
   if (result.status !== 0) throw new Error(`Fixture git ${args[0]} failed: ${result.stderr}`);
   return result.stdout;
 }
@@ -110,12 +112,14 @@ export function requireReport(f: Fixture): RunReportV3 {
   expect(git(f.repo, 'status', '--porcelain=v1', '--untracked-files=all')).toBe('');
   return report;
 }
+/** The finding that names the changed webhook's missing authentication (title or root cause, not a side effect in its impact). */
+export const isWebhookAuthFinding = (item: FindingV3): boolean => item.location.path === 'webhook.js'
+  && /signature|authentic|forg|spoof|hmac/i.test(`${item.title} ${item.rootCause}`);
 /** cso-diff-mode's case contract: the changed webhook's missing authentication is a supported finding, and nothing outside the diff is reported. */
 export function expectDiffModeReport(report: RunReportV3, f: Fixture): void {
   expect(report.policy.diff).toBe(true);
   expect(report.policy.base).toBe('main');
   expect(report.source.baseCommit).toBe(git(f.repo, 'rev-parse', 'main').trim());
-  expect(report.findings.some(item => item.evidence === 'supported' && item.location.path === 'webhook.js'
-    && /signature|authentic|forg|spoof|hmac/i.test(`${item.title} ${item.rootCause} ${item.impact}`))).toBe(true);
+  expect(report.findings.some(item => item.evidence === 'supported' && isWebhookAuthFinding(item))).toBe(true);
   expect(report.findings.every(item => item.location.path === 'webhook.js')).toBe(true);
 }
