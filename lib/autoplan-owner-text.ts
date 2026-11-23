@@ -30,17 +30,24 @@ const BULLET = /^\s*[-*+]\s+(.*)$/;
 const QUOTED = /[“"](.+)[”"]/;
 const RULED = /^ruled out\s+([^:“"]+?)\s*:\s*[“"](.+)[”"]\s*$/i;
 
-/** The bullet split at its last `→` or `->` outside quote marks: the quote on the left, the line on the right (none when no arrow). */
+const count = (s: string, c: string) => s.split(c).length - 1;
+const paired = (s: string) => count(s, '"') % 2 === 0 && count(s, '“') === count(s, '”');
+
+/**
+ * The bullet split into its quote (left) and its line (right). It splits at the first `→` or `->` that follows quoted
+ * words and is followed by a line parseLine reads, with its quote marks paired, so an arrow in the attribution or inside
+ * the quote never splits it. Otherwise the bullet reads as it did before lines existed, with no line, except that an arrow
+ * after its last closing quote mark still returns what follows as a line, for parseOwnerWords to name as malformed.
+ */
 export function splitLine(bullet: string): { left: string; line?: string } {
-  let open = false, at = -1, len = 0;
-  for (let i = 0; i < bullet.length; i++) {
-    const c = bullet[i]!;
-    if (c === '“') open = true;
-    else if (c === '”') open = false;
-    else if (c === '"') open = !open;
-    else if (!open && (c === '→' || (c === '-' && bullet[i + 1] === '>'))) { at = i; len = c === '→' ? 1 : 2; }
+  for (const a of bullet.matchAll(/→|->/g)) {
+    const left = bullet.slice(0, a.index).trimEnd(), line = bullet.slice(a.index + a[0].length).trim();
+    if (QUOTED.exec(left)?.[1]?.trim() && paired(line) && parseLine(line)) return { left, line };
   }
-  return at < 0 ? { left: bullet } : { left: bullet.slice(0, at).trimEnd(), line: bullet.slice(at + len).trim() };
+  const quote = QUOTED.exec(bullet);
+  const close = quote ? quote.index + quote[0].length : 0;
+  const arrow = quote ? [...bullet.slice(close).matchAll(/→|->/g)].pop() : undefined;
+  return arrow ? { left: bullet.slice(0, close + arrow.index).trimEnd(), line: bullet.slice(close + arrow.index + arrow[0].length).trim() } : { left: bullet };
 }
 
 /** A bullet's line: `does it`, `choice[; size: …][; leave out: …]` or `ruled out <date>: "<ruling>"`; undefined when it reads as none of them. */
