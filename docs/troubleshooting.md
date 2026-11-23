@@ -1967,7 +1967,10 @@ fix before the next workflow, as for any `behind=` of 1 or more.
 **Meaning.** `bin/gstack-upgrade` moves a checkout only by fast-forward to the
 tip of its remote default branch. It refused before changing anything: the
 directory is not a gstack checkout, HEAD is detached or on another branch (a
-pin), a tracked file is modified, a local commit is not on the remote branch,
+pin), a tracked file is modified (the root `SKILL.md` that setup renders for
+`disabled_skills` or `plan_mode_preamble off` doesn't count while its bytes
+match a fresh render for your current settings), a local commit is not on the
+remote branch,
 the incoming release's Bun floor is above the Bun on PATH, or another updater
 holds `<state root>/.setup-lock`. It never stashes, resets or discards.
 A `tracked-by-project` or `version-reverted` cause has its own section:

@@ -19,7 +19,8 @@
 #
 # Refuses with exit 3 and changes nothing (UPGRADE_REFUSED) when the directory
 # is not a gstack checkout, HEAD is detached or not on the remote default
-# branch (a pin), any tracked byte is dirty, a local commit diverged, the
+# branch (a pin), any tracked byte is dirty (the root SKILL.md exactly as
+# gstack-relink renders it for this install is not, #4704), a local commit diverged, the
 # incoming release's Bun floor holds, or another updater holds the setup
 # lock, unless the caller holds it and names its pid in GSTACK_SETUP_LOCK_OWNER;
 # never stashes, never resets. Before any fetch it also refuses when
@@ -43,6 +44,7 @@
 # Bash 3.2 plus git; the fetch is bounded by `timeout` when present.
 set -u
 BASH_COMPAT=50
+GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then GSTACK_BUN_CONFIG=NUL; fi ;; esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 CALLER=$(pwd -P)
@@ -53,7 +55,7 @@ case "${1:-}" in
   --check) CHECK=1 ;;
   --ff-only-no-reinstall) REINSTALL=0 ;;
   '') ;;
-  -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "gstack-upgrade: unknown argument '$1'" >&2; exit 2 ;;
 esac
 
@@ -222,7 +224,41 @@ if [ "$CHECK" -eq 1 ]; then
   exit 1
 fi
 
+# The root SKILL.md gstack-relink renders in place for disabled_skills or
+# plan_mode_preamble=off (#3018, #3168) is gstack's own install state, not a
+# local edit (#4704). It is left out of the dirty check only when every other
+# tracked path is clean and its mode and bytes equal a fresh render of this
+# checkout's router for the current config, so a staged, edited or stale router
+# still refuses. The bytes are checked again under the setup lock, the
+# committed bytes go back just before the fast-forward, and the router is
+# rendered again right after it (a failed render leaves a pending reinstall,
+# whose setup renders it).
+# render_router DEST: gstack-relink's router render (same generator, flags and config).
+render_router() {
+  _rr_dir=$(mktemp -d "${TMPDIR:-/tmp}/gstack-upgrade-router.XXXXXX") || return 1
+  _rr_config="$ROOT/bin/gstack-config"
+  _rr_off=$(. "$ROOT/bin/gstack-install-registry.sh" 2>/dev/null && gstack_disabled_normalize "$("$_rr_config" get disabled_skills 2>/dev/null || true)" | xargs | tr ' ' ',')
+  _rr_pm=""
+  [ "$("$_rr_config" get plan_mode_preamble 2>/dev/null || true)" != off ] || _rr_pm="--plan-mode=off"
+  (cd "$ROOT" && bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" run scripts/gen-skill-docs.ts --host claude --out-dir "$_rr_dir" ${_rr_off:+"--disabled-skills=$_rr_off"} ${_rr_pm:+"$_rr_pm"} >/dev/null 2>&1) \
+    && [ -s "$_rr_dir/SKILL.md" ] && cp "$_rr_dir/SKILL.md" "$1.tmp.$$" && mv "$1.tmp.$$" "$1"
+  _rr_rc=$?
+  rm -rf "$_rr_dir" "$1.tmp.$$"
+  return "$_rr_rc"
+}
+# router_is_rendered: SKILL.md is modified only in the work tree, mode unchanged, with exactly the bytes render_router writes.
+router_is_rendered() {
+  [ "$(git -C "$ROOT" status --porcelain --untracked-files=no -- SKILL.md 2>/dev/null)" = " M SKILL.md" ] || return 1
+  [ -z "$(git -C "$ROOT" diff --summary -- SKILL.md 2>/dev/null)" ] || return 1
+  _rr_fresh=$(mktemp "${TMPDIR:-/tmp}/gstack-upgrade-router.XXXXXX") || return 1
+  render_router "$_rr_fresh" && cmp -s "$_rr_fresh" "$ROOT/SKILL.md"
+  _rr_rc=$?
+  rm -f "$_rr_fresh"
+  return "$_rr_rc"
+}
 DIRTY=$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null | cut -c4- | tr '\n' ' ' | sed 's/ $//')
+ROUTER_RENDERED=0
+[ "$DIRTY" = SKILL.md ] && router_is_rendered && ROUTER_RENDERED=1 DIRTY=""
 [ -z "$DIRTY" ] || refuse "tracked files changed: $DIRTY" "commit or move those changes (git -C $ROOT status --short), then re-run"
 if ! git -C "$ROOT" merge-base --is-ancestor HEAD FETCH_HEAD 2>/dev/null; then
   _receipted_git open gstack-upgrade "${HOST:-unknown}" gstack-self-update-pull "$R" git -C "$ROOT" fetch --quiet --unshallow origin "$FOLLOW" 2>/dev/null || true
@@ -275,7 +311,18 @@ else
   trap '[ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
 fi
 
-git -C "$ROOT" merge --ff-only -q FETCH_HEAD 2>/dev/null || refuse "git merge --ff-only FETCH_HEAD failed" "git -C $ROOT status, then re-run"
+if [ "$ROUTER_RENDERED" -eq 1 ]; then
+  router_is_rendered || refuse "tracked files changed: SKILL.md" "commit or move those changes (git -C $ROOT status --short), then re-run"
+  git -C "$ROOT" checkout -q -- SKILL.md
+fi
+git -C "$ROOT" merge --ff-only -q FETCH_HEAD 2>/dev/null || {
+  [ "$ROUTER_RENDERED" -eq 0 ] || ! git -C "$ROOT" diff --quiet -- SKILL.md || render_router "$ROOT/SKILL.md"
+  refuse "git merge --ff-only FETCH_HEAD failed" "git -C $ROOT status, then re-run"
+}
+if [ "$ROUTER_RENDERED" -eq 1 ] && ! render_router "$ROOT/SKILL.md"; then
+  printf '%s\n' "$INSTALLED" > "$PENDING"
+  echo "gstack-upgrade: could not render the router for disabled_skills again (bun missing or generation failed), so $ROOT/SKILL.md routes to every skill until it is; fix: $ROOT/bin/gstack-relink (the reinstall left pending renders it too)" >&2
+fi
 NEW=$(head -1 "$ROOT/VERSION")
 echo "gstack-upgrade: upgraded $INSTALLED -> $NEW"
 [ "$LOCK_HANDED" -eq 1 ] || { rm -rf "$LOCK_DIR"; trap - EXIT; }
