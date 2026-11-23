@@ -64,7 +64,7 @@ describe('CSO v3 always-loaded policy', () => {
   test('sensitive helper control files stay out of the audited working tree', () => {
     const text = controller();
     for (const proof of ['Private control files', 'umask 077', 'mode-`0700`', 'mode-`0600`', 'outside the audited repository', 'remove each control file immediately']) expect(text).toContain(proof);
-    for (const proof of ['Audited-source access invariant', "only with that run's `inspect`, `read`, and `history`", 'exact `path` from `inspect`', '`displayPath` is only a redacted label', 'Never use host `Read`/`Glob`/`Grep`', 'direct reads bypass']) expect(text).toContain(proof);
+    for (const proof of ['Audited-source access invariant', "only with that run's `inspect`, `read`, `search`, and `history`", 'exact `path` from `inspect`', '`displayPath` is only a redacted label', 'Never use host `Read`/`Glob`/`Grep`', 'direct reads bypass']) expect(text).toContain(proof);
     for (const proof of ["copy every record's `domain` and `scope` exactly", 'a new scope leaves the planned scope unassessed', 'Only helper commands may update helper-owned records']) expect(text).toContain(proof);
   });
 
