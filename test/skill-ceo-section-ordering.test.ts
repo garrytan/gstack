@@ -442,7 +442,8 @@ test('CEO mode recommendation explains a plan-specific consequence without chang
     const source = fs.readFileSync(file, 'utf8');
     const mode = between(source, '### 0E. Mode Selection', '### 0F.');
     const recommendation = compactProse(between(mode, '2. Recommend without selecting.', '3. Resolve that recommendation.'));
-    expect(recommendation).toMatch(/not just its count\/category/i);
+    expect(recommendation).toMatch(/what this mode does with it that the nearest other mode would not/i);
+    expect(recommendation).toMatch(/never a count or category alone/i);
     expectMentions(recommendation, [['>15', 'scope reduction']], 'recommendation');
     expect(recommendation).toContain('(greenfield) → SCOPE EXPANSION');
     expect(recommendation).toContain('added capability → SELECTIVE EXPANSION');
