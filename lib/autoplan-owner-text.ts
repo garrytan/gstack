@@ -152,7 +152,7 @@ export const FIRST_USE_LINE = "Before you're asked to try it, an agent from anot
  */
 export function renderOwnerPage(planText: string, quotes: Array<OwnerQuote & { verified?: boolean }> = [], o: { firstVersion?: boolean } = {}): string[] {
   const day = parseDayOne(planText);
-  const cuts = parseCuts(planText).filter(c => !cutQuote(c, quotes));
+  const cuts = parseCuts(planText).filter(c => !cutQuote(c, quotes.filter(q => q.line?.kind !== 'ruled_out')));
   const out: string[] = [];
   if (quotes.length) out.push('### Your words this plan follows', '', ...quotes.map(q => `- ${q.who}: “${q.text}”${q.verified === false ? ' (not found in your recorded replies)' : ''} → ${lineText(q)}`), '',
     'A reviewer who wants to change one of these needs your answer. Anything else in the plan was written by the planning agent, so a reviewer\'s change to it is recommended below.', '');

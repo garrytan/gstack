@@ -252,7 +252,8 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     const twinOf = (id: string) => twins.get(id) ?? [...twins].find(([, out]) => out === id)?.[0];
     for (const f of [...native, ...outside, ...carried] as ChallengeRow[]) {
       if (challenged.has(f.id) || f.settled_by) continue;
-      if (narrowedQuoteOf(owner, f)) { challenged.add(f.id); narrowed.push(f); continue; }
+      const narrows = narrowedQuoteOf(owner, f);
+      if (narrows && narrows.line?.kind !== 'ruled_out') { challenged.add(f.id); narrowed.push(f); continue; }
       if (quoted && (f.changes || f.user_challenge) && !ownerQuoteOf(owner, f)) {
         const twin = twinOf(f.id) ? byId.get(twinOf(f.id)!) as ChallengeRow | undefined : undefined;
         propose(twin && !twin.settled_by && !ownerQuoteOf(owner, twin) ? [f, twin] : [f], carried.includes(f));

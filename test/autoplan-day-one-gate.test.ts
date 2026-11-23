@@ -513,8 +513,10 @@ describe('first versions: the owner page quotes the owner and letters what it le
 
   test('a cut that follows the owner\'s own ruling stays a cut recommending keep, never a build-it choice', () => {
     const cuts = '- It never touches your calendar: never touch my calendar\n- No Android build\n';
-    const list = buildGate(makeRun('ruled-cut', { plan: plan(CASE4, cuts), round2: narrowing(), round1: false, ui: false }), 1);
+    const state = makeRun('ruled-cut', { plan: plan(CASE4, cuts), round2: narrowing(), round1: false, ui: false });
+    const list = buildGate(state, 1);
     expect(byClass(list, 'owner_choice').filter(i => i.title.includes('calendar'))).toEqual([]);
+    expect(renderOwnerPage(fs.readFileSync(state.active_plan, 'utf8'), list.owner_words?.quotes).join('\n')).toContain("### What it won't do yet\n\n- It never touches your calendar: never touch my calendar\n");
     const cut = byClass(list, 'cut').find(i => i.title.includes('calendar'))!;
     expect([cut.title, cut.recommended]).toEqual(['Cut: It never touches your calendar: never touch my calendar', 'a']);
   });
@@ -526,6 +528,12 @@ describe('first versions: the owner page quotes the owner and letters what it le
     expect(notes.recommended_basis).toBe('your own words asked for it, and a High finding says the plan falls short of them');
     expect(notes.origin!.split('|')[1]!.split('+')).toContain(`${RUN}-ceo-r2-native-1`);
     expect(notes.origin!.endsWith('|finding')).toBe(true);
+  });
+
+  test('a High finding that narrows a quote the owner ruled out still reaches the gate as its own item', () => {
+    const list = buildGate(makeRun('ruled-narrow', { plan: plan(CASE4), round2: narrowing({ quote: 3 }), round1: false, ui: false }), 1);
+    expect(covering(list, `${RUN}-ceo-r2-native-1`)).toBeDefined();
+    expect(byClass(list, 'owner_choice').filter(i => i.title.includes('calendar'))).toEqual([]);
   });
 
   test('--first-version makes a plan with no Day one section a first version; a plain backend plan stays as it was', () => {
