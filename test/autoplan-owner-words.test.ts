@@ -163,7 +163,7 @@ describe('redactOwnerWords', () => {
 });
 
 describe('ownerWords over a run directory', () => {
-  test("a plan's ruled-out line indexes the owner's ruling as well as the quote, so export and validate both redact it", () => {
+  test("a leftover ruled-out line is read as part of the quote, as before lines existed, so export and validate still redact the owner's ruling", () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'owner-ruling-'));
     const ruling = 'leave my calendar alone, I mean it, no exceptions';
     fs.writeFileSync(path.join(out, 'plan-source.md'), `# Plan\n\n## Implementation plan\n\n### Owner's words\n\n- The owner, 2026-11-12 09:00Z: "never touch my calendar or my reminders" → ruled out 2026-11-12: "${ruling}"\n\n## Review record\n`);
@@ -171,7 +171,7 @@ describe('ownerWords over a run directory', () => {
     const r = redactOwnerWords(`The reviewer repeats it: "${ruling}".`, owner);
     expect(r.text).toContain(MARK);
     expect(r.text).not.toContain('no exceptions');
-    expect(redactOwnerWords('He said never touch my calendar or my reminders today.', owner).text).toContain(MARK);
+    expect(redactOwnerWords(`He said: "never touch my calendar or my reminders" → ruled out 2026-11-12: "${ruling}"`, owner).text).not.toContain('calendar');
     fs.rmSync(out, { recursive: true, force: true });
   });
 });

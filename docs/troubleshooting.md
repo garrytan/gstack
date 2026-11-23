@@ -2500,7 +2500,7 @@ whose Plan line differs from the PR body's current line.
 <a id="first-use-plan-unready"></a>
 ### `gstack-first-use start: ... (FIRST_USE_PLAN_UNREADY)`
 
-**Meaning.** `start` could not freeze the steps: the plan has no `### Day one` table, the table is missing a column or has fewer than five rows, one of its first five rows has an empty cell, is still marked `assumed` or cites none of the owner's quotes (`owner words <n>`), or the plan has no `### Owner's words` section, or a quote there has no time or no line (`does it`, `choice` or `ruled out <date>: "<ruling>"`). Exit 3; nothing is written. **Fix.** Quote the owner's messages that state the job and cite them from the table ([first-use-check.md](first-use-check.md#the-owners-words-and-the-day-one-table)); a row the owner confirmed at the gate cites his answer, added to Owner's words. Then rerun `start`.
+**Meaning.** `start` could not freeze the steps: the plan has no `### Day one` table, the table is missing a column or has fewer than five rows, one of its first five rows has an empty cell, is still marked `assumed` or cites none of the owner's quotes (`owner words <n>`), or the plan has no `### Owner's words` section, or a quote there has no time or no line (`does it` or `choice`). Exit 3; nothing is written. **Fix.** Quote the owner's messages that state the job and cite them from the table ([first-use-check.md](first-use-check.md#the-owners-words-and-the-day-one-table)); a row the owner confirmed at the gate cites his answer, added to Owner's words. Then rerun `start`.
 
 <a id="first-use-play-spec-incomplete"></a>
 ### `gstack-first-use start: ... (FIRST_USE_PLAY_SPEC_INCOMPLETE)`

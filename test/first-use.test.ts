@@ -96,11 +96,11 @@ describe('the day-one table and the owner quotes it cites (pinned)', () => {
     const none = AUTOPLAN.replace(/### Owner's words[\s\S]*?### Day one/, '### Day one');
     expect(freezeActions(none)).toMatchObject({ error: { detail: expect.stringMatching(/^the plan has no ### Owner's words section/) } });
     const noLine = AUTOPLAN.replace('before work" → does it', 'before work"');
-    expect(freezeActions(noLine)).toEqual({ error: { code: 'FIRST_USE_PLAN_UNREADY', detail: 'owner quote 2 needs a line (does it, choice or ruled out)' } });
+    expect(freezeActions(noLine)).toEqual({ error: { code: 'FIRST_USE_PLAN_UNREADY', detail: 'owner quote 2 needs a line (does it or choice)' } });
     const noTime = AUTOPLAN.replace('- Ada Example, day 0: "remind', '- Ada Example: "remind');
     expect(freezeActions(noTime)).toEqual({ error: { code: 'FIRST_USE_PLAN_UNREADY', detail: 'owner quote 2 needs when it was said' } });
     const bad = AUTOPLAN.replace('before work" → does it', 'before work" → maybe later');
-    expect(freezeActions(bad)).toMatchObject({ error: { detail: expect.stringContaining('bullet 2 has a line that is not does it, choice or ruled out') } });
+    expect(freezeActions(bad)).toMatchObject({ error: { detail: expect.stringContaining('bullet 2 has a line that is not does it or choice') } });
   });
 
   test('editing or inserting a quote changes the frozen hash, even when the rows stay the same', () => {
@@ -281,6 +281,19 @@ describe('the gate', () => {
     const ev = fs.readdirSync(path.join(r.dir, 'evidence')).find(f => f.startsWith('2-'))!;
     fs.writeFileSync(path.join(r.dir, 'evidence', ev), 'edited');
     expect(decide(r.dir, BUILD, T0).reasons).toEqual(['step_2_evidence_stale']);
+  });
+
+  test('a stored result whose verdict is not useful or thin refuses, whatever it says (fail closed, as the merge base required pass)', async () => {
+    for (const verdict of ['pass', 'great', undefined]) {
+      const r = passedRun();
+      await checkLinks(r.dir, AS, okFetch, () => T0);
+      expect(decide(r.dir, BUILD, T0).ok).toBe(true);
+      const file = path.join(r.dir, 'results', fs.readdirSync(path.join(r.dir, 'results')).find(f => JSON.parse(fs.readFileSync(path.join(r.dir, 'results', f), 'utf8')).step === 3)!);
+      const row = JSON.parse(fs.readFileSync(file, 'utf8'));
+      fs.chmodSync(file, 0o600);
+      fs.writeFileSync(file, JSON.stringify({ ...row, verdict }));
+      expect(decide(r.dir, BUILD, T0).reasons).toEqual([`step_3_verdict_unknown: ${String(verdict)}`]);
+    }
   });
 
   test('a try-it text edited after the check refuses', async () => {

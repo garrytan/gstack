@@ -156,14 +156,14 @@ export function dayOneItems(ctx: OwnerContext, narrowed: ChallengeRow[] = []): N
     items.push({ idKind: 'uc', key: 'owner-words', kind: 'approval', recommended: 'a', item_class: 'owner_words', changes: 'scope', cost: `a ${reopen}`,
       title: 'This is a first version, but the plan quotes none of your messages that ask for it',
       why: 'a first version is checked against your own words for the job, not against the plan: each quoted message, with its time, gets a line saying what this version does with it',
-      options: [{ key: 'a', text: "add it: an ### Owner's words section quoting each message that states the job, with its time and a line each (does it, choice or ruled out), then revise", changes_plan: true },
+      options: [{ key: 'a', text: "add it: an ### Owner's words section quoting each message that states the job, with its time and a line each (does it or choice), then revise", changes_plan: true },
         { key: 'b', text: 'approve without it', changes_plan: false }] });
   }
   const gaps = ctx.firstVersion ? ctx.words.quotes.filter(q => quoteGaps(q).length) : [];
   if (gaps.length) {
     items.push({ idKind: 'uc', key: `owner-lines:${gaps.map(q => q.n).join(',')}`, kind: 'approval', recommended: 'a', item_class: 'owner_words', changes: 'scope', cost: `a ${reopen}`,
       title: `${gaps.length} of your quoted messages ${gaps.length === 1 ? 'has' : 'have'} no time or no line saying what this version does with ${gaps.length === 1 ? 'it' : 'them'}: ${gaps.map(q => `“${q.text}” (missing ${quoteGaps(q).join(' and ')})`).join('; ')}`,
-      why: 'on a first version every quote says when it was said and whether this version does it, leaves it as a lettered choice, or follows your own ruling against it',
+      why: 'on a first version every quote says when it was said and whether this version does it or leaves it as a lettered choice',
       options: [{ key: 'a', text: 'add the time and the line to each, then revise', changes_plan: true }, { key: 'b', text: 'approve without them', changes_plan: false }] });
   }
   if (ctx.app && ctx.dayOne.status !== 'ok') {
@@ -181,10 +181,9 @@ export function dayOneItems(ctx: OwnerContext, narrowed: ChallengeRow[] = []): N
   const left = new Map<number, string[]>();
   const note = (q: OwnerQuote, why: string) => left.set(q.n, [...(left.get(q.n) ?? []), why]);
   for (const q of ctx.words.quotes) if (q.line?.kind === 'choice') note(q, "the plan's line for it says this version doesn't do it yet");
-  const open = ctx.words.quotes.filter(q => q.line?.kind !== 'ruled_out');
-  const quoteCuts = ctx.cuts.filter(c => cutQuote(c, open));
-  for (const cut of quoteCuts) note(cutQuote(cut, open)!, `the plan cuts it: "${cut}"`);
-  for (const f of narrowed) { const q = open.find(x => x.n === f.narrows_quote); if (q) note(q, `a reviewer (${f.voice}) says the plan narrows it: ${f.title}`); }
+  const quoteCuts = ctx.cuts.filter(c => cutQuote(c, ctx.words.quotes));
+  for (const cut of quoteCuts) note(cutQuote(cut, ctx.words.quotes)!, `the plan cuts it: "${cut}"`);
+  for (const f of narrowed) { const q = ctx.words.quotes.find(x => x.n === f.narrows_quote); if (q) note(q, `a reviewer (${f.voice}) says the plan narrows it: ${f.title}`); }
   for (const q of ctx.words.quotes.filter(x => left.has(x.n))) {
     const choice = q.line?.kind === 'choice' ? q.line : undefined;
     const blocking = narrowed.find(f => f.narrows_quote === q.n && (f.severity === 'Critical' || f.severity === 'High'));

@@ -360,6 +360,7 @@ export function decide(dir: string, build: Partial<BuildId>, now: Date = new Dat
     if (!bytes || bytes.length !== r.evidence.bytes || sha256(bytes) !== r.evidence.sha256) { reasons.push(`step_${s.n}_evidence_stale`); continue; }
     verdicts.push({ n: s.n, kind: s.kind, text: s.text, verdict: r.verdict, line: r.line, ...(r.notice ? { notice: r.notice } : {}) });
     if (r.verdict === 'wrong' || r.verdict === 'broken') { reasons.push(`step_${s.n}_${r.verdict}: ${r.line}`); continue; }
+    if (r.verdict !== 'useful' && r.verdict !== 'thin') { reasons.push(`step_${s.n}_verdict_unknown: ${String(r.verdict)}`); continue; }
     if (r.needs_lookup) { reasons.push(`step_${s.n}_needs_lookup: ${r.needs_lookup} (an agent looks it up or does it; the owner is never asked)`); continue; }
     if (r.verdict === 'thin' && s.kind === 'action') { reasons.push(`step_${s.n}_thin: ${r.line} (a day-one action comes from the owner's own words)`); continue; }
     passed++;

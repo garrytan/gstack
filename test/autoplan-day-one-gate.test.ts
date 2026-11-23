@@ -145,7 +145,7 @@ describe('replay: a reviewed app plan whose product challenges were hidden', () 
       ['Cut: No Android build', 'on a first version every cut is your decision, one letter each'],
       ['Cut: No shared team calendars', 'on a first version every cut is your decision, one letter each']]);
     expect(byClass(list, 'cuts')).toEqual([]);
-    expect(byClass(list, 'owner_words').map(i => [i.title, i.recommended])).toEqual([['1 of your quoted messages has no time or no line saying what this version does with it: “I want to remember what I promised people after every meeting” (missing a line (does it, choice or ruled out))', 'a']]);
+    expect(byClass(list, 'owner_words').map(i => [i.title, i.recommended])).toEqual([['1 of your quoted messages has no time or no line saying what this version does with it: “I want to remember what I promised people after every meeting” (missing a line (does it or choice))', 'a']]);
     expect(list.first_version).toBe(true);
     expect(list.owner_words).toMatchObject({ status: 'ok', quotes: [{ n: 1, verified: false }] });
   });
@@ -446,7 +446,6 @@ describe('first versions: the owner page quotes the owner and letters what it le
     "### Owner's words", '',
     '- The owner, 2026-11-19 10:04Z: "making it really good two-way is awesome also. being able to send and receive." → does it',
     '- The owner, 2026-11-19 10:06Z: "contacts are awesome. notes are awesome too." → choice; size: one day; leave out: notes need a second helper permission',
-    '- The owner, 2026-11-12 09:00Z: "never touch my calendar" → ruled out 2026-11-12: "never touch my calendar, I mean it"',
   ].join('\n');
   const plan = (owner: string, cuts = '- It never writes to your Contacts: writes keep going through the iCloud route\n- No Android build\n') => [
     '# Contacts for the agent (synthetic, the shape of a real first version)', '', '## Implementation plan', '', owner, '',
@@ -458,13 +457,12 @@ describe('first versions: the owner page quotes the owner and letters what it le
     outside: [] as FindingRow[],
   });
 
-  test('the parser reads each line, keeps an arrow inside the quote, and a ruled-out line never leaks into the quote', () => {
+  test('the parser reads each line and keeps an arrow inside the quote', () => {
     const w = parseOwnerWords(CASE4 + '\n- The owner, 2026-11-20 08:00Z: "a -> b → c in the quote" -> does it');
     expect(w.status).toBe('ok');
     expect(w.quotes.map(q => [q.text, q.line])).toEqual([
       ['making it really good two-way is awesome also. being able to send and receive.', { kind: 'does' }],
       ['contacts are awesome. notes are awesome too.', { kind: 'choice', size: 'one day', leave_out: 'notes need a second helper permission' }],
-      ['never touch my calendar', { kind: 'ruled_out', date: '2026-11-12', ruling: 'never touch my calendar, I mean it' }],
       ['a -> b → c in the quote', { kind: 'does' }],
     ]);
     expect(parseOwnerWords('### Owner\'s words\n\n- The owner, day 0: "x"').quotes[0]!.line).toBeUndefined();
@@ -504,21 +502,10 @@ describe('first versions: the owner page quotes the owner and letters what it le
     expect(page).toContain('### Your words this plan follows');
     expect(page.indexOf('### Your words this plan follows')).toBeLessThan(page.indexOf('### Day one'));
     expect(page).toContain('“contacts are awesome. notes are awesome too.” (not found in your recorded replies) → not in this version yet: a lettered choice below');
-    expect(page).toContain('→ you ruled it out on 2026-11-12: “never touch my calendar, I mean it”');
     expect(page).toContain("### What it won't do yet\n\n- No Android build\n");
     expect(page).not.toContain('- No notes');
     expect(page).toContain('(gstack-first-use)');
     expect(renderOwnerPage(fs.readFileSync(state.active_plan, 'utf8'), list.owner_words?.quotes, { firstVersion: false }).join('\n')).not.toContain('(gstack-first-use)');
-  });
-
-  test('a cut that follows the owner\'s own ruling stays a cut recommending keep, never a build-it choice', () => {
-    const cuts = '- It never touches your calendar: never touch my calendar\n- No Android build\n';
-    const state = makeRun('ruled-cut', { plan: plan(CASE4, cuts), round2: narrowing(), round1: false, ui: false });
-    const list = buildGate(state, 1);
-    expect(byClass(list, 'owner_choice').filter(i => i.title.includes('calendar'))).toEqual([]);
-    expect(renderOwnerPage(fs.readFileSync(state.active_plan, 'utf8'), list.owner_words?.quotes).join('\n')).toContain("### What it won't do yet\n\n- It never touches your calendar: never touch my calendar\n");
-    const cut = byClass(list, 'cut').find(i => i.title.includes('calendar'))!;
-    expect([cut.title, cut.recommended]).toEqual(['Cut: It never touches your calendar: never touch my calendar', 'a']);
   });
 
   test('a High finding that narrows a quote recommends build over the plan\'s leave-out reason, and only build settles it', () => {
@@ -530,22 +517,6 @@ describe('first versions: the owner page quotes the owner and letters what it le
     expect(notes.origin!.endsWith('|finding')).toBe(true);
   });
 
-  test('a High finding that narrows a quote the owner ruled out still reaches the gate as its own item', () => {
-    const list = buildGate(makeRun('ruled-narrow', { plan: plan(CASE4), round2: narrowing({ quote: 3 }), round1: false, ui: false }), 1);
-    const item = covering(list, `${RUN}-ceo-r2-native-1`)!;
-    expect([item.recommended, item.options[0]!.text, item.options[0]!.changes_plan]).toEqual(['a', 'keep your ruling', false]);
-    expect(item.why).toContain('you ruled it out on 2026-11-12: “never touch my calendar, I mean it”');
-    expect(item.why).not.toContain('no quoted owner line says otherwise');
-    expect(byClass(list, 'owner_choice').filter(i => i.title.includes('calendar'))).toEqual([]);
-  });
-
-  test('negative control: the same finding on a quote that is still open stays a build-it choice, not a keep-your-ruling item', () => {
-    const list = buildGate(makeRun('open-narrow', { plan: plan(CASE4), round2: narrowing({ quote: 1 }), round1: false, ui: false }), 1);
-    const item = covering(list, `${RUN}-ceo-r2-native-1`) ?? byClass(list, 'owner_choice').find(i => i.title.includes('two-way'))!;
-    expect([item.item_class, item.recommended]).toEqual(['owner_choice', 'a']);
-    expect(list.items.some(i => i.options.some(o => o.text === 'keep your ruling'))).toBe(false);
-  });
-
   describe("the default reply never changes or overrides an owner line, whatever kind of finding touches it", () => {
     type Kind = { name: string; native: Row[]; outside?: Row[] };
     const finding = (voice: 'native' | 'outside', quote: number, severity: FindingRow['severity'] = 'High') =>
@@ -554,10 +525,6 @@ describe('first versions: the owner page quotes the owner and letters what it le
       { name: 'narrows a does-it quote', native: [finding('native', 1)] },
       { name: 'narrows an open choice quote (High)', native: [finding('native', 2)] },
       { name: 'narrows an open choice quote (Medium)', native: [finding('native', 2, 'Medium')] },
-      { name: 'narrows a ruled-out quote (High)', native: [finding('native', 3)] },
-      { name: 'narrows a ruled-out quote (Medium)', native: [finding('native', 3, 'Medium')] },
-      { name: 'a paired finding: ruled-out native, open outside', native: [finding('native', 3)], outside: [finding('outside', 1)] },
-      { name: 'a paired finding: open native, ruled-out outside', native: [finding('native', 1)], outside: [finding('outside', 3)] },
       { name: 'a paired finding: both on a does-it quote', native: [finding('native', 1)], outside: [finding('outside', 1)] },
     ];
     test.each(KINDS.map(k => [k.name, k] as const))('%s', (_, kind) => {
@@ -567,14 +534,13 @@ describe('first versions: the owner page quotes the owner and letters what it le
       const quotes = parseOwnerWords(CASE4).quotes;
       for (const r of [...kind.native, ...(kind.outside ?? [])]) {
         const q = quotes.find(x => x.n === r.narrows_quote)!;
-        const items = list.items.filter(i => i.title.includes(r.id) || (q.line?.kind !== 'ruled_out' && i.item_class === 'owner_choice' && i.title.includes(q.text)));
+        const items = list.items.filter(i => i.title.includes(r.id) || (i.item_class === 'owner_choice' && i.title.includes(q.text)));
         expect(items.length, `${r.id} reaches the gate`).toBeGreaterThan(0);
         for (const item of items) {
           expect(item.item_class, `${r.id}: never a plain proposal`).not.toBe('proposal');
           expect(item.why ?? '').not.toContain('no quoted owner line says otherwise');
           const option = item.options.find(o => o.key === (chosen[item.id] ?? item.recommended))!;
-          if (q.line?.kind === 'ruled_out') expect([item.id, option.changes_plan], `${r.id}: the default keeps the ruling`).toEqual([item.id, false]);
-          else if (item.item_class === 'owner_choice' && (r.severity === 'High' || r.severity === 'Critical' || q.line?.kind === 'does')) expect([item.id, option.text.startsWith('build it')], `${r.id}: the default builds what was asked`).toEqual([item.id, true]);
+          if (item.item_class === 'owner_choice' && (r.severity === 'High' || r.severity === 'Critical' || q.line?.kind === 'does')) expect([item.id, option.text.startsWith('build it')], `${r.id}: the default builds what was asked`).toEqual([item.id, true]);
         }
       }
     });

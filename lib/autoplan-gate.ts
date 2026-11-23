@@ -27,7 +27,6 @@ import { applyCapChoices, pendingDeltas, releaseUndispatched, roundCap, roundOf 
 import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry';
 import { buildEli5, capyRelayLine } from './captain-brief';
 import { FINDING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
-import { lineText } from './autoplan-owner-text';
 import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, heaviestChanges, narrowedQuoteOf, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
 import { phaseClose } from './autoplan-timing';
 import { agentWords, ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
@@ -253,15 +252,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     const twinOf = (id: string) => twins.get(id) ?? [...twins].find(([, out]) => out === id)?.[0];
     for (const f of [...native, ...outside, ...carried] as ChallengeRow[]) {
       if (challenged.has(f.id) || f.settled_by) continue;
-      const narrows = narrowedQuoteOf(owner, f);
-      if (narrows?.line?.kind === 'ruled_out') {
-        challenged.add(f.id);
-        push({ id: `d${++d}`, title: `${f.title} [${f.id}]`, kind: 'auto', recommended: 'a', phase, item_class: 'challenge1', ...(f.changes ? { changes: f.changes } : {}),
-          why: `one voice (${f.voice}) says the plan does less than your words “${narrows.text}”, but ${lineText(narrows)}`,
-          cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`, options: [KEEP('keep your ruling'), { key: 'b', text: 'accept the change', changes_plan: true }] }, f.id);
-        continue;
-      }
-      if (narrows) { challenged.add(f.id); narrowed.push(f); continue; }
+      if (narrowedQuoteOf(owner, f)) { challenged.add(f.id); narrowed.push(f); continue; }
       if (quoted && (f.changes || f.user_challenge) && !ownerQuoteOf(owner, f)) {
         const twin = twinOf(f.id) ? byId.get(twinOf(f.id)!) as ChallengeRow | undefined : undefined;
         propose(twin && !twin.settled_by && !ownerQuoteOf(owner, twin) && !narrowedQuoteOf(owner, twin) ? [f, twin] : [f], carried.includes(f));

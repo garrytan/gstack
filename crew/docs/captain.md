@@ -448,7 +448,7 @@ resolves that id to the same approval row.
 route on the owner's box) is a plan with a `### Day one` section, or `--first-version`. Its
 plan quotes the owner's own messages that state the job under `### Owner's words`, each with
 its time and a line: `does it`, `choice` (a lettered choice recommending the build unless the
-line gives a reason to leave it out) or `ruled out <date>` with his ruling. Nothing his words
+line gives a reason to leave it out). Nothing his words
 asked for sits under "What it won't do yet"; the gate letters it, and every cut on a first
 version gets its own letter. The five day-one rows cite those quotes. Before the owner is asked
 to try it, the build clears `gstack-first-use` ([docs/first-use-check.md](../../docs/first-use-check.md)):
