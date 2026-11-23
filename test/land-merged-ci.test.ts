@@ -16,15 +16,15 @@ const COMMIT = 'c'.repeat(40), TREE = 't'.repeat(40);
 const CI = { workflow: 'free-tests.yml', profile: 'ci-reuse/free-tests' };
 type Calls = string[];
 
-function fake(o: { runs?: ApiRun[][]; verify?: ReturnType<CiDeps['verify']>; push?: string; dispatch?: string; earlier?: ApiRun[] } = {}): { deps: CiDeps; calls: Calls } {
+function fake(o: { runs?: ApiRun[][]; verify?: ReturnType<CiDeps['verify']>; push?: string; dispatch?: string; earlier?: ApiRun[]; atCommit?: ApiRun[] } = {}): { deps: CiDeps; calls: Calls } {
   const calls: Calls = [];
-  let clock = 0, polls = 0;
+  let clock = 0, polls = 0, sent = false;
   const runs = o.runs ?? [[{ id: 7, run_attempt: 1, status: 'completed', conclusion: 'success', event: 'workflow_dispatch', head_sha: COMMIT }]];
   const deps: CiDeps = {
     push: (c, b) => { calls.push(`push ${c.slice(0, 4)} ${b}`); return o.push ?? null; },
     remove: b => { calls.push(`remove ${b}`); },
-    dispatch: (w, b) => { calls.push(`dispatch ${w} ${b}`); return o.dispatch ?? null; },
-    runsAt: () => runs[Math.min(polls++, runs.length - 1)] ?? [],
+    dispatch: (w, b) => { calls.push(`dispatch ${w} ${b}`); sent = true; return o.dispatch ?? null; },
+    runsAt: () => (sent ? runs[Math.min(polls++, runs.length - 1)] ?? [] : o.atCommit ?? []),
     runsOn: (w, b) => { calls.push(`runsOn ${w} ${b}`); return o.earlier ?? []; },
     run: id => { const r = runs[Math.min(polls++, runs.length - 1)]?.[0]; return r ?? { id, run_attempt: 1, status: 'queued', conclusion: null, event: 'workflow_dispatch', head_sha: COMMIT }; },
     verify: () => o.verify ?? { ok: true, head: COMMIT, tree: TREE },
@@ -145,9 +145,37 @@ describe('land.merged_ci reuses an earlier run on the merged tree (GST-3634)', (
     let verified = 0;
     const green = earlier({});
     const { deps, calls } = fake({ earlier: [green], runs: [[green], [], [queued], [{ ...queued, status: 'completed', conclusion: 'success' }]] });
+    let post = 0;
+    const runAt = deps.runsAt;
+    deps.runsAt = (w, c) => { if (calls.some(x => x.startsWith('dispatch '))) post++; return runAt(w, c); };
     deps.verify = () => (verified++ === 0 ? { ok: false, detail: 'run_stale: finished 30 hours ago' } : { ok: true, head: COMMIT, tree: TREE });
     expect(run(deps).ok).toBe(true);
     expect(calls).toContain('dispatch free-tests.yml gstack-land/42');
+    expect(post).toBe(2);
+  });
+
+  test('a run found at the merged commit itself counts, with no branch listing needed', () => {
+    const green = earlier({ head_sha: COMMIT, head_branch: 'gstack-land/42' });
+    const { deps, calls } = fake({ atCommit: [green], runs: [[green]] });
+    expect(run(deps).ok).toBe(true);
+    expect(calls.some(c => c.startsWith('push ') || c.startsWith('dispatch '))).toBe(false);
+  });
+
+  test('an adopted run that finishes green but cannot be proved refuses without dispatching', () => {
+    const going = earlier({ status: 'in_progress', conclusion: null });
+    const { deps, calls } = fake({ earlier: [going], runs: [[going], [{ ...going, status: 'completed', conclusion: 'success' }]], verify: { ok: false, detail: 'artifact_missing: tested-tree' } });
+    const r = run(deps);
+    expect(r).toMatchObject({ ok: false, red: false });
+    expect(r.ok ? '' : r.detail).toContain('does not prove the tree');
+    expect(calls.some(c => c.startsWith('push ') || c.startsWith('dispatch '))).toBe(false);
+  });
+
+  test('an adopted run that times out names that run and does not dispatch', () => {
+    const going = earlier({ status: 'queued', conclusion: null });
+    const { deps, calls } = fake({ earlier: [going], runs: [[going]], verify: provesOld });
+    expect(run(deps, 60_000)).toMatchObject({ ok: false, red: false, run: 9 });
+    expect(calls.some(c => c.startsWith('push ') || c.startsWith('dispatch '))).toBe(false);
+    expect(calls.at(-1)).toBe('remove gstack-land/42');
   });
 
   test('a timed-out wait names the run the next land adopts, and that land adopts it after the scratch branch was deleted', () => {
