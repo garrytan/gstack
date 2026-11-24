@@ -201,12 +201,12 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
 
   const renames = reopen.length ? planReopen(state, reopen, state.gate_rev ?? 0, `revise v${k}`) : [];
   const words = capped.length ? ownerTookRecs(state, [...incorporates, ...settle]) : undefined;
-  const approved = words ? { decided_at: at, basis: OWNER_RECS_AT_CAP, decisions: incorporates } : {};
+  const approved = words ? { decided_at: at, basis: OWNER_RECS_AT_CAP, decisions: [...incorporates, ...settle] } : {};
   for (const phase of capped) {
     (state.capped_deltas ??= []).push({ k, phase, round: roundOf(state, phase), cap: roundCap(state, phase)!, old_plan_sha256: oldHash, new_plan_sha256: newHash, ...delta, status: words ? 'accepted' : 'pending', at, ...approved });
     journal(out, { event: 'cap_delta', k, phase, round: roundOf(state, phase), cap: roundCap(state, phase), old_plan_sha256: oldHash, new_plan_sha256: newHash, ...delta, ...(words ? { accepted: OWNER_RECS_AT_CAP } : {}) });
   }
-  if (words) journal(out, { event: 'unreviewed_at_cap', k, phases: capped, reason: OWNER_RECS_AT_CAP, decisions: incorporates, old_plan_sha256: oldHash, new_plan_sha256: newHash });
+  if (words) journal(out, { event: 'unreviewed_at_cap', k, phases: capped, reason: OWNER_RECS_AT_CAP, decisions: [...incorporates, ...settle], old_plan_sha256: oldHash, new_plan_sha256: newHash });
   for (const p of quiet ? touched : []) {
     const ps = state.phases[p]!;
     (ps.rebound ??= []).push({ k, from: ps.snapshot!, to: newHash, decisions: incorporates, at });
@@ -288,8 +288,8 @@ export function ruleUnreviewed(state: RunState, o: RuleOptions): string[] {
   const ds = o.revision === undefined ? undefined : unreviewedRevisions(state).get(o.revision);
   if (!ds) throw new RunError('ARTIFACT_SCHEMA', `--revision ${o.revision ?? '<k>'} names no revision accepted unreviewed at the round cap (unreviewed: ${[...unreviewedRevisions(state).keys()].map(k => `v${k}`).join(', ') || 'none'})`, 3);
   const by = o.by?.trim();
-  if (!by || isGstackActor(by)) throw new RunError('ANSWER_BY_REQUIRED', 'rule records who ruled: pass --by <the Captain or owner> (gstack cannot rule on its own note)', 3);
-  if (!o.reason?.trim()) throw new RunError('ARTIFACT_SCHEMA', 'rule needs --reason "<why the unreviewed revision stands>"', 3);
+  if (!by || by.startsWith('--') || isGstackActor(by)) throw new RunError('ANSWER_BY_REQUIRED', 'rule records who ruled: pass --by <the Captain or owner> (gstack cannot rule on its own note)', 3);
+  if (!o.reason?.trim() || o.reason.trim().startsWith('--')) throw new RunError('ARTIFACT_SCHEMA', 'rule needs --reason "<why the unreviewed revision stands>"', 3);
   if (o.ownerRef !== undefined && !OWNER_REF.test(o.ownerRef)) throw new RunError('ARTIFACT_SCHEMA', `--owner-ref must be ${OWNER_REF_SHAPE}`, 3);
   if (by.startsWith('agent:') && !o.ownerRef) throw new RunError('ANSWER_BY_REQUIRED', `${by} is an agent: an agent rules only by relaying the Captain's or owner's ruling, with --owner-ref ${OWNER_REF_SHAPE}`, 3);
   const journaled = readJournal(state.out).filter(e => e.event === 'unreviewed_ruled' && e.k === o.revision).at(-1);

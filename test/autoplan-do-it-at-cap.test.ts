@@ -93,7 +93,7 @@ describe('two "do it" answers, then the round cap', () => {
   test("a ruling closes the note, as a ruled note closes a /ship finding after round two; gstack can't rule on its own", () => {
     const s = toTheCap();
     expect(r.ap(['revise', '--out', s.out, '--plan', file(s.dir, V3), '--incorporates', pending(s.out)]).status).toBe(0);
-    for (const bad of [['--revision', '1', '--by', 'GStack Minder (GSTA-36)', '--reason', 'x'], ['--revision', '2', '--by', 'gstack', '--reason', 'x'], ['--revision', '2', '--by', 'agent:lane', '--reason', 'x'], ['--revision', '2', '--by', 'GStack Minder (GSTA-36)'],
+    for (const bad of [['--revision', '1', '--by', 'GStack Minder (GSTA-36)', '--reason', 'x'], ['--revision', '2', '--by', 'gstack', '--reason', 'x'], ['--revision', '2', '--by', 'agent:lane', '--reason', 'x'], ['--revision', '2', '--by', '--reason', 'x'], ['--revision', '2', '--by', 'GStack Minder (GSTA-36)'],
       ['--revision', '2', '--by', 'GStack Minder (GSTA-36)', '--reason', 'x', '--owner-ref', 'not a ref']]) {
       const res = r.ap(['rule', '--out', s.out, ...bad]);
       expect(res.status, res.stdout).toBe(3);
