@@ -386,6 +386,11 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
   wherever it appears whole; from 8 words, any 8 consecutive words of it are a
   quote too. Replies of 1 or 2 words ("yes", "do it") are not scanned for:
   they are codes or grammar, and the field itself is already dropped. A quote
+  under the plan's `### Owner's words` heading is redacted at any length
+  wherever it appears directly inside quote marks, and the reason on its
+  `leave out:` line wherever it follows `leave out:`, `leave it out for now:`
+  or `reason to leave it out:`, in any case; a bare mention of a short quote's
+  words outside quote marks stays. A quote
   extends over the neighboring words that also belong to that reply, and the
   marker replaces the original characters from its first word to its last.
 - **Echoes stay.** Words the owner repeated from text recorded before the reply,

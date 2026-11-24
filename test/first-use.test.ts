@@ -26,6 +26,7 @@ const ONE_PAGE = fs.readFileSync(path.join(FIX, 'one-page-plan.md'), 'utf8');
 const PLAY = JSON.parse(fs.readFileSync(path.join(FIX, 'play.json'), 'utf8'));
 const COMMIT = 'c0ffee'.padEnd(40, '0');
 const BUILD = { platform: 'ios' as const, commit: COMMIT, testflight: '17' };
+const PHONE_BUILD = '01KPHQ7Z3M8V2X5C9B4N6R1T0W';
 const HOLDING = { build: 'TestFlight build 16', defects: 'the care card shows yesterday as the last watered date' };
 const T0 = new Date('2026-11-18T10:00:00Z');
 const ACTIONS = [
@@ -44,7 +45,7 @@ const start = (o: { plan?: string; play?: unknown; root?: string; checker?: stri
   const root = o.root ?? fresh('root'), work = fresh('work');
   const planPath = path.join(work, 'plan.md');
   fs.writeFileSync(planPath, o.plan ?? AUTOPLAN);
-  const r = startRun({ root, app: 'plantpal', planPath, build: BUILD, play: o.play ?? playWith(1), holding: HOLDING, builder: 'anthropic/claude-opus-5-5', checker: o.checker ?? CHECKER, now: T0 });
+  const r = startRun({ root, app: 'plantpal', planPath, build: BUILD, phoneBuild: PHONE_BUILD, play: o.play ?? playWith(1), holding: HOLDING, builder: 'anthropic/claude-opus-5-5', checker: o.checker ?? CHECKER, now: T0 });
   if ('error' in r) throw new Error(r.error.detail);
   return { ...r, planPath, work, root };
 };
@@ -144,7 +145,7 @@ describe('model families and build fingerprints', () => {
   test('a same-family or unknown checker refuses at start', () => {
     const work = fresh('fam'), planPath = path.join(work, 'plan.md');
     fs.writeFileSync(planPath, AUTOPLAN);
-    const base = { root: fresh('root'), app: 'plantpal', planPath, build: BUILD, play: PLAY, holding: HOLDING };
+    const base = { root: fresh('root'), app: 'plantpal', planPath, build: BUILD, phoneBuild: PHONE_BUILD, play: PLAY, holding: HOLDING };
     expect(startRun({ ...base, builder: 'anthropic/claude-opus-5-5', checker: 'claude-fable-5-2' })).toMatchObject({ error: { code: 'FIRST_USE_SAME_FAMILY', detail: 'builder and checker are both anthropic' } });
     expect(startRun({ ...base, builder: 'anthropic/claude-opus-5-5', checker: 'mystery-model' })).toMatchObject({ error: { code: 'FIRST_USE_SAME_FAMILY' } });
   });
@@ -152,7 +153,7 @@ describe('model families and build fingerprints', () => {
   test('the build the owner holds now is named at start: a label and its known defects, or none', () => {
     const work = fresh('hold'), planPath = path.join(work, 'plan.md');
     fs.writeFileSync(planPath, AUTOPLAN);
-    const base = { root: fresh('root'), app: 'plantpal', planPath, build: BUILD, play: PLAY, builder: 'anthropic/claude-opus-5-5', checker: CHECKER };
+    const base = { root: fresh('root'), app: 'plantpal', planPath, build: BUILD, phoneBuild: PHONE_BUILD, play: PLAY, builder: 'anthropic/claude-opus-5-5', checker: CHECKER };
     expect(startRun({ ...base, holding: { build: 'TestFlight build 16' } })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID', detail: expect.stringContaining('--holding-defects') } });
     expect('dir' in startRun({ ...base, holding: { build: 'none', defects: 'none' } })).toBe(true);
   });
@@ -393,7 +394,7 @@ describe('the gate', () => {
     expect(d.prediction?.score).toBe(6);
     expect(d.owner).toMatchObject({ score: 5, words: '5, better after the fix' });
     expect(fs.readdirSync(path.join(r.dir, 'owner'))).toHaveLength(2);
-    const again = startRun({ root: r.root, app: 'plantpal', planPath: r.planPath, build: BUILD, play: PLAY, holding: HOLDING, builder: 'anthropic/claude-opus-5-5', checker: CHECKER, now: T0 });
+    const again = startRun({ root: r.root, app: 'plantpal', planPath: r.planPath, build: BUILD, phoneBuild: PHONE_BUILD, play: PLAY, holding: HOLDING, builder: 'anthropic/claude-opus-5-5', checker: CHECKER, now: T0 });
     expect(again).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID' } });
   });
 
@@ -442,6 +443,31 @@ describe('the gate', () => {
     expect(brief).not.toContain('TestFlight build 16');
   });
 
+  test('a phone build installs the build-service build start names, and start refuses a phone build without one (GST-3646)', () => {
+    const work = fresh('phone'), planPath = path.join(work, 'plan.md');
+    fs.writeFileSync(planPath, AUTOPLAN);
+    const base = { app: 'plantpal', planPath, play: playWith(1), holding: HOLDING, builder: 'anthropic/claude-opus-5-5', checker: CHECKER, now: T0 };
+    for (const build of [BUILD, { platform: 'android' as const, commit: COMMIT, deploy: '1.0.3' }]) {
+      expect(startRun({ ...base, root: fresh('root'), build })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID', detail: expect.stringContaining('--phone-build') } });
+      expect(startRun({ ...base, root: fresh('root'), build, phoneBuild: '17' })).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID', detail: expect.stringContaining('--phone-build') } });
+    }
+    const r = startRun({ ...base, root: fresh('root'), build: BUILD, phoneBuild: PHONE_BUILD });
+    if ('error' in r) throw new Error(r.error.detail);
+    expect(r.manifest.phone_build).toBe(PHONE_BUILD);
+    const brief = renderBrief(r.manifest, r.dir);
+    expect(brief).toContain(`(action "install" with build_id "${PHONE_BUILD}"`);
+    expect(brief).not.toContain('action "install"; TestFlight build');
+    const old = { ...r.manifest } as Partial<typeof r.manifest>;
+    delete old.phone_build;
+    fs.writeFileSync(path.join(r.dir, 'manifest.json'), JSON.stringify(old));
+    expect(readManifest(r.dir)).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID', detail: expect.stringContaining('start a new run with --phone-build') } });
+    const android = startRun({ ...base, root: fresh('root'), build: { platform: 'android', commit: COMMIT, deploy: '1.0.3' }, phoneBuild: PHONE_BUILD });
+    if ('error' in android) throw new Error(android.error.detail);
+    expect(renderBrief(android.manifest, android.dir)).toContain(`build_id "${PHONE_BUILD}", the mobile build service's build of commit ${COMMIT.slice(0, 12)}, which version 1.0.3 ships`);
+    const web = startRun({ ...base, root: fresh('root'), build: { platform: 'web', commit: COMMIT, deploy: 'web-12' } });
+    expect('error' in web ? web.error.detail : web.manifest.phone_build).toBeUndefined();
+  });
+
   test('the brief drives a Mac through Aside and a server over its shell', () => {
     const work = fresh('mac'), planPath = path.join(work, 'plan.md');
     fs.writeFileSync(planPath, AUTOPLAN);
@@ -485,7 +511,7 @@ describe('gstack-first-use (CLI, temporary HOME and drive)', () => {
     const build = ['--platform', 'ios', '--commit', COMMIT, '--testflight', '17'];
     const holding = ['--holding', 'TestFlight build 16', '--holding-defects', 'none'];
     expect((await cli('start', '--app', 'plantpal', '--plan', plan, '--play', play, ...build, '--builder', 'anthropic/claude-opus-5-5', '--checker', CHECKER)).stderr).toContain('--holding, --holding-defects');
-    const begun = await cli('start', '--app', 'plantpal', '--plan', plan, '--play', play, ...build, ...holding, '--builder', 'anthropic/claude-opus-5-5', '--checker', CHECKER);
+    const begun = await cli('start', '--app', 'plantpal', '--plan', plan, '--play', play, ...build, '--phone-build', PHONE_BUILD, ...holding, '--builder', 'anthropic/claude-opus-5-5', '--checker', CHECKER);
     expect(begun.code).toBe(0);
     const dir = /^FIRST_USE_RUN: (.+)$/m.exec(begun.stdout)![1]!;
     expect(dir.startsWith(path.join(home, '.capy', 'drive', 'user-ada-example', 'first-use', 'plantpal') + path.sep)).toBe(true);

@@ -138,7 +138,7 @@ const DRIVE: Record<Manifest['build']['platform'], (m: Manifest) => string> = {
 };
 function phone(m: Manifest): string {
   const b = m.build;
-  return `attach a ${platformName[b.platform]} phone (\`tools.capy.phone\` with action "attach", platform "${b.platform}" and the model closest to the device above), install this exact build on it (action "install"; ${b.testflight ? `TestFlight build ${b.testflight}` : `version ${b.deploy}`}), point it at ${m.play.target.name}, and drive its screen with \`tools.capy.computer.on({ machine_id })\``;
+  return `attach a ${platformName[b.platform]} phone (\`tools.capy.phone\` with action "attach", platform "${b.platform}" and the model closest to the device above), install this exact build on it (action "install" with build_id "${m.phone_build}", the mobile build service's build of commit ${b.commit.slice(0, 12)}, which ${b.testflight ? `TestFlight build ${b.testflight}` : `version ${b.deploy}`} ships; if it won't install, record step 1 broken), point it at ${m.play.target.name}, and drive its screen with \`tools.capy.computer.on({ machine_id })\``;
 }
 
 /** What the cold checker is given: the exact try-it text, the target and its rules, and the commands that record each step. */
