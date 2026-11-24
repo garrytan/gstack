@@ -9,7 +9,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
-import { comparePath } from '../lib/ship-patch';
+import { baseHolds, comparePath } from '../lib/ship-patch';
 import { extractReceipt, placeReceipt } from '../lib/ship-receipt';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -220,21 +220,22 @@ describe('a base merge counts as reviewed only when the branch\'s own lines, mod
 describe('a merge that chose its own order, a base mode flip, or bytes that are not UTF-8 never count as reviewed (GST-3562 G)', () => {
   const P = 'src/tool.sh';
   /** Four sides in one repository: A, the reviewed branch R on A, the base B on A, and the merge C of R and B with `resolved`. */
-  const sides = (base: string | Buffer, reviewed: string | Buffer, baseSide: string | Buffer, resolved: string | Buffer, baseExec = false) => {
+  const sides = (base: string | Buffer, reviewed: string | Buffer, baseSide: string | Buffer, resolved: string | Buffer, baseExec = false, p = P) => {
     const f = fx();
-    const put = (text: string | Buffer) => fs.writeFileSync(path.join(f.work, P), text);
+    const put = (text: string | Buffer) => fs.writeFileSync(path.join(f.work, p), text);
     fs.mkdirSync(path.join(f.work, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(f.work, 'tool.sh'), 'echo top\n'); fs.chmodSync(path.join(f.work, 'tool.sh'), 0o755);
     put(base); f.commit('A');
     const A = f.git('rev-parse', 'HEAD').stdout.trim();
     put(reviewed); f.commit('R');
     const R = f.git('rev-parse', 'HEAD').stdout.trim();
     f.git('checkout', '-q', '-b', 'side', A);
-    put(baseSide); if (baseExec) fs.chmodSync(path.join(f.work, P), 0o755); f.commit('B');
+    put(baseSide); if (baseExec) fs.chmodSync(path.join(f.work, p), 0o755); f.commit('B');
     const B = f.git('rev-parse', 'HEAD').stdout.trim();
     f.git('checkout', '-q', '-b', 'merged', R);
     f.git('merge', '-q', '--no-commit', '--no-edit', B);
-    put(resolved); if (baseExec) fs.chmodSync(path.join(f.work, P), 0o755); f.commit('C');
-    return comparePath(f.work, { reviewedBase: A, reviewed: R, currentBase: B, current: f.git('rev-parse', 'HEAD').stdout.trim() }, P);
+    put(resolved); if (baseExec) fs.chmodSync(path.join(f.work, p), 0o755); f.commit('C');
+    return comparePath(f.work, { reviewedBase: A, reviewed: R, currentBase: B, current: f.git('rev-parse', 'HEAD').stdout.trim() }, p);
   };
   const at = (edit: Record<number, string[]>) => rows().trimEnd().split('\n').flatMap((l, i) => [edit[i + 1]?.[0] ?? l, ...(edit[i + 1]?.slice(1) ?? [])]).join('\n') + '\n';
   const GUARD = 'export const guard = 1;';
@@ -257,5 +258,31 @@ describe('a merge that chose its own order, a base mode flip, or bytes that are 
     expect(sides(rows(), latin(0xe9), rows({ 5: 'export const r5 = 50;' }), latin(0xe9, 'r5 = 50'))).toBe('changed');
     expect(sides(rows(), latin(0xe9), rows({ 5: 'export const r5 = 50;' }), latin(0xe8, 'r5 = 50'))).toBe('changed');
     expect(sides(rows(), plain, rows({ 5: 'export const r5 = 50;' }), rows({ 5: 'export const r5 = 50;', 6: 'export const r6 = "cafe";' }))).toBe('context');
+  });
+
+  // Value: protects=no review is lost by G when a file name starts with pathspec magic, which git ls-tree rejects unless told
+  //   to read it literally, so both mode lookups failed and compared equal, or resolves to another file (`:(top)tool.sh` read
+  //   the executable root tool.sh); fails_when=the base exec-bit flip on such a file compares as context, the control without
+  //   a flip stops being context, or baseHolds holds a reviewed mode change the base dropped; seam=comparePath, baseHolds;
+  //   no_claim=Windows, where the name is not a legal file name
+  test.skipIf(process.platform === 'win32')('a base exec-bit flip on a file whose name starts with pathspec magic is changed', () => {
+    for (const name of [':!tool.sh', ':(glob)tool.sh', ':(top)tool.sh']) {
+      expect(sides(rows(), rows(OWN), rows({ 5: 'export const r5 = 50;' }), rows({ 5: 'export const r5 = 50;', ...OWN }), true, name)).toBe('changed');
+      expect(sides(rows(), rows(OWN), rows({ 5: 'export const r5 = 50;' }), rows({ 5: 'export const r5 = 50;', ...OWN }), false, name)).toBe('context');
+    }
+    const f = fx();
+    const [top, magic] = [path.join(f.work, 'tool.sh'), path.join(f.work, ':(top)tool.sh')];
+    fs.writeFileSync(top, 'echo top\n'); fs.chmodSync(top, 0o755);
+    fs.writeFileSync(magic, 'echo a\n'); f.commit('A');
+    const A = f.git('rev-parse', 'HEAD').stdout.trim();
+    fs.writeFileSync(magic, 'echo b\n'); fs.chmodSync(magic, 0o755); f.commit('R');
+    const R = f.git('rev-parse', 'HEAD').stdout.trim();
+    const base = (exec: boolean) => {
+      f.git('checkout', '-q', '-B', exec ? 'took-mode' : 'took-content', A);
+      fs.writeFileSync(magic, 'echo b\n'); fs.chmodSync(magic, exec ? 0o755 : 0o644); f.commit('B');
+      return baseHolds(f.work, { reviewedBase: A, reviewed: R, currentBase: f.git('rev-parse', 'HEAD').stdout.trim(), current: R }, ':(top)tool.sh');
+    };
+    expect(base(false)).toBe(false);
+    expect(base(true)).toBe(true);
   });
 });
