@@ -195,7 +195,20 @@ export function render(opts: RenderOptions): RenderResult {
 export function sanitizeUntrustedHtml(html: string): string {
   // smartypants drops U+0000 after this runs, which would join on\u0000error
   // or java\u0000script: back together, so check the string without it.
+  // A removal can also join what was around it (<scr onx="a"ipt> becomes
+  // <script>), so repeat the pass until nothing changes, and print the page
+  // as text if it never settles.
   let s = html.replace(/\u0000/g, "");
+  for (let i = 0; i < 8; i++) {
+    const next = sanitizePass(s);
+    if (next === s) return s;
+    s = next;
+  }
+  return escapeHtml(s);
+}
+
+function sanitizePass(html: string): string {
+  let s = html;
 
   // Elements to remove entirely (including content).
   const DANGER_TAGS = [
@@ -240,7 +253,7 @@ export function sanitizeUntrustedHtml(html: string): string {
   );
   // Any other javascript: value (unquoted, or quoted around "<" or ">") loses
   // only its scheme, so no quote is added or removed.
-  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*["']?)javascript:/gi, "$1#");
+  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*["']?[\s\x01-\x20]*)javascript(?::|&colon;|&#0*58;?|&#x0*3a;?)/gi, "$1#");
 
   // srcdoc attribute (iframe escape hatch — already stripped via iframe above,
   // but defense-in-depth).

@@ -543,6 +543,28 @@ describe("render() — removing script keeps the page's structure", () => {
     expect(browserAttrs(html).find((a) => a.name === "href")!.value).toMatch(/^https:\/\/example\.com\/docs\//);
   });
 
+  test("removing an attribute cannot join the halves of a dangerous tag name", () => {
+    for (const x of [
+      `<scr onx="a"ipt>alert(1)</script>`,
+      `<scr onx='a'ipt>alert(1)</script>`,
+      `<scr srcdoc="a"ipt>alert(1)</script>`,
+      `<ifr onx="a"ame src="pic.png"></iframe>`,
+      `<ob onx="a"ject data="pic.png"></object>`,
+    ]) {
+      const html = render({ markdown: `<div>\n${x}\n</div>\n` }).bodyHtml;
+      expect(html).not.toMatch(/<(?:script|iframe|object)\b/i);
+      expect(liveScript(html)).toEqual([]);
+    }
+  });
+
+  test("a javascript: value after leading spaces or with an encoded colon is neutralized", () => {
+    for (const a of [`href=" javascript:alert(1)"`, `href="\tjavascript:alert(1)"`, "href=javascript&colon;alert(1)", `href="javascript&#58;alert(1)"`, "href=javascript&#x3A;alert(1)"]) {
+      const html = render({ markdown: `<div>\n<a ${a}>j</a>\n</div>\n` }).bodyHtml;
+      expect(liveScript(html)).toEqual([]);
+      expect(html).toContain(">j</a>");
+    }
+  });
+
   test("an unquoted javascript: value is replaced without adding quotes", () => {
     const out = sanitizeUntrustedHtml("<a href=javascript:alert(1)>j</a>");
     expect(liveScript(out)).toEqual([]);
