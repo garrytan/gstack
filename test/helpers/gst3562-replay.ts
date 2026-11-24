@@ -19,12 +19,15 @@
  *      final head one read-only full review.
  *   f. a new /ship run on a PR whose full rounds are spent: both plan the same read-only full review of the head, and the
  *      branch marks it read-only (no fix round, staged on the merge base) and keeps every reader main dispatched (GST-3562 part 2).
+ *   g. main planned a scoped pass after a small blocking fix; the branch plans a full pass on the same range that keeps main's
+ *      readers the way kind a does, so no reader runs outside the pass record (GST-3562 part 3; Captain GStack Minder, 2026-11-24),
+ *      and each specialist main dispatched is read by a branch specialist under its name or checklist excluding no more paths.
  */
 import { expect } from 'bun:test';
 import { planReviewAt, type PlanInput, type ReviewPlan } from '../../lib/review-depth';
 import { mainNextStep } from '../fixtures/review-depth-main/next-step-0408128';
 
-export type Gst3562Kind = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
+export type Gst3562Kind = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g';
 
 export function asMainBeforeGst3562(input: PlanInput, plan: ReviewPlan): { plan: ReviewPlan; kind?: Gst3562Kind } {
   const main = planReviewAt(input, mainNextStep);
@@ -38,15 +41,21 @@ export function asMainBeforeGst3562(input: PlanInput, plan: ReviewPlan): { plan:
     : was.step === 'done' && !!h.fixedBelow && ['full', 'stop', 'voices', 'fix-check'].includes(now.step) ? 'd'
     : (was.step === 'stop' || was.step === 'voices') && !!(h.fixedBlocking || h.touchedGate) && now.step === 'full' && now.reason.startsWith('read-only final review (R51)') ? 'e'
     : h.last === 'none' && was.step === 'full' && !was.readOnly && now.readOnly && now.reason === was.reason && was.reason.startsWith('read-only final review (R51)') ? 'f'
+    : was.step === 'scoped' && now.step === 'full' && now.reason.includes('never a scoped pass') ? 'g'
     : undefined;
   expect([h, was, now, kind]).toEqual([h, was, now, expect.any(String)]);
   if (kind === 'b') expect({ ...plan, next: was }).toEqual(main);
   if (kind === 'f') expect([h, main.dispatches.filter(d => !plan.dispatches.some(p => Bun.deepEquals(p, d)))]).toEqual([h, []]);
-  if (kind === 'a') {
+  if (kind === 'a' || kind === 'g') {
     const lost = main.dispatches.filter(d => d.role === 'fix-check'
       ? !plan.dispatches.some(p => p.role !== 'targeted' && p.effort === 'full' && p.exclude.every(e => d.exclude.includes(e)))
       : !plan.dispatches.some(p => p.role === d.role || (d.role === 'targeted' && p.role === 'adversarial-native' && !!p.classes?.length)));
     expect([h, plan.mode, lost]).toEqual([h, plan.mode, []]);
+  }
+  if (kind === 'g') {
+    const unread = main.dispatches.filter(d => d.role === 'specialist' && !plan.dispatches.some(p => p.role === 'specialist'
+      && (p.name === d.name || !!p.checklists?.includes(d.name as never)) && p.exclude.every(e => d.exclude.includes(e))));
+    expect([h, unread]).toEqual([h, []]);
   }
   return { plan: main, kind };
 }

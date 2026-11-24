@@ -391,7 +391,7 @@ describe('gstack-review-plan: review depth', () => {
   });
 });
 
-describe('gstack-review-plan: the scoped second pass (GSTA-152 D6)', () => {
+describe('gstack-review-plan: the full round 2 on a small fix range (GSTA-152 D6, GST-3562 part 3)', () => {
   const code = (n: number, tag = 'v') => Array.from({ length: n }, (_, i) => `export const ${tag}${i} = ${i};`).join('\n') + '\n';
   function fixed(lines: number): { r: { dir: string; state: string }; rangeBase: string } {
     const r = repo({ 'src/a.ts': code(80) });
@@ -403,17 +403,17 @@ describe('gstack-review-plan: the scoped second pass (GSTA-152 D6)', () => {
   }
   const pass2 = ['--pass', '1', '--last', 'full', '--fixed-blocking', '--adversarial-ran', '--pass1-depth', 'standard'];
   const full1 = ['--pass', '1', '--last', 'full', '--fixed-blocking', '--adversarial-ran', '--pass1-depth', 'full'];
-  test('--range-base with a small fix range plans NEXT: scoped with a fix-check and the Red Team, and counts it as pass 2', () => {
+  test('--range-base with a small fix range plans a full pass 2 with the batched specialist, the Red Team and the native adversarial, and no fix-check', () => {
     const { r, rangeBase } = fixed(24);
     const out = run(r, [...pass2, '--range-base', rangeBase]).stdout;
-    expect(out).toMatch(/^REVIEW_PLAN: class=code pass=2 next=scoped dispatches=3 /m);
+    expect(out).toMatch(/^REVIEW_PLAN: class=code pass=2 next=full dispatches=3 /m);
     expect(out).toContain(`FIX_RANGE: runtime_lines=24 base=${rangeBase}`);
-    expect(out).toMatch(/^NEXT: scoped \(a blocking finding was fixed on a light diff with 24 runtime lines in the fix range/m);
-    expect(out).toContain('DISPATCH: fix-check fix-check effort=full');
+    expect(out).toMatch(/^NEXT: full \(a blocking finding was fixed on a light diff with 24 runtime lines in the fix range: full pass on the range, never a scoped pass, so every reader is in the pass record \(GST-3562\)\)$/m);
+    expect(out).not.toContain('DISPATCH: fix-check');
+    expect(out).toMatch(/^DISPATCH: specialist batched effort=\S+ checklists=/m);
     expect(out).toContain('DISPATCH: red-team red-team effort=full');
     expect(out).toContain('DISPATCH: adversarial-native adversarial effort=full');
-    expect(out).not.toContain('DISPATCH: specialist');
-    expect(JSON.parse(run(r, [...pass2, '--range-base', rangeBase, '--json']).stdout)).toMatchObject({ next: { step: 'scoped' }, fix_range: { base: rangeBase, runtime_lines: 24 } });
+    expect(JSON.parse(run(r, [...pass2, '--range-base', rangeBase, '--json']).stdout)).toMatchObject({ next: { step: 'full', keepReader: true, rangeReaders: true }, fix_range: { base: rangeBase, runtime_lines: 24 } });
   });
   test('a 151-line range, no --range-base, an unknown range base and uncommitted fixes keep the full pass 2', () => {
     const big = fixed(151);

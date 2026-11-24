@@ -1808,9 +1808,9 @@ construction:
    pass. `NO FINDINGS` is the expected reviewer result for a clean range, never a
    failed review.
 3. **Two rounds is the cap** (R51), stepped by the
-   [transition table](review-policy.md#transitions); a full pass, a
-   [scoped pass](review-policy.md#scoped-pass) each count as a round, and /ship plans no fix-check: any code change
-   after round 1 gets a full round 2 (GST-3562 A). A pass that applied no edits
+   [transition table](review-policy.md#transitions); a full pass counts as a
+   round, and /ship plans neither a fix-check nor a [scoped pass](review-policy.md#scoped-pass): any code change
+   after round 1 gets a full round 2, with no exception (GST-3562 A and part 3). A pass that applied no edits
    continues to Step 10: the loop ships with its deferred and noted items named in
    the PR body. A blocking finding still open after the last allowed step stops
    the run and names the finding (path, severity, problem) for the lane's Captain

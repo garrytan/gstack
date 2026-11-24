@@ -1,1 +1,0 @@
-**A small second review round checks the fix again.** When /ship's second round is a short pass over a small fix, its instructions once more tell the agent to run the reviewer that checks that fix; the last release's wording had dropped that step.

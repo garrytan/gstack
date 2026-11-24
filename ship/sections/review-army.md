@@ -24,8 +24,7 @@ record none. When an older grant still puts `--round-grant <id>` there, run `gst
 before the first dispatch (`GRANT_SPENT` stops the run), then follow the plan's `NEXT:`. Add `--declare-risk <classes>` when the diff touches a risk
 class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
 receipt write the same flag; a repeat uses the plan run that picked it.
-A `scoped` repeat is a full pass on the range: its `fix-check` dispatch is one full-effort reviewer on the
-`gstack-review-plan --fix-check-prompt` prompt with `git diff $RANGE_BASE` as the hunks; the pass's manifest leaves it out (`FIX_CHECK: planned`), so run it yourself beside the pass.
+Round 2 is always a `full` pass on the range, never a scoped one: every reader it plans is in the pass's manifest.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
 `runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
 (specialists, Red Team, Step 11's voices), each at its `effort=` on the same model
@@ -796,7 +795,6 @@ but missing dispatched output still blocks continuation, even with a QA exceptio
   else `issues_found`. N counts unresolved defects now, not original totals; missing
   coverage, deferred and noted findings are not defects. `SCOPE` is the policy
   (`frozen`, `diff-plus-blocking` or `all`); `RANGE_BASE_OR_NULL` is `"<sha>"` from pass 2, else `null`.
-- A `scoped` pass adds `"scope":"scoped"`; it is a full-pass row and counts toward the cap.
 - `REVIEW_START`: this pass's Step 9 token captured before reading the diff;
   never recapture at persistence to certify unreviewed fixes.
 - `COMPLETED`: checklist and dispatched specialists/Red Team finish, and all required probes pass.
@@ -837,7 +835,6 @@ logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--review
 its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `done` 4, `platform` 4. `voices` 4: Step 11 runs before the stop.
 Any code change after round 1 gets a full round 2; a fix in the last round gets the read-only final review (`READ_ONLY:`);
 after it the PR ships with its open notes or the lane's Captain rules. `fix-check` (3.5) comes only from a grant recorded before GST-3562.
-`scoped` is 3 too. A full pass 1 always gets a full pass 2.
 Other scopes apply decisions 2–4 in order.
 
 1. **Dispatched reviewer output missing:** STOP and name each failed specialist or

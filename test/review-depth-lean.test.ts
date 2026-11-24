@@ -195,6 +195,27 @@ describe('GST-3562 A no-loss replay across panels, prior rounds, round grants, t
   });
 });
 
+describe('GST-3562 part 3 no-loss replay: round 2 after a small blocking fix is a full pass, never a scoped one', () => {
+  // Value: protects=rule 15's no-loss rule for review depth: every case where main at 0408128 planned a scoped pass (a blocking fix on a below-full diff with a fix range of at most 150 runtime lines) now plans a full pass that keeps main's full-effort reader, Red Team, native adversarial, outside voice, forced specialists and targeted reader; fails_when=the full round 2 skips a reader main's scoped pass dispatched (the adversarial "run once per invocation", the Red Team on a docs or tests diff) or a scoped step returns;
+  //   why_new=GST-3562 part 3 (Captain GStack Minder, 2026-11-24); seam=planReview, asMainBeforeGst3562; no_claim=what the kept readers find
+  test('every scoped-reachable case is an allowed kind, and each scoped pass it replaces keeps its readers', () => {
+    const kinds: Record<string, number> = {};
+    const fixtures: Record<string, string[]> = { docs: ['docs/a.md'], tests: ['test/a.test.ts'], code: ['src/app.ts'], risk: ['lib/billing.ts'], mixed: ['src/app.ts', 'docs/a.md'] };
+    const counted = scanNumbers({ 'docs/a.md': ['recall 87% (26/30)'] });
+    const depths = [{ diffLines: 20 }, { diffLines: 400 }, { diffLines: 120, floor: 'standard' as const }, { diffLines: 400, floor: 'standard' as const }];
+    for (const [name, paths] of Object.entries(fixtures)) for (const panel of ['all', 'off', 'risk'] as const) for (const depth of depths) for (const rangeRuntimeLines of [0, 1, 24, 150]) for (const adversarialRan of [true, false])
+    for (const reviewed of [undefined, 'same', 'stale'] as const) for (const targeted of [undefined, { classes: ['money'] }]) for (const force of [undefined, ['security']]) {
+      const numbers = reviewed ? counted : none;
+      const input = base({ paths, ...depth, numbers, ...(reviewed ? { reviewedNumbers: reviewed === 'same' ? counted.fingerprint : 'stale' } : {}), history: { fullPasses: 1, last: 'full', fixedBlocking: true, rangeRuntimeLines }, adversarialRan, ...(targeted ? { targeted } : {}), ...(force ? { force } : {}), shape: lean({ panel }) });
+      const plan = planReview(input);
+      expect([name, panel, depth, plan.next.step, plan.dispatches.some(d => d.role === 'fix-check')]).toEqual([name, panel, depth, 'full', false]);
+      const { kind } = asMainBeforeGst3562(input, plan);
+      kinds[`${name}:${kind ?? 'same'}`] = (kinds[`${name}:${kind ?? 'same'}`] ?? 0) + 1;
+    }
+    expect(kinds).toEqual({ 'docs:a': 576, 'docs:g': 576, 'tests:a': 576, 'tests:g': 576, 'code:a': 576, 'code:g': 576, 'risk:a': 384, 'risk:same': 768, 'mixed:a': 576, 'mixed:g': 576 });
+  }, 60_000);
+});
+
 describe('C6 platform depth (FOUN-32, founderstar#496): a planned skip needs the platform review at the exact head', () => {
   test('runtime code never fits the platform depth, even with no runtime lines (a registered generated output, a mode-only change)', () => {
     const none = scanNumbers({});

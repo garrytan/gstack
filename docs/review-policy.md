@@ -90,9 +90,9 @@ incomplete coverage, which blocks until the reviewer is rerun.
    for every reviewer (the gate scan and QA probes keep the whole candidate) and
    classifies with `--range-base`. Only a blocking finding in that range or in
    the diff is `fix`; every below-floor finding is a `note`.
-3. **Two rounds is the cap** (R51): a full pass or a scoped pass
-   ([below](#scoped-pass)) is a round of this table, and /ship plans no
-   fix-check (GST-3562 A). Any code change after round 1, blocking, gate-class
+3. **Two rounds is the cap** (R51): a full pass is a round of this table, and
+   /ship plans no fix-check (GST-3562 A) and no [scoped pass](#scoped-pass)
+   (GST-3562 part 3). Any code change after round 1, blocking, gate-class
    or below the floor, gets a full round 2 on the range. After round 2 the run
    finishes with its open notes listed in the PR body and receipt (an owner-ruled
    note is closed and listed: [ruled notes](ship-policy.md#ruled-notes)), or stops for
@@ -285,7 +285,7 @@ the same grant, whichever row records it:
 | none | full pass 1 on the whole diff |
 | a full pass with no edits | done |
 | a full pass (`--last full`) with no fix flag, when the PR has its own unreviewed runtime commits since `--range-base` | stop: `review_required_no_readers` (exit 3), not done; see [troubleshooting](troubleshooting.md#review-required-no-readers) |
-| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |
+| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | full pass on the range (never a scoped pass, GST-3562), with the Red Team and, when the range changes runtime lines, the native adversarial pass again |
 | a full pass that fixed a blocking finding, below the cap (full depth, a larger range, or a range or depth it could not read) | full pass on the range |
 | a full pass whose fix touched a gate-class path, below the cap | full pass on the range |
 | a full pass that fixed only below-floor findings | full pass on the range (round 2; GST-3562 A plans no new fix-check) |
@@ -317,26 +317,29 @@ finding the voices queued counts as `--blocking-open`, never a new Step 9), and
 the stop or the granted fix-check it names stands.
 
 <a id="scoped-pass"></a>
-A **scoped pass** is pass 2 after a blocking fix when pass 1 and the diff both
-ran below full depth (no gate class, no depth error, no `--depth-floor full`).
-A full pass 1 always gets a full pass 2: `--pass1-depth` carries pass 1's
-`REVIEW_DEPTH`, and an absent flag counts as full. The fix range
-`RANGE_BASE..HEAD` must have at most `SCOPED_RANGE_LINES` (150) runtime lines, counted
-as the depth counts them (`gstack-review-plan --range-base $PASS_HEAD` prints
-`FIX_RANGE:`). The range holds only the PR's own change since `RANGE_BASE`: when
-a base merge lands inside it, what the base brought (a file only main changed,
-or main's lines in a file both changed) is not counted, and neither is its gate
-class (GST-2229, harness-evals #354). It dispatches one fix-check on the range, the Red Team on the
-range, the native adversarial pass when the range changes runtime lines, every
-force-included specialist and the outside voice when published numbers changed.
-Step 11's voices that have not run yet stay listed, as on a full pass 2. It
-writes a full-pass `review` row with `"scope":"scoped"`, so it counts toward
-the cap, and a blocker it leaves open stops for the owner as before. A fix that
-touched a gate-class path (read from the range with its own scope and gate
-scan), a larger range, an empty range, or a
-range, classifier or depth it cannot read keeps the full pass 2. The 150-line figure is a starting value from
-a 24-PR backtest (GSTA-152 D6), to revisit once classified findings carry
-`raised_by`.
+The **scoped pass is retired** (GST-3562 part 3, 2026-11-24): every round 2 is a
+full round, planned through the normal pass manifest and recorded in it, so no
+reader runs outside the pass record. The scoped pass's fix-check was a reader
+`gstack-review-dispatch` left out of the manifest, so its reply never reached
+verify or judge. Where `nextStep` planned a scoped pass (a blocking fix after a
+pass 1 and a diff that both ran below full depth, with a fix range
+`RANGE_BASE..HEAD` of at most `SCOPED_RANGE_LINES` (150) runtime lines, counted
+as the depth counts them: `gstack-review-plan --range-base $PASS_HEAD` prints
+`FIX_RANGE:`), it now plans a full pass on the range that keeps every reader the
+scoped pass ran: a full-effort Red Team that excludes nothing, the native
+adversarial pass again when the range changes runtime lines (even after Step 11
+ran it), every force-included specialist, the outside voice when published
+numbers changed, and Step 11's voices that have not run yet. The driver's
+`--diff-base RANGE_BASE` sets every reader's base except the targeted reader's
+and, before Step 11 has run (no `--adversarial-ran`), the native adversarial's and
+the outside voice's, which keep the merge base and read the whole PR. The range holds only
+the PR's own change since `RANGE_BASE`: when a base merge lands inside it, what
+the base brought is not counted, and neither is its gate class (GST-2229,
+harness-evals #354). A full pass 1, a fix that touched a gate-class path, a larger
+range, or a range, classifier or depth it cannot read gets the plain full pass 2.
+An old `review` row with `"scope":"scoped"` still counts toward the cap. The
+no-loss replay against main's table is
+`test/fixtures/review-pins/replays/GST-3562-part-3.json`.
 
 The same floor and the same `NO FINDINGS` rule apply to `/review` on its own;
 its re-review loop keeps its three-cycle fix cap (`CYCLES`), and a pass that
@@ -577,8 +580,7 @@ handoffs/GSTA-167/noloss5-results.md).
 
 A fixed blocking finding, a CRITICAL or an open blocker raises a light diff to
 standard for the next step (`step=standard`): its specialists read at least 50 lines
-and the Red Team runs, so a raise never dispatches less than light did. When the
-next step is a scoped pass, the raise applies to the scoped set only. A fix-check
+and the Red Team runs, so a raise never dispatches less than light did. A fix-check
 is the same at every depth.
 
 **Fail closed.** Each of these makes the depth full and is listed in `errors[]` with
@@ -647,9 +649,10 @@ the specialists, audits and watchers at the host default too
 ### Behavior changes
 
 - Pass 2 after a blocking fix on a diff below full depth, with a fix range of at
-  most 150 runtime lines, is a [scoped pass](#scoped-pass): a fix-check and the Red
+  most 150 runtime lines, was a [scoped pass](#scoped-pass): a fix-check and the Red
   Team on the range, plus the native adversarial pass (on the range once Step 11 has
-  run, otherwise on the whole branch), instead of the specialist army.
+  run, otherwise on the whole branch), instead of the specialist army. GST-3562
+  part 3 retired it: that pass 2 is now a full pass on the range.
 - A tests-only diff (runtime 0) dispatches one batched reader on the Testing
   checklist, beside the core checklist and the gate scan (GST-2547). Before, it
   dispatched nothing, so the only review was the author's own core read; R51 gives
@@ -1289,8 +1292,9 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    dashes, read as lowercase (`P1` is `p1`); any other character is refused. Audit readers marked first, then
    the specialists with the other audit readers, then the Red Team, then Step 11's
    voices. A QA extra is refused before any reader is created: Step 9.2.1's probes
-   are the parent's. `--diff-base` sets every reader's base, a scoped pass's Red
-   Team included; the targeted reader keeps the merge base. Each reviewer keeps its plan entry and is rendered by the same code as
+   are the parent's. `--diff-base` sets every reader's base, the Red
+   Team included; the targeted reader keeps the merge base, and so do the native
+   adversarial pass and the outside voice before Step 11 has run (no `--adversarial-ran`). Each reviewer keeps its plan entry and is rendered by the same code as
    `render`, once its inputs exist; the Red Team's findings file is the specialists'
    `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
    most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
@@ -1299,7 +1303,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    create whose result was lost by its title and never starts a reader twice; a
    missing or doubled title stops the pass. On Capy the pass runs as one call to the
    checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
-   unchanged by the gstack Capy skill. A full repeat pass takes `--diff-base` (RANGE_BASE; a scoped pass and the read-only final review, none), a
+   unchanged by the gstack Capy skill. A full repeat pass takes `--diff-base` (RANGE_BASE; the read-only final review, none), a
    fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
    `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), `--voices`
    keeps only the plan's voices for Step 11 on its own `--out` (it takes no `--extras`, and a
