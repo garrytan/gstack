@@ -43,7 +43,7 @@ Check whether staging, preview builds, local tooling, and maintenance jobs can r
 
 ### Phase 6: Webhooks, APIs, and Integrations
 
-Trace the full middleware/gateway/handler chain before claiming missing authentication or signatures. Inspect raw-body verification, timestamp/replay controls, idempotency, tenant binding, event authorization, and whether a forged event changes money, ownership, or access. An endpoint filename or absent verification in one file is insufficient evidence.
+Trace the full middleware/gateway/handler chain before claiming missing authentication or signatures. Inspect raw-body verification, timestamp/replay controls, idempotency, tenant binding, event authorization, and whether a forged event changes money, ownership, or access. An endpoint filename or absent verification in one file is insufficient evidence for a supported finding; list it as a hypothesis until traced.
 
 Review OAuth client/audience/redirect bindings, token scope, TLS verification, outbound redirects, and URL validation. Private networking is a control to verify, not an automatic severity ceiling. Schemathesis runs only through the sandbox against a disposable local app with bounded operations, examples, seed, and time. A schema conformance error with a plausible security impact is a candidate.
 
