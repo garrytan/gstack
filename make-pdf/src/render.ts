@@ -193,7 +193,9 @@ export function render(opts: RenderOptions): RenderResult {
  *     (@import, url(), image-set() with remote string candidates).
  */
 export function sanitizeUntrustedHtml(html: string): string {
-  let s = html;
+  // smartypants drops U+0000 after this runs, which would join on\u0000error
+  // or java\u0000script: back together, so check the string without it.
+  let s = html.replace(/\u0000/g, "");
 
   // Elements to remove entirely (including content).
   const DANGER_TAGS = [
@@ -224,15 +226,21 @@ export function sanitizeUntrustedHtml(html: string): string {
   // handler's name is always removed, even before a value that starts with
   // "<" (onerror=<!--&#10;… runs its second line). Matching runs over the
   // whole page, text included, so "/on…=" inside a URL or code goes too.
-  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"]*"/gi, "");
-  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^']*'/gi, "");
+  // A quoted value goes with its name only when it holds no "<" or ">":
+  // otherwise the quote may belong to a later element, so the last rule
+  // removes just the name and the rest stays where it was.
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"<>]*"/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^'<>]*'/gi, "");
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`<]*/gi, "");
 
   // javascript: URLs in href/src/action/formaction (same attribute starts).
   s = s.replace(
-    /([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*)(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi,
+    /([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*)(?:"javascript:[^"<>]*"|'javascript:[^'<>]*')/gi,
     '$1"#"',
   );
+  // Any other javascript: value (unquoted, or quoted around "<" or ">") loses
+  // only its scheme, so no quote is added or removed.
+  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*["']?)javascript:/gi, "$1#");
 
   // srcdoc attribute (iframe escape hatch — already stripped via iframe above,
   // but defense-in-depth).
