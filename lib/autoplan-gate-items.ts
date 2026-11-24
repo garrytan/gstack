@@ -41,7 +41,10 @@ export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>;
  * writes the cache, and building a gate must not write outside the run). No known slug reads no record, so a quote stays
  * unverified rather than matching another repository's branch of the same name.
  */
-export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): string[] {
+/** One recorded owner reply: its words, and when available its time and record id, which a ruled-out line cites. */
+export interface OwnerReply { text: string; at?: string; id?: string }
+
+export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): OwnerReply[] {
   const head = spawnSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { cwd, encoding: 'utf8', timeout: 10_000 });
   const branch = head.status === 0 ? head.stdout.trim() : '';
   if (!branch) return [];
@@ -52,36 +55,45 @@ export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): 
   const name = `${branchKey(branch)}.jsonl`;
   const files = [path.join(stateRoot, 'projects', slug, 'approvals', name),
     ...[env.GSTACK_APPROVALS_DIR, captainApprovalsDir(env)].flatMap(root => (root ? [path.join(root, slug, name)] : []))];
-  const words: string[] = [];
+  const words: OwnerReply[] = [];
   for (const file of files) {
     let text: string;
     try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
     for (const line of text.split('\n')) {
-      try { const row = JSON.parse(line); if (typeof row?.words === 'string' && !row.words_by) words.push(row.words); } catch { /* a torn line */ }
+      try { const row = JSON.parse(line); if (typeof row?.words === 'string' && !row.words_by) words.push({ text: row.words, at: row.recorded_at, id: row.id }); } catch { /* a torn line */ }
     }
   }
   return words;
 }
 
 /** Every owner reply this run recorded, plus the owner's words in the approvals records for the plan's branch. */
-export function recordedOwnerWords(state: RunState, env: NodeJS.ProcessEnv = process.env): string[] {
-  const out: string[] = [];
-  for (const r of readJournal(state.out)) if (typeof r.owner_reply === 'string') out.push(r.owner_reply);
-  for (const d of readDecisions(state.out)) if (typeof d.owner_reply === 'string') out.push(d.owner_reply);
+export function recordedOwnerWords(state: RunState, env: NodeJS.ProcessEnv = process.env): OwnerReply[] {
+  const out: OwnerReply[] = [];
+  for (const r of readJournal(state.out)) if (typeof r.owner_reply === 'string') out.push({ text: r.owner_reply, at: r.ts });
+  for (const d of readDecisions(state.out)) if (typeof d.owner_reply === 'string') out.push({ text: d.owner_reply, at: d.answered_at, id: d.id });
   return [...out, ...ledgerWords(path.dirname(state.plan_input ?? state.plan_source), env)];
 }
 
-export function ownerContext(state: RunState, recorded: string[] = recordedOwnerWords(state)): OwnerContext {
+/** The replies a ruled-out line's citation names: a record id, or a time (`YYYY-MM-DD` or `YYYY-MM-DD HH:MMZ`) its timestamp starts with. One reply is stored on every row it answered, so copies of the same words count once. */
+export function citedReplies(cite: string, replies: OwnerReply[]): OwnerReply[] {
+  const m = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2})Z?)?$/.exec(cite.trim());
+  const stamp = m ? `${m[1]}${m[2] ? `T${m[2]}` : ''}` : undefined;
+  const cited = replies.filter(r => r.id === cite.trim() || (!!stamp && !!r.at && r.at.startsWith(stamp)));
+  return [...new Map(cited.map(r => [r.text.trim(), r])).values()];
+}
+
+export function ownerContext(state: RunState, recorded: Array<string | OwnerReply> = recordedOwnerWords(state)): OwnerContext {
   let text = '';
   try { text = fs.readFileSync(state.active_plan, 'utf8'); } catch { /* no plan text: nothing is quoted */ }
   const words = parseOwnerWords(text);
-  const keys = recorded.map(wordKey);
-  const said = (text: string) => keys.some(k => k.includes(wordKey(text)));
-  const verified = new Set(words.quotes.filter(q => said(q.text)).map(q => q.n));
+  const replies = recorded.map(r => (typeof r === 'string' ? { text: r } : r));
+  const keys = replies.map(r => wordKey(r.text));
+  const verified = new Set(words.quotes.filter(q => keys.some(k => k.includes(wordKey(q.text)))).map(q => q.n));
   const ruledBy = (q: OwnerQuote) => {
     if (q.line?.kind !== 'ruled_out') return false;
     const key = wordKey(q.line.ruling);
-    return key.trim().split(/\s+/).length >= 3 && !wordKey(q.text).includes(key) && said(q.line.ruling);
+    const cited = citedReplies(q.line.date, replies);
+    return key.trim().split(/\s+/).length >= 3 && !wordKey(q.text).includes(key) && cited.length === 1 && wordKey(cited[0]!.text).includes(key);
   };
   const ruled = new Set(words.quotes.filter(ruledBy).map(q => q.n));
   return { words, verified, ruled, dayOne: parseDayOne(text), cuts: parseCuts(text), app: !!state.scope?.ui, lean: !!state.lean,
