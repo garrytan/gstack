@@ -199,7 +199,7 @@ describe('/cso reports its full finding list (gstack-evals#447)', () => {
   test('the report rule has no count cap, lists every open question as a hypothesis, and does not finish early on a short list', () => {
     const text = skill();
     for (const held of ['one open question', 'survives challenge', 'before becoming a finding', 'compact SECURITY FINDINGS']) expect(text).not.toContain(held);
-    for (const kept of ['No count cap, no proof bar for listing', 'however many questions stay open', 'Challenge sets evidence and confidence, not whether a finding is listed', 'A short list is no reason to finish early', 'of every submitted finding, likeliest first, never trimmed or merged for length']) expect(text).toContain(kept);
+    for (const kept of ['No count cap, no proof bar for listing', 'however many questions stay open', 'Challenge sets evidence and confidence, not whether a finding is listed', 'A short list is no reason to finish early', 'of every supported finding, likeliest first, never trimmed or merged for length', 'Every hypothesis follows in a separate labeled table']) expect(text).toContain(kept);
     const phases = fs.readFileSync(path.join(ROOT, 'cso/sections/audit-phases.md'), 'utf8');
     expect(phases).toContain('goes on the list as a low-confidence hypothesis when it is plausible in this code');
     expect(phases).not.toContain('before becoming findings');
