@@ -1293,7 +1293,8 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    the specialists with the other audit readers, then the Red Team, then Step 11's
    voices. A QA extra is refused before any reader is created: Step 9.2.1's probes
    are the parent's. `--diff-base` sets every reader's base, the Red
-   Team included; the targeted reader keeps the merge base. Each reviewer keeps its plan entry and is rendered by the same code as
+   Team included; the targeted reader keeps the merge base, and so do the native
+   adversarial pass and the outside voice before Step 11 has run (no `--adversarial-ran`). Each reviewer keeps its plan entry and is rendered by the same code as
    `render`, once its inputs exist; the Red Team's findings file is the specialists'
    `merged.jsonl` lines byte for byte. A brief leaves the bin in indexed chunks of at
    most 65,536 characters (`chunk`), so no tool output line carries a whole brief and a
