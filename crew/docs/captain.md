@@ -824,7 +824,8 @@ letters unique across the list.
 ```
 
 The recommendation is always option 1. "do it" takes every recommendation in the last
-list; a named option ("A2") takes that option instead. `<code>` is the issue, PR or thread
+list; a named option ("A2") takes that option instead. Past Z the letters go on AA, AB
+and so on, like spreadsheet columns, and are read in any case. `<code>` is the issue, PR or thread
 the decision is about. An ask that cannot be put this way is not ready to send.
 
 **When the owner has to do something** (create a token, approve a deployment, accept an
