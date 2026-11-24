@@ -407,14 +407,14 @@ interface LocalRun { exit: number | null; outcome: Supervised['outcome']; signal
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 
 /**
- * Bytes of quoted file arguments one runner process may take. supervise passes PIPEFAIL plus the command as one `bash -c`
- * argument: Linux caps one execve argument at 128 KiB (MAX_ARG_STRLEN), POSIX caps argv plus environment (ARG_MAX), and
- * Git Bash on Windows keeps only its first 8,186 characters (#4773). The prefix, the runner text and a margin come off.
+ * Bytes of quoted file arguments one runner process may take (unlimited without a {files} placeholder: `cargo test -p`).
+ * supervise passes PIPEFAIL plus the command as one `bash -c` argument: Linux caps one execve argument at 128 KiB, POSIX
+ * caps argv plus environment (ARG_MAX), and Git Bash on Windows keeps its first 8,186 characters only (#4773).
  */
 export function argBudget(runner: string, env: NodeJS.ProcessEnv, platform = process.platform): number {
   const envBytes = Object.entries(env).reduce((n, [k, v]) => n + Buffer.byteLength(`${k}=${v ?? ''}`) + 9, 0);
   const cap = platform === 'win32' ? WINDOWS_BASH_ARG_MAX : Math.min(96 * 1024, 1024 * 1024 - 64 * 1024 - envBytes);
-  return cap - Buffer.byteLength(PIPEFAIL) - Buffer.byteLength(runner) - 512;
+  return runner.includes('{files}') ? cap - Buffer.byteLength(PIPEFAIL) - Buffer.byteLength(runner) - 512 : Infinity;
 }
 
 /** `args` split in order into chunks whose quoted, space-joined text fits `budget` bytes; an argument over it runs alone. */
@@ -453,7 +453,7 @@ async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup,
   }
   if (parts.length === 1) return parts[0]!;
   const bad = parts.find(p => p.exit === null) ?? parts.find(p => p.exit !== 0) ?? parts.find(p => p.ran === 0) ?? parts.at(-1)!;
-  const sum = (k: 'ran' | 'failed') => (parts.some(p => p[k] === null) ? null : k === 'ran' && parts.some(p => p.ran === 0) ? 0 : parts.reduce((n, p) => n + (p[k] as number), 0));
+  const sum = (k: 'ran' | 'failed') => (k === 'ran' && parts.some(p => p.ran === 0) ? 0 : parts.some(p => p[k] === null) ? null : parts.reduce((n, p) => n + (p[k] as number), 0));
   return { ...(parts.every(p => p.noBrowsers) ? { noBrowsers: parts[0]!.noBrowsers } : {}), exit: bad.exit, outcome: bad.outcome, signal: bad.signal, observedStart: parts.some(p => p.observedStart), ran: sum('ran'), failed: sum('failed'), tail: bad.tail, runner: g.runner, command: parts.map(p => p.command).join(' && '), files: parts.flatMap(p => p.files), lastFile: bad.lastFile, ms: parts.reduce((n, p) => n + p.ms, 0), ...(bad.error ? { error: bad.error } : {}) };
 }
 

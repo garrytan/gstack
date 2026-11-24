@@ -21,6 +21,7 @@ afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 const FILES = 700;
 const name = (i: number, tag = 'x') => `test/big/${tag.padEnd(186, 'x')}${String(i).padStart(4, '0')}.test.js`;
 const RUNNER = [
+  "if (process.argv.slice(2).some(f => f.includes('yodd'))) { console.log('done'); process.exit(0); }",
   "const files = process.argv.slice(2).filter(f => !f.includes('zskip'));",
   "const failed = files.filter(f => f.includes('fail')).length;",
   "console.log(`ℹ tests ${files.length}\\nℹ pass ${files.length - failed}\\nℹ fail ${failed}`);",
@@ -64,6 +65,10 @@ describe.skipIf(process.platform === 'win32')('a local lane whose file list is o
     const lane = await lanesOver(tests);
     expect(lane).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED' });
     expect(lane.detail).toStartWith('ZERO-RUN: the runner reported 0 tests');
+
+    const odd = await lanesOver(Array.from({ length: FILES }, (_, i) => name(i, i < FILES / 2 ? 'yodd' : 'zskip')));
+    expect(odd).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED' });
+    expect(odd.detail).toStartWith('ZERO-RUN: the runner reported 0 tests');
   }, 120_000);
 });
 
@@ -121,6 +126,7 @@ describe('argChunks and argBudget', () => {
     const command = (platform: NodeJS.Platform) => 'set -o pipefail; ' + runner.replace('{files}', 'x'.repeat(argBudget(runner, {}, platform)));
     expect(command('win32').length).toBeLessThanOrEqual(8186);
     expect(Buffer.byteLength(command('linux'))).toBeLessThanOrEqual(96 * 1024 - 512);
+    expect(argBudget('cargo test -p core', {}, 'win32')).toBe(Infinity);
   });
 });
 
