@@ -3,7 +3,7 @@
  * gstack-first-use — the cold first-use check for a first version or app build (docs/first-use-check.md).
  *
  *   gstack-first-use start   --app <slug> --plan <plan.md> --play <play.json> --platform ios|android|web|macos|server --commit <sha>
- *                            (--testflight <build> | --deploy <version>) --holding <build label|none> --holding-defects <list|none>
+ *                            (--testflight <build> | --deploy <version>) [--phone-build <id>] --holding <build label|none> --holding-defects <list|none>
  *                            --builder <model> --checker <model> [--json]
  *   gstack-first-use brief   --run <dir>
  *   gstack-first-use record  --run <dir> --step <n> --verdict useful|thin|wrong|broken --line <text> --evidence <file> --device <text>
@@ -35,8 +35,9 @@ import { resultLine } from '../lib/result-codes';
 const HELP = `gstack-first-use — a cold first-use check: the owner's exact try-it steps, run on the real target before the owner is asked (docs/first-use-check.md)
 
   start   --app <slug> --plan <plan.md> --play <play.json> --platform ios|android|web|macos|server --commit <sha>
-          (--testflight <build> | --deploy <version>) --holding <build label|none> --holding-defects <list|none>
+          (--testflight <build> | --deploy <version>) [--phone-build <id>] --holding <build label|none> --holding-defects <list|none>
           --builder <model> --checker <model> [--json]
+          --phone-build: ios and android only, the 26-character id of Capy's mobile build of --commit that the cloud phone installs
   brief   --run <dir>                     what the checker from the other model family is given
   record  --run <dir> --step <n> --verdict useful|thin|wrong|broken --line <text> --evidence <file> --device <text> --account <text>
           --target <text> --by <model> [--needs-lookup <text>] [--notice <text>]
@@ -74,7 +75,7 @@ function cmdStart(a: string[], json: boolean): number {
   if ('error' in root) return refuse('start', root.error);
   let play: unknown;
   try { play = JSON.parse(fs.readFileSync(flag(a, '--play')!, 'utf8')); } catch { return refuse('start', { code: 'FIRST_USE_PLAY_SPEC_INCOMPLETE', detail: `${flag(a, '--play')} is not a readable JSON play spec` }); }
-  const r = startRun({ root: root.root, app: flag(a, '--app')!, planPath: flag(a, '--plan')!, build: buildArgs(a), play, holding: { build: flag(a, '--holding'), defects: flag(a, '--holding-defects') }, builder: flag(a, '--builder')!, checker: flag(a, '--checker')! });
+  const r = startRun({ root: root.root, app: flag(a, '--app')!, planPath: flag(a, '--plan')!, build: buildArgs(a), phoneBuild: flag(a, '--phone-build'), play, holding: { build: flag(a, '--holding'), defects: flag(a, '--holding-defects') }, builder: flag(a, '--builder')!, checker: flag(a, '--checker')! });
   if ('error' in r) return refuse('start', r.error);
   const m = r.manifest;
   if (json) { say(JSON.stringify({ run: r.dir, steps: m.steps.length, actions: m.actions.length, quotes: m.quotes.length, rows_sha256: m.source.rows_sha256, try_sha256: m.try_sha256, target: m.play.target, build: m.build })); return EXIT.ok; }

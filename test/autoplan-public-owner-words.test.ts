@@ -458,3 +458,69 @@ describe('every attribution, line and quote shape reads as the merge base read i
   });
 });
 
+describe("short owner quotes and leave-out reasons stay out of a first-version export (GST-3646)", () => {
+  const tag = (prefix: string, i: number) => `${prefix}${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + (i % 26))}vel`;
+  const QUOTES: Array<[string, (u: string) => string]> = [
+    ['one word', u => u],
+    ['two words', u => `quimbly ${u}`],
+    ['an emoji and a word', u => `🚀 ${u}`],
+    ['CJK', u => `毎朝ベル${u}`],
+  ];
+  const LINES: Array<[string, (r: string) => string, boolean]> = [
+    ['does it', () => ' → does it', false],
+    ['a choice with a size', () => ' → choice; size: one day', false],
+    ['a one-word reason to leave it out', r => ` → choice; size: two days; leave out: ${r}`, true],
+    ['a two-word reason to leave it out', r => ` → choice; leave out: blint ${r}`, true],
+    ['a longer reason to leave it out', r => ` -> choice; size: one day; leave out: ${r} plinkwort drazzle fippery`, true],
+    ['a reason after extra spaces', r => ` → choice; leave out :  ${r}`, true],
+  ];
+  const ROWS = QUOTES.flatMap(([qName, quote], a) => LINES.map(([lName, line, hasReason], b) => {
+    const i = a * LINES.length + b, reason = tag('rz', i);
+    const words = quote(tag('qx', i));
+    return { name: `${qName} / ${lName}`, bullet: `- The owner, 2026-11-20 08:${String(i).padStart(2, '0')}Z: "${words}"${line(reason)}`, words, reason: hasReason ? line(reason).replace(/^.*leave out\s*:\s*/, '') : undefined };
+  }));
+  const plan = [
+    '# Morning helper (synthetic first version)', '', '## Implementation plan', '',
+    'Add a morning summary job in lib/morning.ts that reads the calendar and sends one notification.', '',
+    "### Owner's words", '', ...ROWS.map(row => row.bullet), '',
+    '### Day one', '', '| action | frequency | source | feature | route | first build | check |', '|---|---|---|---|---|---|---|',
+    '| reads the morning summary | daily | owner words 1 | Summary | notification | build 1 | the summary lists today |', '',
+    "### What it won't do yet", '', '- No weekly digest', '', '## Review record', ''].join('\n');
+  const fragments = (q: string) => [...new Set([...q.split(/\s+/), ...wordKey(q).trim().split(' ')].filter(w => [...w].length >= 3))];
+  const exported = () => {
+    const dir = path.join(r.host.base, `owner${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir, plan), '--no-ui', '--no-dx', '--first-version']).status).toBe(0);
+    phaseVia(r, out, 'ceo', { native: [{ id: 'F1', severity: 'Medium', title: 'The summary does less than the owner asked', changes: 'scope', narrows_quote: 1 }], outside: [] });
+    expect(phaseVia(r, out, 'eng', { native: [], outside: [] }).outside.stdout).toContain('status=gate_pending');
+    const pub = path.join(dir, 'public');
+    const e = r.ap(['export', '--out', out, '--public', pub]);
+    expect(e.status, e.stderr).toBe(0);
+    return { out, pub };
+  };
+
+  test('every short quote and every reason to leave one out reaches the gate, and none leaves a 3+ character fragment in the public bytes', () => {
+    expect(parseOwnerWords(plan).quotes).toHaveLength(ROWS.length);
+    const { out, pub } = exported();
+    const gate = JSON.stringify(gateOf(out).items);
+    expect(ROWS.filter(row => !gate.includes(row.words) && !row.bullet.includes('does it')).map(row => row.name)).toEqual([]);
+    expect(ROWS.filter(row => row.reason && !gate.includes(row.reason)).map(row => row.name)).toEqual([]);
+    const bytes = allText(pub);
+    const leaks = ROWS.flatMap(row => [row.words, ...(row.reason ? [row.reason] : [])].flatMap(q => fragments(q).filter(w => bytes.includes(w)).map(w => `${row.name}: ${w}`)));
+    expect(leaks).toEqual([]);
+  });
+
+  test('validate --public --private catches a short quote or a leave-out reason written back in quote marks, and passes the plain words', () => {
+    const { out, pub } = exported();
+    const record = path.join(pub, 'review-record.md');
+    const before = fs.readFileSync(record, 'utf8');
+    const validate = () => artifact(['validate', '--public', pub, '--private', path.join(out, 'run.json')]);
+    expect(validate().status).toBe(0);
+    const ownerWordsAt = (added: string) => { fs.writeFileSync(record, before + added); return validate().stderr.includes('ARTIFACT_OWNER_WORDS'); };
+    expect(ownerWordsAt(`The owner said “${ROWS[0]!.words}”.\n`)).toBe(true);
+    expect(ownerWordsAt(`The plan's reason: leave out: ${ROWS[2]!.reason}\n`)).toBe(true);
+    expect(ownerWordsAt(`A plain mention of ${ROWS[0]!.words} and ${ROWS[2]!.reason}.\n`)).toBe(false);
+    fs.writeFileSync(record, before);
+    expect(validate().status).toBe(0);
+  });
+});

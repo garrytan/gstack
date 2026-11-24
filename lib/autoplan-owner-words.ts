@@ -9,7 +9,9 @@
  * answer at the same gate replaced), the words a carried gate reused, each
  * quote in a `### Owner's words` section of any plan text the run kept (plan-active.md, plan-source*.md,
  * plan-at-gate.r*.md, plan-file.*.md; lib/autoplan-owner-text.ts), so a quote a revision removed stays redacted,
- * and a reason a human gave for `close --deferred <reason> --by human`. A reply that
+ * and a reason a human gave for `close --deferred <reason> --by human`. A plan quote of any length, and a
+ * quote's `leave out: <reason>`, are also redacted wherever gstack renders them: the quote between quote marks,
+ * the reason after `leave out:`, `leave it out for now:` or `reason to leave it out:` (GST-3646). A reply that
  * parsed as gate grammar (`owner_reply_parsed`) is the decision code and is
  * not scanned for; `reply` and the agent's own `answer_words` stay.
  *
@@ -159,7 +161,7 @@ const DEFERRAL_RENDERINGS = (r: string) => [`^deferred: (${r})$`, `\\((${r}); by
  * The scan index: each owner reply and deferral reason of MIN_TOKENS+ words (grammar skipped), each run of MIN_TOKENS+
  * of its words between echoed windows, and the placements of deferral reasons and carried words.
  */
-export function ownerIndex(replies: OwnerSource[], o: { deferred?: OwnerSource[]; carried?: string[] } = {}): OwnerWords {
+export function ownerIndex(replies: OwnerSource[], o: { deferred?: OwnerSource[]; carried?: string[]; quoted?: string[]; reasons?: string[] } = {}): OwnerWords {
   const keysOf = (texts: string[]) => ` ${texts.flatMap(t => [tokens(t, false), tokens(t)].map(ts => ts.map(k => k.key).join(' '))).join(' \u0001 ')} `;
   const seen = new Set<string>();
   const indexed: Indexed[] = [];
@@ -188,6 +190,8 @@ export function ownerIndex(replies: OwnerSource[], o: { deferred?: OwnerSource[]
   const placements = [
     ...(o.deferred ?? []).flatMap(d => DEFERRAL_RENDERINGS(escape(d.text))),
     ...(o.carried ?? []).map(w => `words=(${escape(JSON.stringify(w))})(?= by=|$)`),
+    ...(o.quoted ?? []).map(q => `["“](${escape(q)})["”]`),
+    ...(o.reasons ?? []).map(r => `(?:leave out|leave it out for now|reason to leave it out)\\s*:\\s*(${escape(r)})`),
   ].map(p => new RegExp(p, 'gd'));
   return { replies: indexed, placements };
 }
@@ -279,7 +283,8 @@ export function ownerWords(state: Pick<RunState, 'out' | 'phases' | 'gate' | 'ca
   note(state.carry?.words, undefined, false);
   let names: string[] = [];
   try { names = fs.readdirSync(out).filter(f => f === FILES.active || /^plan-source.*\.md$/.test(f) || /^plan-at-gate\.r\d+\.md$/.test(f) || /^plan-file\..+\.md$/.test(f)).sort(); } catch { /* no run directory */ }
-  for (const text of new Set(names.flatMap(f => parseOwnerWords(read(f) ?? '').quotes.map(q => q.text)))) note(text, undefined, false);
+  const planQuotes = names.flatMap(f => parseOwnerWords(read(f) ?? '').quotes);
+  for (const text of new Set(planQuotes.map(q => q.text))) note(text, undefined, false);
 
   const deferred = new Map<string, string | undefined>();
   for (const r of journal) if (r.event === 'phase_deferred' && r.by === 'human' && typeof r.reason === 'string') deferred.set(r.reason, deferred.get(r.reason) ?? String(r.ts));
@@ -288,5 +293,7 @@ export function ownerWords(state: Pick<RunState, 'out' | 'phases' | 'gate' | 'ca
   return ownerIndex([...byText].map(([text, r]) => ({ text, parsed: r.parsed, prior: prior(r.at) })), {
     deferred: [...deferred].map(([text, at]) => ({ text, prior: prior(at) })),
     carried: state.carry?.words ? [state.carry.words] : [],
+    quoted: [...new Set(planQuotes.map(q => q.text))],
+    reasons: [...new Set(planQuotes.flatMap(q => (q.line?.kind === 'choice' && q.line.leave_out ? [q.line.leave_out] : [])))],
   });
 }

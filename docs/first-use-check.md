@@ -25,6 +25,8 @@ Each bullet is who, when, the words in quotes, then an arrow (`→` or `->`) and
 | `does it` | this version does what the words ask | a reviewer who finds it does less files a `narrows_quote` finding, and the gate asks |
 | `choice` | this version doesn't fully do it yet | one lettered choice quoting the words: a) build it in this version, b) leave it out. It recommends a, unless the line says `leave out: <reason>`, shown on the choice. `size: <n>` is shown as the cost |
 
+A public export (`gstack-autoplan export --public`) drops the owner's words: every quote, however short, wherever it appears in quote marks, and every `leave out:` reason, wherever the gate shows it. A quote of three or more words is also caught where it is repeated without quote marks.
+
 A cut under `### What it won't do yet` that drops a quoted line becomes that quote's choice and leaves the list. On a first version every other cut gets its own letter. The owner brief shows the quotes and their lines first, then the day-one table, then the remaining cuts.
 
 The day-one table needs a heading named `Day one` (any level; `Day-one page` also works) followed by a table with these seven columns, in any order:
@@ -43,14 +45,14 @@ Run these from the thread that owns the build (on Capy, a Captain or the agent b
 
    ```bash
    gstack-first-use start --app plantpal --plan plan.md --play play.json \
-     --platform ios --commit <full commit sha> --testflight 17 \
+     --platform ios --commit <full commit sha> --testflight 17 --phone-build <mobile build id> \
      --holding "TestFlight build 16" --holding-defects "the care card shows yesterday's date" \
      --builder anthropic/claude-opus-5-5 --checker openai/gpt-6.2-sol
    ```
 
-   Platforms are `ios`, `android`, `web`, `macos` (a Mac app or helper) and `server` (software on the owner's box); give `--deploy <version>` for anything not on TestFlight. `--holding none --holding-defects none` marks a first build. `start` freezes the owner's quotes, the play spec's numbered steps followed by the five day-one actions, and the try-it text into a write-once `manifest.json`, with a hash over the rows and the text of every quote, and prints `FIRST_USE_RUN: <dir>`. It refuses a plan whose table or quotes are missing or malformed, a play spec that misses a part, and a checker from the builder's model family.
+   Platforms are `ios`, `android`, `web`, `macos` (a Mac app or helper) and `server` (software on the owner's box); give `--deploy <version>` for anything not on TestFlight. An ios or android check also needs `--phone-build <id>`: the 26-character id of Capy's mobile build (`tools.mobile.build`) of the same commit. The cloud phone installs only that kind of build, never a TestFlight or store number, so `start` refuses a phone build without it. `--holding none --holding-defects none` marks a first build. `start` freezes the owner's quotes, the play spec's numbered steps followed by the five day-one actions, and the try-it text into a write-once `manifest.json`, with a hash over the rows and the text of every quote, and prints `FIRST_USE_RUN: <dir>`. It refuses a plan whose table or quotes are missing or malformed, a play spec that misses a part, and a checker from the builder's model family.
 
-2. **Hand the checker its brief.** `gstack-first-use brief --run <dir>` prints everything the checker gets: the target and its rules, the exact try-it message, and each step with what it writes and the commands to record it. Give it to one fresh agent on the `--checker` model and nothing else about the build: no plan, no code, no notes. On Capy, start a subagent with that model on `machine: "fresh"`. For a phone build it attaches a cloud phone (`tools.capy.phone`) pointed at the target; for a Mac build on the owner's own Mac it drives Aside over Tailscale; for a server build it works over the box's shell. It runs its own gstack install check first.
+2. **Hand the checker its brief.** `gstack-first-use brief --run <dir>` prints everything the checker gets: the target and its rules, the exact try-it message, and each step with what it writes and the commands to record it. Give it to one fresh agent on the `--checker` model and nothing else about the build: no plan, no code, no notes. On Capy, start a subagent with that model on `machine: "fresh"`. For a phone build it attaches a cloud phone (`tools.capy.phone`), installs the `--phone-build` build on it and points it at the target; for a Mac build on the owner's own Mac it drives Aside over Tailscale; for a server build it works over the box's shell. It runs its own gstack install check first.
 
 3. **The checker records each step and predicts the score.**
 

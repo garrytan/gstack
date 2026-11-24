@@ -49,7 +49,7 @@ export interface Holding { build: string; defects: string }
 export interface Manifest {
   schema_version: 2; kind: 'first-use-manifest'; app: string; created_at: string;
   source: { path: string; rows_sha256: string }; quotes: FrozenQuote[]; actions: FrozenAction[]; steps: FrozenStep[];
-  try_text: string; try_sha256: string; build: BuildId & { fingerprint: string }; play: PlaySpec; holding: Holding;
+  try_text: string; try_sha256: string; build: BuildId & { fingerprint: string }; phone_build?: string; play: PlaySpec; holding: Holding;
   builder: { model: string; family: string }; checker: { model: string; family: string };
 }
 export interface StepResult {
@@ -162,7 +162,7 @@ function checkHolding(h: Partial<Holding> | undefined): Result<{ holding: Holdin
   return { holding: { build, defects } };
 }
 
-export interface StartInput { root: string; app: string; planPath: string; build: Partial<BuildId>; play: unknown; holding: Partial<Holding>; builder: string; checker: string; now?: Date }
+export interface StartInput { root: string; app: string; planPath: string; build: Partial<BuildId>; phoneBuild?: string; play: unknown; holding: Partial<Holding>; builder: string; checker: string; now?: Date }
 /** Freezes the owner's quotes, the steps and the try-it text, and writes the run's manifest once; returns the run directory. */
 export function startRun(o: StartInput): Result<{ dir: string; manifest: Manifest }> {
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(o.app)) return fail('FIRST_USE_RECORD_INVALID', '--app must be a lowercase slug like ghome');
@@ -174,6 +174,8 @@ export function startRun(o: StartInput): Result<{ dir: string; manifest: Manifes
   if ('error' in play) return play;
   const build = buildFingerprint(o.build);
   if ('error' in build) return build;
+  const phone = build.platform === 'ios' || build.platform === 'android';
+  if (phone && !/^[0-9A-Za-z]{26}$/.test(o.phoneBuild ?? '')) return fail('FIRST_USE_RECORD_INVALID', `a ${build.platform} check installs on a cloud phone, which takes only a build from Capy's mobile build service: give --phone-build <its 26-character build id> for commit ${build.commit.slice(0, 12)}, not a TestFlight or store number`);
   const holding = checkHolding(o.holding);
   if ('error' in holding) return holding;
   const builder = modelFamily(o.builder), checker = modelFamily(o.checker);
@@ -186,7 +188,7 @@ export function startRun(o: StartInput): Result<{ dir: string; manifest: Manifes
   ];
   const base = { schema_version: 2 as const, kind: 'first-use-manifest' as const, app: o.app, created_at: now.toISOString(),
     source: { path: path.resolve(o.planPath), rows_sha256: frozen.rows_sha256 }, quotes: frozen.quotes, actions: frozen.actions, steps,
-    build, play: play.spec, holding: holding.holding, builder: { model: o.builder, family: builder }, checker: { model: o.checker, family: checker } };
+    build, ...(phone ? { phone_build: o.phoneBuild } : {}), play: play.spec, holding: holding.holding, builder: { model: o.builder, family: builder }, checker: { model: o.checker, family: checker } };
   const try_text = renderTryText(base);
   const manifest: Manifest = { ...base, try_text, try_sha256: sha256(try_text) };
   const dir = path.join(o.root, o.app, `${stamp(now)}-${build.fingerprint.slice(0, 8)}`);
