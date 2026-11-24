@@ -147,7 +147,7 @@ describe('the round cap', () => {
     expect(run.status).toBe('gate_pending');
     expect(run.capped_deltas.map((d: any) => [d.phase, d.status])).toEqual([['ceo', 'pending'], ['eng', 'pending']]);
     const deltas = gate(s.out).items.filter((i: any) => i.cap?.kind === 'delta');
-    expect(deltas.map((i: any) => i.title.replace(/\(.*/, '').trim())).toEqual(['plan changed after ceo cap: unreviewed delta', 'plan changed after eng cap: unreviewed delta']);
+    expect(deltas.map((i: any) => i.title.replace(/\(.*/, '').trim())).toEqual(['plan changed after the ceo and eng cap: unreviewed delta']);
     expect(deltas.every((i: any) => i.kind === 'approval')).toBe(true);
     const partial = answer(s.out, 2, 'p1a');
     expect(partial.stdout).toMatch(/^GATE_PENDING: /m);
@@ -205,9 +205,8 @@ describe('deferred close keeps earlier open findings; a reopened phase reruns En
     phaseVia(r, s.out, 'eng', NONE);
     expect(r.ap(['revise', '--out', s.out, '--plan', v2File(s.dir)]).status).toBe(0);
     const items = gate(s.out).items;
-    const ceo = items.find((i: any) => i.cap?.kind === 'delta' && i.phase === 'ceo');
-    const eng = items.find((i: any) => i.cap?.kind === 'delta' && i.phase === 'eng');
-    const replied = answer(s.out, readRunJson(s.out).gate_rev, `${ceo.id}b ${eng.id}a p1a`);
+    const delta = items.find((i: any) => i.cap?.kind === 'delta' && i.phase === 'ceo');
+    const replied = answer(s.out, readRunJson(s.out).gate_rev, `${delta.id}b p1a`);
     expect(replied.status, replied.stderr).toBe(0);
     expect(replied.stdout).toMatch(/^ROUND_GRANTED: eng cap=2 \(reruns after ceo; /m);
     phaseVia(r, s.out, 'ceo', NONE);

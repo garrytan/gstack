@@ -61,6 +61,8 @@ export interface GateList { schema_version: 1; run: string; gate_rev: number; it
   owner_words?: { status: 'ok' | 'malformed' | 'none'; quotes: Array<{ n: number; who: string; text: string; verified: boolean; ruling_verified?: boolean; line?: OwnerLine }>; reason?: string; fix?: string };
   /** A first version (a Day one section or `--first-version`): the owner brief adds the gstack-first-use line. */
   first_version?: boolean;
+  /** Each cut's stable id (lib/autoplan-owner-text.ts cutIds): the next gate revision matches its cuts to these, so a reworded cut keeps its answer. */
+  cut_ids?: Array<{ id: string; text: string }>;
   /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
   carry_check?: { attempt: string; model: string; verdict: 'passed' | 'failed' | 'unavailable'; max_severity: string; findings: number; at: string } }
 /** The captain approvals shape (crew/docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */

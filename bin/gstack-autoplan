@@ -20,6 +20,7 @@
  *   gstack-autoplan release --out <dir> --attempt <id>  drop a reservation for an attempt that never ran
  *   gstack-autoplan close   --out <dir> --phase <p> --deferred "<reason>" --by <human|agent:<id>>   close a phase accepted-with-findings
  *   gstack-autoplan budget  --out <dir> [--spend-cap <usd>] [--max-rounds <n>] --by <human|agent:<id>>   the owner's journaled cap change
+ *   gstack-autoplan rule    --out <dir> --revision <k> --by <ruler> --reason "<why>" [--owner-ref <ref>]   close an UNREVIEWED note
  *   gstack-autoplan check   --out <dir> --attempt <id> --result <file> --model <id> | --unavailable <reason>   the delta check before a carry
  *   gstack-autoplan checkpoints --from <dir>            list checkpoint generations, newest first, with hash ok|bad
  *   gstack-autoplan shadow  --out <dir> | --runs <file> [--json]   export answered gates beside their shadow predictions (read-only)
@@ -28,7 +29,7 @@
  * Logic: lib/autoplan-run.ts (next/submit/resume), lib/autoplan-gate.ts (close, gate, answer),
  * lib/autoplan-export.ts, lib/autoplan-prompts.ts, lib/spend-ledger.ts. Codes: lib/result-codes.ts.
  * Workflow commands end with GSTACK_RESULT: skill=autoplan status=<s> run=<dir>; the run is never approved here.
- * Mutating verbs (next, submit, answer, recommend, revise, close, budget, check, export, run) pass admission first (lib/autoplan-admission.ts)
+ * Mutating verbs (next, submit, answer, recommend, revise, close, budget, rule, check, export, run) pass admission first (lib/autoplan-admission.ts)
  * and bring an older run directory forward (lib/autoplan-migrate.ts) under the run lock.
  */
 import * as fs from 'node:fs';
@@ -36,7 +37,7 @@ import * as path from 'node:path';
 import { amendmentSteps, answerGate, closeDeferred, recommendGate } from '../lib/autoplan-gate';
 import { checkCeoOnlyFlags, finishRun, refuseCeoOnly } from '../lib/autoplan-ceo-only';
 import { gateCost, gateCostPayload, renderGateCost, type GateCost } from '../lib/autoplan-gate-cost';
-import { attemptEstimate, changeBudget, escalateLine, liftStop } from '../lib/autoplan-budget';
+import { attemptEstimate, changeBudget, escalateLine, liftStop, ruleUnreviewed } from '../lib/autoplan-budget';
 import { DEFAULT_CARRY_CHECK_CAP_USD, submitCarryCheck } from '../lib/autoplan-carry';
 import { ANSWERED_BY_RE } from '../lib/gate-list';
 import { checkpointLines, checkpointRun, restoreCheckpoint, type CheckpointMoment } from '../lib/autoplan-checkpoint';
@@ -127,6 +128,9 @@ DRIVER: ${driverFile()}
           reservation), open findings into tasks.jsonl; Critical, urgent and user-challenge findings become gate items
   budget  --out <dir> [--spend-cap <usd>] [--max-rounds <n>] --by <human|agent:<id>>
           the owner's cap change, journaled; a run stopped incomplete (budget_exhausted) resumes with resume afterwards
+  rule    --out <dir> --revision <k> --by <ruler> --reason "<why>" [--owner-ref <thread>:<message>]
+          close the open note an UNREVIEWED: line left (a revise at the round cap that only took the owner's approved
+          recommendations, accepted with no gate and read by no reviewer), as a ruled note closes a /ship finding after round two
   export  --out <dir> --public <pub>
           write a machine-path-free copy (recorded roots rewritten, plan.md code kept) with provenance digests; the private
           run is not touched; refused (ARTIFACT_MACHINE_PATH) when a recorded root would remain. The owner's own words never
@@ -355,6 +359,15 @@ function doBudget(out: string, rest: string[], json: boolean): number {
   return EXIT.ok;
 }
 
+function doRule(out: string, rest: string[], json: boolean): number {
+  const state = readState(out);
+  const lines = ruleUnreviewed(state, { revision: num(rest, '--revision'), by: flag(rest, '--by'), reason: flag(rest, '--reason'), ownerRef: flag(rest, '--owner-ref') });
+  exportRun(state);
+  writeState(state);
+  emit(json, [...lines, resultLineFor(state.status, out)], { run: state.run, status: state.status, capped_deltas: state.capped_deltas ?? [], out });
+  return EXIT.ok;
+}
+
 async function doRun(out: string, args: string[], json: boolean): Promise<number> {
   // run pays for both voices, so it starts the full run unless --kind feature asks for the lean one (R65).
   const rest = args.includes('--kind') ? args : [...args, '--full'];
@@ -479,6 +492,7 @@ async function main(argv: string[]): Promise<number> {
     if (cmd === 'revise') return await publish(out, json, mutating(out, json, () => doRevise(out, rest)));
     if (cmd === 'close') return await publish(out, json, mutating(out, json, () => doClose(out, rest)));
     if (cmd === 'budget') return await publish(out, json, mutating(out, json, () => doBudget(out, rest, json)));
+    if (cmd === 'rule') return await publish(out, json, mutating(out, json, () => doRule(out, rest, json)));
     if (cmd === 'check') return await publish(out, json, mutating(out, json, () => doCheck(out, rest)));
     if (cmd === 'run') { const admission = admit(process.env); if (admission.lines.length) process.stdout.write(admission.lines.join('\n') + '\n'); return await doRun(out, rest, json); }
     if (cmd === 'status') {

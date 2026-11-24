@@ -31,6 +31,10 @@ export interface Amendment {
 export interface CappedDelta {
   k: number; phase: string; round: number; cap: number; old_plan_sha256: string; new_plan_sha256: string; added: number; removed: number;
   status: 'pending' | 'accepted' | 'reopened'; at: string; decided_at?: string;
+  /** Accepted with no gate item: the revise only incorporated `decisions`, recommendations the owner took in his own words (kept on those decision rows), so nobody re-reviewed it (OWNER_RECS_AT_CAP). */
+  basis?: string; decisions?: string[];
+  /** A ruling that closes that open note (`gstack-autoplan rule`), as a ruled note closes a finding /ship leaves open after round two. */
+  ruling?: { by: string; reason: string; owner_ref?: string; at: string };
 }
 /** Why a run stopped `incomplete` with work left: the structured budget_exhausted stop `resume` lifts after a budget raise. */
 export interface RunStop {
