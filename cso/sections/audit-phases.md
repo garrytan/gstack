@@ -1,6 +1,6 @@
 <!-- AUTO-GENERATED from audit-phases.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-**Scope gate.** Apply only the phases selected in the root skill's Mode Resolution. Phases 0, 1, 12, 13, and 14 always run. This reference supplies investigation questions, not permission to execute project code or a requirement to run every scanner. All target reads and histories pass through the trusted helper; scanner and runtime execution additionally require matching qualified catalog profiles. Static assessment remains available when those profiles are absent. Record completed work and gaps, rather than counting tool availability as coverage.
+**Scope gate.** Apply only the phases selected in the root skill's Mode Resolution. Phases 0, 1, 12, 13, and 14 always run. This reference supplies investigation questions, not permission to execute project code or a requirement to run every scanner. All target reads and histories pass through the trusted helper; scanner and runtime execution additionally require matching qualified catalog profiles. Static assessment remains available when those profiles are absent. Record completed work and gaps, rather than counting tool availability as coverage. A lead, clue or pattern these phases call not a finding by itself goes on the list as a low-confidence hypothesis when it is plausible in this code; leave it off only when code you read rules it out.
 
 ### Phase 2: Secrets Archaeology
 
@@ -45,7 +45,7 @@ Check whether staging, preview builds, local tooling, and maintenance jobs can r
 
 Trace the full middleware/gateway/handler chain before claiming missing authentication or signatures. Inspect raw-body verification, timestamp/replay controls, idempotency, tenant binding, event authorization, and whether a forged event changes money, ownership, or access. An endpoint filename or absent verification in one file is insufficient evidence.
 
-Review OAuth client/audience/redirect bindings, token scope, TLS verification, outbound redirects, and URL validation. Private networking is a control to verify, not an automatic severity ceiling. Schemathesis runs only through the sandbox against a disposable local app with bounded operations, examples, seed, and time. Schema conformance errors need security impact before becoming findings.
+Review OAuth client/audience/redirect bindings, token scope, TLS verification, outbound redirects, and URL validation. Private networking is a control to verify, not an automatic severity ceiling. Schemathesis runs only through the sandbox against a disposable local app with bounded operations, examples, seed, and time. A schema conformance error with a plausible security impact is a candidate.
 
 **Source version: OWASP API Security Top 10:2023** ([official list](https://owasp.org/API-Security/editions/2023/en/0x11-t10/)). Select applicable checks for object/function/property authorization, authentication, resource consumption, business-flow abuse, SSRF, configuration, API inventory, and trust in downstream APIs. Include two-user/two-tenant negative controls when relevant. Coverage of selected checks is not certification of the full standard.
 

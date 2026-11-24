@@ -4,6 +4,8 @@
 // never opened a file the fix changed. Pinned here against the real helper: a refused start
 // the skill told the model never to retry, a file list the model could not see past a cut-off
 // shell result, and a report rule (enforced by the helper) that dropped every finding short of proof.
+// The gstack-evals#447 rerun then found 1.7 findings per session against 14.8 for a plain audit at about
+// equal precision, so the last block pins the long list: no count cap, every open question listed.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -190,5 +192,41 @@ describe('/cso recall (gstack-evals#443)', () => {
     expect(hypotheses).not.toContain('Prototype injection in parse');
     expect(hypotheses).toContain('$&');
     expect(report.split('Snapshot transformations:').length).toBe(2);
+  });
+});
+
+describe('/cso reports its full finding list (gstack-evals#447)', () => {
+  test('the report rule has no count cap, lists every open question as a hypothesis, and does not finish early on a short list', () => {
+    const text = skill();
+    for (const held of ['one open question', 'survives challenge', 'before becoming a finding', 'compact SECURITY FINDINGS']) expect(text).not.toContain(held);
+    for (const kept of ['No count cap, no proof bar for listing', 'however many questions stay open', 'Challenge sets evidence and confidence, not whether a finding is listed', 'A short list is no reason to finish early', 'of every submitted finding, likeliest first, never trimmed or merged for length']) expect(text).toContain(kept);
+    const phases = fs.readFileSync(path.join(ROOT, 'cso/sections/audit-phases.md'), 'utf8');
+    expect(phases).toContain('goes on the list as a low-confidence hypothesis when it is plausible in this code');
+    expect(phases).not.toContain('before becoming findings');
+  });
+
+  test('a daily run keeps all fifteen findings of one long submission and report.md lists every one', () => {
+    const { repo } = library('long-list');
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    const findings = Array.from({ length: 15 }, (_, i) => ({
+      title: `Finding ${String(i).padStart(2, '0')} in parse`, rootCause: `parse defect number ${i}`,
+      location: { path: 'src/zz-format/parse.js', line: 1, symbol: 'parse' }, advisoryIds: [], severity: i < 5 ? 'high' : 'low',
+      confidence: i < 5 ? 'medium' : 'low', confidenceRationale: 'read in the loop', evidence: i < 5 ? 'supported' : 'hypothesis',
+      attackerControl: 'entries passed to the public parse API', impact: 'attacker-chosen keys reach the returned object',
+      scenario: 'a caller parses untrusted entries', trace: ['index.js parse', 'parse.js loop'], references: ['src/zz-format/parse.js:1'],
+      recommendation: 'validate keys before assignment',
+      challenge: { reviewer: 'sequential challenge; independent agent unavailable', independent: false, mode: 'sequential_fallback', callers: 'public API', controls: 'none found', counterevidence: 'none', conclusion: 'holds' },
+    }));
+    const dir = fs.mkdtempSync(path.join(root, 'submission-'));
+    const file = path.join(dir, 'submission.json');
+    fs.writeFileSync(file, JSON.stringify({ findings }));
+    const submitted = cso(repo, ['submit', run, file]);
+    expect(submitted.status).toBe(0);
+    expect(json(submitted.stdout).findings).toBe(15);
+    expect(cso(repo, ['finish', run]).status).toBe(0);
+    const saved = json(fs.readFileSync(findReport(state, run, 'report.json'), 'utf8')).findings as Array<{ title: string }>;
+    expect(saved.map((f) => f.title).sort()).toEqual(findings.map((f) => f.title).sort());
+    const report = fs.readFileSync(findReport(state, run, 'report.md'), 'utf8');
+    for (const f of findings) expect(report).toContain(f.title);
   });
 });
