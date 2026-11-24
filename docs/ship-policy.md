@@ -2762,9 +2762,10 @@ writes no version in Step 12 and writes Step 13's entry as
 **The fold.** `gstack-restamp` (and so `land`) concatenates the fragment
 bodies in path order above any legacy `[Unreleased]` section, re-heads both as
 one `## [<version>] - <date>` section at the top, and deletes the fragment
-files, in one stamp. Same-named `### ` subsections merge into one: the
-section's unheaded entries come first, then each subsection once, in the order
-it first appears, with its entries in fold order. Every other line is copied
+files, in one stamp. Same-named `### ` subsections of the fragments merge into
+one: their unheaded entries come first, then each subsection once, in the order
+it first appears, with its entries in fold order, then the legacy text. A
+`### ` line inside a fenced block is text. Every other line is copied
 as written, and no version in it is rewritten, even when the CHANGELOG is one
 of the policy's `stamp_files`. The tree receipt, and so `gstack-pregate clear`'s
 stamp-only substitution, calls a deleted fragment a stamp (rule

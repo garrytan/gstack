@@ -70,14 +70,14 @@ describe('effectiveBump and the fold', () => {
   });
   // Value: protects=one copy of each subsection heading per release section, every entry's lines as written;
   //   fails_when=fragments each bring "### For contributors" and the section carries it twice (#4785); seam=foldIntoUnreleased
-  test('same-named subsection headings merge into one, unheaded entries first, and a heading inside a code fence is prose', () => {
-    const cl = '# Changelog\n\n## [Unreleased]\n\n### For contributors\n\n- legacy\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n';
+  test('same-named subsection headings merge into one, unheaded entries first, legacy text last, and a heading inside a code fence is prose', () => {
+    const cl = '# Changelog\n\n## [Unreleased]\n\n- legacy\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n';
     const folded = foldIntoUnreleased(cl, [
       { path: 'changelog.d/a.md', body: '### For contributors\n\n- a', bump: null },
-      { path: 'changelog.d/b.md', body: '**b lead.**\n\n### Fixed\n- b fix\n\n```\n### not a heading\n```', bump: null },
+      { path: 'changelog.d/b.md', body: '**b lead.**\n\n### Fixed\n- b fix\n\n~~~md\n```\n### not a heading\n~~~', bump: null },
       { path: 'changelog.d/c.md', body: '- c\n\n### For contributors\n\n- c contrib', bump: null },
     ]);
-    expect(folded).toBe('# Changelog\n\n## [Unreleased]\n\n**b lead.**\n\n- c\n\n### For contributors\n\n- a\n\n- c contrib\n\n- legacy\n\n### Fixed\n- b fix\n\n```\n### not a heading\n```\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n');
+    expect(folded).toBe('# Changelog\n\n## [Unreleased]\n\n**b lead.**\n\n- c\n\n### For contributors\n\n- a\n\n- c contrib\n\n### Fixed\n- b fix\n\n~~~md\n```\n### not a heading\n~~~\n\n- legacy\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n');
   });
   test('no fragments leaves the text unchanged', () => {
     expect(foldIntoUnreleased('# C\n', [])).toBe('# C\n');
@@ -216,5 +216,24 @@ describe('readFragments: text already released at the base', () => {
     expect(set.fragments.map(f => f.path)).toEqual(['changelog.d/short.md']);
     expect(set.errors.map(e => e.path)).toEqual(['changelog.d/carried.md']);
     expect(set.errors[0]!.message).toContain('already released in CHANGELOG.md');
+  });
+
+  // Value: protects=a carried-back fragment whose heading the fold shared with another is still found released;
+  //   fails_when=the second "### For contributors" fragment of v1.103.2.0 folds again because its heading no longer sits
+  //   right above its body; seam=readFragments with the base CHANGELOG
+  test('a released fragment whose subsection heading merged with another still refuses', () => {
+    const repo = fixture();
+    const dir = path.join(import.meta.dir, 'fixtures', 'release-stamp', 'v1.103.2.0');
+    const frag = (name: string) => parseFragment(`changelog.d/${name}`, fs.readFileSync(path.join(dir, name), 'utf8')) as { path: string; body: string; bump: null };
+    const shared = ['stable-benchmark-record-text-hardening.md', 'stable-release-reads-weekly-benchmark.md'];
+    const folded = reheadChangelog(foldIntoUnreleased(readFile(repo, 'CHANGELOG.md'), shared.map(frag)), { from: null, to: '1.2.4.0', date: '2026-11-24' }).text;
+    expect(folded.match(/^### For contributors$/gm)).toHaveLength(1);
+    fs.writeFileSync(path.join(repo.work, 'CHANGELOG.md'), folded);
+    repo.git('commit', '-qam', 'release 1.2.4.0');
+    repo.git('push', '-q', 'origin', 'HEAD:main');
+    repo.git('fetch', '-q', 'origin');
+    fragmentPr(repo, 'feat-carry', { [shared[1]!]: fs.readFileSync(path.join(dir, shared[1]!), 'utf8') });
+    const set = readFragments(repo.work, 'HEAD', 'changelog.d', 'origin/main', 'CHANGELOG.md');
+    expect(set.errors.map(e => e.path)).toEqual([`changelog.d/${shared[1]}`]);
   });
 });

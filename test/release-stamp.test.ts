@@ -200,6 +200,13 @@ describe('gstack-release-stamp open', () => {
     ]);
   });
 
+  test('an empty heading line drops only itself from the release notes', () => {
+    const repo = landed({ 'a.md': '###\n- **The only change.** More words.\n' });
+    const calls: string[][] = [];
+    expect(openRelease({ repoRoot: repo.work, base: 'main', gh: (args) => { calls.push(args); return { ok: true, out: args[1] === 'list' ? '' : 'https://github.com/o/r/pull/46\n', err: '' }; } }).ok).toBe(true);
+    expect(sectionText(calls[1]![calls[1]!.indexOf('--body') + 1]!, 'Release notes')).toBe('- The only change.');
+  });
+
   test('on Capy, open pushes the release branch and hands the PR to the host tool without gh pr create', () => {
     const repo = landed();
     const state = fs.mkdtempSync(path.join(repo.work, '..', 'state-'));
