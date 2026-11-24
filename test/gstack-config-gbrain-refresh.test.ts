@@ -131,4 +131,23 @@ exec ${JSON.stringify(process.execPath)} "$@"
       expect(fs.readFileSync(rendered, 'utf8')).toBe('brain-aware render\n');
     }
   });
+
+  test('a failed probe leaves a customized render in place instead of re-rendering it without brain blocks', () => {
+    const rendered = installWithRender();
+    const set = spawnSync('bash', [path.join(binDir, 'gstack-config'), 'set', 'claude_loadout', 'lite'], { encoding: 'utf8', timeout: 30_000, env: { PATH: `${binDir}:${process.env.PATH ?? '/usr/bin:/bin'}`, HOME: home, GSTACK_HOME: home, GSTACK_STATE_ROOT: home } });
+    expect(set.status, set.stderr).toBe(0);
+    // A plain render that would succeed, so only the refresh's own choice keeps the brain-aware one.
+    fs.writeFileSync(path.join(binDir, 'bun'), `#!/usr/bin/env bash
+case "$*" in *gen:skill-docs*)
+  while [ $# -gt 0 ]; do [ "$1" = --out-dir ] && { mkdir -p "$2/review"; echo 'plain render' > "$2/review/SKILL.md"; exit 0; }; shift; done; exit 1 ;;
+esac
+exec ${JSON.stringify(process.execPath)} "$@"
+`, { mode: 0o755 });
+    fs.writeFileSync(path.join(binDir, 'gstack-patch-names'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(binDir, 'gstack-gbrain-detect'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
+    const r = refresh();
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain("Could not read gbrain's state");
+    expect(fs.readFileSync(rendered, 'utf8')).toBe('brain-aware render\n');
+  });
 });

@@ -1332,7 +1332,11 @@ $_gstack_legacy_root"
             echo "Skip: bun not on PATH — the Claude render at $RENDER_DIR was not refreshed. Install bun, then re-run 'gstack-config gbrain-refresh'."
           else
             gstack_claude_overlay "$INSTALL_DIR" "$0"
-            gstack_claude_render_action "$RENDER_DIR" "$_GBRAIN_PROBE"
+            if [ "$_GBRAIN_PROBE" = unknown ] && [ -d "$RENDER_DIR" ]; then
+              _GSTACK_RENDER_ACTION=keep
+            else
+              gstack_claude_render_action "$RENDER_DIR" "$_GBRAIN_PROBE"
+            fi
             if [ "$_GSTACK_RENDER_ACTION" = keep ]; then
               :
             elif [ "$_GSTACK_RENDER_ACTION" = plain ]; then

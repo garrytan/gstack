@@ -21,7 +21,7 @@ afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 const FILES = 700;
 const name = (i: number, tag = 'x') => `test/big/${tag.padEnd(186, 'x')}${String(i).padStart(4, '0')}.test.js`;
 const RUNNER = [
-  'const files = process.argv.slice(2);',
+  "const files = process.argv.slice(2).filter(f => !f.includes('zskip'));",
   "const failed = files.filter(f => f.includes('fail')).length;",
   "console.log(`ℹ tests ${files.length}\\nℹ pass ${files.length - failed}\\nℹ fail ${failed}`);",
   'process.exit(failed ? 1 : 0);',
@@ -54,6 +54,16 @@ describe.skipIf(process.platform === 'win32')('a local lane whose file list is o
 
     const red = await lanesOver([...tests.slice(0, -1), name(FILES - 1, 'zfail')]);
     expect(red).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED', detail: `local lane exited 1 (1 failed of ${FILES} ran; ${FILES} files; pipefail)` });
+  }, 120_000);
+
+  // Value: protects=a chunk that exits 0 having run no tests fails the lane as ZERO-RUN, as the same files alone would;
+  //   fails_when=the chunks' counts are summed, so another chunk's tests hide it; why_new=#4773 sends ordinary Windows
+  //   selections through chunks; seam=runPregate --only lanes with a runner that runs nothing for zskip files
+  test('a chunk that ran no tests makes the lane zero-run, even when another chunk ran tests', async () => {
+    const tests = Array.from({ length: FILES }, (_, i) => name(i, i < FILES / 2 ? 'x' : 'zskip'));
+    const lane = await lanesOver(tests);
+    expect(lane).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED' });
+    expect(lane.detail).toStartWith('ZERO-RUN: the runner reported 0 tests');
   }, 120_000);
 });
 

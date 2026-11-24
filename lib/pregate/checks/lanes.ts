@@ -452,8 +452,8 @@ async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup,
     if (r.exit === null) break;
   }
   if (parts.length === 1) return parts[0]!;
-  const bad = parts.find(p => p.exit === null) ?? parts.find(p => p.exit !== 0) ?? parts.at(-1)!;
-  const sum = (k: 'ran' | 'failed') => (parts.some(p => p[k] === null) ? null : parts.reduce((n, p) => n + (p[k] as number), 0));
+  const bad = parts.find(p => p.exit === null) ?? parts.find(p => p.exit !== 0) ?? parts.find(p => p.ran === 0) ?? parts.at(-1)!;
+  const sum = (k: 'ran' | 'failed') => (parts.some(p => p[k] === null) ? null : k === 'ran' && parts.some(p => p.ran === 0) ? 0 : parts.reduce((n, p) => n + (p[k] as number), 0));
   return { ...(parts.every(p => p.noBrowsers) ? { noBrowsers: parts[0]!.noBrowsers } : {}), exit: bad.exit, outcome: bad.outcome, signal: bad.signal, observedStart: parts.some(p => p.observedStart), ran: sum('ran'), failed: sum('failed'), tail: bad.tail, runner: g.runner, command: parts.map(p => p.command).join(' && '), files: parts.flatMap(p => p.files), lastFile: bad.lastFile, ms: parts.reduce((n, p) => n + p.ms, 0), ...(bad.error ? { error: bad.error } : {}) };
 }
 
