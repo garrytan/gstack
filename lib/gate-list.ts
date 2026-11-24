@@ -42,7 +42,7 @@ export interface GateItem {
   /** Answered at an earlier revision on an unchanged proposal from a phase that did not rerun. */
   carried?: { from: string; chosen: string; gate_rev: number };
   /** A round-cap item (lib/autoplan-budget.ts): `b` grants the phase one more round and reopens it. */
-  cap?: { phase: string; kind: 'deferred' | 'blocker' | 'delta'; ref?: string };
+  cap?: { phase: string; kind: 'deferred' | 'blocker' | 'delta'; ref?: string; /** A delta item for every phase revise `ref` passed at its cap; absent on a gate written with one delta item per phase. */ phases?: string[] };
   /** The buildGate branch that wrote it (lib/autoplan-gate.ts); `kind` alone mislabels disagreements and single-voice challenges. */
   item_class?: ItemClass;
   /** An open Critical or High finding (its ids, a paired twin included): `a` applies the reviewer's fix to the plan. */

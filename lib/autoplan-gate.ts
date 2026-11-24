@@ -153,7 +153,7 @@ function capItems(state: RunState, next: { d: () => string; uc: () => string }):
     const delta = deltas[0]!;
     const phases = deltas.map(d => d.phase).join(' and ');
     push({ id: next.uc(), title: `plan changed after the ${phases} cap: unreviewed delta (+${delta.added} -${delta.removed} lines, ${delta.old_plan_sha256.slice(0, 12)} -> ${delta.new_plan_sha256.slice(0, 12)})`,
-      kind: 'approval', recommended: 'a', recommended_basis: 'the run budget; the delta is reviewed during the build', phase: delta.phase, cap: { phase: delta.phase, kind: 'delta', ref: String(k) }, item_class: 'cap_delta',
+      kind: 'approval', recommended: 'a', recommended_basis: 'the run budget; the delta is reviewed during the build', phase: delta.phase, cap: { phase: delta.phase, kind: 'delta', ref: String(k), phases: deltas.map(d => d.phase) }, item_class: 'cap_delta',
       why: `revise v${k} changed the plan after ${deltas.map(d => `${d.phase} used round ${d.round} of ${d.cap}`).join(' and ')}, so no phase reviewed it`,
       options: [{ key: 'a', text: 'accept the unreviewed delta into the approved plan', changes_plan: false },
         { key: 'b', text: `reopen ${phases} for one more round (an owner budget raise${deltas.every(d => d.phase === 'eng') ? '' : '; Eng reruns last'})`, changes_plan: false }] }, `delta-${k}`);
@@ -208,7 +208,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
   const kept: string[] = [];
   const keptIds: string[] = [];
   const narrowed: ChallengeRow[] = [];
-  owner.cutIds = cutIds(owner.cuts, fs.existsSync(state.out) ? previousGate(state.out, gateRev - 1)?.cut_ids : undefined);
+  owner.cutIds = fs.existsSync(state.out) ? cutIds(owner.cuts, previousGate(state.out, gateRev - 1)?.cut_ids, issuedCutIds(state.out)) : cutIds(owner.cuts);
   const add = ({ idKind, key, stable: _stable, ...item }: NewItem, origin: (options: GateOption[]) => string): string => {
     const id = idKind === 'uc' ? `uc${++uc}` : `d${++d}`;
     items.push({ id, ...item, origin: origin(item.options) });
@@ -354,6 +354,13 @@ export function recommendGate(state: RunState, gateRev: number, itemId: string, 
   return [`RECOMMENDED: ${itemId}${option} by=${by} basis=${JSON.stringify(basis)} p1=${p1.recommended} rec_hash=${hash}`,
     `RELAY: gstack-gate render ${gateFile} --all (a rec rendered before this is refused; answer with --rec-hash ${hash})`,
     ...[capyRelayLine(state.out)].filter((l): l is string => !!l)];
+}
+
+/** Every cut id any gate revision of the run recorded (gate.json and its archives): new cut ids number above them all. */
+function issuedCutIds(out: string): NonNullable<GateList['cut_ids']> {
+  return fs.readdirSync(out).filter(f => /^gate(?:\.r\d+(?:\.v\d+)?)?\.json$/.test(f)).flatMap(f => {
+    try { return (JSON.parse(fs.readFileSync(path.join(out, f), 'utf8')) as GateList).cut_ids ?? []; } catch { return []; }
+  });
 }
 
 /** The gate list the owner last answered: gate.json, or its archive (`gate.r<rev>[.v<k>].json`) once a reopen moved it. */

@@ -191,22 +191,26 @@ export function cutDrops(cut: string, target: string): boolean {
 }
 
 export interface CutId { id: string; text: string }
+const CODE_WORD = /`|[-/_.:]/;
+const cutWord = (w: string) => w.toLowerCase().replace(/^[^\w`/-]+|[^\w`]+$/g, '');
+/** Two cuts that differ, word for word, only in names written as code (`share` -> `invite`, gstack-sync -> gstack-push): a renamed command. */
+const renamedOnly = (a: string, b: string) => {
+  const x = a.trim().split(/\s+/).map(cutWord), y = b.trim().split(/\s+/).map(cutWord);
+  return x.length === y.length && x.every((w, i) => w === y[i] || (CODE_WORD.test(w) && CODE_WORD.test(y[i]!)));
+};
+
 /**
  * A stable id per cut (`c1`, `c2`, ...), so the gate carries an answer to a cut by id, not by its text (GST-3753). A cut keeps
- * the id it had at the gate before (`prior`, gate.json `cut_ids`) when its words are the same or, among the ids left, when
- * at least half of the two cuts' words are shared (a renamed command inside it); any other cut takes a new id.
+ * the id it had at the gate before (`prior`, gate.json `cut_ids`) when its words are the same or differ only in renamed
+ * code names; any other cut, a reworded one included, takes a new id above every id the run has `issued`, so a dropped
+ * cut's id (and its answer) never passes to another cut.
  */
-export function cutIds(cuts: string[], prior: CutId[] = []): CutId[] {
+export function cutIds(cuts: string[], prior: CutId[] = [], issued: CutId[] = prior): CutId[] {
   const used = new Set<string>();
   const take = (p: CutId | undefined) => { if (p) used.add(p.id); return p?.id; };
   const ids = cuts.map(c => take(prior.find(p => !used.has(p.id) && wordKey(p.text) === wordKey(c))));
-  const overlap = (a: string, b: string) => { const x = new Set(words(a)), y = words(b); const all = new Set([...x, ...y]).size; return all ? y.filter(w => x.has(w)).length / all : 0; };
-  cuts.forEach((c, i) => {
-    if (ids[i]) return;
-    const best = prior.filter(p => !used.has(p.id)).map(p => ({ p, score: overlap(p.text, c) })).sort((a, b) => b.score - a.score)[0];
-    if (best && best.score >= 0.5) ids[i] = take(best.p);
-  });
-  let n = Math.max(0, ...prior.map(p => Number(/^c(\d+)$/.exec(p.id)?.[1] ?? 0)));
+  cuts.forEach((c, i) => { ids[i] ??= take(prior.find(p => !used.has(p.id) && renamedOnly(p.text, c))); });
+  let n = Math.max(0, ...[...prior, ...issued].map(p => Number(/^c(\d+)$/.exec(p.id)?.[1] ?? 0)));
   return cuts.map((c, i) => ({ id: ids[i] ?? `c${++n}`, text: c }));
 }
 

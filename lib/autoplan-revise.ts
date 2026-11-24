@@ -26,7 +26,8 @@ import * as path from 'node:path';
 import { exportRun } from './autoplan-export';
 import { applyRenames, approve, closeDraftDirections, finishGate, planReopen } from './autoplan-gate';
 import { carryLines, keepPlanFile, voidPendingCheck } from './autoplan-carry';
-import { atCap, OWNER_RECS_AT_CAP, ownerTookRecs, pendingDeltas, roundCap, roundOf, unreviewedLine } from './autoplan-budget';
+import { atCap, OWNER_RECS_AT_CAP, ownerTookRecs, pendingDeltas, roundCap, roundOf, unreviewedLine, unreviewedRevisions } from './autoplan-budget';
+import { isGstackActor, OWNER_REF, OWNER_REF_SHAPE } from './ruled-notes';
 import { diffStat, earlierRows, lineDiff } from './autoplan-confirm';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { sectionHeadings } from '../bin/gstack-autoplan-snapshot';
@@ -278,4 +279,20 @@ export function recoverRevise(out: string): string[] {
   const state = readState(out);
   publish(state, staging, stage.renames, { ...stage.committed, recovered: true }, stage.settled);
   return [`REVISE_RECOVERED: v${intent.k} completed (reopened=${(stage.committed.reopened as string[]).join(',') || 'none'})`];
+}
+
+export interface RuleOptions { revision?: number; by?: string; reason?: string; ownerRef?: string }
+
+/** `gstack-autoplan rule`: a Captain's (or the owner's) ruling on an unreviewed revision, closing the open note as /ship's ruled notes do after round two. */
+export function ruleUnreviewed(state: RunState, o: RuleOptions): string[] {
+  const ds = o.revision === undefined ? undefined : unreviewedRevisions(state).get(o.revision);
+  if (!ds) throw new RunError('ARTIFACT_SCHEMA', `--revision ${o.revision ?? '<k>'} names no revision accepted unreviewed at the round cap (unreviewed: ${[...unreviewedRevisions(state).keys()].map(k => `v${k}`).join(', ') || 'none'})`, 3);
+  const by = o.by?.trim();
+  if (!by || isGstackActor(by)) throw new RunError('ANSWER_BY_REQUIRED', 'rule records who ruled: pass --by <the Captain or owner> (gstack cannot rule on its own note)', 3);
+  if (!o.reason?.trim()) throw new RunError('ARTIFACT_SCHEMA', 'rule needs --reason "<why the unreviewed revision stands>"', 3);
+  if (o.ownerRef !== undefined && !OWNER_REF.test(o.ownerRef)) throw new RunError('ARTIFACT_SCHEMA', `--owner-ref must be ${OWNER_REF_SHAPE}`, 3);
+  const ruling = { by, reason: o.reason.trim(), ...(o.ownerRef ? { owner_ref: o.ownerRef } : {}), at: now() };
+  for (const d of ds) d.ruling = ruling;
+  journal(state.out, { event: 'unreviewed_ruled', k: o.revision, phases: ds.map(d => d.phase), ...ruling });
+  return [unreviewedLine(state, o.revision!)];
 }

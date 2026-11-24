@@ -10,7 +10,8 @@
 import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { OWNER_RECS_AT_CAP } from '../lib/autoplan-budget';
+import { OWNER_RECS_AT_CAP, ownerTookRecs } from '../lib/autoplan-budget';
+import type { RunState } from '../lib/autoplan-state';
 import { cutIds } from '../lib/autoplan-owner-text';
 import { recHash } from '../lib/gate-list';
 import { SMALL_PLAN } from './helpers/autoplan-run-fixture';
@@ -58,6 +59,16 @@ function toTheCap(o: { first?: string[]; round2?: { native?: unknown[]; outside?
 }
 
 describe('two "do it" answers, then the round cap', () => {
+  test("ownerTookRecs counts only recommendations the owner answered in his own words, not ones taken under \"do it\" unseen", () => {
+    const out = path.join(r.host.base, `took${++n}`);
+    fs.mkdirSync(out, { recursive: true });
+    const row = (id: string, extra: Record<string, unknown>) => JSON.stringify({ id, status: 'approved', chosen: 'a', recommended: 'a', owner_reply: DO_IT, ...extra });
+    fs.writeFileSync(path.join(out, 'decisions.jsonl'), [row('seen', {}), row('unseen', { carried_under: 'do it' }), row('own', { owner_reply: undefined, answer_words: 'ok', words_by: 'agent:x' }), row('over', { chosen: 'b', status: 'overridden' })].join('\n') + '\n');
+    const state = { out } as RunState;
+    expect(ownerTookRecs(state, ['seen'])).toBe(DO_IT);
+    for (const id of ['unseen', 'own', 'over']) expect(ownerTookRecs(state, ['seen', id])).toBeUndefined();
+  });
+
   test('the revise that only takes the approved recommendations finishes the run: no third gate, one UNREVIEWED note', () => {
     const s = toTheCap();
     const rev = r.ap(['revise', '--out', s.out, '--plan', file(s.dir, V3), '--incorporates', pending(s.out)]);
@@ -136,11 +147,20 @@ describe('carried items match by stable id', () => {
     "### What it won't do yet", '', `- No \`${button}\` command for shared households`, '- No Android build', '',
     `### Units`, '', `U1 the Today list${extra}. U2 the watering reminder.`, '', '## Review record', ''].join('\n');
 
-  test('cutIds: a reworded cut keeps its id, a new cut takes the next one, a dropped id is never reused', () => {
+  test('cutIds: a renamed command keeps its id, a new cut takes the next one, a dropped id is never reused', () => {
     const first = cutIds(['No `share` command for shared households', 'No Android build']);
     expect(first.map(c => c.id)).toEqual(['c1', 'c2']);
     const next = cutIds(['No `invite` command for shared households', 'No plant disease diagnosis'], first);
     expect(next.map(c => c.id)).toEqual(['c1', 'c3']);
+    expect(cutIds(['No gstack-push command yet'], cutIds(['No gstack-sync command yet']))[0]!.id).toBe('c1');
+  });
+
+  test('cutIds: a cut whose scope changed takes a new id; an id dropped two gates back is not handed out again', () => {
+    const first = cutIds(['No `share` command for shared households']);
+    expect(cutIds(['No `share` command for anyone'], first)[0]!.id).toBe('c2');
+    const g1 = cutIds(['No sync command', 'No export to CSV']);
+    const g2 = cutIds(['No sync command'], g1, g1);
+    expect(cutIds(['No sync command', 'No billing page at all'], g2, [...g1, ...g2]).map(c => c.id)).toEqual(['c1', 'c3']);
   });
 
   test('a cut whose command was renamed is carried with its answer, so the carry is not refused as a new item', () => {

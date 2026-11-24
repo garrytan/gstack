@@ -18,7 +18,6 @@ import { agentWords, ANSWERED_BY_RE, type GateItem } from './gate-list';
 import { settledIds } from './autoplan-confirm';
 import { sameProblem, type ConsensusRecord } from './autoplan-reconcile';
 import { FILES, RunError, journal, now, readDecisions, readJournal, voiceRows, type CappedDelta, type RunState, type RunStop } from './autoplan-state';
-import { isGstackActor, OWNER_REF, OWNER_REF_SHAPE } from './ruled-notes';
 import { readLedger, release, setCap, summarize } from './spend-ledger';
 
 export const DEFAULT_MAX_ROUNDS = 2;
@@ -181,10 +180,10 @@ export function applyCapChoices(state: RunState, choices: Array<{ item: GateItem
     const cap = item.cap;
     if (!cap) continue;
     const reopens = chosen === 'b';
-    const matched = pendingDeltas(state).filter(d => (cap.kind === 'delta' ? String(d.k) === cap.ref : d.phase === cap.phase));
+    const matched = pendingDeltas(state).filter(d => (cap.kind === 'delta' ? String(d.k) === cap.ref && (cap.phases ?? [cap.phase]).includes(d.phase) : d.phase === cap.phase));
     for (const d of matched) { d.status = reopens ? 'reopened' : 'accepted'; d.decided_at = now(); }
     if (!reopens) continue;
-    const phases = cap.kind === 'delta' && matched.length ? state.phase_order.filter(p => matched.some(d => d.phase === p)) : [cap.phase];
+    const phases = cap.phases ? state.phase_order.filter(p => cap.phases!.includes(p)) : [cap.phase];
     for (const phase of phases) {
       if (granted.has(phase)) continue;
       granted.add(phase);
@@ -207,7 +206,7 @@ export const OWNER_RECS_AT_CAP = 'applied owner-approved recommendations at the 
 
 /**
  * The owner's words when every decision a revise incorporates is a recommendation the owner took in his own words (an
- * approved row, chosen = recommended, no agent's own words); undefined otherwise. At the round cap such a revise needs no
+ * approved row, chosen = recommended, no agent's own words, none taken under "do it" without being shown to him); undefined otherwise. At the round cap such a revise needs no
  * gate: the owner already approved exactly these changes, so the unreviewed revision is recorded instead (GST-3753).
  */
 export function ownerTookRecs(state: RunState, ids: string[]): string | undefined {
@@ -216,7 +215,7 @@ export function ownerTookRecs(state: RunState, ids: string[]): string | undefine
   const words: string[] = [];
   for (const id of ids) {
     const r = rows.find(d => d.id === id);
-    if (!r || r.status !== 'approved' || r.chosen !== r.recommended || agentWords(r)) return undefined;
+    if (!r || r.status !== 'approved' || r.chosen !== r.recommended || agentWords(r) || (r as { carried_under?: string }).carried_under) return undefined;
     const said = r.owner_reply ?? (r.answered_by === 'human' ? r.reply : undefined);
     if (!said?.trim()) return undefined;
     words.push(said.trim());
@@ -238,20 +237,4 @@ export function unreviewedLine(state: RunState, k: number): string {
   const head = `UNREVIEWED: revise v${k} (+${d.added} -${d.removed} lines) changed the plan after ${ds.map(x => x.phase).join(',')} used their last round, so no reviewer read it; accepted without a gate: ${OWNER_RECS_AT_CAP} (${(d.decisions ?? []).join(',')}, answered in the owner's words ${JSON.stringify(ownerTookRecs(state, d.decisions ?? []) ?? '')})`;
   return d.ruling ? `${head}; closed by ${d.ruling.by}${d.ruling.owner_ref ? ` (relayed from ${d.ruling.owner_ref})` : ''}: ${d.ruling.reason}`
     : `${head}; open note: gstack-autoplan rule --out ${state.out} --revision ${k} --by <ruler> --reason "<why>" closes it`;
-}
-
-export interface RuleOptions { revision?: number; by?: string; reason?: string; ownerRef?: string }
-
-/** `gstack-autoplan rule`: a Captain's (or the owner's) ruling on an unreviewed revision, closing the open note as /ship's ruled notes do after round two. */
-export function ruleUnreviewed(state: RunState, o: RuleOptions): string[] {
-  const ds = o.revision === undefined ? undefined : unreviewedRevisions(state).get(o.revision);
-  if (!ds) throw new RunError('ARTIFACT_SCHEMA', `--revision ${o.revision ?? '<k>'} names no revision accepted unreviewed at the round cap (unreviewed: ${[...unreviewedRevisions(state).keys()].map(k => `v${k}`).join(', ') || 'none'})`, 3);
-  const by = o.by?.trim();
-  if (!by || isGstackActor(by)) throw new RunError('ANSWER_BY_REQUIRED', 'rule records who ruled: pass --by <the Captain or owner> (gstack cannot rule on its own note)', 3);
-  if (!o.reason?.trim()) throw new RunError('ARTIFACT_SCHEMA', 'rule needs --reason "<why the unreviewed revision stands>"', 3);
-  if (o.ownerRef !== undefined && !OWNER_REF.test(o.ownerRef)) throw new RunError('ARTIFACT_SCHEMA', `--owner-ref must be ${OWNER_REF_SHAPE}`, 3);
-  const ruling = { by, reason: o.reason.trim(), ...(o.ownerRef ? { owner_ref: o.ownerRef } : {}), at: now() };
-  for (const d of ds) d.ruling = ruling;
-  journal(state.out, { event: 'unreviewed_ruled', k: o.revision, phases: ds.map(d => d.phase), ...ruling });
-  return [unreviewedLine(state, o.revision!)];
 }
