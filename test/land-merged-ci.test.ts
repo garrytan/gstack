@@ -178,6 +178,17 @@ describe('land.merged_ci reuses an earlier run on the merged tree (GST-3634)', (
     expect(calls.at(-1)).toBe('remove gstack-land/42');
   });
 
+  test('a green run that is rerun between listing and polling decides on what land polled: red refuses as red and a timeout names it, never a fresh dispatch', () => {
+    const listed = earlier({});
+    const rerun = { ...listed, run_attempt: 2, status: 'in_progress', conclusion: null };
+    const red = fake({ earlier: [listed], runs: [[rerun], [{ ...rerun, status: 'completed', conclusion: 'failure' }]], verify: provesOld });
+    expect(run(red.deps)).toMatchObject({ ok: false, red: true, run: 9 });
+    expect(red.calls.some(c => c.startsWith('push ') || c.startsWith('dispatch '))).toBe(false);
+    const slow = fake({ earlier: [listed], runs: [[rerun]], verify: provesOld });
+    expect(run(slow.deps, 60_000)).toMatchObject({ ok: false, red: false, run: 9 });
+    expect(slow.calls.some(c => c.startsWith('push ') || c.startsWith('dispatch '))).toBe(false);
+  });
+
   test('a timed-out wait names the run the next land adopts, and that land adopts it after the scratch branch was deleted', () => {
     const going: ApiRun = { ...queued, id: 77, head_branch: 'gstack-land/42', head_commit: { tree_id: TREE } };
     const first = fake({ runs: [[going]] });

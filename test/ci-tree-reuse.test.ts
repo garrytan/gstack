@@ -101,6 +101,11 @@ describe('findReuse: candidate discovery for a main push', () => {
       expect(rerunOlder).toMatchObject({ reused: false, reason: 'no_verified_run', detail: expect.stringContaining('land run 301 on gstack-land/42 reason=run_not_success') });
     });
 
+    test('a cancelled land run is passed over, as land itself passes it over: the older green run on the same tree is reused', () => {
+      const LAND2 = '7'.repeat(40);
+      expect(find(stale([landRun(), landRun({ id: 301, head: LAND2, conclusion: 'cancelled', started: '2026-10-30T10:40:00Z' })], { [LAND2]: TREE }))).toMatchObject({ reused: true, run_id: 300 });
+    });
+
     test('a land run that tested another tree (main moved before the merge) is refused, and the suite runs', () => {
       const v = find(stale([landRun({ record: { tree: OTHER } })], { [LAND]: OTHER }));
       expect(v).toMatchObject({ reused: false, reason: 'tree_mismatch' });
