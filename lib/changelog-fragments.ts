@@ -85,10 +85,10 @@ export function readFragments(cwd: string, treeish: string | null, dir: string, 
   const shown = exclude && changelog ? readHistoryFile(cwd, exclude, changelog) : null;
   const released = shown !== null ? parseChangelog(shown.replace(/\r\n/g, '\n')).sections.filter(s => !s.unreleased).map(s => s.lines) : [];
   const isReleased = (body: string) => {
-    const at = (lines: string[], want: string[], from = 0) => lines.some((_, i) => i >= from && want.every((w, k) => lines[i + k] === w));
+    const at = (lines: string[], want: string[]) => lines.some((_, i) => want.every((w, k) => lines[i + k] === w));
     const parts = subsections(body.split('\n')).map(p => ({ name: p.name, run: trimBlank(p.run, true) })).filter(p => p.run.length);
     if (!parts.length) return released.some(lines => at(lines, body.split('\n')));
-    return released.some(lines => parts.every(({ name, run }) => { const from = name ? lines.findIndex(l => l.trim() === name) : 0; return from >= 0 && at(lines, run, from); }));
+    return released.some(lines => { const own = subsections(lines); return parts.every(({ name, run }) => (name ? own.filter(p => p.name === name).some(p => at(p.run, run)) : at(lines, run))); });
   };
   const fragments: Fragment[] = [];
   const errors: FragmentError[] = [];
@@ -132,8 +132,10 @@ function subsections(lines: readonly string[]): Array<{ name: string; run: strin
   const parts: Array<{ name: string; run: string[] }> = [{ name: '', run: [] }];
   let fence: string | null = null;
   for (const line of lines) {
-    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker && (fence === null || (marker[0] === fence[0] && marker.length >= fence.length))) fence = fence === null ? marker : null;
+    const open = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+    if (fence === null && open) fence = open;
+    else if (fence !== null && close && close[0] === fence[0] && close.length >= fence.length) fence = null;
     else if (fence === null && /^###\s+\S/.test(line)) { parts.push({ name: line.trim(), run: [] }); continue; }
     parts[parts.length - 1]!.run.push(line);
   }

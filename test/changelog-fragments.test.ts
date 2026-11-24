@@ -79,6 +79,12 @@ describe('effectiveBump and the fold', () => {
     ]);
     expect(folded).toBe('# Changelog\n\n## [Unreleased]\n\n**b lead.**\n\n- c\n\n### For contributors\n\n- a\n\n- c contrib\n\n### Fixed\n- b fix\n\n~~~md\n```\n### not a heading\n~~~\n\n- legacy\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n');
   });
+  test('a fence marker with text after it never closes a fence', () => {
+    const cl = '# Changelog\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n';
+    const body = '### Added\n\n- a\n\n~~~md\n~~~text\n### inside\n~~~';
+    const folded = foldIntoUnreleased(cl, [{ path: 'changelog.d/a.md', body, bump: null }, { path: 'changelog.d/b.md', body: '### inside\n\n- b', bump: null }]);
+    expect(folded).toBe(`# Changelog\n\n## [Unreleased]\n\n${body}\n\n### inside\n\n- b\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n`);
+  });
   test('no fragments leaves the text unchanged', () => {
     expect(foldIntoUnreleased('# C\n', [])).toBe('# C\n');
   });
@@ -235,5 +241,16 @@ describe('readFragments: text already released at the base', () => {
     fragmentPr(repo, 'feat-carry', { [shared[1]!]: fs.readFileSync(path.join(dir, shared[1]!), 'utf8') });
     const set = readFragments(repo.work, 'HEAD', 'changelog.d', 'origin/main', 'CHANGELOG.md');
     expect(set.errors.map(e => e.path)).toEqual([`changelog.d/${shared[1]}`]);
+  });
+
+  test('a new fragment whose entry was released only under another subsection is not refused', () => {
+    const repo = fixture();
+    fs.writeFileSync(path.join(repo.work, 'CHANGELOG.md'), readFile(repo, 'CHANGELOG.md').replace('- base release\n', '- base release\n\n### Added\n\n- older addition\n\n### Fixed\n\n- **A shared line.**\n'));
+    repo.git('commit', '-qam', 'released subsections');
+    repo.git('push', '-q', 'origin', 'HEAD:main');
+    repo.git('fetch', '-q', 'origin');
+    fragmentPr(repo, 'feat-added', { 'added.md': '### Added\n\n- **A shared line.**\n' });
+    const set = readFragments(repo.work, 'HEAD', 'changelog.d', 'origin/main', 'CHANGELOG.md');
+    expect([set.errors, set.fragments.map(f => f.path)]).toEqual([[], ['changelog.d/added.md']]);
   });
 });
