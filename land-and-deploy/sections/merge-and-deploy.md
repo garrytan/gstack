@@ -23,18 +23,20 @@ never evidence that a request or queue entry is absent.
 READBACK=$(gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!) {
   repository(owner:$owner,name:$name) { pullRequest(number:$number) {
     state headRefOid baseRefName mergedAt mergeCommit { oid }
-    autoMergeRequest { enabledAt } mergeQueueEntry { id state }
+    autoMergeRequest { enabledAt } mergeQueueEntry { id state } isMergeQueueEnabled
   } }
 }' -f owner="${REPO%/*}" -f name="${REPO#*/}" -F number="$PR_NUMBER") || exit 1
 printf '%s' "$READBACK" | jq -e '
   ((.errors // []) | length == 0) and
   (.data.repository.pullRequest | type == "object" and
     has("state") and has("headRefOid") and has("baseRefName") and has("mergeCommit") and
-    has("autoMergeRequest") and has("mergeQueueEntry"))' >/dev/null || exit 1
+    has("autoMergeRequest") and has("mergeQueueEntry") and
+    (.isMergeQueueEnabled | type == "boolean"))' >/dev/null || exit 1
 PR_STATE=$(printf '%s' "$READBACK" | jq -er '.data.repository.pullRequest.state') || exit 1
 CURRENT_HEAD=$(printf '%s' "$READBACK" | jq -er '.data.repository.pullRequest.headRefOid') || exit 1
 CURRENT_BASE=$(printf '%s' "$READBACK" | jq -er '.data.repository.pullRequest.baseRefName') || exit 1
 ACTIVE_REQUEST=$(printf '%s' "$READBACK" | jq -r '.data.repository.pullRequest | .autoMergeRequest != null or .mergeQueueEntry != null')
+MERGE_QUEUE=$(printf '%s' "$READBACK" | jq -r '.data.repository.pullRequest.isMergeQueueEnabled')
 MERGE_ACTION=STOP
 case "$PR_STATE" in
   MERGED)
@@ -50,14 +52,12 @@ case "$PR_STATE" in
       MERGE_ACTION=BASE_CHANGED
     elif [ "$ACTIVE_REQUEST" = true ]; then
       MERGE_ACTION=WAIT
-    elif [ "$WAITED" = true ]; then
+    elif [ "$WAITED" = true ] || [ "$MERGE_ATTEMPT" != none ]; then
       MERGE_ACTION=STOP
-    elif [ "$MERGE_ATTEMPT" = none ]; then
+    elif [ "$MERGE_QUEUE" = true ]; then
+      MERGE_ACTION=QUEUE_REQUIRED
+    else
       MERGE_ACTION=START
-    elif [ "$MERGE_ATTEMPT" = auto ] && [ "$MERGE_EXIT" -ne 0 ]; then
-      case "$MERGE_ERROR" in
-        *"Auto-merge is not allowed for this repository"*|*"Pull request is in clean status"*|*"Pull request is in unstable status"*) MERGE_ACTION=DIRECT ;;
-      esac
     fi ;;
 esac
 printf '%s\n' "$MERGE_ACTION"
@@ -69,37 +69,46 @@ and readiness for the new target. MERGED_CHANGED: report the authoritative exter
 merge, but **STOP** cleanup/deploy/rollback until the changed head/base is reconciled;
 the old scope/approval is unusable. Never replay it. WAIT goes to §4a. STOP surfaces the original stderr
 and current state. **If `state == "CLOSED"`: STOP**, the PR closed without merging.
+QUEUE_REQUIRED: the base merges only through a merge queue, where `gh pr merge` would
+queue or arm auto-merge: **STOP** and report; queueing is the user's call.
 
-Only START makes the first attempt. Immediately before either merge command, repeat
-readback and Step 1's local HEAD/branch/cleanliness check. Retargeting or local changes
-invalidate readiness; `--match-head-commit` protects head, not destination.
-Each merge block re-runs the CI gate with Step 3.5's approvals (also for `--auto`,
-which waits on required checks only). A gate exit means no merge ran: **STOP** with
-its output. Only branch protection or a merge queue makes check-to-merge
-atomic.
+Only START makes the one attempt. Never arm auto-merge or join a queue: a stopped run
+must leave nothing that can merge later. Just before merging, repeat readback and Step
+1's local HEAD/branch/cleanliness check; retargeting or local changes invalidate
+readiness (`--match-head-commit` protects head, not destination).
+
+Deletion guard: delete the head branch only when it lives in `REPO`, is neither the
+default branch nor `main` (a promotion), and no open PR uses it as its base. A failed
+lookup keeps it.
 ```bash
-CI_GATE=$(~/.claude/skills/gstack/bin/gstack-ci-gate --repo "$REPO" --pr "$PR_NUMBER" --expect-head "$PR_HEAD" "${CI_OVERRIDE[@]}")
-echo "$CI_GATE"
-case "${CI_GATE%%$'\n'*}" in "VERDICT PASS $PR_HEAD"|"VERDICT NO_CHECKS $NO_CI_APPROVED_HEAD") ;; *) exit 1 ;; esac
-MERGE_ATTEMPT=auto
-MERGE_EXIT=0
-MERGE_ERROR=$(gh pr merge "$MERGE_FLAG" --auto --delete-branch "$PR_NUMBER" --repo "$REPO" --match-head-commit "$PR_HEAD" 2>&1) || MERGE_EXIT=$?
+DELETE_FLAG=
+# gh leaves .headRepository.nameWithOwner empty: compose owner/name.
+IFS=$'\t' read -r HEAD_REPO HEAD_BRANCH <<< "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRepositoryOwner,headRepository,headRefName \
+  --jq '"\(.headRepositoryOwner.login)/\(.headRepository.name)\t\(.headRefName)"')"
+DEFAULT_BRANCH=$(gh api "repos/$REPO" --jq .default_branch) || DEFAULT_BRANCH=
+OPEN_BASES=
+[ -n "$HEAD_BRANCH" ] && { OPEN_BASES=$(gh pr list --repo "$REPO" --base "$HEAD_BRANCH" --state open --limit 1 --json number --jq length) || OPEN_BASES=; }
+if [ -n "$HEAD_BRANCH" ] && [ -n "$DEFAULT_BRANCH" ] && [ "$HEAD_REPO" = "$REPO" ] &&
+   [ "$HEAD_BRANCH" != "$DEFAULT_BRANCH" ] && [ "$HEAD_BRANCH" != main ] && [ "$OPEN_BASES" = 0 ]; then
+  DELETE_FLAG=--delete-branch
+fi
+echo "DELETE_FLAG=${DELETE_FLAG:-none} $HEAD_REPO $HEAD_BRANCH"
 ```
-Return to readback, even on exit 0. Only DIRECT permits **one direct fallback**:
-readback has confirmed OPEN, no auto request and no queue entry, and the auto attempt
-returned one of the two documented rejection classes: auto-merge disabled, or PR
-already clean/unstable with nothing required pending. The latter does not mean
-auto-merge is disabled.
+The merge block re-runs the CI gate with Step 3.5's approvals; a gate exit means no
+merge ran: **STOP** with its output. Only branch protection or a merge queue makes
+check-to-merge atomic.
 ```bash
 CI_GATE=$(~/.claude/skills/gstack/bin/gstack-ci-gate --repo "$REPO" --pr "$PR_NUMBER" --expect-head "$PR_HEAD" "${CI_OVERRIDE[@]}")
 echo "$CI_GATE"
 case "${CI_GATE%%$'\n'*}" in "VERDICT PASS $PR_HEAD"|"VERDICT NO_CHECKS $NO_CI_APPROVED_HEAD") ;; *) exit 1 ;; esac
 MERGE_ATTEMPT=direct
 MERGE_EXIT=0
-MERGE_ERROR=$(gh pr merge "$MERGE_FLAG" --delete-branch "$PR_NUMBER" --repo "$REPO" --match-head-commit "$PR_HEAD" 2>&1) || MERGE_EXIT=$?
+MERGE_ERROR=$(gh pr merge "$MERGE_FLAG" ${DELETE_FLAG:+"$DELETE_FLAG"} "$PR_NUMBER" --repo "$REPO" --match-head-commit "$PR_HEAD" 2>&1) || MERGE_EXIT=$?
 ```
-Return to readback. There is no fallback from a direct attempt. **Hard rule: never
-replay a merge after MERGED**, or retry an unknown state/error. No `--admin` bypass.
+Return to readback, even on exit 0; OPEN afterwards is STOP, with no retry or fallback.
+A merge GitHub won't allow yet (pending checks or reviews, a branch rule) is reported,
+never rerun with auto-merge, a queue or `--admin`.
+**Hard rule: never replay a merge after MERGED**, or retry an unknown state/error.
 
 **If `state == "MERGED"`:**
 
@@ -130,43 +139,38 @@ Identify candidates: a worktree is stale if (a) it is checked out on the base br
 - If any candidate has uncommitted work: list the files, tell the user, and STOP worktree cleanup without removing anything.
 - Do NOT use `--force`. Do NOT remove the user's primary working tree.
 
-Remote-branch reconciliation: `--delete-branch` may not have completed. Verify the
-branch outcome instead of claiming cleanup from a merge exit code:
+Remote-branch reconciliation. Run the deletion guard block if it has not run.
+`DELETE_FLAG=none` means the branch stays: name the check that kept it (fork, default
+branch or `main`, an open PR's base, failed lookup) and skip this check. Otherwise verify the branch outcome instead of
+claiming cleanup from a merge exit code, in the PR head repository the guard read
+(never the checkout's `origin`):
 
 ```bash
-# gh leaves .headRepository.nameWithOwner EMPTY (gh 2.83): compose owner/name
-# from headRepositoryOwner.login + headRepository.name.
-IFS=$'\t' read -r HEAD_REPO HEAD_BRANCH <<< "$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRepositoryOwner,headRepository,headRefName \
-  --jq '"\(.headRepositoryOwner.login)/\(.headRepository.name)\t\(.headRefName)"')"
-case "$HEAD_REPO" in ''|/*|*/) HEAD_BRANCH= ;; esac
-[ -n "$HEAD_BRANCH" ] && echo "HEAD: $HEAD_REPO $HEAD_BRANCH" && git ls-remote --heads "https://github.com/$HEAD_REPO.git" "refs/heads/$HEAD_BRANCH"
+[ -n "$DELETE_FLAG" ] && echo "HEAD: $HEAD_REPO $HEAD_BRANCH" && git ls-remote --heads "https://github.com/$HEAD_REPO.git" "refs/heads/$HEAD_BRANCH"
 ```
 
-The names are PR data: keep them in these variables, never retyped. The PR head
-repository is the authoritative branch location: for same-repository PRs it is the
-base repository; for fork PRs it is the fork. Do not substitute the checkout's
-`origin`. No `HEAD:` line means the lookup failed: treat the branch state as unknown
-and do not run the deletion path.
+The names are PR data: keep them in these variables, never retyped. No `HEAD:` line
+means the branch state is unknown: do not run the deletion path.
 
 Three outcomes — never read a failed check as a clean branch:
 
 - **Exit 0, empty output** — the remote branch is already gone (GitHub's post-merge deletion or a concurrent actor got there). Tell the user: "The remote branch has already been cleaned up." This makes re-runs of the recovery idempotent.
-- **Exit 0, one ref line** — the branch survived: the failed merge command never reached its `--delete-branch` half. If `HEAD_REPO` equals `REPO`, OFFER deletion, confirm-first (matching the worktree-cleanup posture above): "The remote branch `<head-branch>` still exists in `<head-repository>` — the failed merge never ran its --delete-branch half. Delete it?" Only on confirmation, rerun the block's first three lines, then `git push "https://github.com/$HEAD_REPO.git" --delete "refs/heads/$HEAD_BRANCH"`. If `HEAD_REPO` is a FORK, do not offer deletion — the branch belongs to the contributor and the maintainer typically has no push rights there; report instead: "The branch lives on the contributor's fork `<head-repository>` — leaving it to them." If a local branch of the same name exists, offer `git branch -d "$HEAD_BRANCH"` alongside (`-d`, never `-D` — a non-fast-forwarded local branch is the user's call).
+- **Exit 0, one ref line** — the branch survived: the merge never reached its branch-deletion half. OFFER deletion, confirm-first (matching the worktree-cleanup posture above): "The remote branch `<head-branch>` still exists in `<head-repository>` — the merge never deleted it. Delete it?" Only on confirmation, rerun the guard; if it still sets `DELETE_FLAG`, run `git push "https://github.com/$HEAD_REPO.git" --delete "refs/heads/$HEAD_BRANCH"`. If a local branch of the same name exists, offer `git branch -d "$HEAD_BRANCH"` alongside (`-d`, never `-D` — a non-fast-forwarded local branch is the user's call).
 - **Non-zero exit** — the check ITSELF failed (network, auth). Tell the user: "Couldn't verify remote branch state — leaving it alone." and skip the deletion offer entirely; a failed check is unknown state, not a clean branch.
 
-Record the actual path (`auto`, `direct`, `queue`, or `external` when already merged
-before our attempt), then continue to §4b (CI auto-deploy detection).
+Record the actual path (`direct`; `auto` or `queue` when someone else's request merged it;
+or `external` when already merged before our attempt), then continue to §4b (CI auto-deploy detection).
 
 ### 4a: Merge queue detection and messaging
 
-**If `state == "OPEN"` and either request is non-null:** auto-merge is enabled or
-merge queue is in use. Explain which is observed; an auto request alone does not
+**If `state == "OPEN"` and either request is non-null:** someone else enabled auto-merge or
+queued the PR; this skill does neither. Explain which is observed; an auto request alone does not
 prove a queue. A queue reruns CI against the proposed merge. Record `MERGE_PATH=queue`
 only when `mergeQueueEntry` was observed, otherwise `auto`.
 
 Set `WAITED=true`. Repeat the readback every 60 seconds, up to 30 minutes; report progress every 2 minutes.
 While OPEN with an active auto request **or** queue entry, keep waiting. Once waiting
-has begun, never dispatch START or DIRECT: OPEN with confirmed absence of **both**
+has begun, never dispatch START: OPEN with confirmed absence of **both**
 means removal/cancellation, so **STOP** and point to GitHub's checks/queue page.
 MERGED returns to the merge-SHA/cleanup branch above. CLOSED, head change, failed
 readback or timeout stops without replaying or cancelling the server-side request.
