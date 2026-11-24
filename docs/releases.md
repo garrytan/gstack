@@ -392,7 +392,8 @@ Every cut plan, dry runs included, prints one `BENCHMARK:` line read from those 
   reached `stable` is printed, and the choice between fixing forward and [rolling back](#rolling-stable-back) is
   made by hand.
 - A record that can't be read prints `unreadable`, and so does a record whose verdict disagrees with its own model
-  rows. Every list and download is retried once. A no-gstack comparison (`vs_none`) with a missing or non-numeric
+  rows, or two of whose model ids read the same once control characters are stripped (so no row is silently lost).
+  Every list and download is retried once. A no-gstack comparison (`vs_none`) with a missing or non-numeric
   number is left out of the line instead.
 
 **Holding is off for the first two weekly records** (`BENCHMARK.hold` is `false`), so for now the line is only

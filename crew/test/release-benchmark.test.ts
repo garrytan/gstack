@@ -71,6 +71,27 @@ describe('release-benchmark: reading the records', () => {
     expect(injected.line).not.toContain('\n');
   });
 
+  test('a refused schema or verdict cannot start a workflow command in the unreadable line', () => {
+    for (const bad of [{ ...rec('GAIN'), verdict: 'x\n::stop-commands::tok' }, { ...rec('GAIN'), schema: '1\n::add-mask::tok' }]) {
+      const why = parseRecord('weekly-2026-w48', JSON.stringify(bad));
+      expect(typeof why).toBe('string');
+      const s = status({ ok: false, why: why as string });
+      expect(s.state).toBe('unreadable');
+      expect(s.line).not.toContain('\n');
+    }
+  });
+
+  test('a __proto__ model row still counts toward the verdict, and model ids that clean alike are refused', () => {
+    const held = JSON.stringify(rec('HOLD')).replace('"models":{"claude-opus-5-5"', '"models":{"__proto__":{"n":10,"d":-5,"lo":-8,"hi":-2},"claude-opus-5-5"');
+    const r = parseRecord('weekly-2026-w48', held) as WeeklyRecord;
+    expect(typeof r).toBe('object');
+    expect(Object.keys(r.models)).toEqual(['__proto__', 'claude-opus-5-5']);
+    const gain = JSON.stringify(rec('GAIN')).replace('"models":{"claude-opus-5-5"', '"models":{"__proto__":{"n":10,"d":-5,"lo":-8,"hi":-1},"claude-opus-5-5"');
+    expect(parseRecord('weekly-2026-w48', gain)).toContain('verdict mismatch');
+    const twins = { ...rec('GAIN'), models: { 'm\n': { n: 1, d: -2, lo: -4, hi: -1 }, 'm ': { n: 1, d: 1, lo: 0, hi: 2 } } };
+    expect(parseRecord('weekly-2026-w48', JSON.stringify(twins))).toContain('collide');
+  });
+
   test('readRecords lists weekly tags only, retries each call once, and any failure makes the whole read unreadable', () => {
     const calls: string[][] = [];
     let flaky = 1;

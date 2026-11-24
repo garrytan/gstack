@@ -45,10 +45,11 @@ export function parseRecord(tag: string, text: string): WeeklyRecord | string {
   if (!Number.isFinite(start)) return tag + ': window.start is not a time';
   if (!SHA.test(r.candidate?.sha ?? '') || !SHA.test(r.stable?.sha ?? '')) return tag + ': candidate or stable is not a 40-hex sha';
   const models = (r.models && typeof r.models === 'object' ? r.models : {}) as Record<string, ModelRow>;
-  const rows: Record<string, ModelRow> = {};
+  const rows: Record<string, ModelRow> = Object.create(null);
   for (const [id, m] of Object.entries(models)) {
     if (![m?.n, m?.d, m?.lo, m?.hi].every(num)) return tag + ': model row ' + clean(id) + ' is not numeric';
     const v = m.vs_none;
+    if (clean(id) in rows) return tag + ': model ids ' + JSON.stringify(clean(id)) + ' collide once control characters are stripped';
     rows[clean(id)] = { host: m.host, n: m.n, d: m.d, lo: m.lo, hi: m.hi, ...(v && [v.d, v.lo, v.hi].every(num) ? { vs_none: { d: v.d, lo: v.lo, hi: v.hi } } : {}) };
   }
   if (Object.values(rows).some((m) => m.hi < 0) !== (r.verdict === 'HOLD')) return tag + ': verdict ' + r.verdict + ' disagrees with its model rows (verdict mismatch)';
@@ -88,7 +89,7 @@ function summary(r: WeeklyRecord): string {
 /** What the records say about cutting candidate over stable. A HOLD applies when its commit is in the candidate and not yet on stable. */
 export function benchmarkStatus(o: { read: Records; git: Git; candidate: string; stable: string | null; now: number; hold?: boolean }): BenchmarkStatus {
   const mode = ' (' + ((o.hold ?? BENCHMARK.hold) ? 'holding' : 'report only') + ')';
-  if (!o.read.ok) return { state: 'unreadable', line: 'BENCHMARK: unreadable (' + o.read.why + ')' + mode, record: null };
+  if (!o.read.ok) return { state: 'unreadable', line: 'BENCHMARK: unreadable (' + clean(o.read.why) + ')' + mode, record: null };
   const sorted = newestFirst(o.read.records), r = sorted.find((x) => x.verdict !== 'INCOMPLETE') ?? null, newest = sorted[0];
   const later = newest && newest !== r ? '; the newer ' + newest.tag + ' is INCOMPLETE (' + (newest.incomplete_reason ?? 'no reason given') + ')' : '';
   if (!r) return { state: 'none', line: 'BENCHMARK: none (' + (newest ? 'every record is INCOMPLETE' + later : 'no weekly record published yet') + ')' + mode, record: null };
