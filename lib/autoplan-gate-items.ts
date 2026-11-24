@@ -74,11 +74,12 @@ export function recordedOwnerWords(state: RunState, env: NodeJS.ProcessEnv = pro
   return [...out, ...ledgerWords(path.dirname(state.plan_input ?? state.plan_source), env)];
 }
 
-/** The replies a ruled-out line's citation names: a record id, or a time (`YYYY-MM-DD` or `YYYY-MM-DD HH:MMZ`) its timestamp starts with. */
+/** The replies a ruled-out line's citation names: a record id, or a time (`YYYY-MM-DD` or `YYYY-MM-DD HH:MMZ`) its timestamp starts with. One reply is stored on every row it answered, so copies of the same words count once. */
 export function citedReplies(cite: string, replies: OwnerReply[]): OwnerReply[] {
   const m = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2})Z?)?$/.exec(cite.trim());
   const stamp = m ? `${m[1]}${m[2] ? `T${m[2]}` : ''}` : undefined;
-  return replies.filter(r => r.id === cite.trim() || (!!stamp && !!r.at && r.at.startsWith(stamp)));
+  const cited = replies.filter(r => r.id === cite.trim() || (!!stamp && !!r.at && r.at.startsWith(stamp)));
+  return [...new Map(cited.map(r => [r.text.trim(), r])).values()];
 }
 
 export function ownerContext(state: RunState, recorded: Array<string | OwnerReply> = recordedOwnerWords(state)): OwnerContext {

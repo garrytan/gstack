@@ -561,6 +561,10 @@ describe('first versions: the owner page quotes the owner and letters what it le
       expect(ruledCiting('run-g1-d1', [said, other])).toEqual(new Set());
       expect(ruledCiting('2026-11-13', [said])).toEqual(new Set());
       expect(ruledCiting('2026-11-12', [{ text: said.text }])).toEqual(new Set());
+      const copies = [{ ...said, id: 'run-g1-p1' }, { ...said, id: 'run-g1-c3' }, { text: said.text, at: '2026-11-12T09:00:12.004Z' }, { text: said.text, at: said.at, id: 'appr-1' }];
+      expect(ruledCiting('2026-11-12', copies)).toEqual(new Set([3]));
+      expect(ruledCiting('2026-11-12 09:00Z', copies)).toEqual(new Set([3]));
+      expect(ruledCiting('2026-11-12', [...copies, other])).toEqual(new Set());
     });
 
     test('paired findings that name different quotes each reach their own item', () => {
