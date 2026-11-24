@@ -2520,7 +2520,7 @@ whose Plan line differs from the PR body's current line.
 <a id="first-use-record-invalid"></a>
 ### `gstack-first-use: ... (FIRST_USE_RECORD_INVALID)`
 
-**Meaning.** A value or file is invalid: a bad `--commit`, `--platform`, `--step`, `--verdict`, `--line` or score, missing `--holding` or `--holding-defects`, an ios or android `start` without `--phone-build <id>` (the 26-character id of Capy's mobile build of `--commit`, which is what the cloud phone installs; a TestFlight or store number can't be installed there), an `--account`, `--target` or `--device-class` that isn't the run's owner-equivalent audience and target, a run directory outside the record root, evidence that is not a screenshot, short video or terminal capture (or is empty, a link, or over 100 MB), an unreadable manifest or a schema-1 run from before the try-it steps were checked, or a second prediction on a run. Exit 1. **Fix.** Correct the value. Run files are written once; to redo a check, or to continue from a schema-1 run, start a new run.
+**Meaning.** A value or file is invalid: a bad `--commit`, `--platform`, `--step`, `--verdict`, `--line` or score, missing `--holding` or `--holding-defects`, an ios or android `start` without `--phone-build <id>` (the 26-character id of Capy's mobile build of `--commit`, which is what the cloud phone installs; a TestFlight or store number can't be installed there), an `--account`, `--target` or `--device-class` that isn't the run's owner-equivalent audience and target, a run directory outside the record root, evidence that is not a screenshot, short video or terminal capture (or is empty, a link, or over 100 MB), an unreadable manifest, a schema-1 run from before the try-it steps were checked, an ios or android run started before `--phone-build` existed, or a second prediction on a run. Exit 1. **Fix.** Correct the value. Run files are written once; to redo a check, or to continue from a schema-1 run or an older phone run, start a new run (with `--phone-build` for a phone).
 
 <a id="first-use-refused"></a>
 ### `gstack-first-use check|message: ... (FIRST_USE_REFUSED)`
@@ -6028,7 +6028,10 @@ is a quote wherever it appears whole, and from 8 words any 8 consecutive words
 are one, compared across punctuation, line breaks, JSON escapes, entities, HTML and
 Markdown markup, invisible format characters, contractions and case; replies
 of 1 or 2 words are not scanned for, and words the owner echoed from earlier
-text he didn't write are not his (the words a reply adds to an echo still are). See
+text he didn't write are not his (the words a reply adds to an echo still are).
+A plan quote of any length is also one wherever it appears directly inside quote
+marks, and so is its `leave out:` reason after `leave out:`, `leave it out for
+now:` or `reason to leave it out:`, in any case. See
 [the public copy](unattended.md#the-public-copy). `gstack-artifact validate --public <dir> --private
 <run>/run.json` reports each quote with file:line, and `gstack-autoplan export
 --public` runs that check on a staging copy and writes nothing when it fails.
