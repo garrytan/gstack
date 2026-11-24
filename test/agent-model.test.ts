@@ -69,7 +69,7 @@ describe('precedence and sources', () => {
     expect(resolveAgentModel({ env: e })).toMatchObject({ status: 'selected', id: 'anthropic/claude-opus-5-5', family: 'opus', source: { kind: 'preferences', path: prefs } });
     setConfig(e, 'agent_model: openai/gpt-6.1-sol\n');
     expect(resolveAgentModel({ env: e })).toMatchObject({ id: 'openai/gpt-6.1-sol', source: { kind: 'config' }, sources: { config: 'openai/gpt-6.1-sol', preferences: 'opus' } });
-    expect(resolveAgentModel({ env: e, request: 'fable' })).toMatchObject({ id: 'anthropic/claude-fable-5-1', source: { kind: 'request', path: null } });
+    expect(resolveAgentModel({ env: e, request: 'fable' })).toMatchObject({ id: 'anthropic/claude-fable-5-2', source: { kind: 'request', path: null } });
     expect(resolveAgentModel({ env: e, request: 'host' })).toMatchObject({ status: 'host', source: { kind: 'request' } });
   });
 
@@ -80,7 +80,7 @@ describe('precedence and sources', () => {
     const e = env(base, { GSTACK_PREFERENCES_FILE: prefs });
     const r = modelsMain(['resolve', '--role', 'agent', '--request', 'sol'], e);
     expect(r.code, r.stderr).toBe(0);
-    expect(r.stdout).toMatch(/^agent: openai\/gpt-6\.1-sol \(sol\) - requested for this job, not saved$/m);
+    expect(r.stdout).toMatch(/^agent: openai\/gpt-6\.2-sol \(sol\) - requested for this job, not saved$/m);
     expect(fs.existsSync(path.join(e.GSTACK_STATE_ROOT, 'config.yaml'))).toBe(false);
     expect(fs.readFileSync(prefs, 'utf8')).toBe('agent_model: opus\n');
     expect(config(e, ['set', 'agent_model', 'host']).status).toBe(0);

@@ -458,7 +458,7 @@ describe('setup --team / --no-team / -q', () => {
         'bin/gstack-state-root.sh', 'bin/gstack-bun-version.sh', 'bin/gstack-path-spelling.sh', 'bin/gstack-skill-name.sh', 'bin/gstack-claude-root.sh', 'bin/gstack-install-registry.sh', 'bin/gstack-render-claude.sh', 'bin/gstack-host-renders.sh',
         'scripts/resolve-codex-generation-model.ts', 'scripts/models.ts', 'scripts/preflight-codex-overlap.ts',
         'scripts/discover-skills.ts', 'scripts/external-skill-names.ts', 'scripts/host-config.ts',
-        'lib/claude-code-migration.ts', 'lib/model-policy.ts', 'lib/model-catalog.ts',
+        'lib/claude-code-migration.ts', 'lib/model-policy.ts', 'lib/model-catalog.ts', 'lib/model-families.ts',
         'lib/model-policy-notice.ts', 'lib/state-root.ts', 'lib/bun-isolation.ts',
       ]) {
         const dest = path.join(cwd, rel);
@@ -490,7 +490,7 @@ case "$*" in
   *'/bin/gstack-migrate-claude-code --install-dir '*)
     [[ "$#" -eq 5 && "$2" = --install-dir && "$4" = --skills-dir ]] || exit 90
     exit 0 ;;
-  'run gen:skill-docs --host codex --model gpt-6-astra') mkdir -p .agents/skills; exit 0 ;;
+  'run gen:skill-docs --host codex --model gpt-6.2-astra') mkdir -p .agents/skills; exit 0 ;;
   'run scripts/resolve-codex-generation-model.ts') exec ${quote(process.execPath)} "$@" ;;
   *'/scripts/preflight-codex-overlap.ts --source '*)
     [[ "$#" -eq 13 && "$1" = ${quote(path.join(cwd, 'scripts/preflight-codex-overlap.ts'))}

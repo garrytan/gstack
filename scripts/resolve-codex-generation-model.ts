@@ -6,6 +6,7 @@ import * as path from 'path';
 import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
 import { CODEX_MODEL_REPAIR, codexConfigModel, codexNativeModel, ModelPolicyError, resolvePlanReviewModel, selectionRepair, type ModelSelection } from '../lib/model-policy';
 import { emitModelPolicyNotice } from '../lib/model-policy-notice';
+import { newestModel } from '../lib/model-families';
 
 export interface CodexGenerationModelResolution {
   model: Model;
@@ -13,8 +14,9 @@ export interface CodexGenerationModelResolution {
   warnings: string[];
 }
 
-const CODEX_DEFAULT_MODEL: Model = 'gpt-6-astra';
-const DEFAULT_SOURCE = `default (${CODEX_DEFAULT_MODEL})`;
+const CODEX_DEFAULT_ID = newestModel('astra');
+const CODEX_DEFAULT_MODEL: Model = resolveModel(CODEX_DEFAULT_ID)!;
+const DEFAULT_SOURCE = `default (${CODEX_DEFAULT_ID})`;
 
 /**
  * Strip control characters from strings that originate in the user's
@@ -62,7 +64,7 @@ export function resolveCodexGenerationModel(opts: {
   };
 
   if (!path.isAbsolute(codexHome)) {
-    return fallback(`Codex home '${sanitize(codexHome)}' is not an absolute path; using Codex default ${CODEX_DEFAULT_MODEL}.`);
+    return fallback(`Codex home '${sanitize(codexHome)}' is not an absolute path; using Codex default ${CODEX_DEFAULT_ID}.`);
   }
 
   let raw: string;
@@ -71,7 +73,7 @@ export function resolveCodexGenerationModel(opts: {
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== 'ENOENT') {
-      return fallback(`Could not read ${sanitize(configPath)}; using Codex default ${CODEX_DEFAULT_MODEL}.`);
+      return fallback(`Could not read ${sanitize(configPath)}; using Codex default ${CODEX_DEFAULT_ID}.`);
     }
     return fallback();
   }
@@ -80,19 +82,19 @@ export function resolveCodexGenerationModel(opts: {
   try {
     parsed = Bun.TOML.parse(raw) as Record<string, unknown>;
   } catch {
-    return fallback(`Could not parse ${sanitize(configPath)}; using Codex default ${CODEX_DEFAULT_MODEL}.`);
+    return fallback(`Could not parse ${sanitize(configPath)}; using Codex default ${CODEX_DEFAULT_ID}.`);
   }
 
   if (!Object.prototype.hasOwnProperty.call(parsed, 'model')) {
     return fallback();
   }
   if (typeof parsed.model !== 'string') {
-    return fallback(`Top-level model in ${sanitize(configPath)} is not a string; using Codex default ${CODEX_DEFAULT_MODEL}.`);
+    return fallback(`Top-level model in ${sanitize(configPath)} is not a string; using Codex default ${CODEX_DEFAULT_ID}.`);
   }
 
   const model = resolveModel(parsed.model);
   if (!model) {
-    return fallback(`Unsupported top-level model '${sanitize(parsed.model)}' in ${sanitize(configPath)}; using Codex default ${CODEX_DEFAULT_MODEL}.`);
+    return fallback(`Unsupported top-level model '${sanitize(parsed.model)}' in ${sanitize(configPath)}; using Codex default ${CODEX_DEFAULT_ID}.`);
   }
 
   // Sol is exact-only by design (Terra/Luna/dated snapshots must not inherit
@@ -146,7 +148,7 @@ export function resolveCodexRuntimeModel(opts: {
   if (opts.explicit) return chosen('explicit request', opts.explicit);
   if (env.GSTACK_CODEX_MODEL) return chosen('GSTACK_CODEX_MODEL', env.GSTACK_CODEX_MODEL);
   const named = codexConfigModel({ ...opts, env });
-  if (named.value === null) return { kind: opts.kind, model: CODEX_DEFAULT_MODEL, source: `gstack default (${named.source})` };
+  if (named.value === null) return { kind: opts.kind, model: CODEX_DEFAULT_ID, source: `gstack default (${named.source})` };
   return chosen(named.source, named.value);
 }
 

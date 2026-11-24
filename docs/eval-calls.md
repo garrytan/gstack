@@ -40,7 +40,7 @@ GSTACK_EVAL_HEAD v1: 0123456789abcdef0123456789abcdef01234567
 GSTACK_EVAL_INPUT v1: sha256=<64 hex> path=evals/synopsis/questions.jsonl
 GSTACK_EVAL_PRECONDITION: ANTHROPIC_API_KEY and OPENAI_API_KEY set at run time
 GSTACK_EVAL_CALLS v1: purpose=answer model=anthropic/claude-opus-5-5 calls=100 in_tokens=400000 out_tokens=200000 max_out_tokens=8192 scope=full
-GSTACK_EVAL_CALLS v1: purpose=judge model=gpt-6.1-sol calls=100 in_tokens=300000 out_tokens=50000 max_out_tokens=2048 scope=full
+GSTACK_EVAL_CALLS v1: purpose=judge model=gpt-6.2-sol calls=100 in_tokens=300000 out_tokens=50000 max_out_tokens=2048 scope=full
 GSTACK_EVAL_CALLS v1 end: lines=2
 ```
 
@@ -97,7 +97,7 @@ all, or a plan with zero call lines, is unpriced.
 GATE_PLAN: file=evals/gate.calls source=price_file sha256=<hex> head=<sha12> inputs=1 verified
 GATE_PRECONDITION: ANTHROPIC_API_KEY and OPENAI_API_KEY set at run time
 GATE_CALLS: purpose=answer model=anthropic/claude-opus-5-5 calls=100 usd=5.6 reservation_usd=0.17984 scope=full
-GATE_CALLS: purpose=judge model=gpt-6.1-sol calls=100 usd=1.1 reservation_usd=0.02648 scope=full
+GATE_CALLS: purpose=judge model=gpt-6.2-sol calls=100 usd=1.1 reservation_usd=0.02648 scope=full
 CHECK: reservation-fits-cap ok (largest one-call reservation $0.1798)
 GATE_PRICE: total=6.7 calls=200 purposes=answer,judge receipt=.gstack/tmp/price-gate/price-gate-<gate12>-<head12>.json
 ```

@@ -218,7 +218,7 @@ describe('Codex plan-review invocation binds one selection', () => {
     expect(result.stderr).toMatch(/WARN:.*0\.120\.2.*known stdin deadlock/);
     expect(result.calls.filter(call => call.probe)).toHaveLength(1);
     expect(result.calls.filter(call => !call.probe)).toHaveLength(1);
-    expect(result.calls.every(call => codexModel(call) === 'model="gpt-6-astra"')).toBe(true);
+    expect(result.calls.every(call => codexModel(call) === 'model="gpt-6.2-astra"')).toBe(true);
   });
 
   test('frontier catalog model wins over a native pin; probe and dispatch use it; notice once', () => {
@@ -227,8 +227,8 @@ describe('Codex plan-review invocation binds one selection', () => {
     expect(first.status).toBe(0);
     expect(first.stdout).toContain('OUTSIDE_STATUS: completed provider=codex');
     expect(first.calls.map(c => c.probe)).toEqual([true, false]);
-    expect(first.calls.map(codexModel)).toEqual(['model="gpt-6-astra"', 'model="gpt-6-astra"']);
-    expect(first.stderr).toContain('CODEX_MODEL: gpt-6-astra (exec; role: plan-review, tier: frontier; source: gstack catalog frontier/openai');
+    expect(first.calls.map(codexModel)).toEqual(['model="gpt-6.2-astra"', 'model="gpt-6.2-astra"']);
+    expect(first.stderr).toContain('CODEX_MODEL: gpt-6.2-astra (exec; role: plan-review, tier: frontier; source: gstack catalog frontier/openai');
     expect(first.stderr).toContain(NOTICE);
     expect(first.stderr).toContain('gstack-config set plan_review_tier smart');
     expect(first.stderr.indexOf(NOTICE)).toBeLessThan(first.stderr.indexOf('CODEX_MODEL:'));
@@ -254,14 +254,14 @@ describe('Codex plan-review invocation binds one selection', () => {
     const h = home();
     const r = run('claude', h, { REPLACE_CONFIG: 'model_frontier_openai: gpt-replaced\n' });
     expect(r.status).toBe(0);
-    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6-astra"', 'model="gpt-6-astra"']);
+    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6.2-astra"', 'model="gpt-6.2-astra"']);
     const next = run('claude', h);
     expect(next.calls.map(codexModel)).toEqual(['model="gpt-replaced"', 'model="gpt-replaced"']);
     expect(next.stderr).toContain('source: model_frontier_openai in');
   });
 
   for (const [label, config, extra, model, fragment] of [
-    ['smart tier', 'plan_review_tier: smart\n', {}, 'gpt-6.1-sol', 'tier: smart'],
+    ['smart tier', 'plan_review_tier: smart\n', {}, 'gpt-6.2-sol', 'tier: smart'],
     ['env override', '', { GSTACK_CODEX_MODEL: 'gpt-env-pick' }, 'gpt-env-pick', 'source: GSTACK_CODEX_MODEL'],
     ['host mode', 'plan_review_tier: host\n', {}, 'gpt-5.6-terra', 'source: plan_review_tier=host'],
   ] as const) {
@@ -386,7 +386,7 @@ describe('one deadline bounds Codex role readiness and dispatch (native F3)', ()
     const r = timed(home(), { FAKE_PROBE_SLEEP: '3' });
     expect(r.status).toBe(0);
     expect(r.calls.map((c: { probe: boolean }) => c.probe)).toEqual([true, false]);
-    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6-astra"', 'model="gpt-6-astra"']);
+    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6.2-astra"', 'model="gpt-6.2-astra"']);
     withinBudget(r.dispatch!);
   }, 60000);
 
@@ -412,7 +412,7 @@ describe('one deadline bounds Codex role readiness and dispatch (native F3)', ()
     const r = timed(h, { FAKE_PROBE_SLEEP: '8' });
     expect(r.status).toBe(0);
     expect(r.out).toContain('MODEL_PROBE_INCONCLUSIVE');
-    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6-astra"', 'model="gpt-6-astra"']);
+    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6.2-astra"', 'model="gpt-6.2-astra"']);
     withinBudget(r.dispatch!);
     expect(fs.existsSync(path.join(h.state, '.codex-model-probe')) ? fs.readFileSync(path.join(h.state, '.codex-model-probe'), 'utf8') : '').not.toContain('MODEL_OK');
   }, 60000);
@@ -470,10 +470,10 @@ describe('Claude plan-review invocation emits one selected model or none', () =>
     const r = run('codex', h, { GSTACK_CLAUDE_MODEL: '' });
     expect(r.status).toBe(0);
     expect(r.calls).toHaveLength(1);
-    expect(claudeModels(r.calls[0])).toEqual(['claude-fable-5-1']);
-    expect(result(r).selection).toMatchObject({ role: 'plan-review', tier: 'frontier', status: 'selected', requested_model: 'claude-fable-5-1' });
+    expect(claudeModels(r.calls[0])).toEqual(['claude-fable-5-2']);
+    expect(result(r).selection).toMatchObject({ role: 'plan-review', tier: 'frontier', status: 'selected', requested_model: 'claude-fable-5-2' });
     expect(result(r).modelUsage).toHaveProperty('model-actual');
-    expect(r.stderr).toContain('CLAUDE_MODEL: plan-review via anthropic: claude-fable-5-1');
+    expect(r.stderr).toContain('CLAUDE_MODEL: plan-review via anthropic: claude-fable-5-2');
     expect(r.stderr).toContain(NOTICE);
     expect(run('codex', h).stderr).not.toContain('NOTICE: gstack plan reviews');
   });
@@ -539,7 +539,7 @@ describe('Claude plan-review invocation emits one selected model or none', () =>
     const selected = resolvePlanReviewModel({ provider: 'anthropic', env: { GSTACK_HOME: h.state, HOME: h.dir } });
     if (selected.status !== 'selected') throw new Error('expected a selected record');
     const args = claudeCodeArgs({ access: 'none', selection: selected }, cmd, { GSTACK_CLAUDE_MODEL: 'claude-late-change' });
-    expect(claudeModels({ args })).toEqual(['claude-fable-5-1']);
+    expect(claudeModels({ args })).toEqual(['claude-fable-5-2']);
     const dashed = claudeCodeArgs({ access: 'none', selection: { ...selected, requestedModel: '-p' } }, cmd, {});
     expect(dashed.filter(arg => arg === '-p')).toHaveLength(1);
     expect(dashed).toContain('--model=-p');
@@ -640,12 +640,12 @@ describe('manual /codex entry: explicit role only, paid probe only for the dispa
         const before = Math.floor(Date.now() / 1000);
         const role = shell(h, script('plan-review'));
         expect(role.status).toBe(0);
-        expect(role.stdout).toContain('DISPATCH=gpt-6-astra');
+        expect(role.stdout).toContain('DISPATCH=gpt-6.2-astra');
         const deadline = Number(role.stdout.match(/DEADLINE=(\d+)/)![1]);
         expect(deadline).toBeGreaterThanOrEqual(before + Number(budget));
         expect(deadline).toBeLessThanOrEqual(Math.ceil(Date.now() / 1000) + Number(budget));
-        expect(role.calls.map(codexModel)).toEqual(['model="gpt-6-astra"']);
-        expect(role.stderr).toContain(`CODEX_MODEL: gpt-6-astra (${kind}; role: plan-review, tier: frontier`);
+        expect(role.calls.map(codexModel)).toEqual(['model="gpt-6.2-astra"']);
+        expect(role.stderr).toContain(`CODEX_MODEL: gpt-6.2-astra (${kind}; role: plan-review, tier: frontier`);
         expect(role.stderr).toContain(NOTICE);
         const named = shell(home(), script('plan-review', t => t.replace(`role-ready ${kind}`, `role-ready ${kind} --model 'gpt-named'`)));
         expect(named.status).toBe(0);
@@ -666,9 +666,9 @@ describe('manual /codex entry: explicit role only, paid probe only for the dispa
     const started = Date.now();
     const r = shell(home(), script, 'zsh');
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('RC=124 SEL=gpt-6-astra MODE=read-only');
+    expect(r.stdout).toContain('RC=124 SEL=gpt-6.2-astra MODE=read-only');
     expect(Date.now() - started).toBeLessThan(15000);
-    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6-astra"']);
+    expect(r.calls.map(codexModel)).toEqual(['model="gpt-6.2-astra"']);
   }, 30000);
 });
 
@@ -734,7 +734,7 @@ describe('implementation handoff recommendation', () => {
     const r = spawnSync(path.join(ROOT, 'bin', 'gstack-models'), ['resolve', '--role', 'implementation', '--provider', 'anthropic', '--json'],
       { env: env(h, 'claude'), encoding: 'utf8', timeout: 15000 });
     expect(r.status).toBe(0);
-    expect(JSON.parse(r.stdout).selections[0]).toMatchObject({ role: 'implementation', requestedModel: 'claude-fable-5-1' });
+    expect(JSON.parse(r.stdout).selections[0]).toMatchObject({ role: 'implementation', requestedModel: 'claude-fable-5-2' });
     expect(fs.readdirSync(h.state)).toEqual(['config.yaml']);
   });
 });

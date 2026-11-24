@@ -75,10 +75,10 @@ function tree(dir: string): string[] {
 describe('model catalog', () => {
   test('ships exactly the four approved tier IDs with provenance', () => {
     expect(MODEL_CATALOG.map(e => [e.tier, e.provider, e.model])).toEqual([
-      ['frontier', 'anthropic', 'claude-fable-5-1'],
-      ['frontier', 'openai', 'gpt-6-astra'],
+      ['frontier', 'anthropic', 'claude-fable-5-2'],
+      ['frontier', 'openai', 'gpt-6.2-astra'],
       ['smart', 'anthropic', 'claude-opus-5-5'],
-      ['smart', 'openai', 'gpt-6.1-sol'],
+      ['smart', 'openai', 'gpt-6.2-sol'],
     ]);
     for (const entry of MODEL_CATALOG) {
       expect(entry.sourceUrl).toMatch(/^https:\/\/(platform\.claude\.com|developers\.openai\.com)\//);
@@ -86,7 +86,7 @@ describe('model catalog', () => {
       expect(Object.isFrozen(entry)).toBe(true);
     }
     expect(Object.isFrozen(MODEL_CATALOG)).toBe(true);
-    expect(catalogEntry('openai', 'smart').model).toBe('gpt-6.1-sol');
+    expect(catalogEntry('openai', 'smart').model).toBe('gpt-6.2-sol');
   });
 
   test('identity is deterministic and independent of user config', () => {
@@ -100,8 +100,8 @@ describe('model catalog', () => {
 
   test('eval rulers and the no-role Codex pattern stay independent of the catalog', () => {
     expect(CLAUDE_CAPTURE_EVAL_MODEL).toBe('claude-opus-5-5');
-    expect(CLAUDE_JUDGE_EVAL_MODEL).toBe('claude-fable-5-1');
-    expect(CODEX_FRONTIER_MODEL).toBe('gpt-6-astra');
+    expect(CLAUDE_JUDGE_EVAL_MODEL).toBe('claude-fable-5-2');
+    expect(CODEX_FRONTIER_MODEL).toBe('gpt-6.2-astra');
     for (const file of ['lib/eval-model.ts', 'scripts/resolvers/constants.ts']) {
       expect(fs.readFileSync(path.join(ROOT, file), 'utf-8')).not.toMatch(/from\s+['"][^'"]*model-(catalog|policy)/);
     }
@@ -131,7 +131,7 @@ describe('model ID validation', () => {
   });
 
   test.each([
-    ['gpt-6.1-sol', true],
+    ['gpt-6.2-sol', true],
     ['org/model:v1', true],
     ['a'.repeat(100), true],
     ['a'.repeat(101), false],
@@ -274,7 +274,7 @@ describe('strict policy config snapshot', () => {
     expect(selected(resolvePlanReviewModel({ provider: 'openai', env, config }))).toBe('gpt-old');
     const fresh = resolvePlanReviewModel({ provider: 'openai', env });
     expect(fresh.tier).toBe('smart');
-    expect(selected(fresh)).toBe('gpt-6.1-sol');
+    expect(selected(fresh)).toBe('gpt-6.2-sol');
   });
 });
 
@@ -295,14 +295,14 @@ describe('plan-review precedence', () => {
     expect(fromConfig).toMatchObject({ requestedModel: 'tier-model', source: { kind: 'config', key, path: path.join(state, 'config.yaml') } });
 
     const fromCatalog = resolvePlanReviewModel({ provider, env: fixture().env });
-    expect(fromCatalog).toMatchObject({ requestedModel: catalogEntry(provider, 'frontier').model, source: { kind: 'catalog', catalogVersion: 1, verifiedAt: '2026-10-07' } });
+    expect(fromCatalog).toMatchObject({ requestedModel: catalogEntry(provider, 'frontier').model, source: { kind: 'catalog', catalogVersion: 1, verifiedAt: '2026-11-24' } });
     expect(fromCatalog.tierFrom).toMatchObject({ key: 'plan_review_tier', origin: 'default' });
   });
 
   test('smart tier reads the smart override, not the frontier one', () => {
     const { env } = fixture('plan_review_tier: smart\nmodel_frontier_openai: gpt-frontier-pin\n');
     const selection = resolvePlanReviewModel({ provider: 'openai', env });
-    expect(selection).toMatchObject({ tier: 'smart', requestedModel: 'gpt-6.1-sol', tierFrom: { origin: 'config' } });
+    expect(selection).toMatchObject({ tier: 'smart', requestedModel: 'gpt-6.2-sol', tierFrom: { origin: 'config' } });
   });
 
   test('host mode delegates with a null model; request and env still win; tier overrides do not apply', () => {
@@ -531,7 +531,7 @@ describe('implementation recommendation', () => {
   test('known hosts recommend their own provider; unknown hosts get both', () => {
     const { env } = fixture();
     expect(resolveImplementationModels({ host: 'claude-code', env }).map(s => [s.provider, selected(s)])).toEqual([['anthropic', 'claude-opus-5-5']]);
-    expect(resolveImplementationModels({ host: 'codex', env }).map(s => [s.provider, selected(s)])).toEqual([['openai', 'gpt-6.1-sol']]);
+    expect(resolveImplementationModels({ host: 'codex', env }).map(s => [s.provider, selected(s)])).toEqual([['openai', 'gpt-6.2-sol']]);
     for (const host of ['unknown', undefined] as const) {
       expect(resolveImplementationModels({ host, env }).map(s => s.provider)).toEqual(['anthropic', 'openai']);
     }
@@ -542,7 +542,7 @@ describe('implementation recommendation', () => {
     const { env } = fixture('implementation_tier: frontier\nmodel_frontier_openai: gpt-pin\n');
     const envWithOverrides = { ...env, GSTACK_CLAUDE_MODEL: 'claude-env', GSTACK_CODEX_MODEL: 'gpt-env' };
     const [anthropic, openai] = resolveImplementationModels({ env: envWithOverrides });
-    expect(anthropic).toMatchObject({ role: 'implementation', tier: 'frontier', requestedModel: 'claude-fable-5-1', source: { kind: 'catalog' }, tierFrom: { key: 'implementation_tier', origin: 'config' } });
+    expect(anthropic).toMatchObject({ role: 'implementation', tier: 'frontier', requestedModel: 'claude-fable-5-2', source: { kind: 'catalog' }, tierFrom: { key: 'implementation_tier', origin: 'config' } });
     expect(openai).toMatchObject({ requestedModel: 'gpt-pin', source: { kind: 'config', key: 'model_frontier_openai' } });
     expect(resolveImplementationModels({ provider: 'openai', requestedModel: 'gpt-req', env })[0]).toMatchObject({ requestedModel: 'gpt-req', source: { kind: 'request' } });
   });

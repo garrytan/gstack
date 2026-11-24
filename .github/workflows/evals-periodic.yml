@@ -17,7 +17,7 @@ name: Periodic Evals
 # EVALS_ALL fails) makes both lanes census-health checks, not just test runs.
 # The gate census is a matrix of arms (crew/scripts/census-arms.ts): each arm is a
 # host and model with its own plan. Monday runs claude-opus (the capture
-# model) and codex-sol (gpt-6.1-sol on the Codex host, adapter cases only);
+# model) and codex-sol (the newest Sol on the Codex host, adapter cases only);
 # the monthly cron runs only the census, with claude-fable and codex-astra.
 # eval-bg (scripts/eval-bg.ts) finds its dispatch by the nonce in the run name.
 run-name: ${{ inputs.nonce && format('Periodic Evals [eval-bg {0}]', inputs.nonce) || 'Periodic Evals' }}

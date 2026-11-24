@@ -9,7 +9,7 @@ test('replacing the shipped catalog changes role choices, not eval rulers, overl
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-catalog-isolation-'));
   try {
     const files = [
-      'lib/model-catalog.ts', 'lib/model-policy.ts', 'lib/model-policy-notice.ts', 'lib/state-root.ts',
+      'lib/model-catalog.ts', 'lib/model-families.ts', 'lib/model-policy.ts', 'lib/model-policy-notice.ts', 'lib/state-root.ts',
       'lib/eval-model.ts', 'lib/claude-code.ts', 'lib/claude-bin.ts', 'lib/claude-code-windows-job.ts',
       'lib/outside-review-result.ts', 'lib/autoplan-reconcile.ts', 'lib/gate-outcomes.ts',
       'lib/design-catalog.ts', 'scripts/resolve-codex-generation-model.ts', 'scripts/models.ts',
@@ -62,17 +62,19 @@ console.log(JSON.stringify({
       return JSON.parse(result.stdout);
     };
     const before = inspect();
-    expect(before.roles).toEqual(['claude-fable-5-1', 'gpt-6-astra', 'claude-opus-5-5', 'gpt-6.1-sol']);
+    expect(before.roles).toEqual(['claude-fable-5-2', 'gpt-6.2-astra', 'claude-opus-5-5', 'gpt-6.2-sol']);
     expect(before.independent).toMatchObject({
-      claudeRuler: 'claude-opus-5-5', claudeJudge: 'claude-fable-5-1', openaiRuler: 'gpt-6-astra', capture: 'claude-opus-5-5',
-      judge: 'claude-fable-5-1', codexExec: 'gpt-6-astra', codexReview: 'gpt-6-astra', codexOverlay: 'gpt-6-astra',
+      claudeRuler: 'claude-opus-5-5', claudeJudge: 'claude-fable-5-2', openaiRuler: 'gpt-6.2-astra', capture: 'claude-opus-5-5',
+      judge: 'claude-fable-5-2', codexExec: 'gpt-6.2-astra', codexReview: 'gpt-6.2-astra', codexOverlay: 'gpt-6-astra',
     });
     expect(before.independent.claudeArgs.some((arg: string) => arg.startsWith('--model'))).toBe(false);
     const catalog = path.join(root, 'lib/model-catalog.ts');
     expect(fs.realpathSync(catalog).startsWith(`${fs.realpathSync(root)}${path.sep}`)).toBe(true);
     const replacements = ['claude-sonnet-5', 'gpt-5.4', 'claude-opus-4-8', 'gpt-5.6-sol'];
     let text = fs.readFileSync(catalog, 'utf-8');
-    for (let i = 0; i < before.roles.length; i++) text = text.replace(`model: '${before.roles[i]}'`, `model: '${replacements[i]}'`);
+    let i = 0;
+    text = text.replace(/model: newestModel\('[a-z]+'\)/g, () => `model: '${replacements[i++]}'`);
+    expect(i).toBe(before.roles.length);
     fs.writeFileSync(catalog, text);
     const after = inspect();
     expect(after.roles).toEqual(replacements);

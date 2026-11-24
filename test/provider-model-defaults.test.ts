@@ -326,7 +326,7 @@ describe.skipIf(process.platform === 'win32')('provider model selection', () => 
 
   test('Codex defaults to Astra and explicit model wins over the environment', async () => {
     const adapter = new GptAdapter();
-    expect(await selected(adapter)).toBe('gpt-6-astra');
+    expect(await selected(adapter)).toBe('gpt-6.2-astra');
     process.env.GSTACK_CODEX_MODEL = 'gpt-5.6-sol';
     expect(await selected(adapter)).toBe('gpt-5.6-sol');
     expect(await selected(adapter, 'custom-codex')).toBe('custom-codex');
@@ -347,7 +347,7 @@ describe.skipIf(process.platform === 'win32')('provider model selection', () => 
   test('Codex skill evals default to Astra and preserve model overrides', () => {
     writeFileSync(join(workdir, 'SKILL.md'), '# Fixture\nReply OK.\n');
     for (const [override, explicit, expected] of [
-      ['', undefined, 'gpt-6-astra'],
+      ['', undefined, 'gpt-6.2-astra'],
       ['gpt-5.6-sol', undefined, 'gpt-5.6-sol'],
       ['gpt-5.6-sol', 'custom-codex', 'custom-codex'],
     ]) {

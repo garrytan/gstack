@@ -1,6 +1,7 @@
 // ─── Shared Design Constants ────────────────────────────────
 
 import { DESIGN_SLOP_CATALOG } from '../../lib/design-catalog';
+import { newestModel } from '../../lib/model-families';
 
 /**
  * gstack's AI slop anti-patterns — shared between DESIGN_METHODOLOGY and DESIGN_HARD_RULES.
@@ -69,7 +70,7 @@ export const CODEX_WEB_SEARCH_FLAG = `-c 'web_search="cached"'`;
  * default (#2914). The selection is printed before the first paid call and the
  * probe checks the same record the flags below pass.
  */
-export const CODEX_FRONTIER_MODEL = 'gpt-6-astra';
+export const CODEX_FRONTIER_MODEL = newestModel('astra');
 /**
  * Nested gstack Codex calls are one-shot reviews: keep installed skills (gstack's
  * own included) out of the model's context so the reviewer cannot re-run a whole

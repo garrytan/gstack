@@ -218,7 +218,7 @@ describe('complete generated Claude Code wrapper modes', () => {
     expect(result.stdout).toContain('The plan needs an overflow check.');
     const observed = JSON.parse(fs.readFileSync(CAPTURE, 'utf8'));
     expect(observed.prompt).toBe(PROMPT_TEXT);
-    expect(observed.args).toContain('--model=claude-fable-5-1');
+    expect(observed.args).toContain('--model=claude-fable-5-2');
     expect(result.stdout).not.toContain('Nothing to review');
     expectTempsCleaned();
   });

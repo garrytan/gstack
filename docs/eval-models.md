@@ -18,8 +18,8 @@ call row of `price-gate`. gstack never reads these rules from prose in
   "scopes": { "full": { "deny": ["claude-fable-*"] } },
   "families": {
     "claude-opus": ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"],
-    "claude-fable": ["claude-fable-5-1", "claude-fable-5"],
-    "gpt-sol": ["gpt-6.1-sol", "gpt-6-sol"]
+    "claude-fable": ["claude-fable-5-2", "claude-fable-5-1"],
+    "gpt-sol": ["gpt-6.2-sol", "gpt-6.1-sol"]
   }
 }
 ```
@@ -80,7 +80,7 @@ than skipping the rules.
 ## Output
 
 ```
-EVAL_MODEL: claude-fable-5-1 scope=full denied (scopes.full.deny claude-fable-*) where=dry-run --arms
+EVAL_MODEL: claude-fable-5-2 scope=full denied (scopes.full.deny claude-fable-*) where=dry-run --arms
 EVAL_MODEL: claude-opus-5-5 scope=full ok (allow claude-*; newest in families.claude-opus) where=dry-run --arms
 EVAL_MODELS: fail refused=1/2 source=origin/main@0123456789ab:.gstack/eval-models.json
 ```
