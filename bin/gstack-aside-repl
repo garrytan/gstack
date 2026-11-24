@@ -10,7 +10,10 @@
  *
  *   saveArtifact(name, data)   // data: Buffer/Uint8Array, or a string saved as UTF-8
  *
- * to the script, which prints one base64 line behind a per-run random marker.
+ * to the script, which prints one line behind a per-run random marker: the
+ * name, the byte count and the base64 data. A name that is not one plain file
+ * name throws in the script, and a line whose data decodes to another byte
+ * count (a truncated line) is an error, never a short file.
  * The wrapper decodes each such line into --out/<name>, prints
  * `SAVED=<path> bytes=<n>` in its place, and passes every other line through,
  * so image data never reaches the caller. Page content the script prints
@@ -49,7 +52,7 @@ if (!aside) {
 }
 
 const marker = `GSTACK_ARTIFACT_${randomBytes(12).toString('hex')}`;
-const prelude = `const saveArtifact = (name, data) => console.log(${JSON.stringify(marker)} + " " + name + " " + (typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data)).toString("base64"));`;
+const prelude = `const saveArtifact = (name, data) => { if (!${NAME}.test(String(name))) throw new Error("saveArtifact: bad name " + JSON.stringify(name) + " (letters, digits, . _ - only; no folders or spaces)"); const b = typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data); console.log(${JSON.stringify(marker)} + " " + name + " " + b.length + " " + b.toString("base64")); };`;
 
 const child = Bun.spawn([aside, 'repl', `${prelude}\n${script}`], { stdout: 'pipe', stderr: 'inherit' });
 const timer = setTimeout(() => child.kill('SIGKILL'), SCRIPT_TIMEOUT_MS);
@@ -64,13 +67,15 @@ for (const line of stdout.replace(/\n$/, '').split('\n')) {
     console.log(/^GSTACK_ARTIFACT_[0-9a-f]+ /.test(line) ? 'IGNORED a line that imitates an artifact (wrong marker)' : line);
     continue;
   }
-  const [, name = '', data = ''] = line.split(' ');
-  if (!NAME.test(name)) { console.log(`ARTIFACT_ERROR=bad name ${JSON.stringify(name.slice(0, 80))} (letters, digits, . _ - only; no folders)`); failed = true; continue; }
+  const parts = line.split(' ');
+  const [, name = '', size = '', data = ''] = parts;
+  if (parts.length !== 4 || !NAME.test(name)) { console.log(`ARTIFACT_ERROR=bad name ${JSON.stringify(name.slice(0, 80))} (letters, digits, . _ - only; no folders)`); failed = true; continue; }
   const file = path.join(dir, name);
   try {
     fs.mkdirSync(dir, { recursive: true });
     if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('refusing to write through a symlink');
     const bytes = Buffer.from(data, 'base64');
+    if (String(bytes.length) !== size) throw new Error(`truncated: expected ${size} bytes, decoded ${bytes.length}`);
     fs.writeFileSync(file, bytes);
     console.log(`SAVED=${file} bytes=${bytes.length}`);
   } catch (e) {

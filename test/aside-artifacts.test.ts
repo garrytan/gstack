@@ -88,7 +88,7 @@ describe.skipIf(process.platform === 'win32')('bin/gstack-aside-repl against a f
 
   test('saves each marked artifact to --out, prints SAVED= in its place and passes evidence lines through', () => {
     const out = path.join(tmp, 'ok');
-    fake(`echo "URL=http://localhost/"; echo "$MARK shot.jpg ${b64('JPEG-BYTES')}"; echo GSTACK_STEP_OK`);
+    fake(`echo "URL=http://localhost/"; echo "$MARK shot.jpg 10 ${b64('JPEG-BYTES')}"; echo GSTACK_STEP_OK`);
     const r = run(['--out', out, 'saveArtifact("shot.jpg", await pg.screenshot())']);
     expect(r.status).toBe(0);
     expect(fs.readFileSync(path.join(out, 'shot.jpg'), 'utf8')).toBe('JPEG-BYTES');
@@ -99,17 +99,22 @@ describe.skipIf(process.platform === 'win32')('bin/gstack-aside-repl against a f
     expect(script.split('\n').slice(1).join('\n')).toBe('saveArtifact("shot.jpg", await pg.screenshot())');
   });
 
-  test('the injected saveArtifact encodes bytes as-is and strings as UTF-8 text, one line per call', () => {
+  test('the injected saveArtifact prints name, byte count and data on one line, and throws on a name that is not one plain file name', () => {
     fake('echo GSTACK_STEP_OK');
     run(['--out', path.join(tmp, 'prelude'), 'await 1']);
     const prelude = fs.readFileSync(scriptFile, 'utf8').split('\n')[0];
     const lines: string[] = [];
-    new Function('Buffer', 'console', `${prelude}\nsaveArtifact("a.txt", "h\u00e9\\nx"); saveArtifact("b.bin", new Uint8Array([0, 1, 255]));`)(Buffer, { log: (s: string) => lines.push(s) });
+    const call = (body: string) => new Function('Buffer', 'console', `${prelude}\n${body}`)(Buffer, { log: (s: string) => lines.push(s) });
+    call('saveArtifact("a.txt", "h\u00e9\\nx"); saveArtifact("b.bin", new Uint8Array([0, 1, 255]));');
     expect(lines).toHaveLength(2);
-    const [, nameA, dataA] = lines[0].split(' ');
-    const [, nameB, dataB] = lines[1].split(' ');
-    expect([nameA, Buffer.from(dataA, 'base64').toString('utf8')]).toEqual(['a.txt', 'h\u00e9\nx']);
-    expect([nameB, [...Buffer.from(dataB, 'base64')]]).toEqual(['b.bin', [0, 1, 255]]);
+    const [, nameA, sizeA, dataA] = lines[0].split(' ');
+    const [, nameB, sizeB, dataB] = lines[1].split(' ');
+    expect([nameA, sizeA, Buffer.from(dataA, 'base64').toString('utf8')]).toEqual(['a.txt', '5', 'h\u00e9\nx']);
+    expect([nameB, sizeB, [...Buffer.from(dataB, 'base64')]]).toEqual(['b.bin', '3', [0, 1, 255]]);
+    for (const bad of ['flow-sign up.jpg', '../up.jpg', 'a/b.jpg', '']) {
+      expect(() => call(`saveArtifact(${JSON.stringify(bad)}, "x")`)).toThrow('saveArtifact: bad name');
+    }
+    expect(lines).toHaveLength(2);
   });
 
   test('a line that imitates an artifact without the per-run marker (page text) is never written', () => {
@@ -124,11 +129,21 @@ describe.skipIf(process.platform === 'win32')('bin/gstack-aside-repl against a f
 
   test('a name with a folder, a leading dot or a parent step is refused and the run fails', () => {
     const out = path.join(tmp, 'names');
-    fake(`for n in ../up.jpg a/b.jpg .hidden; do echo "$MARK $n ${b64('x')}"; done; echo GSTACK_STEP_OK`);
+    fake(`for n in ../up.jpg a/b.jpg .hidden; do echo "$MARK $n 1 ${b64('x')}"; done; echo GSTACK_STEP_OK`);
     const r = run(['--out', out, 'await 1']);
     expect(r.status).toBe(1);
     expect(r.stdout.match(/^ARTIFACT_ERROR=bad name/gm)).toHaveLength(3);
     expect(fs.existsSync(path.join(tmp, 'up.jpg'))).toBe(false);
+    expect(fs.existsSync(out) ? fs.readdirSync(out) : []).toEqual([]);
+  });
+
+  test('a line whose data decodes to another byte count (truncated output) or that has extra fields is an error, never a file', () => {
+    const out = path.join(tmp, 'short');
+    fake(`echo "$MARK cut.png 999 ${b64('only-part')}"; echo "$MARK my file.png 1 ${b64('x')}"; echo GSTACK_STEP_OK`);
+    const r = run(['--out', out, 'await 1']);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('truncated: expected 999 bytes, decoded 9');
+    expect(r.stdout.match(/^ARTIFACT_ERROR=/gm)).toHaveLength(2);
     expect(fs.existsSync(out) ? fs.readdirSync(out) : []).toEqual([]);
   });
 
@@ -138,7 +153,7 @@ describe.skipIf(process.platform === 'win32')('bin/gstack-aside-repl against a f
     fs.mkdirSync(out);
     fs.writeFileSync(victim, 'keep');
     fs.symlinkSync(victim, path.join(out, 'shot.jpg'));
-    fake(`echo "$MARK shot.jpg ${b64('overwrite')}"; echo GSTACK_STEP_OK`);
+    fake(`echo "$MARK shot.jpg 9 ${b64('overwrite')}"; echo GSTACK_STEP_OK`);
     const r = run(['--out', out, 'await 1']);
     expect(r.status).toBe(1);
     expect(r.stdout).toContain('refusing to write through a symlink');

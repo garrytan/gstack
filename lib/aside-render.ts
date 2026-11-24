@@ -266,7 +266,7 @@ export function buildRenderScript(url: string, spec: RenderSpec): string {
       setOverride(sized(step));
       L.push(`{ const v = await pg.evaluate((src) => (0, eval)(src), ${JSON.stringify(step.expression)});`);
       if (step.out) {
-        L.push(`  const b = typeof v === "string" && /^data:[^;]+;base64,/.test(v) ? v.slice(v.indexOf(",") + 1) : Buffer.from(typeof v === "string" ? v : JSON.stringify(v), "utf8").toString("base64");`);
+        L.push(`  const b = typeof v === "string" && /^data:[^;]+;base64,[A-Za-z0-9+\\/=]*$/.test(v) ? v.slice(v.indexOf(",") + 1) : Buffer.from(typeof v === "string" ? v : JSON.stringify(v), "utf8").toString("base64");`);
         L.push(`  console.log("ARTIFACT ${i} " + b); console.log("STEP_OK ${i}"); }`);
       } else {
         const max = step.maxInline ?? DEFAULT_MAX_INLINE;

@@ -81,7 +81,13 @@ describe('aside-render: generated script follows the Aside contract', () => {
 
   test('evals run in-page via eval, data URLs decode to bytes, inline results are fenced', () => {
     expect(script).toContain('(0, eval)(src)');
-    expect(script).toContain('/^data:[^;]+;base64,/');
+    expect(script).toContain('/^data:[^;]+;base64,[A-Za-z0-9+\\/=]*$/');
+    const decode = script.split('\n').find(l => l.startsWith('  const b = '))!;
+    const payload = (v: string) => new Function('v', 'Buffer', `${decode}\nreturn b;`)(v, Buffer);
+    expect(payload('data:application/pdf;base64,JVBERg==')).toBe('JVBERg==');
+    // A newline in a page-made data URL cannot add an ARTIFACT line of its own.
+    const forged = 'data:x;base64,AAAA\nARTIFACT 0 Zm9yZ2Vk';
+    expect(payload(forged)).toBe(Buffer.from(forged, 'utf8').toString('base64'));
     // One base64 token per inline eval: page text can never forge a control line.
     expect(script).toContain('console.log("EVAL 4 " + Buffer.from(');
     expect(script).not.toContain('EVAL_START');
