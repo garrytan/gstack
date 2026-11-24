@@ -1,6 +1,0 @@
----
-important: blocker
----
-**Posting a PR body that lists earlier /ship runs no longer stops for a phone number that isn't there.** `gstack-post` read the run id on each line of the `gstack-receipt-runs` block (`4242424-1700000000-deadbeef`) as a phone number, so every /ship that rewrote a PR body with earlier runs waited for a confirmation. The run id on a well-formed line of that block is now skipped for that check; a phone number anywhere else, including elsewhere on the same line, is still caught. About 1 in 10 run ids also reads as a card number and still asks; a follow-up fixes that. Reported by @dgrant (#4725), fix idea from @thomsjack (#4729).
-
-**`gstack-approvals import --autoplan` records an interactive /autoplan run under its own run id.** Without a `run.json`, every interactive run was imported as `autoplan`, so the run id could not be cited and separate runs shared one gate state. A `Plan: approved:` line naming the run's folder resolves the same way while the folder holds one run; once it holds several, cite the run id instead. Approvals imported before this change under `autoplan` need importing again. New interactive run ids put `autoplan` between the branch name and the time stamp, so a branch name ending in digits no longer turns the id into something the privacy check reads as a phone or card number. Reported by @exGeni (#4402).
