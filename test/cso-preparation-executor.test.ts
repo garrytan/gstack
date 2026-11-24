@@ -294,6 +294,75 @@ describe('CSO constrained dependency preparation executor', () => {
     expect(runner.disposed).toHaveLength(1);expect(fs.existsSync(runner.disposed[0])).toBe(false);
   });
 
+  const installManifest = (prepared: string, lockPath: string, manifest: object) =>
+    writeTree(prepared, { [`${lockPath}/package.json`]: JSON.stringify(manifest) });
+  async function prepareWith(source: string, install: (prepared: string) => void) {
+    const plan = inspectPreparation(source, 'node'), admission = admitPreparationRuntime({ plan, platform: 'linux/amd64', catalog: catalog('node') });
+    const runner = new FakeRunner(), executor = new PreparationExecutor({ cache: cacheFixture(), runner }), deadline = Date.now() + 60_000;
+    const closure = await executor.acquire({ plan, admission, snapshot: source, deadline });
+    runner.mutatePrepared = install;
+    try { return { prepared: await executor.prepareOffline({ plan, admission, snapshot: source, closure, deadline }), runner }; }
+    catch (error) { return { error, runner }; }
+  }
+  function bundledSnapshot(): string {
+    const base = root('cso-executor-node-bundled-');
+    writeTree(base, {
+      'package.json': JSON.stringify({ name: 'app', version: '1.0.0', dependencies: { wrapper: '2.0.0' } }),
+      'package-lock.json': JSON.stringify({ name: 'app', lockfileVersion: 3, packages: {
+        '': { name: 'app', version: '1.0.0', dependencies: { wrapper: '2.0.0' } },
+        'node_modules/wrapper': { version: '2.0.0', resolved: 'https://registry.npmjs.org/wrapper/-/wrapper-2.0.0.tgz', integrity: `sha512-${h512(artifactBytes('node'))}`, bundleDependencies: ['child'] },
+        'node_modules/wrapper/node_modules/child': { version: '1.1.0', inBundle: true },
+      } }),
+    });
+    return base;
+  }
+  test('npm preparation refuses an installed package whose version differs from the lock', async () => {
+    const { error, runner } = await prepareWith(snapshot('node'), prepared => installManifest(prepared, 'node_modules/cookie', { name: 'cookie', version: '0.9.0' }));
+    expect(errorCode(error)).toBe('INCOMPATIBLE_INPUT');
+    expect((error as Error).message).toContain('node_modules/cookie');
+    expect(runner.disposed).toHaveLength(1);
+  });
+  test('npm preparation refuses an installed package whose name differs from the lock', async () => {
+    const { error } = await prepareWith(snapshot('node'), prepared => installManifest(prepared, 'node_modules/cookie', { name: 'not-cookie', version: '1.0.0' }));
+    expect(errorCode(error)).toBe('INCOMPATIBLE_INPUT');
+  });
+  test('npm preparation refuses a bundled package whose installed version differs from the lock', async () => {
+    const { error } = await prepareWith(bundledSnapshot(), prepared => {
+      installManifest(prepared, 'node_modules/wrapper', { name: 'wrapper', version: '2.0.0' });
+      installManifest(prepared, 'node_modules/wrapper/node_modules/child', { name: 'child', version: '1.0.0' });
+    });
+    expect(errorCode(error)).toBe('INCOMPATIBLE_INPUT');
+    expect((error as Error).message).toContain('node_modules/wrapper/node_modules/child');
+  });
+  test('npm preparation refuses an installed package the lock does not list', async () => {
+    const { error } = await prepareWith(bundledSnapshot(), prepared => {
+      installManifest(prepared, 'node_modules/wrapper', { name: 'wrapper', version: '2.0.0' });
+      installManifest(prepared, 'node_modules/wrapper/node_modules/child', { name: 'child', version: '1.1.0' });
+      installManifest(prepared, 'node_modules/wrapper/node_modules/@hidden/extra', { name: '@hidden/extra', version: '1.0.0' });
+    });
+    expect(errorCode(error)).toBe('INCOMPATIBLE_INPUT');
+    expect((error as Error).message).toContain('node_modules/wrapper/node_modules/@hidden/extra is not listed');
+  });
+  for (const [label, install] of [
+    ['invalid JSON', (prepared: string) => writeTree(prepared, { 'node_modules/cookie/package.json': '{not json' })],
+    ['a directory', (prepared: string) => fs.mkdirSync(path.join(prepared, 'node_modules/cookie/package.json'), { recursive: true })],
+  ] as const) test(`npm preparation refuses an installed package.json that is ${label}`, async () => {
+    const { error, runner } = await prepareWith(snapshot('node'), install);
+    expect(errorCode(error)).toBe('INCOMPATIBLE_INPUT'); expect(runner.disposed).toHaveLength(1);
+  });
+  test('npm preparation accepts installed packages that match the lock', async () => {
+    for (const [source, install] of [
+      [snapshot('node'), (prepared: string) => installManifest(prepared, 'node_modules/cookie', { name: 'cookie', version: '1.0.0' })],
+      [bundledSnapshot(), (prepared: string) => {
+        installManifest(prepared, 'node_modules/wrapper', { name: 'wrapper', version: '2.0.0' });
+        installManifest(prepared, 'node_modules/wrapper/node_modules/child', { name: 'child', version: '1.1.0' });
+      }],
+    ] as const) {
+      const { prepared, error } = await prepareWith(source, install);
+      expect(error).toBeUndefined(); expect(prepared!.preparedManifestHash).toMatch(/^[a-f0-9]{64}$/);
+    }
+  });
+
   test('Rails PostgreSQL requires and records a same-catalog qualified sidecar', async () => {
     const source = snapshot('rails'), plan = inspectPreparation(source, 'rails'), runtimes = catalog('rails', 'postgresql');
     const admission = admitPreparationRuntime({ plan, platform: 'linux/amd64', catalog: runtimes });
