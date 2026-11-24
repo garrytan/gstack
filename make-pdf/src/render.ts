@@ -79,15 +79,11 @@ export function render(opts: RenderOptions): RenderResult {
   // 2. Sanitize
   const cleanHtml = sanitizeUntrustedHtml(directedHtml);
 
-  // 3. Decode common entities so smartypants can match raw " and '.
-  //    marked HTML-encodes quotes in text ("hello" → &quot;hello&quot;);
-  //    without decoding, smartypants' regex never fires. These get re-encoded
-  //    implicitly by the browser's HTML parser downstream, and for the ones
-  //    that should stay as curly-quote Unicode, that IS the final form.
-  const decoded = decodeTypographicEntities(cleanHtml);
-
-  // 4. Smartypants (code-safe)
-  const typographicHtml = smartypants(decoded);
+  // 3. Smartypants (code-safe). It reads marked's quote entities
+  //    (&quot;, &#39;) in text as quotes and curls them; tags, code and URLs
+  //    keep theirs, so a decoded quote can never end an attribute value that
+  //    the sanitizer above has already checked.
+  const typographicHtml = smartypants(cleanHtml);
 
   // 4. Derive metadata (title from first H1 if not provided)
   const derivedTitle = opts.title ?? extractFirstHeading(typographicHtml) ?? "Document";
@@ -174,19 +170,6 @@ export function render(opts: RenderOptions): RenderResult {
   };
 }
 
-/**
- * Decode the HTML entities that marked emits for text-node quotes/apostrophes.
- * Only the four that matter for smartypants — leaves &amp; alone because it
- * can be legitimately doubled (&amp;amp;) and we don't want to double-decode.
- */
-function decodeTypographicEntities(html: string): string {
-  return html
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&#x27;/g, "'");
-}
-
 // ─── Sanitizer ────────────────────────────────────────────────────────
 
 /**
@@ -230,14 +213,24 @@ export function sanitizeUntrustedHtml(html: string): string {
     return `<svg${attrs}>${body.replace(/<script\b[\s\S]*?<\/script>/gi, "")}</svg>`;
   });
 
-  // Event handler attributes (on* in any case).
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*"[^"]*"/gi, "");
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*'[^']*'/gi, "");
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*[^\s>]+/gi, "");
+  // Event handler attributes (on* in any case). The browser starts an
+  // attribute name after whitespace, a "/" or a closing quote
+  // (<img src="x"/onerror=…>, <img src="x"onerror=…>), so all four count.
+  // An unquoted value stops at a quote or "<": marked writes a quote inside
+  // an attribute as &quot;, so the next straight quote closes the attribute
+  // this handler text sits in, and the next "<" starts a tag (text such as
+  // `a/onset=2` in a code span sits right before </code>). Eating either
+  // would leave an attribute or element open. The value may be empty, so the
+  // handler's name is always removed, even before a value that starts with
+  // "<" (onerror=<!--&#10;… runs its second line). Matching runs over the
+  // whole page, text included, so "/on…=" inside a URL or code goes too.
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"]*"/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^']*'/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`<]*/gi, "");
 
-  // javascript: URLs in href/src/action/formaction
+  // javascript: URLs in href/src/action/formaction (same attribute starts).
   s = s.replace(
-    /(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi,
+    /([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*)(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi,
     '$1"#"',
   );
 
@@ -573,8 +566,8 @@ function extractFirstHeading(html: string): string | null {
 
 /**
  * Decode HTML entities in plain text extracted from rendered HTML. Distinct
- * from decodeTypographicEntities (which runs on in-pipeline HTML and preserves
- * &amp; because &amp;amp; can be legitimate there). This runs on text destined
+ * from smartypants, which reads only quote entities, only in text, and leaves
+ * &amp; alone because &amp;amp; can be legitimate there. This runs on text destined
  * for <title>, cover, and TOC entries where &amp; MUST become & or escapeHtml
  * produces &amp;amp;.
  *

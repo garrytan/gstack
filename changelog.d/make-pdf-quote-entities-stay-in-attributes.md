@@ -1,0 +1,4 @@
+---
+important: security
+---
+**make-pdf keeps quotes in alt text, link titles and raw HTML attributes inside the attribute, so a Markdown file can no longer add an `onerror`, `onload` or `javascript:` link that runs in the print browser.** make-pdf used to turn `&quot;` back into `"` after its sanitizer had run, so an image caption holding a quote followed by an `onerror` handler printed as a live handler; quote entities are now read as quotes only in text, where they become curly quotes. The sanitizer also catches a handler or `javascript:` link written right after a `/` or a closing quote inside a raw HTML block, and no longer leaves an attribute or element open when it removes handler text. Handler-looking text such as `/onload=` is still removed wherever it appears, URLs and code included. Quotes in alt text and titles also render correctly now instead of cutting the text short.

@@ -76,7 +76,14 @@ export function smartypants(html: string): string {
  *   5. Single quotes (open/close pairing — after apostrophes)
  */
 function transformText(text: string): string {
-  let s = text;
+  // marked writes text quotes as entities. Read them as quotes here, in text
+  // only: every quote below becomes a curly one, so none can come out as
+  // attribute or tag syntax however a tag was split.
+  let s = text
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x27;/g, "'");
 
   // Ellipsis: three literal dots (with optional spaces) → …
   s = s.replace(/\.\s?\.\s?\./g, "\u2026");

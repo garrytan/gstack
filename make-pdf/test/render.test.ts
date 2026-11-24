@@ -89,6 +89,21 @@ describe("smartypants", () => {
     expect(out).toContain(`href="it's-a-test.html"`);
   });
 
+  test("curls quote entities in text and leaves them encoded inside tags", () => {
+    const out = smartypants(`<p>She said &quot;hi&quot; and it&#39;s &apos;ok&#x27;.</p><img alt="a &quot;b&quot; c&#39;s">`);
+    expect(out).toBe(`<p>She said \u201chi\u201d and it\u2019s \u2018ok\u2019.</p><img alt="a &quot;b&quot; c&#39;s">`);
+  });
+
+  // A tag split differently than the browser splits it (a ">" inside a quoted
+  // value) must not turn the entities after it into straight quotes: the
+  // browser reads them as part of the attribute, where a straight quote would
+  // end the value and start a live onerror attribute.
+  test("never turns a quote entity into a straight quote", () => {
+    const input = `<img a"b="c>&quot;/onerror=&quot;alert(1)&quot;/x=&#39;y&apos;z&#x27;>`;
+    const count = (s: string) => (s.match(/["']/g) ?? []).length;
+    expect(count(smartypants(input))).toBe(count(input));
+  });
+
   test("does NOT convert -- in CLI flags", () => {
     // Prose like "try --verbose mode" should not turn -- into em dash
     const out = smartypants(`<p>Try --verbose mode.</p>`);
@@ -188,6 +203,16 @@ describe("render (end-to-end)", () => {
   test("derives title from first H1 when --title is not passed", () => {
     const result = render({ markdown: `# My Title\n\nBody.` });
     expect(result.meta.title).toBe("My Title");
+  });
+
+  // Quote entities were decoded inside tags too, so alt="A &quot;quoted&quot;
+  // caption" became alt="A "quoted" caption" and the attribute ended at "A ".
+  test("keeps quotes inside image alt and link title attributes", () => {
+    const md = `![A "quoted" caption](pic.png)\n\nSee [the site](https://example.com 'The "best" site') and <abbr title="it&#39;s &quot;x&quot;">X</abbr>.\n`;
+    const html = render({ markdown: md }).bodyHtml;
+    expect(html).toContain(`alt="A &quot;quoted&quot; caption"`);
+    expect(html).toContain(`title="The &quot;best&quot; site"`);
+    expect(html).toContain(`<abbr title="it&#39;s &quot;x&quot;">X</abbr>`);
   });
 
   test("uses --title override when provided", () => {
@@ -318,6 +343,140 @@ describe("render (end-to-end)", () => {
     const result = render({ markdown: `# Hello\n\nBefore.\n\n---\n\nAfter.\n` });
     expect(result.html).toContain("<hr>");
     expect(result.html).toContain("After.");
+  });
+});
+
+// ─── attribute injection ──────────────────────────────────────────────
+
+/** Every attribute the browser's tokenizer would see, start tags only. */
+function browserAttrs(html: string): Array<{ tag: string; name: string; value: string }> {
+  const out: Array<{ tag: string; name: string; value: string }> = [];
+  let i = 0;
+  while ((i = html.indexOf("<", i)) !== -1) {
+    const open = /^<([a-zA-Z][^\s/>]*)/.exec(html.slice(i));
+    if (!open) { i++; continue; }
+    const tag = open[1]!.toLowerCase();
+    i += open[0].length;
+    while (i < html.length && html[i] !== ">") {
+      if (/[\s/]/.test(html[i]!)) { i++; continue; }
+      let name = html[i++]!;
+      while (i < html.length && !/[\s/>=]/.test(html[i]!)) name += html[i++];
+      while (/\s/.test(html[i] ?? "")) i++;
+      let value = "";
+      if (html[i] === "=") {
+        i++;
+        while (/\s/.test(html[i] ?? "")) i++;
+        const q = html[i];
+        if (q === '"' || q === "'") {
+          const end = html.indexOf(q, i + 1);
+          value = html.slice(i + 1, end < 0 ? html.length : end);
+          i = end < 0 ? html.length : end + 1;
+        } else {
+          while (i < html.length && !/[\s>]/.test(html[i]!)) value += html[i++];
+        }
+      }
+      out.push({ tag, name: name.toLowerCase(), value });
+    }
+  }
+  return out;
+}
+
+function decodeAttr(v: string): string {
+  return v.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(quot|apos|amp));?/gi, (_m, hex, dec, named) =>
+    hex ? String.fromCodePoint(parseInt(hex, 16))
+      : dec ? String.fromCodePoint(parseInt(dec, 10))
+      : ({ quot: '"', apos: "'", amp: "&" } as Record<string, string>)[named.toLowerCase()]!);
+}
+
+function liveScript(html: string): string[] {
+  return browserAttrs(html)
+    .filter((a) => a.name.startsWith("on") ||
+      (/^(?:href|src|xlink:href|action|formaction)$/.test(a.name) && /^\s*javascript:/i.test(decodeAttr(a.value))))
+    .map((a) => `<${a.tag} ${a.name}=${a.value}>`);
+}
+
+function attrsOf(html: string, tag: string): string[] {
+  return browserAttrs(html).filter((a) => a.tag === tag).map((a) => a.name);
+}
+
+describe("render() — quote entities never open attributes or tags", () => {
+  test("an image alt cannot grow an onerror handler", () => {
+    const html = render({ markdown: `![x"/onerror="alert(1)](pic.png)\n` }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(attrsOf(html, "img")).toEqual(["src", "alt"]);
+  });
+
+  test("an image title cannot grow an onload handler or swallow the next paragraph", () => {
+    const html = render({ markdown: `![a](pic.png 'p" onload="alert(1)')\n\nAfter.\n` }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(attrsOf(html, "img")).toEqual(["src", "alt", "title"]);
+    expect(attrsOf(html, "p")).toEqual([]);
+    expect(html).toContain("<p>After.</p>");
+    expect(browserAttrs(html).find((a) => a.name === "title")!.value).not.toContain("<");
+  });
+
+  test("a link title cannot grow a second href", () => {
+    const html = render({ markdown: `[a](https://example.com 't" href="javascript:alert(1)')\n` }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(attrsOf(html, "a")).toEqual(["href", "title"]);
+  });
+
+  test("a raw-HTML title cannot become a javascript: href", () => {
+    const html = render({ markdown: `<a title="x&quot; href=&quot;javascript:alert(1)&quot; y=&quot;">link</a>\n` }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(attrsOf(html, "a")).toEqual(["title"]);
+  });
+
+  test("single-quote entities in a raw-HTML attribute cannot end it", () => {
+    for (const q of ["&#39;", "&apos;", "&#x27;"]) {
+      const html = render({ markdown: `<abbr title='it${q}s/onmouseover=${q}alert(1)${q}'>X</abbr>\n` }).bodyHtml;
+      expect(liveScript(html)).toEqual([]);
+      expect(attrsOf(html, "abbr")).toEqual(["title"]);
+    }
+  });
+
+  test("raw HTML blocks cannot start a handler or javascript: href after / or a closing quote", () => {
+    const md = [
+      "<div>",
+      `<img src="pic.png"/onerror="alert(1)">`,
+      `<img src="pic.png"onerror="alert(1)">`,
+      `<img src='pic.png'onerror='alert(1)'>`,
+      "<svg/onload=alert(1)></svg>",
+      `<a title="t"href="javascript:alert(1)">j</a>`,
+      `<a/href="javascript:alert(1)">k</a>`,
+      "</div>",
+      "",
+    ].join("\n");
+    const html = render({ markdown: md }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(html).toContain(">j</a>");
+    expect(html).toContain(">k</a>");
+  });
+
+  // Handler removal runs over the whole page, so handler-looking text in a
+  // code span is removed; it must stop before the closing </code> tag.
+  test("removing handler-looking text never eats a tag", () => {
+    const html = render({ markdown: "See `a/onset=2` and `b onset=3` here.\n" }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(html).toContain("<p>See <code>a/</code> and <code>b</code> here.</p>");
+  });
+
+  // An unquoted value can't hold a space, but the parser decodes &#10; to a
+  // line break, so onerror=<!--&#10;code runs "code" after the comment.
+  test("a handler whose unquoted value starts with < or a quote is still removed", () => {
+    for (const value of ["<!--a", "<!--&#10;document.title=1", "\"x", "'x", ""]) {
+      const html = render({ markdown: `<div>\n<img src=pic.png onerror=${value}>\n</div>\n` }).bodyHtml;
+      expect(liveScript(html)).toEqual([]);
+      expect(html).not.toMatch(/onerror/i);
+    }
+  });
+
+  test("ordinary quotes still curl and ordinary attributes stay", () => {
+    const html = render({ markdown: `She said "hi" -- it's fine. ![a](pic.png "A title")\n` }).bodyHtml;
+    expect(html).toContain("\u201chi\u201d");
+    expect(html).toContain("it\u2019s");
+    expect(html).toContain(`title="A title"`);
+    expect(attrsOf(html, "img")).toEqual(["src", "alt", "title"]);
   });
 });
 
