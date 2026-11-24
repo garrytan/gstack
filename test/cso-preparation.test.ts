@@ -74,6 +74,50 @@ describe('CSO inert Node preparation', () => {
     const files = nodeFiles(); files['package-lock.json'].packages['node_modules/cookie'].resolved = url;
     const plan = inspectPreparation(fixture(files)); expect(plan.status).toBe('prerequisites'); expect(plan.acquisition).toEqual([]);
   });
+  const bundledFiles = () => {
+    const files: any = nodeFiles();
+    const packages = files['package-lock.json'].packages;
+    packages['node_modules/@tailwindcss/oxide-wasm32-wasi'] = { version: '4.1.11', resolved: 'https://registry.npmjs.org/@tailwindcss/oxide-wasm32-wasi/-/oxide-wasm32-wasi-4.1.11.tgz', integrity: sri, bundleDependencies: ['@emnapi/core', 'tslib'], optional: true };
+    packages['node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@emnapi/core'] = { version: '1.4.3', inBundle: true, optional: true, dependencies: { '@emnapi/wasi-threads': '1.0.2' } };
+    packages['node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@emnapi/core/node_modules/@emnapi/wasi-threads'] = { version: '1.0.2', inBundle: true, optional: true };
+    packages['node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/tslib'] = { version: '2.8.0', inBundle: true, license: '0BSD', optional: true };
+    return files;
+  };
+  test('accepts bundled npm entries covered by their parent archive', () => {
+    const plan = inspectPreparation(fixture(bundledFiles()));
+    expect(plan.status).toBe('ready');
+    expect(plan.inputs.map(i => i.name).sort()).toEqual(['@tailwindcss/oxide-wasm32-wasi', 'cookie']);
+  });
+  for (const [label, edit] of [
+    ['missing', ({ 'package-lock.json': { packages: p } }: any) => { delete p['node_modules/@tailwindcss/oxide-wasm32-wasi']; }],
+    ['unresolved', ({ 'package-lock.json': { packages: p } }: any) => { delete p['node_modules/@tailwindcss/oxide-wasm32-wasi'].resolved; }],
+    ['unhashed', ({ 'package-lock.json': { packages: p } }: any) => { p['node_modules/@tailwindcss/oxide-wasm32-wasi'].integrity = 'sha1-weak'; }],
+    ['off-registry', ({ 'package-lock.json': { packages: p } }: any) => { p['node_modules/@tailwindcss/oxide-wasm32-wasi'].resolved = 'https://evil.invalid/oxide.tgz'; }],
+    ['workspace link', (files: any) => { const p = files['package-lock.json'].packages; p['node_modules/@tailwindcss/oxide-wasm32-wasi'] = { resolved: 'packages/local', link: true }; p['packages/local'] = { name: 'local', version: '1.0.0' }; files['packages/local/package.json'] = { name: 'local', version: '1.0.0' }; }],
+    ['itself bundled without an archive', ({ 'package-lock.json': { packages: p } }: any) => { p['node_modules/@tailwindcss/oxide-wasm32-wasi'] = { version: '4.1.11', inBundle: true }; }],
+  ] as const) test(`rejects a bundled npm entry whose parent is ${label}`, () => {
+    const files = bundledFiles(); edit(files);
+    const plan = inspectPreparation(fixture(files));
+    expect(plan.status).toBe('prerequisites'); expect(plan.acquisition).toEqual([]);
+  });
+  test('rejects a bundled npm entry with no parent package', () => {
+    const files: any = nodeFiles();
+    files['package-lock.json'].packages['node_modules/tslib'] = { version: '2.8.0', inBundle: true };
+    const plan = inspectPreparation(fixture(files));
+    expect(plan.prerequisites[0].code).toBe('UNPINNED_ARCHIVE'); expect(plan.acquisition).toEqual([]);
+  });
+  test('keeps refusing a non-bundled npm entry without a resolved archive', () => {
+    const files: any = bundledFiles();
+    delete files['package-lock.json'].packages['node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/tslib'].inBundle;
+    const plan = inspectPreparation(fixture(files));
+    expect(plan.prerequisites[0].code).toBe('UNPINNED_ARCHIVE'); expect(plan.acquisition).toEqual([]);
+  });
+  test('still validates a bundled npm entry that names its own archive', () => {
+    const files: any = bundledFiles();
+    files['package-lock.json'].packages['node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/tslib'].resolved = 'https://evil.invalid/tslib.tgz';
+    const plan = inspectPreparation(fixture(files));
+    expect(plan.prerequisites[0].code).toBe('UNSUPPORTED_SOURCE'); expect(plan.acquisition).toEqual([]);
+  });
   test('rejects archive without cryptographic integrity', () => {
     const files = nodeFiles(); files['package-lock.json'].packages['node_modules/cookie'].integrity = 'sha1-weak';
     expect(inspectPreparation(fixture(files)).prerequisites[0].code).toBe('UNPINNED_ARCHIVE');
