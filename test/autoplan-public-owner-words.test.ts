@@ -460,11 +460,12 @@ describe('every attribution, line and quote shape reads as the merge base read i
 
 describe("short owner quotes and leave-out reasons stay out of a first-version export (GST-3646)", () => {
   const tag = (prefix: string, i: number) => `${prefix}${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + (i % 26))}vel`;
-  const QUOTES: Array<[string, (u: string) => string]> = [
+  const QUOTES: Array<[string, (u: string) => string, string?]> = [
     ['one word', u => u],
     ['two words', u => `quimbly ${u}`],
     ['an emoji and a word', u => `🚀 ${u}`],
     ['CJK', u => `毎朝ベル${u}`],
+    ['two words padded inside the quote marks', u => `skelvy ${u}`, ' '],
   ];
   const LINES: Array<[string, (r: string) => string, boolean]> = [
     ['does it', () => ' → does it', false],
@@ -478,10 +479,10 @@ describe("short owner quotes and leave-out reasons stay out of a first-version e
     ['a choice and size in mixed case', () => ' → Choice; Size: one day', false],
     ['a recommended reason in mixed case', r => ` → CHOICE; size: two days; Recommend Leave Out: ${r}`, true],
   ];
-  const ROWS = QUOTES.flatMap(([qName, quote], a) => LINES.map(([lName, line, hasReason], b) => {
+  const ROWS = QUOTES.flatMap(([qName, quote, pad = ''], a) => LINES.map(([lName, line, hasReason], b) => {
     const i = a * LINES.length + b, reason = tag('rz', i);
     const words = quote(tag('qx', i));
-    return { name: `${qName} / ${lName}`, bullet: `- The owner, 2026-11-20 08:${String(i).padStart(2, '0')}Z: "${words}"${line(reason)}`, words, reason: hasReason ? line(reason).replace(/^.*leave out\s*:\s*/i, '') : undefined };
+    return { name: `${qName} / ${lName}`, bullet: `- The owner, 2026-11-20 08:${String(i).padStart(2, '0')}Z: "${pad}${words}${pad}"${line(reason)}`, words, reason: hasReason ? line(reason).replace(/^.*leave out\s*:\s*/i, '') : undefined };
   }));
   const plan = [
     '# Morning helper (synthetic first version)', '', '## Implementation plan', '',
@@ -522,6 +523,7 @@ describe("short owner quotes and leave-out reasons stay out of a first-version e
     expect(validate().status).toBe(0);
     const ownerWordsAt = (added: string) => { fs.writeFileSync(record, before + added); return validate().stderr.includes('ARTIFACT_OWNER_WORDS'); };
     expect(ownerWordsAt(`The owner said “${ROWS[0]!.words}”.\n`)).toBe(true);
+    expect(ownerWordsAt(`The owner said " ${ROWS[1]!.words} ".\n`)).toBe(true);
     expect(ownerWordsAt(`The plan's reason: leave out: ${ROWS[2]!.reason}\n`)).toBe(true);
     expect(ownerWordsAt(`A plain mention of ${ROWS[0]!.words} and ${ROWS[2]!.reason}.\n`)).toBe(false);
     fs.writeFileSync(record, before);

@@ -190,7 +190,7 @@ export function ownerIndex(replies: OwnerSource[], o: { deferred?: OwnerSource[]
   const placements = [
     ...(o.deferred ?? []).flatMap(d => DEFERRAL_RENDERINGS(escape(d.text))),
     ...(o.carried ?? []).map(w => `words=(${escape(JSON.stringify(w))})(?= by=|$)`),
-    ...(o.quoted ?? []).map(q => `["“](${escape(q)})["”]`),
+    ...(o.quoted ?? []).map(q => `["“]\\s*(${escape(q)})\\s*["”]`),
   ].map(p => new RegExp(p, 'gd')).concat((o.reasons ?? []).map(r => new RegExp(`(?:leave out|leave it out for now|reason to leave it out)\\s*:\\s*(${escape(r)})`, 'gdi')));
   return { replies: indexed, placements };
 }
