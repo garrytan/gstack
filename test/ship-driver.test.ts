@@ -237,12 +237,12 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     const f = flat(doc);
     const phase = (n: number) => f.slice(f.indexOf(`## ${n}. `), f.indexOf(`## ${n + 1}. `));
     expect(phase(3)).not.toMatch(/QA reader/);
-    expect(phase(3)).toContain('and 9.2.1 (no catch: L)');
-    expect(phase(4)).toContain('Steps 8.1, 8.2 and 9.2.1 are skipped (no catch recorded, L)');
+    expect(phase(3)).toContain('on `plan=none` also Step 8\'s (`sections/plan-completion.md`) and 9.2.1 (L), else both run as written');
+    expect(phase(4)).toContain('On `plan=none` Steps 8.1, 8.2 and 9.2.1 are skipped (L)');
     expect(phase(4)).toContain('one program');
     expect(f).toContain('`Coverage:` and Step 8\'s `--audit` line), **Decisions**');
     const capy = flat(read('capy/skill/gstack/SKILL.md'));
-    expect(capy).toContain('Steps 7, 8 and 14.5 (`step: "14.5"`) use `extras`');
+    expect(capy).toContain('Step 14.5 (`step: "14.5"`) and, with a bound plan, Step 8 use `extras`');
     expect(capy).not.toMatch(/9\.2\.1[^.]*`extras`/);
     expect(flat(read('ship/sections/review-army.md'))).toContain('### Step 9.2.1: Exploratory QA (before Fix-First) Only the parent runs report-only discovery.');
   });

@@ -1,5 +1,5 @@
 {
-  "$schema": "https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1",
+  "$schema": "https://github.com/garrytan/gstack/blob/main/docs/pregate.md#pregate-v1",
   "runner": "bun test --timeout=30000 {files}",
   "remote_gate": "bash scripts/ubicloud/pregate-remote.sh",
   "dependencies": {

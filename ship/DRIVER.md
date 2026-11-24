@@ -73,12 +73,13 @@ Never read TODOS.md or the full diff into the parent. A `PERSIST:` hint never re
 
 ## 3. Audits and review: Steps 7, 8, 9, 9.1, 9.2, 9.2.1
 
-One program: `--audit`'s lines and the pass (above): Steps 9-9.2 from `sections/review-army.md` as written. Skipped here: the Step 7
-and 8 readers (`sections/test-coverage.md`, `sections/plan-completion.md`; 1 catch in 24 runs, CI's too: GST-3562 K) and 9.2.1 (no catch: L). `Coverage:` and Step 8's line come from `--audit`.
+One program: `--audit`'s lines and the pass (above): Steps 9-9.2 from `sections/review-army.md` as written. Skipped: the Step 7
+reader (`sections/test-coverage.md`, GST-3562 K); on `plan=none` also Step 8's (`sections/plan-completion.md`) and 9.2.1 (L), else
+both run as written. `Coverage:` and Step 8's line come from `--audit`.
 
 ## 4. Judgment: Steps 8.1, 8.2, 9.3, 9.4 and Step 11
 
-Steps 8.1, 8.2 and 9.2.1 are skipped (no catch recorded, L). The core checklist, Steps
+On `plan=none` Steps 8.1, 8.2 and 9.2.1 are skipped (L). The core checklist, Steps
 9.3, 9.4 and the repeat decision as written (`JUDGMENT: ok` before any fix), fixes and persistence in
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or
 `scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated (`diffBase` RANGE_BASE on a `full` round 2 only, never

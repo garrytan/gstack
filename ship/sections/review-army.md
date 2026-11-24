@@ -20,8 +20,8 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 gave `--depth-floor <d>` (it only raises), and Step 1's `PR_REVIEW_FLAGS:` on every plan run (the PR's
 earlier rounds; past two, a head whose code changed gets one read-only full review (`READ_ONLY:`, no fix round), and `PR_ROUND_CAP`
 stops for the lane, never the owner). Round grants and fix-check grants are deprecated and go in the next release: ask for and
-record none. A `--round-grant` or `--stop` that an older grant still puts in those flags runs as the plan's `NEXT:` and
-`gstack-ship-receipt` lines say. Add `--declare-risk <classes>` when the diff touches a risk
+record none. When an older grant still puts `--round-grant <id>` there, run `gstack-ship-receipt claim --pr <n> --run <SESSION_ID> --grant <id>`
+before the first dispatch (`GRANT_SPENT` stops the run), then follow the plan's `NEXT:`. Add `--declare-risk <classes>` when the diff touches a risk
 class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
 receipt write the same flag; a repeat uses the plan run that picked it.
 A `scoped` repeat is a full pass on the range: its `fix-check` dispatch is one full-effort reviewer on the
