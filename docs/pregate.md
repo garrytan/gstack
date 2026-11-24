@@ -1600,7 +1600,7 @@ workflow on the merged commit, on the scratch branch `gstack-land/<n>`
 ([ship-policy.md](ship-policy.md#land-direct)), and GitHub's merge has that
 same tree unless main moved again before the merge. So when the head's tree
 differs, `find` takes the newest `workflow_dispatch` run on `gstack-land/<n>`
-and reuses it only when `verifyRun` accepts it and its `tested-tree` record
+that wasn't cancelled (land passes cancelled runs over too) and reuses it only when `verifyRun` accepts it and its `tested-tree` record
 names the pushed tree (`no_verified_run` or `tree_mismatch` otherwise; a branch
 with no such run keeps `tree_mismatch`). Only the newest run counts, newest by run id
 rather than start time, so a red retry on the same tree is never hidden
