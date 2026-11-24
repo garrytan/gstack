@@ -480,6 +480,98 @@ describe("render() — quote entities never open attributes or tags", () => {
   });
 });
 
+describe("render() — characters dropped after sanitizing cannot revive script", () => {
+  // The typography pass drops U+0000 after the sanitizer has run, so the
+  // sanitizer has to see the page without it.
+  test("a NUL inside a handler name, a javascript: scheme or a tag name is no way around the sanitizer", () => {
+    const md = [
+      "<div>",
+      "<img src=pic.png on\u0000error=alert(1)>",
+      "<img src=\"pic.png\" o\u0000nload=\"alert(1)\">",
+      "<a href=\"java\u0000script:alert(1)\">j</a>",
+      "<a href=java\u0000script:alert(1)>k</a>",
+      "<scr\u0000ipt>alert(1)</script>",
+      "</div>",
+      "",
+    ].join("\n");
+    const html = render({ markdown: md }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(html).not.toMatch(/<script/i);
+    expect(html).not.toContain("\u0000");
+    expect(html).toContain(">j</a>");
+    expect(html).toContain(">k</a>");
+  });
+
+  test("sanitizeUntrustedHtml drops NUL itself, for callers that skip the typography pass", () => {
+    const out = sanitizeUntrustedHtml("<svg on\u0000load=alert(1)><circle r=\"2\"/></svg>");
+    expect(out).not.toContain("\u0000");
+    expect(liveScript(out)).toEqual([]);
+  });
+});
+
+describe("render() — removing script keeps the page's structure", () => {
+  test("handler-looking text inside a quoted attribute never eats the elements after it", () => {
+    for (const md of [
+      `<div title="docs/onload='example">Keep me</div><p title='other'>Next</p>\n`,
+      `<div title='docs/onload="example'>Keep me</div><p title="other">Next</p>\n`,
+    ]) {
+      const html = render({ markdown: md }).bodyHtml;
+      expect(liveScript(html)).toEqual([]);
+      expect(html).toContain(">Keep me</div>");
+      expect(html).toContain(">Next</p>");
+      expect(attrsOf(html, "div")).toEqual(["title"]);
+      expect(attrsOf(html, "p")).toEqual(["title"]);
+    }
+  });
+
+  test("a handler value holding < or > loses its handler without spilling into the page", () => {
+    const html = render({ markdown: `<div>\n<img src="pic.png" onerror="a>b<img src=x onload=alert(1)>">\n</div>\n` }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(html).not.toMatch(/onerror|onload/i);
+  });
+
+  test("a javascript: href holding < or > is still neutralized", () => {
+    const html = render({ markdown: `<div>\n<a href="javascript:a>b">j</a>\n</div>\n` }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+  });
+
+  test("an ordinary link whose path contains /href=javascript: keeps its attributes and text", () => {
+    const html = render({ markdown: "[Reference](https://example.com/docs/href=javascript:overview) after\n" }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    expect(attrsOf(html, "a")).toEqual(["href"]);
+    expect(html).toContain(">Reference</a> after");
+    expect(browserAttrs(html).find((a) => a.name === "href")!.value).toMatch(/^https:\/\/example\.com\/docs\//);
+  });
+
+  test("removing an attribute cannot join the halves of a dangerous tag name", () => {
+    for (const x of [
+      `<scr onx="a"ipt>alert(1)</script>`,
+      `<scr onx='a'ipt>alert(1)</script>`,
+      `<scr srcdoc="a"ipt>alert(1)</script>`,
+      `<ifr onx="a"ame src="pic.png"></iframe>`,
+      `<ob onx="a"ject data="pic.png"></object>`,
+    ]) {
+      const html = render({ markdown: `<div>\n${x}\n</div>\n` }).bodyHtml;
+      expect(html).not.toMatch(/<(?:script|iframe|object)\b/i);
+      expect(liveScript(html)).toEqual([]);
+    }
+  });
+
+  test("a javascript: value after leading spaces or with an encoded colon is neutralized", () => {
+    for (const a of [`href=" javascript:alert(1)"`, `href="\tjavascript:alert(1)"`, "href=javascript&colon;alert(1)", `href="javascript&#58;alert(1)"`, "href=javascript&#x3A;alert(1)"]) {
+      const html = render({ markdown: `<div>\n<a ${a}>j</a>\n</div>\n` }).bodyHtml;
+      expect(liveScript(html)).toEqual([]);
+      expect(html).toContain(">j</a>");
+    }
+  });
+
+  test("an unquoted javascript: value is replaced without adding quotes", () => {
+    const out = sanitizeUntrustedHtml("<a href=javascript:alert(1)>j</a>");
+    expect(liveScript(out)).toEqual([]);
+    expect(out).not.toContain('"');
+  });
+});
+
 // ─── print-css ──────────────────────────────────────────────
 
 describe("printCss", () => {
