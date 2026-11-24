@@ -1040,15 +1040,38 @@ function provePreparedProjection(
   };
 }
 
+/** npm writes `semver.clean(version, loose)` into the lock, so an installed manifest is compared in that form. */
+function npmLockVersion(version: unknown): unknown {
+  if (typeof version !== 'string') return version;
+  const match =
+    /^(\d+)\.(\d+)\.(\d+)(?:-?([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+      version.trim().replace(/^[=v]+/, ''),
+    );
+  if (!match) return version;
+  const number = (part: string) => (Number.isSafeInteger(Number(part)) ? String(Number(part)) : undefined);
+  const core = match.slice(1, 4).map(number);
+  if (core.includes(undefined)) return version;
+  const pre = match[4]?.split('.').map((part) => (/^\d+$/.test(part) ? (number(part) ?? part) : part));
+  return core.join('.') + (pre ? `-${pre.join('.')}` : '');
+}
+
 /** Lock-reading scanners report the lock's versions, so the installed npm tree must hold exactly those packages. */
-function proveNpmLockIdentities(plan: PreparationPlan, preparedRoot: string): void {
+export function proveNpmLockIdentities(
+  plan: PreparationPlan,
+  preparedRoot: string,
+  deadline: number,
+  signal?: AbortSignal,
+): void {
   const lock = plan.metadata.find(
     (item) => item.path === 'npm-shrinkwrap.json' || item.path === 'package-lock.json',
   );
   if (!lock) fail('INVALID_SCHEMA', 'Node preparation plan omitted its npm lock');
   const packages: Record<string, Record<string, unknown>> = JSON.parse(lock.content).packages ?? {};
+  const unlisted = (path: string) =>
+    fail('INCOMPATIBLE_INPUT', `Installed npm package ${path} is not listed in the lockfile`);
   const pending = ['node_modules'];
   while (pending.length) {
+    checkDeadline(deadline, signal);
     const dir = pending.pop()!;
     let items: fs.Dirent[];
     try {
@@ -1058,29 +1081,33 @@ function proveNpmLockIdentities(plan: PreparationPlan, preparedRoot: string): vo
       throw error;
     }
     for (const item of items) {
-      if (item.name.startsWith('.') || !item.isDirectory()) continue;
+      if (item.name.startsWith('.')) continue;
       const path = `${dir}/${item.name}`;
+      if (item.isSymbolicLink()) {
+        if (packages[path]?.link !== true) unlisted(path);
+        continue;
+      }
+      if (!item.isDirectory()) unlisted(path);
       if (item.name.startsWith('@') && dir.endsWith('node_modules')) {
         pending.push(path);
         continue;
       }
       pending.push(`${path}/node_modules`);
-      if (!fs.existsSync(join(preparedRoot, path, 'package.json'))) continue;
-      if (!Object.hasOwn(packages, path) || packages[path].link === true)
-        fail('INCOMPATIBLE_INPUT', `Installed npm package ${path} is not listed in the lockfile`);
+      if (!Object.hasOwn(packages, path) || packages[path].link === true) unlisted(path);
     }
   }
   for (const [path, entry] of Object.entries(packages)) {
+    checkDeadline(deadline, signal);
     if (!path.split('/').includes('node_modules') || entry.link === true) continue;
-    const manifestPath = join(preparedRoot, path, 'package.json');
-    let stat: fs.Stats;
     try {
-      stat = fs.lstatSync(manifestPath);
+      fs.lstatSync(join(preparedRoot, path));
     } catch (error: any) {
       if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') continue;
       throw error;
     }
-    if (!stat.isFile() || stat.size > 1024 * 1024)
+    const manifestPath = join(preparedRoot, path, 'package.json');
+    const stat = fs.lstatSync(manifestPath, { throwIfNoEntry: false });
+    if (!stat?.isFile() || stat.size > 1024 * 1024)
       fail('INCOMPATIBLE_INPUT', `Installed npm package ${path} has no readable package.json`);
     let installed: any;
     try {
@@ -1089,7 +1116,8 @@ function proveNpmLockIdentities(plan: PreparationPlan, preparedRoot: string): vo
       fail('INCOMPATIBLE_INPUT', `Installed npm package ${path} has an invalid package.json`);
     }
     const name = typeof entry.name === 'string' ? entry.name : path.split('node_modules/').at(-1);
-    if (installed?.name !== name || installed?.version !== entry.version)
+    const installedName = typeof installed?.name === 'string' ? installed.name.trim() : installed?.name;
+    if (installedName !== name || npmLockVersion(installed?.version) !== entry.version)
       fail(
         'INCOMPATIBLE_INPUT',
         `Installed npm package ${path} does not match the lockfile: the lock says ${name}@${String(entry.version)}, the installed package.json says ${String(installed?.name)}@${String(installed?.version)}`,
@@ -1546,7 +1574,8 @@ export class PreparationExecutor {
         ),
         preparedManifestHash = projection.manifestHash,
         preparedDependencyHash = projection.dependencyHash;
-      if (options.plan.stack === 'node') proveNpmLockIdentities(options.plan, preparedRoot);
+      if (options.plan.stack === 'node')
+        proveNpmLockIdentities(options.plan, preparedRoot, options.deadline, options.signal);
       if (
         treeHash(options.snapshot, MAX_SOURCE_BYTES, options.deadline, false, options.signal) !== sourceHash
       )

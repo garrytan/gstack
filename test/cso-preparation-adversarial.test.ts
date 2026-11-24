@@ -81,8 +81,8 @@ class PreparedSymlinkRunner implements PreparationSandboxRunner {
     fs.mkdirSync(preparedRoot, { mode: 0o700 });
     fs.cpSync(request.sourceRoot, preparedRoot, { recursive: true });
     fs.mkdirSync(path.join(preparedRoot, 'node_modules/.bin'), { recursive: true });
-    fs.mkdirSync(path.join(preparedRoot, 'node_modules/lib'), { recursive: true });
-    fs.writeFileSync(path.join(preparedRoot, 'node_modules/lib/tool.js'), 'export default 1;\n');
+    fs.mkdirSync(path.join(preparedRoot, 'node_modules/.cache'), { recursive: true });
+    fs.writeFileSync(path.join(preparedRoot, 'node_modules/.cache/tool.js'), 'export default 1;\n');
     fs.writeFileSync(path.join(call, 'outside.txt'), 'outside\n');
     fs.symlinkSync(this.linkTarget, path.join(preparedRoot, 'node_modules/.bin/tool'));
     return { preparedRoot, receipt: offlineReceipt(request) };
@@ -165,7 +165,7 @@ afterEach(() => {
 
 describe('CSO preparation adversarial regressions', () => {
   test('accepts a contained relative symlink in a prepared dependency tree', async () => {
-    const prepared = await prepareWithLink('../lib/tool.js');
+    const prepared = await prepareWithLink('../.cache/tool.js');
     expect(prepared.preparedManifestHash).toMatch(/^[a-f0-9]{64}$/);
   });
 

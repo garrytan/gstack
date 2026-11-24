@@ -3,4 +3,4 @@ important: security
 ---
 ### Fixed
 
-- **`/cso --comprehensive` now refuses to prepare an npm app when an installed package doesn't match the lockfile's name and version.** /cso's dependency scanners read package versions from `package-lock.json`, so a lockfile entry whose stated version differs from what npm actually installs would make them report on the wrong version. After the offline install, preparation now compares each installed package's `package.json` name and version, bundled packages included, with its lockfile entry, and stops with a message naming the package and both versions when they disagree.
+- **`/cso --comprehensive` now refuses to prepare an npm app whose installed packages don't match its lockfile.** After the offline install, preparation checks every installed package, bundled packages included, against `package-lock.json`: the name and version in its `package.json` must match its lockfile entry (compared the way npm records versions, so `v1.2.3` matches `1.2.3`), and anything installed that the lockfile doesn't list, or that has no `package.json`, stops preparation. The error names the package and what differs.
