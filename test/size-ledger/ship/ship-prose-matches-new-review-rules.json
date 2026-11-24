@@ -1,0 +1,4 @@
+{
+  "bytes": 351,
+  "why": "GST-3562 part 2: review-army and pr-body prose say /ship plans no fix-check, grants are deprecated, and the read-only final review takes no diffBase; the docs audit edits only README.md, docs/ and bench/README.md"
+}

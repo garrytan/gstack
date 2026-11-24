@@ -18,15 +18,14 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 **Review plan.** Pass 1 runs `~/.claude/skills/gstack/bin/gstack-review-plan
 --base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
 gave `--depth-floor <d>` (it only raises), and Step 1's `PR_REVIEW_FLAGS:` on every plan run (the PR's
-earlier rounds and a round grant; past two the plan is one read-only full review, and `PR_ROUND_CAP` stops for the lane, never the owner).
-When they name `--round-grant <id>`, run `gstack-ship-receipt claim --pr <n> --run <SESSION_ID> --grant <id>` before the first
-dispatch (`GRANT_SPENT` stops the run). With `--stop <head>` too, the grant buys that stop's fix round: Step 9 is only decision
-3.5's fix-check of the PR's own change since `<head>`, for the grant's findings, Step 11.5 saves `<head>`'s tree, and the receipt's
-`review_loop_exception` names the grant. Add `--declare-risk <classes>` when the diff touches a risk
+earlier rounds; past two, a head whose code changed gets one read-only full review (`READ_ONLY:`, no fix round), and `PR_ROUND_CAP`
+stops for the lane, never the owner). Round grants and fix-check grants are deprecated and go in the next release: ask for and
+record none. A `--round-grant` or `--stop` that an older grant still puts in those flags runs as the plan's `NEXT:` and
+`gstack-ship-receipt` lines say. Add `--declare-risk <classes>` when the diff touches a risk
 class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
 receipt write the same flag; a repeat uses the plan run that picked it.
-A `scoped` repeat is a full pass on the range: its `fix-check` is decision 3.5's
-reviewer and prompt with `git diff $RANGE_BASE` as the hunks, inside this pass.
+A `scoped` repeat is a full pass on the range: its `fix-check` dispatch is one full-effort reviewer on the
+`gstack-review-plan --fix-check-prompt` prompt with `git diff $RANGE_BASE` as the hunks, inside this pass, never a step of its own.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
 `runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
 (specialists, Red Team, Step 11's voices), each at its `effort=` on the same model
@@ -834,9 +833,10 @@ Decision 1 always applies first. Then, under `frozen`, run `gstack-review-plan -
 with each flag that holds (`--fixed-blocking`, `--fixed-below`, `--blocking-open`,
 `--touched-gate` for a fix to an item 2.5 path, `--critical-found` when this pass
 logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--reviewed-numbers <fp>`,
-`--depth-floor <d>` when given, `--fix-checks <n>` after a fix-check, `--grant <approval id>` once the owner's grant of one scoped fix-check is
-in `gstack-approvals` naming `review_loop_grant` and the stop head), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
-its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `fix-check` 3.5, `done` 4, `platform` 4. `voices` 4: Step 11 runs before the stop.
+`--depth-floor <d>` when given), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
+its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `done` 4, `platform` 4. `voices` 4: Step 11 runs before the stop.
+Any code change after round 1 gets a full round 2; a fix in the last round gets the read-only final review (`READ_ONLY:`);
+after it the PR ships with its open notes or the lane's Captain rules. `fix-check` (3.5) comes only from a grant recorded before GST-3562.
 `scoped` is 3 too. A full pass 1 always gets a full pass 2.
 Other scopes apply decisions 2–4 in order.
 
@@ -853,7 +853,7 @@ Other scopes apply decisions 2–4 in order.
    past what the request needs (a helper, a guard, a case nothing takes), cut that
    growth before anything else; the repeat reviews the cut as part of the range. Tests must pass or retain approval for the same verified pre-existing
    failures and scope. Keep CYCLES and scoped approvals across this repeat; PASS increments on entry.
-3.5. **One fix-check.** Take a `gstack-review-log --start review-fix-check` token (`--reservation <id>` under a cap); write the
+3.5. **A fix-check from an older grant** (deprecated, removed next release; /ship plans none). Take a `gstack-review-log --start review-fix-check` token (`--reservation <id>` under a cap); write the
    fix list, touched hunks (`git diff $PASS_HEAD`), callers of changed symbols and
    test results to `.gstack/tmp/fix-check-*.txt`; dispatch one full-effort reviewer
    on `gstack-review-plan --fix-check-prompt --fix-list <f> --hunks <f> --tests <f>

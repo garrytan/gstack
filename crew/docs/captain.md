@@ -572,9 +572,13 @@ lands while /ship runs waits for /ship to finish instead of being fixed mid-run.
 Capy the mechanics are in [the gstack skill](../../capy/skill/gstack/SKILL.md#plan-approve-ship).
 
 When the base moves under a reviewed branch, merge it in; never rebase. A merge that
-leaves the product diff unchanged carries the receipt with `gstack-ship-receipt carry`
-(pregate at HEAD, no review rerun), and a merge whose resolution changed product code
-needs a fresh /ship. A rebase carries only onto a tree the receipt already covers with
+leaves the branch's own lines, file modes and symlink targets byte-identical counts as
+reviewed and carries the receipt with `gstack-ship-receipt carry` (pregate at HEAD, no
+review rerun; CI on the merged head is the check). A merge that spliced main's change into a reviewed hunk, or
+chose the order of the branch's inserted lines against main's at the same spot, gets the one
+scoped reader `RECEIPT_CARRY_SCOPED_REVIEW` asks for, run without asking and not a review
+round; a merge whose resolution changed the branch's own lines, a file mode or a symlink
+target needs a fresh /ship. A rebase carries only onto a tree the receipt already covers with
 the same product diff; any other rebase is a full /ship
 ([ship-policy.md](../../docs/ship-policy.md#receipt-carry)). A controller never asks a lane to
 rebase a reviewed branch.
@@ -792,9 +796,10 @@ case-kind change, closing a contribution without landing it, and anything destru
 Standing spend is the commonest standing approval: `SPEND` in CREW.md names what the
 owner pre-approved (train gates, screens, bisects, the backstop, focused paid cases) with
 the owner's date and words and the cap per rerun; anything over the cap is a fresh ask.
-A review round past a PR's two (`PR_ROUND_CAP`) is the lane's or the controller's call, recorded
-with `gstack-approvals round-grant`, never an owner ask
-([rounds per pull request](../../docs/review-policy.md#rounds-per-pull-request)).
+After a PR's two review rounds (`PR_ROUND_CAP`) it ships with its open notes listed, or the controller
+rules on the blocker; a PR past the cap whose code changed gets one read-only full review of its final head,
+never an owner ask ([rounds per pull request](../../docs/review-policy.md#rounds-per-pull-request)). Round and
+fix-check grants are deprecated and go in the next release.
 
 **B. The plan ask** ([template](../../captain/templates/plan-ask.md)): before → after, why it
 matters, what caused this work, the big decisions, and what we need from you in the ask

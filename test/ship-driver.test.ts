@@ -147,9 +147,9 @@ describe('one program per pass (GSTA-167 variant E)', () => {
   test('Phase 2 runs --audit and the reads in its program, and no phase reads TODOS.md or the full diff into the parent', () => {
     const p2 = phase('## 2. Preflight');
     for (const s of ['gstack-ship-preflight --audit --base <base> --out <run dir>', 'writes the diff once (`CONTEXT:`)', '(`TODOS:`)', 'READER: coverage=<needed|none> plan=<needed|none>',
-      'only when its reader is `needed`', 'Never read TODOS.md or the full diff into the parent']) expect(p2).toContain(s);
-    expect(phase('## 4. Judgment')).toContain('on the todos and commits files');
-    expect(phase('## 6. Notes and documentation')).toContain('edited from the todos file');
+      'Phase 3 runs neither reader', 'Never read TODOS.md or the full diff into the parent']) expect(p2).toContain(s);
+    expect(phase('## 4. Judgment')).toContain('Steps 8.1, 8.2 and 9.2.1 are skipped');
+    expect(phase('## 6. Notes and documentation')).toContain('Step 14 is skipped');
   });
 });
 
@@ -191,10 +191,10 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
 
   // Value: protects=the driver and the Capy skill give diffBase to a full repeat pass only, so a scoped pass reaches GST-619's bases: its pending Step 11 voices read the merge base, not the fix range; fails_when=either text passes RANGE_BASE to every repeat pass again;
   //   why_new=#3670 merge fix-check (row 454): an explicit --diff-base wins in pass() (GST-619), so the driver's scoped diffBase narrowed the voices; seam=none; no_claim=the parent's adherence
-  test('a scoped repeat pass passes no diffBase, in the driver and the Capy skill', () => {
+  test('a scoped repeat pass and the read-only final review pass no diffBase, in the driver and the Capy skill', () => {
     const f = flat(doc);
-    const phase = f.slice(f.indexOf('`NEXT: stop` stops;'), f.indexOf('`fix-check`: the'));
-    expect(phase).toContain('(`diffBase` RANGE_BASE on `full` only; scoped fix-check: Step 3.5)');
+    const phase = f.slice(f.indexOf('`NEXT: stop` stops;'), f.indexOf('`fix-check` (only'));
+    expect(phase).toContain('(`diffBase` RANGE_BASE on a `full` round 2 only, never on a scoped pass or the `READ_ONLY:` final review, which reads the whole PR and takes no fix)');
     expect(phase).not.toMatch(/`diffBase`: RANGE_BASE;/);
     const capy = flat(read('capy/skill/gstack/SKILL.md'));
     expect(capy).toContain('a full repeat pass, `diffBase: "<RANGE_BASE>"`');
@@ -203,10 +203,10 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
 
   // Value: protects=a program's return fits the host's output cap, a fix runs as one gated program, Step 7's test-writing audit settles before the pass reads the tree, and an unattended push never stops on the one-time pre-push offer; fails_when=Phase 2 returns review-army.md + adversarial.md + documentation.md (97,750 B) at once (replays 8G: truncated reads cost extra calls), a fix walks test, fix, tests and dispatch call by call (GSTA-189: 16 calls), Step 7 writes tests while specialists read (GSTA-164: a pregate refused mid-run), or push stops unattended (all three variant G replays);
   //   why_new=GSTA-167 calls plan C5, C6, C7 and round-2 High 11; seam=none; no_claim=the parent's adherence, which the replays' CALLS: lines measure
-  test('returns stay at or under 32 KB, a fix is one gated program, Step 7 settles first, and unattended push defers the pre-push offer', () => {
+  test('returns stay at or under 32 KB, a fix is one gated program, and unattended push defers the pre-push offer', () => {
     const f = flat(doc);
     for (const s of ['Returns: ≤32 KB per program; split longer reads at headings, each byte once, before first use',
-      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', '(`diffBase` RANGE_BASE on `full` only; scoped fix-check: Step 3.5)', 'Step 7 may write tests, so it settles first',
+      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', '(`diffBase` RANGE_BASE on a `full` round 2 only, never on a scoped pass or the `READ_ONLY:` final review',
       'Unattended, push defers the pre-push offer; else its STOP runs Step 17\'s guard block', 'plus a keep-alive per 200 s waited']) expect(f).toContain(s);
     expect(flat(doc.slice(doc.indexOf('**Budget: observe.**')))).toContain('--reading R --credits C --record <rec>');
   });
@@ -222,8 +222,8 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
   // Value: protects=audits that cannot block (Steps 7, 8, 14.5) run at low effort on AUDIT_MODEL (GST-1439, GST-1449) with their sections' own briefs, and skip their reader when --audit decides them; fails_when=an audit reader inherits the lane's model and effort (#36: the coverage audit alone was 2.45M at Opus), the Capy skill hard-codes a model for Steps 7 and 8 again, or an audit brief is paraphrased;
   //   why_new=audit model routing is new; seam=none; no_claim=the audits' recall
   test('audit readers run on AUDIT_MODEL at low effort, named for Capy, and Phase 3 dispatches only what READER names', () => {
-    expect(flat(doc)).toContain('Audit readers (Steps 7, 8, 14.5) cannot block: low effort on `AUDIT_MODEL:`, 14.5 once; findings go to the PR body');
-    expect(flat(doc)).toContain('`Coverage:` and Step 8\'s line come from `--audit` when no reader ran');
+    expect(flat(doc)).toContain('Audit readers cannot block (here only 14.5 runs): low effort on `AUDIT_MODEL:`, 14.5 once; findings go to the PR body');
+    expect(flat(doc)).toContain('`Coverage:` and Step 8\'s line come from `--audit`');
     const capy = read('capy/skill/gstack/SKILL.md');
     expect(capy).toContain('they cannot block, so omit `model`: the pass prints `AUDIT_MODEL:`.');
     expect(capy).not.toContain('claude-sonnet-5-5');
@@ -233,17 +233,14 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
   //   their result line reaches the record, at no extra call; fails_when=the driver or the Capy skill sends Step 9.2.1 out as a QA reader
   //   (C4-36, C5-36: it refused both passes, "parent-only", and QA coverage was empty), the probes leave the record, or they take their own call;
   //   why_new=#3648 made Step 9.2.1 a reader (GST-450); seam=none; no_claim=the probes' recall
-  test('Step 9.2.1 is the parent\'s: Reads in Phase 3, probes in Phase 4\'s one program, Exploratory QA in the record, never an extra', () => {
+  test('Step 9.2.1 is the parent\'s in interactive /ship, never an extra, and the unattended driver skips it (GST-3562 L)', () => {
     const f = flat(doc);
     const phase = (n: number) => f.slice(f.indexOf(`## ${n}. `), f.indexOf(`## ${n + 1}. `));
     expect(phase(3)).not.toMatch(/QA reader/);
-    expect(phase(3)).toContain("9.2.1's Reads only");
-    expect(phase(4)).toContain("Step 8.1, 9.2.1's probes, 8.2 (`Scope Check:`)");
-    const at = ['Step 8.1', "9.2.1's probes", '8.2 (`Scope Check:`)', 'Steps 9.3, 9.4 and the repeat decision'].map(s => phase(4).indexOf(s));
-    expect(at[0]).toBeGreaterThanOrEqual(0);
-    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(phase(3)).toContain('and 9.2.1 (no catch: L)');
+    expect(phase(4)).toContain('Steps 8.1, 8.2 and 9.2.1 are skipped (no catch recorded, L)');
     expect(phase(4)).toContain('one program');
-    expect(f).toContain('the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions**');
+    expect(f).toContain('`Coverage:` and Step 8\'s `--audit` line), **Decisions**');
     const capy = flat(read('capy/skill/gstack/SKILL.md'));
     expect(capy).toContain('Steps 7, 8 and 14.5 (`step: "14.5"`) use `extras`');
     expect(capy).not.toMatch(/9\.2\.1[^.]*`extras`/);
