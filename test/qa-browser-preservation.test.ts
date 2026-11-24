@@ -178,7 +178,7 @@ describe('compact QA browser recipes retain native operations', () => {
       'Time caps include checkpoints and evidence',
       'stop probing and report unfinished coverage, never skip checkpoints',
       'For /qa and /qa-only, choose Full, Quick or Regression',
-      "/review and /ship keep their caller's smoke and plan bounds",
+      "/review and /gstack-ship keep their caller's smoke and plan bounds",
       'Resolve conflicting depth flags by asking before probes',
       'Diff-aware selects scope, not another pass',
       'After selecting and isolating a browser surface',
