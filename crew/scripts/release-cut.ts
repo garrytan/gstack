@@ -9,7 +9,7 @@
  * Thursday) and by hand (--ref <sha on main> for a hotfix). Dry runs print the
  * plan and change nothing.
  *
- *   bun crew/scripts/release-cut.ts --repo owner/name [--ref <sha>] [--security <reason> | --regression <reason>] [--daily [--fragments-dir <dir>]] [--dry-run]
+ *   bun crew/scripts/release-cut.ts --repo owner/name [--ref <sha>] [--security <reason> | --regression <reason>] [--benchmark-waiver <why the HOLD is accepted>] [--daily [--fragments-dir <dir>]] [--dry-run]
  *     [--summary <file>] [--required-check <name>] [--backstop-check <name>] [--notes-ref <ref>]
  *
  * The checkout needs origin's full history (fetch-depth 0). Green, for a
@@ -68,10 +68,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from '../../lib/spawn-sync';
-import { FLOOR_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyDecision } from './release-cadence';
+import { FLOOR_HOURS, IMPORTANT_FLOOR_HOURS, SCHEDULED_GRACE_HOURS, decideDaily, importantChanges, type DailyDecision, type ImportantChange, type Trigger } from './release-cadence';
 import { KIND_LABEL, NOTES_CAP, changeSources, changelogEntries, compareVersions, releaseKind, releaseNotes } from './release-notes';
 import { bucketClass } from '../../lib/ci-gate';
 import { headCheckRows, type AsideRuns } from '../../lib/ci-head-checks';
+import { BENCHMARK, benchmarkGate, benchmarkStatus, readRecords, waiverFromTag, type BenchmarkStatus, type Records } from '../lib/release-benchmark';
 
 export { FLOOR_HOURS, SCHEDULED_GRACE_HOURS };
 export { NOTES_CAP, changelogEntries, compareVersions, releaseKind, releaseNotes };
@@ -512,13 +513,13 @@ export function planRelease(o: PlanOptions): PlanResult {
 export interface CutResult { ok: boolean; lines: string[] }
 
 /** Tag, push stable and create the release for a plan; each step is skipped when already done. */
-export function cutRelease(p: Plan, o: { repo: string; git: Git; gh: Gh; notesDir?: string }): CutResult {
+export function cutRelease(p: Plan, o: { repo: string; git: Git; gh: Gh; notesDir?: string; waiver?: string | null }): CutResult {
   const { git, gh } = o;
   const lines: string[] = [];
   const existing = git(['rev-parse', '--verify', '-q', 'refs/tags/' + p.tag + '^{commit}']);
   if (existing.ok && existing.out !== p.sha) return { ok: false, lines: ['TAG: ' + p.tag + ' already names ' + existing.out.slice(0, 12) + ', not ' + p.sha.slice(0, 12)] };
   if (!existing.ok) {
-    const message = 'gstack ' + p.tag + ' (' + releaseKind(p.hotfix, p.exception) + ' release)' + (p.exception ? '\n\n' + KIND_LABEL[p.exception.kind] + ': ' + p.exception.reason + '\nVerified: ' + p.exception.evidence : '');
+    const message = 'gstack ' + p.tag + ' (' + releaseKind(p.hotfix, p.exception) + ' release)' + (p.exception ? '\n\n' + KIND_LABEL[p.exception.kind] + ': ' + p.exception.reason + '\nVerified: ' + p.exception.evidence : '') + (o.waiver ? '\n\nBenchmark-waiver: ' + o.waiver : '');
     const t = git(['tag', '-a', p.tag, p.sha, '-m', message]);
     if (!t.ok) return { ok: false, lines: [...lines, 'TAG: failed: ' + t.out] };
     const push = git(['push', 'origin', 'refs/tags/' + p.tag]);
@@ -577,7 +578,7 @@ export function describePlan(p: Plan, dryRun: boolean): string[] {
  * important changes are still waiting on the gate. A plan that cleared while the daily check itself
  * cannot date stable is held as FLOOR_UNKNOWN, so a null decision never reaches a cut.
  */
-export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned: PlanResult; decision: DailyDecision | null; lines: string[] } {
+export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned: PlanResult; decision: DailyDecision | null; lines: string[]; important: ImportantChange[] } {
   const { git, gh, repo } = o;
   const planned = planRelease({ ...o, floorHours: IMPORTANT_FLOOR_HOURS });
   const stable = git(['rev-parse', '--verify', '-q', 'refs/remotes/origin/stable^{commit}']);
@@ -594,14 +595,15 @@ export function planDaily(o: PlanOptions & { fragmentsDir?: string }): { planned
     const waiting = main.ok ? importantChanges(git, prev, main.out, o.fragmentsDir) : [];
     const why = moved && moved.at === null ? moved.why : 'origin/main does not resolve';
     const held: PlanResult = planned.ok ? { ok: false, code: 'FLOOR_UNKNOWN', message: why + '; the daily check cannot pick a trigger, so nothing is cut', next: 'none until the next daily run can date stable', plan: planned.plan } : planned;
-    return { planned: held, decision: null, lines: waiting.length ? ['IMPORTANT_UNGATED: ' + waiting.map(c => c.kind + ' in ' + (c.pr ? '#' + c.pr : c.commit.slice(0, 12))).join(', ') + ' is on main but no cut can run (below)'] : [] };
+    return { planned: held, decision: null, lines: waiting.length ? ['IMPORTANT_UNGATED: ' + waiting.map(c => c.kind + ' in ' + (c.pr ? '#' + c.pr : c.commit.slice(0, 12))).join(', ') + ' is on main but no cut can run (below)'] : [], important: [] };
   }
-  if (planned.ok && planned.plan.stableAt) return { planned, decision: { action: 'cut', trigger: null, lines: ['DAILY: cut (finishing the cut that already moved stable)'] }, lines: [] };
+  if (planned.ok && planned.plan.stableAt) return { planned, decision: { action: 'cut', trigger: null, lines: ['DAILY: cut (finishing the cut that already moved stable)'] }, lines: [], important: [] };
+  const important = importantChanges(git, prev, sha, o.fragmentsDir);
   const decision = decideDaily({
     now: o.now?.() ?? Date.now(), scheduled: Boolean(o.scheduled), candidate: sha, stableMovedAt: moved?.at ?? null, gatedChanges: sha !== prev, mainAhead: main.out !== prev,
-    important: importantChanges(git, prev, sha, o.fragmentsDir), ungated: importantChanges(git, sha, main.out, o.fragmentsDir), releasePr: !noReleasePr,
+    important, ungated: importantChanges(git, sha, main.out, o.fragmentsDir), releasePr: !noReleasePr,
   });
-  return { planned, decision, lines: [] };
+  return { planned, decision, lines: [], important };
 }
 
 function arg(name: string): string | undefined {
@@ -615,15 +617,16 @@ if (import.meta.main) {
   const summary = arg('--summary');
   const security = arg('--security');
   const regression = arg('--regression');
+  const waiverArg = arg('--benchmark-waiver');
   const empty = (flag: string, value: string | undefined) => process.argv.includes(flag) && (!value || value.startsWith('--'));
-  if (!repo || empty('--security', security) || empty('--regression', regression)) {
-    console.error('usage: release-cut.ts --repo owner/name [--ref <sha>] [--security <reason naming GHSA-…|CVE-…|#n> | --regression <reason naming #n and the v<X> it worked in>] [--daily [--fragments-dir <dir>]] [--dry-run] [--summary <file>] [--required-check <name>] [--backstop-check <name>] [--notes-ref <ref>]');
+  if (!repo || empty('--security', security) || empty('--regression', regression) || empty('--benchmark-waiver', waiverArg)) {
+    console.error('usage: release-cut.ts --repo owner/name [--ref <sha>] [--security <reason naming GHSA-…|CVE-…|#n> | --regression <reason naming #n and the v<X> it worked in>] [--benchmark-waiver <why the HOLD is accepted>] [--daily [--fragments-dir <dir>]] [--dry-run] [--summary <file>] [--required-check <name>] [--backstop-check <name>] [--notes-ref <ref>]');
     process.exit(2);
   }
   const scheduled = process.env.GITHUB_EVENT_NAME === 'schedule';
   const daily = process.argv.includes('--daily');
-  if (daily && (arg('--ref') || security !== undefined || regression !== undefined)) {
-    console.error('release-cut.ts: --daily picks its own candidate and trigger; run --ref, --security or --regression without it');
+  if (daily && (arg('--ref') || security !== undefined || regression !== undefined || waiverArg !== undefined)) {
+    console.error('release-cut.ts: --daily picks its own candidate and trigger; run --ref, --security, --regression or --benchmark-waiver without it');
     process.exit(2);
   }
   const git = gitIn(process.cwd());
@@ -636,9 +639,13 @@ if (import.meta.main) {
   };
   const options = { repo, ref: arg('--ref'), git, gh: runGh, requiredCheck: arg('--required-check'), backstopCheck: arg('--backstop-check'), notesRef: arg('--notes-ref'), scheduled, security, regression };
   let planned: PlanResult;
+  let trigger: Trigger | 'hand' | null = 'hand';
+  let important: ImportantChange[] = [];
   if (daily) {
     const day = planDaily({ ...options, fragmentsDir: arg('--fragments-dir') });
     planned = day.planned;
+    trigger = day.decision?.trigger ?? null;
+    important = day.important;
     emit([...(day.decision?.lines ?? []), ...day.lines]);
     // A day with no trigger or a trigger still under its floor is the policy working: exit 0 with a
     // notice. A due cut that cannot run (NO_RELEASE_PR, STABLE_STALE) goes red so someone acts; a dry
@@ -661,11 +668,23 @@ if (import.meta.main) {
     if (planned.code !== 'NOTHING_NEW' && planned.code !== 'NO_GREEN_COMMIT') annotate(hold ? (planned.code === 'NO_RELEASE_PR' ? 'warning' : 'notice') : 'error', planned.code, planned.code + ': ' + planned.message + (planned.next ? ' NEXT_ALLOWED: ' + planned.next : ''));
     process.exit(planned.code === 'NOTHING_NEW' || (dryRun && planned.code === 'NO_GREEN_COMMIT') || hold ? 0 : 1);
   }
-  emit(describePlan(planned.plan, dryRun));
+  // The weekly benchmark (crew/lib/release-benchmark.ts): every cut plan prints its BENCHMARK: line; with
+  // BENCHMARK.hold on, a standing HOLD waits, goes red or refuses the cut as benchmarkGate says.
+  const p = planned.plan;
+  const waiver = waiverArg !== undefined ? sanitizeReason(waiverArg) : p.tagExists === 'same' ? waiverFromTag(git, p.tag) : null;
+  const benchOf = (read: Records) => benchmarkStatus({ read, git, candidate: p.sha, stable: p.prevStable, now: Date.now() });
+  let bench: BenchmarkStatus;
+  try { bench = benchOf(readRecords(runGh)); } catch (e) { bench = benchOf({ ok: false, why: 'the records could not be judged: ' + String(e).replace(/\s+/g, ' ').slice(0, 200) }); }
+  const gate = benchmarkGate(bench, { trigger: p.stableAt ? null : trigger, important: trigger === 'hand' ? importantChanges(git, p.prevStable, p.sha) : important, exception: p.exception?.kind ?? null, waiver });
+  const described = describePlan(p, dryRun && gate.action === 'pass'), at = described.findIndex(l => l.startsWith('DRY_RUN:'));
+  described.splice(at < 0 ? described.length : at, 0, bench.line, ...(gate.line ? [gate.line] : []));
+  emit(described);
+  if (gate.level && gate.line) annotate(gate.action === 'refuse' && dryRun ? 'warning' : gate.level, gate.code ?? 'BENCHMARK', gate.line);
+  if (gate.action !== 'pass') process.exit(gate.action === 'refuse' && !dryRun ? 1 : 0);
   if (summary) fs.appendFileSync(summary, '\n<details><summary>Release notes</summary>\n\n' + planned.plan.notes + '\n</details>\n');
   else console.log('--- notes ---\n' + planned.plan.notes);
   if (dryRun) process.exit(0);
-  const cut = cutRelease(planned.plan, { repo, git, gh: runGh });
+  const cut = cutRelease(planned.plan, { repo, git, gh: runGh, waiver: BENCHMARK.hold && bench.state === 'hold' ? waiver : null });
   emit(cut.lines);
   process.exit(cut.ok ? 0 : 1);
 }

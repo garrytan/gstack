@@ -40,7 +40,8 @@ describe('weekly-release.yml', () => {
     expect(wf.on.workflow_dispatch.inputs.regression).toMatchObject({ type: 'string', default: '' });
     expect(wf.on.workflow_dispatch.inputs.dry_run).toMatchObject({ type: 'boolean', default: true });
     expect(wf.on.workflow_dispatch.inputs.ref).toMatchObject({ type: 'string', default: '' });
-    expect(wf.on.pull_request).toEqual({ paths: ['.github/workflows/weekly-release.yml', 'crew/scripts/release-cut.ts', 'crew/scripts/release-notes.ts', 'crew/scripts/release-cadence.ts', 'lib/changelog-fragments.ts'] });
+    expect(wf.on.pull_request).toEqual({ paths: ['.github/workflows/weekly-release.yml', 'crew/scripts/release-cut.ts', 'crew/scripts/release-notes.ts', 'crew/scripts/release-cadence.ts', 'lib/changelog-fragments.ts', 'crew/lib/release-benchmark.ts'] });
+    expect(wf.on.workflow_dispatch.inputs.benchmark_waiver).toMatchObject({ type: 'string', default: '' });
     expect(wf.concurrency).toEqual({ group: "weekly-release-${{ github.event.pull_request.number || 'cut' }}", 'cancel-in-progress': false });
     expect(wf.permissions).toEqual({});
     expect(Object.keys(wf.jobs)).toEqual(['cut', 'dry-run']);
@@ -70,7 +71,10 @@ describe('weekly-release.yml', () => {
     expect(plan.run).toContain(BUN_RUN + ' "${args[@]}"');
     expect(plan.env!.DAILY).toBe("${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.daily)) && 'true' || 'false' }}");
     expect(plan.run).toContain('[ "$DAILY" = true ] && args+=(--daily)');
-    expect(plan.run).toContain('if [ "$DAILY" = true ] && [ -n "$RELEASE_REF$SECURITY_REASON$REGRESSION_REASON" ]; then');
+    expect(plan.run).toContain('if [ "$DAILY" = true ] && [ -n "$RELEASE_REF$SECURITY_REASON$REGRESSION_REASON$BENCHMARK_WAIVER" ]; then');
+    expect(plan.env!.BENCHMARK_WAIVER).toBe("${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_waiver || '' }}");
+    expect(plan.run).toContain('[ -n "$BENCHMARK_WAIVER" ] && args+=(--benchmark-waiver "$BENCHMARK_WAIVER")');
+    expect(plan.run).not.toContain('inputs.benchmark_waiver');
     expect(plan.run).not.toContain('inputs.daily');
     expect(cut.steps.find(s => s.name === 'Fetch stable and the tags')!.run).toContain("git fetch --quiet origin '+refs/heads/stable:refs/remotes/origin/stable'");
   });

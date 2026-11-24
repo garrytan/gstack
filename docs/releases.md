@@ -371,6 +371,51 @@ Unlike a security cut, a regression cut does not pass `FLOOR_UNKNOWN`. The
 floor counts from the regression release, so the next scheduled cut may be
 held.
 
+<a id="weekly-benchmark"></a>
+## Weekly benchmark
+
+Garry, 2026-11-21: "Is Gstack this week significantly better than last week?" Every Saturday at 06:00 UTC,
+gstack-evals measures the release candidate against `stable` and against no gstack. The candidate is the newest
+commit this tool reads as green and gated. The run uses 130 real Python bug fixes with Claude Opus 5.5 in Claude Code.
+gstack-evals publishes the result by Monday 10:00 UTC as `weekly.json` on a release of garrytan/gstack-evals tagged
+`weekly-<yyyy>-w<nn>`, or `-r<k>` for a re-measure or correction. A published record is never edited. The runbook is
+`lanes/weekly-stable` in that repository.
+
+Every cut plan, dry runs included, prints one `BENCHMARK:` line read from those records
+(`crew/lib/release-benchmark.ts`):
+
+- The newest record by run start that isn't INCOMPLETE decides. That's the rule gstack-evals' own resolver uses, so
+  both sides agree on whether a HOLD stands.
+- A HOLD (the candidate measurably fixed fewer bugs than stable) never goes stale. It stands until a later week's
+  record replaces it. A GAIN or NO_CHANGE reading prints as `stale` 9 days after its run started.
+- A HOLD applies only while its commit is in the candidate and not yet on `stable`. A HOLD whose commit already
+  reached `stable` is printed, and the choice between fixing forward and [rolling back](#rolling-stable-back) is
+  made by hand.
+- A record that can't be read prints `unreadable`, and so does a record whose verdict disagrees with its own model
+  rows. Every list and download is retried once. A no-gstack comparison (`vs_none`) with a missing or non-numeric
+  number is left out of the line instead.
+
+**Holding is off for the first two weekly records** (`BENCHMARK.hold` is `false`), so for now the line is only
+reported. Once two records have arrived on time with their results checks passed, a one-line change turns it on.
+From then on, a standing HOLD does this:
+
+| Cut | What happens |
+|---|---|
+| Its span holds an `important: security`, `data-loss` or `regression` change, or it is a security or regression cut | Cuts, with a warning that the held commit ships with the fix |
+| Regular (Monday or Thursday), or important with only `blocker` changes | `REFUSED_BENCHMARK`: waits, with a notice and exit 0 |
+| Forced (`stable` 7 days old) | `STABLE_STALE` naming the hold: red, so someone fixes, reverts or waives (Garry, 2026-11-23: a HOLD outlasts the 7-day rule) |
+| Hand-run | `REFUSED_BENCHMARK`: exit 1 |
+
+When the records can't be read, a regular cut waits for the next daily run (`BENCHMARK_UNKNOWN`), and every other cut
+goes ahead with a warning. To cut past a HOLD on purpose, run the workflow by hand with the reason:
+
+```bash
+gh workflow run weekly-release.yml -f ref=<full sha> -f benchmark_waiver="<why the drop is accepted or explained>" -f dry_run=false
+```
+
+The sanitized reason goes into the tag message as `Benchmark-waiver:`, and a retry of a half-finished cut reads it
+back from there. `benchmark_waiver` is refused beside `daily`.
+
 ## Channels
 
 | Channel | Follows | Who |
@@ -495,7 +540,7 @@ The step summary carries the same plan plus the full release notes.
 
 A pull request that touches `.github/workflows/weekly-release.yml`,
 `crew/scripts/release-cut.ts`, `crew/scripts/release-notes.ts`,
-`crew/scripts/release-cadence.ts` or `lib/changelog-fragments.ts` runs the same dry run against main as its own job
+`crew/scripts/release-cadence.ts`, `lib/changelog-fragments.ts` or `crew/lib/release-benchmark.ts` runs the same dry run against main as its own job
 (`Dry run against main`, read-only token), once plain and once as the daily
 check, so a change to the release tooling is exercised against real check runs
 before it merges.
@@ -583,4 +628,7 @@ reset --hard 'v<good version>'`. Its next update check fast-forwards it to
 | `IMPORTANT_UNGATED: ...` | an important change landed but no green, gated commit holds it yet; informational |
 | `NO_RELEASE_PR: ...` | the candidate's VERSION is already released on an earlier commit (no release PR landed since that cut): the Captain stamps a release PR. A plain cut always reports it; the daily check reports it only when a trigger is due. Exit 1 (0, with a warning, on a dry run) |
 | `NOTES_MISSING: ...` | the CHANGELOG at the candidate has no entry for its version, or a version in the span lists no change ([Release notes](#release-notes)); nothing is tagged or published. Exit 1 |
-| `STABLE_STALE: ...` | stable is 7 days old and main moved, but nothing newer is green and gated; exit 1 (0 on a dry run) |
+| `STABLE_STALE: ...` | stable is 7 days old and main moved, but nothing newer is green and gated, or the weekly benchmark holds the candidate ([Weekly benchmark](#weekly-benchmark)); exit 1 (0 on a dry run) |
+| `BENCHMARK: <verdict> <tag> ...`, `BENCHMARK: none (...)`, `stale` or `unreadable` | the weekly benchmark's reading for this cut, ending `(report only)` or `(holding)` ([Weekly benchmark](#weekly-benchmark)) |
+| `REFUSED_BENCHMARK: ...` | with holding on, a standing HOLD keeps the commit off stable: a regular or blocker-only daily cut waits (exit 0), a hand cut exits 1 (0 on a dry run) |
+| `BENCHMARK_UNKNOWN: ...` | with holding on, the weekly records could not be read and a HOLD cannot be ruled out: the regular cut waits for the next daily run; exit 0 |
