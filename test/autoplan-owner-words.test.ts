@@ -163,6 +163,9 @@ describe('redactOwnerWords', () => {
       ['He said "\u200bwater alerts\u200b".', `He said "\u200b${MARK}\u200b".`],
       ['He said &quot;water alerts&quot;.', `He said &quot;${MARK}&quot;.`],
       ['He said “water&#32;alerts”.', `He said “${MARK}”.`],
+      ['He said “water&nbsp;alerts”.', `He said “${MARK}”.`],
+      ['He said "water  alerts".', `He said "${MARK}".`],
+      ['{"title":"He said \\"water\\u00a0alerts\\""}', `{"title":"He said \\"${MARK}\\""}`],
       ['{"title":"He said \\"water alerts\\""}', `{"title":"He said \\"${MARK}\\""}`],
       ['Pick "panel" water alerts "toggle" here', `Pick "panel" ${MARK} "toggle" here`],
     ];

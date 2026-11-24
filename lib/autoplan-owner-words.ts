@@ -195,7 +195,7 @@ export function ownerIndex(replies: OwnerSource[], o: { deferred?: OwnerSource[]
     ...(o.carried ?? []).map(w => `words=(${escape(JSON.stringify(w))})(?= by=|$)`),
     ...(o.quoted ?? []).map(quoteMarks),
   ].map(p => new RegExp(p, 'gd')).concat((o.reasons ?? []).map(r => new RegExp(`(?:leave out|leave it out for now|reason to leave it out)\\s*:\\s*(${escape(r)})`, 'gdi')));
-  const decoded = [...new Set((o.quoted ?? []).map(q => normalize(q, false).s.trim()).filter(Boolean))].map(q => new RegExp(quoteMarks(q), 'gd'));
+  const decoded = [...new Set((o.quoted ?? []).map(q => normalize(q, false).s.trim()).filter(Boolean))].map(q => new RegExp(quoteMarks(q).replace(/\s+/g, '\\s+'), 'gd'));
   return { replies: indexed, placements, decoded };
 }
 
