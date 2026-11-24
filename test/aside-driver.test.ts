@@ -120,7 +120,7 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     expect(section).toContain('gstack-aside-repl --out <dir>');
     expect(section).toContain('saveArtifact(');
     expect(section).toContain('Never print image data yourself');
-    expect(section).toContain('use the Read tool on its `SAVED=` path');
+    expect(section).toContain('Use the Read tool on each `SAVED=` screenshot');
     expect(section).not.toContain('ASIDE_DIR');
   });
 

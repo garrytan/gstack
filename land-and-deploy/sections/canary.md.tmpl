@@ -37,15 +37,13 @@ console.log("GSTACK_STEP_OK");
 '
 ```
 
-Both files land in `.gstack/deploy-reports/`; the `SAVED=` lines name them.
-
 Read the output line by line:
 
 - `URL=` — the page loaded and stayed on the site; an `[error` line or no `GSTACK_STEP_OK` means the load failed.
 - `CONSOLE_ERRORS=` — check for critical errors: entries containing `Error`, `Uncaught`, `Failed to load`, `TypeError`, `ReferenceError`. Ignore warnings.
 - `NAV=` — `responseStatus` (the document's HTTP status) must be 200; `loadEventEnd` (load time) must be under 10 seconds.
 - `TEXT_START` / `TEXT_END` — real content, not blank or an error page.
-- `post-deploy.jpg` and the annotated `post-deploy-annotated.png` are the evidence. Read the copied screenshot so the user sees it.
+- `post-deploy.jpg` and `post-deploy-annotated.png` are the evidence; Read the screenshot so the user sees it.
 
 Assess only checks required by the selected depth; mark unperformed checks N/A.
 All required checks pass: record HEALTHY for this target. Staging returns through
