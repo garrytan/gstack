@@ -303,8 +303,11 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): AddedFil
  */
 interface AddedFile { file: string; text: string; lines: number[]; commit?: string; binary?: boolean }
 
-/** Return the added lines for a ref update being pushed. */
-function addedLinesFor(localSha: string, remoteSha: string, remoteRef: string): AddedFile[] {
+/**
+ * Return the added lines for a ref update being pushed. `unfetchedBase` is
+ * missingRemoteTipBase's anchor when the remote tip is not in this repository.
+ */
+function addedLinesFor(localSha: string, remoteSha: string, unfetchedBase: string | null): AddedFile[] {
   // Preferred ONLY when this push carries catch-up commits: scanning them again
   // is the bug. Every other shape falls through to the range logic below.
   const fromNew = addedLinesFromNewCommits(localSha, remoteSha);
@@ -315,16 +318,11 @@ function addedLinesFor(localSha: string, remoteSha: string, remoteRef: string): 
     const base = unknownRemoteTipBase(localSha);
     range = base ? `${base}..${localSha}` : `${emptyTreeOid()}..${localSha}`;
   } else if (!objectExists(remoteSha)) {
-    const base = missingRemoteTipBase(localSha, remoteRef);
-    process.stderr.write(
-      `gstack-redact-prepush: ${remoteRef} on the remote is at ${remoteSha.slice(0, 12)}, which this repository has not fetched; ` +
-        `scanning ${base ? `the commits after ${base.slice(0, 12)}` : "all of its history"}. ` +
-        "If git rejects the push, run `git fetch`, then rebase or merge and push again.\n",
-    );
-    // The base stands in for the remote tip, so catch-up commits narrow as they do for a known tip.
-    const fromBase = base ? addedLinesFromNewCommits(localSha, base) : null;
+    // The base stands in for the remote tip, so catch-up commits narrow as they
+    // do for a known tip. What it leaves out is checked separately (main).
+    const fromBase = unfetchedBase ? addedLinesFromNewCommits(localSha, unfetchedBase) : null;
     if (fromBase !== null) return fromBase;
-    range = base ? `${base}..${localSha}` : `${emptyTreeOid()}..${localSha}`;
+    range = unfetchedBase ? `${unfetchedBase}..${localSha}` : `${emptyTreeOid()}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
     range = `${remoteSha}..${localSha}`;
@@ -346,11 +344,14 @@ function addedLinesFor(localSha: string, remoteSha: string, remoteRef: string): 
   // --irreversible-delete: a deleted file's old lines are not printed. They
   // add nothing to scan, and with --text a deleted 70 MiB binary filled the
   // 64 MiB buffer and blocked the push. (GST-2261)
-  const diff = gitStrict([
+  return addedLinesInRange(range);
+}
+
+function addedLinesInRange(range: string): AddedFile[] {
+  return collectAddedLines(gitStrict([
     "diff", "--text", "--irreversible-delete", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
     "--src-prefix=a/", "--dst-prefix=b/", range,
-  ]);
-  return collectAddedLines(diff);
+  ]));
 }
 
 /**
@@ -686,6 +687,11 @@ function main() {
   const historyRevs = new Set<string>();
   let trackingRemote: string | null = null;
   const pushedRefs: Array<{ localSha: string; remoteSha: string }> = [];
+  // Pushes whose remote tip this repository has not fetched (#4790), and the
+  // whole pushed tree of each, read for credentials the narrowed range left out.
+  const unfetchedRefs: string[] = [];
+  const olderParts: Array<{ part: AddedFile; allowlist: string[] }> = [];
+  const olderUnread: string[] = [];
 
   for (const fields of refs) {
     // Fail CLOSED on a ref line we cannot parse (#2498): git hands pre-push
@@ -705,15 +711,23 @@ function main() {
     }
     if (ZERO.test(localSha!)) continue; // branch delete → nothing pushed
     pushedRefs.push({ localSha: localSha!, remoteSha: remoteSha! });
+    const tipMissing = !ZERO.test(remoteSha!) && !objectExists(remoteSha!);
+    const unfetchedBase = tipMissing ? missingRemoteTipBase(localSha!, remoteRef!) : null;
+    if (tipMissing) {
+      process.stderr.write(
+        `gstack-redact-prepush: ${remoteRef} on the remote is at ${remoteSha!.slice(0, 12)}, which this repository has not fetched; ` +
+          `scanning ${unfetchedBase ? `the commits after ${unfetchedBase.slice(0, 12)} as this push's, and the rest of the pushed tree for credentials` : "all of its history"}. ` +
+          "If git rejects the push, run `git fetch`, then rebase or merge and push again.\n",
+      );
+    }
     let added: AddedFile[];
     try {
-      added = addedLinesFor(localSha, remoteSha || "0", remoteRef!);
+      added = addedLinesFor(localSha, remoteSha || "0", unfetchedBase);
     } catch (err) {
       // Fail CLOSED (#1946): if we can't compute the pushed diff we can't
       // scan it, and unscanned-but-allowed is the failure mode this hook
       // exists to prevent.
       const reason = err instanceof Error ? err.message.split("\n")[0] : String(err);
-      const tipMissing = !ZERO.test(remoteSha) && !objectExists(remoteSha);
       process.stderr.write(
         "\n⛔ gstack-redact-prepush BLOCKED the push — could not compute the pushed diff, " +
           "so it cannot be scanned for credentials.\n" +
@@ -729,6 +743,20 @@ function main() {
     const allowlist = committedAllowlist(localSha);
     for (const entry of allowlist) allowEntries.add(entry);
     for (const part of added) if (part.text.trim()) parts.push({ part, allowlist });
+    if (unfetchedBase) {
+      // The narrowed range trusts this clone's fetched copy of the remote, which
+      // can be stale: a remote rewritten to drop a commit that copy still holds
+      // would get it back from a forced push. So the whole pushed tree is still
+      // read, as before #4790, within the diff bound; a credential it holds, or
+      // a tree too large to read, blocks with a fetch-first message rather than
+      // as this push's own credential.
+      unfetchedRefs.push(remoteRef!);
+      try {
+        for (const part of addedLinesInRange(`${emptyTreeOid()}..${localSha}`)) if (part.text.trim()) olderParts.push({ part, allowlist });
+      } catch (err) {
+        olderUnread.push(`  ${remoteRef}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}\n`);
+      }
+    }
     historyRevs.add(localSha);
     if (!ZERO.test(remoteSha) && objectExists(remoteSha)) historyRevs.add(remoteSha);
     else {
@@ -756,8 +784,12 @@ function main() {
   const reported = new Map<number[], Set<string>>();
   // A name git quotes or tab-ends was read as no file before GST-3528, so it is
   // also scanned without its path: the decoded name never reports less than that.
-  for (const { part, allowlist } of parts) for (const pathless of part.file && gitMangledPath(part.file) && !/\.(?:dart|pyi?)$/i.test(part.file) ? [false, true] : [false]) {
-    const opts = { repoVisibility: "private" as const, ...emails.options, ...(part.file && !pathless && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) };
+  const pathlessModes = (part: AddedFile) => part.file && gitMangledPath(part.file) && !/\.(?:dart|pyi?)$/i.test(part.file) ? [false, true] : [false];
+  const scanOpts = (part: AddedFile, pathless: boolean) => ({ repoVisibility: "private" as const, ...emails.options, ...(part.file && !pathless && !/\.(?:dart|pyi?)$/i.test(part.file) ? { sourcePath: part.file } : {}) });
+  const highKey = (f: Finding, part: AddedFile, lineTexts: string[]) => `${f.id}\0${part.file}\0${lineTexts[f.line - 1]}`;
+  const newHighKeys = new Set<string>();
+  for (const { part, allowlist } of parts) for (const pathless of pathlessModes(part)) {
+    const opts = scanOpts(part, pathless);
     const findings = scanAddedLines(part.text, opts);
     const kept = allowlist.length
       ? new Set(scanAddedLines(part.text, { ...opts, allowlist }).map(findingKey))
@@ -774,13 +806,33 @@ function main() {
       const key = `${findingKey(f)}:${lineTexts[f.line - 1]}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      if (f.severity === "HIGH") allHigh.push(f);
-      else if (f.severity === "MEDIUM") {
+      if (f.severity === "HIGH") {
+        allHigh.push(f);
+        newHighKeys.add(highKey(f, part, lineTexts));
+      } else if (f.severity === "MEDIUM") {
         mediums.push(mediumLine(f, part));
         if (f.id === "pii.email") emailMedium = true;
       }
     }
   }
+
+  // HIGH findings in the pushed tree of a ref whose remote tip is unfetched,
+  // other than the ones already reported as this push's. Never the value.
+  const olderHigh: string[] = [];
+  const olderSeen = new Set<string>();
+  for (const { part, allowlist } of olderParts) for (const pathless of pathlessModes(part)) {
+    const opts = scanOpts(part, pathless);
+    const kept = allowlist.length ? new Set(scanAddedLines(part.text, { ...opts, allowlist }).map(findingKey)) : null;
+    const lineTexts = part.text.split("\n");
+    for (const f of scanAddedLines(part.text, opts)) {
+      if (f.severity !== "HIGH" || (part.binary && f.category !== "secret") || (kept && !kept.has(findingKey(f)))) continue;
+      const key = highKey(f, part, lineTexts);
+      if (newHighKeys.has(key) || olderSeen.has(key)) continue;
+      olderSeen.add(key);
+      olderHigh.push(`  HIGH  ${f.id}  ${findingWhere(f, part)}\n`);
+    }
+  }
+  const unfetchedBlocks = olderHigh.length > 0 || olderUnread.length > 0;
 
   if (allowEntries.size > 0) {
     process.stderr.write(
@@ -808,6 +860,22 @@ function main() {
   const sealedText = sealed ? renderSealed(sealed, "gstack sealed-output guard") : "";
   if (sealedText) process.stderr.write(sealedText);
   const sealedBlocks = !!sealed && (sealed.status === "refused" || sealed.status === "error");
+
+  if (unfetchedBlocks) {
+    process.stderr.write(
+      `\n⛔ gstack-redact-prepush BLOCKED the push — the remote tip of ${unfetchedRefs.join(", ")} is not in this repository, ` +
+        "so the guard can't tell whether the older history this push carries is already on the remote.\n\n",
+    );
+    for (const line of olderHigh) process.stderr.write(line);
+    if (olderUnread.length) process.stderr.write("  The pushed tree could not be read within the guard's bound:\n");
+    for (const line of olderUnread) process.stderr.write(line);
+    process.stderr.write(
+      "\nRun `git fetch`, then rebase or merge and push again. With the remote tip fetched, the guard scans only your new commits.\n",
+    );
+    if (allHigh.length === 0) {
+      process.stderr.write("This is a guardrail: `git push --no-verify` or `GSTACK_REDACT_PREPUSH=skip git push` bypass it.\n");
+    }
+  }
 
   if (allHigh.length > 0) {
     // A scan that could not RUN is not a scan that FOUND something. Reporting
@@ -856,7 +924,7 @@ function main() {
     process.exit(1);
   }
 
-  process.exit(sealedBlocks ? 1 : 0);
+  process.exit(sealedBlocks || unfetchedBlocks ? 1 : 0);
 }
 
 main();
