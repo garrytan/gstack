@@ -457,6 +457,13 @@ describe('the gate', () => {
     const brief = renderBrief(r.manifest, r.dir);
     expect(brief).toContain(`(action "install" with build_id "${PHONE_BUILD}"`);
     expect(brief).not.toContain('action "install"; TestFlight build');
+    const old = { ...r.manifest } as Partial<typeof r.manifest>;
+    delete old.phone_build;
+    fs.writeFileSync(path.join(r.dir, 'manifest.json'), JSON.stringify(old));
+    expect(readManifest(r.dir)).toMatchObject({ error: { code: 'FIRST_USE_RECORD_INVALID', detail: expect.stringContaining('start a new run with --phone-build') } });
+    const android = startRun({ ...base, root: fresh('root'), build: { platform: 'android', commit: COMMIT, deploy: '1.0.3' }, phoneBuild: PHONE_BUILD });
+    if ('error' in android) throw new Error(android.error.detail);
+    expect(renderBrief(android.manifest, android.dir)).toContain(`build_id "${PHONE_BUILD}", the mobile build service's build of commit ${COMMIT.slice(0, 12)}, which version 1.0.3 ships`);
     const web = startRun({ ...base, root: fresh('root'), build: { platform: 'web', commit: COMMIT, deploy: 'web-12' } });
     expect('error' in web ? web.error.detail : web.manifest.phone_build).toBeUndefined();
   });

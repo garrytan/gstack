@@ -200,6 +200,7 @@ export function readManifest(dir: string): Result<{ manifest: Manifest }> {
   const m = readJson<Omit<Manifest, 'schema_version'> & { schema_version: number }>(path.join(dir, 'manifest.json'));
   if (m?.kind === 'first-use-manifest' && m.schema_version === 1) return fail('FIRST_USE_RECORD_INVALID', `${dir} is a schema-1 run from before the try-it steps and the owner's quotes were checked; start a new run`);
   if (!m || m.schema_version !== 2 || m.kind !== 'first-use-manifest' || !Array.isArray(m.steps) || !m.build?.fingerprint) return fail('FIRST_USE_RECORD_INVALID', `no readable manifest.json in ${dir}`);
+  if ((m.build.platform === 'ios' || m.build.platform === 'android') && !/^[0-9A-Za-z]{26}$/.test(m.phone_build ?? '')) return fail('FIRST_USE_RECORD_INVALID', `${dir} is a ${m.build.platform} run with no --phone-build, so its checker can't install the build on a cloud phone; start a new run with --phone-build`);
   return { manifest: m as Manifest };
 }
 
