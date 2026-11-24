@@ -50,6 +50,7 @@ describe('PR round cap', () => {
       const n = nextStep(h({ priorRounds: 4, priorFull: FULL_PASS_CAP, lean }));
       expect(n.step).toBe('full');
       expect(n.reason).toStartWith('read-only final review (R51): this PR already had 2 full review rounds');
+      expect([lean, n.readOnly, n.keepReader]).toEqual([lean, true, true]);
     }
   });
 

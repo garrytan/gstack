@@ -323,6 +323,24 @@ describe('the read-only final review reads the whole PR diff (GST-3562 A)', () =
     expect(m.diff_base).toBe(mergeBase);
     expect(m.readers.every(r => (r.diff_base ?? m.diff_base) === mergeBase)).toBe(true);
   }, 120_000);
+
+  // Value: protects=a new /ship run on a PR whose two full rounds are spent plans its pass 1 as the read-only final review, so the dispatcher
+  //   ignores --diff-base and prints READ_ONLY there too; fails_when=prCapped's cross-run path drops the readOnly flag;
+  //   why_new=#4741 round-2 note (prCapped's cross-run path, GST-3562 part 2); seam=none; no_claim=the edit guard's prose is followed
+  test('a new run on a PR past its round cap is read-only too, whatever --diff-base it is given', () => {
+    const { dir, env } = repo();
+    const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
+    const mergeBase = sh('git merge-base main HEAD');
+    const oldHead = sh('git rev-parse HEAD');
+    sh('echo "export const later = 1;" >> src/fix.ts && git add -A && git commit -qm "fix: change after the last round"');
+    const out = path.join(dir, '.state/run/p1');
+    const p = bin(dir, env, ['pass', '--base', 'main', '--out', out, '--pass', 'p1', '--diff-base', oldHead, '--', '--prior-rounds', '2', '--prior-full', '2']);
+    expect(p.status, p.stdout + p.stderr).toBe(0);
+    expect(p.stdout).toMatch(/^NEXT: full \(read-only final review \(R51\): this PR already had 2 full review rounds/m);
+    expect(p.stdout).toContain(`READ_ONLY: the final review reads the whole PR diff from the merge base (--diff-base ${oldHead} ignored); no fix round follows it`);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
+    expect(m.diff_base).toBe(mergeBase);
+  }, 120_000);
 });
 
 describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () => {

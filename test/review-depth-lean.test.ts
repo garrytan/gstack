@@ -180,7 +180,7 @@ describe('GST-3562 A no-loss replay across panels, prior rounds, round grants, t
       const { kind } = asMainBeforeGst3562(input, planReview(input));
       if (kind) kinds[`${name}:${kind}`] = (kinds[`${name}:${kind}`] ?? 0) + 1;
     }
-    expect(kinds).toEqual({ 'docs:a': 4134, 'docs:b': 6336, 'docs:c': 576, 'docs:d': 1086, 'docs:e': 576, 'tests:a': 4134, 'tests:b': 6336, 'tests:c': 576, 'tests:d': 1086, 'tests:e': 576, 'code:a': 3984, 'code:b': 6336, 'code:c': 576, 'code:d': 1056, 'code:e': 576, 'risk:a': 2664, 'risk:b': 6624, 'risk:c': 336, 'risk:d': 456, 'risk:e': 1152, 'mixed:a': 3984, 'mixed:b': 6336, 'mixed:c': 576, 'mixed:d': 1056, 'mixed:e': 576 });
+    expect(kinds).toEqual({ 'docs:a': 4134, 'docs:b': 6336, 'docs:c': 576, 'docs:d': 1086, 'docs:e': 576, 'docs:f': 2784, 'tests:a': 4134, 'tests:b': 6336, 'tests:c': 576, 'tests:d': 1086, 'tests:e': 576, 'tests:f': 2784, 'code:a': 3984, 'code:b': 6336, 'code:c': 576, 'code:d': 1056, 'code:e': 576, 'code:f': 3456, 'risk:a': 2664, 'risk:b': 6624, 'risk:c': 336, 'risk:d': 456, 'risk:e': 1152, 'risk:f': 3456, 'mixed:a': 3984, 'mixed:b': 6336, 'mixed:c': 576, 'mixed:d': 1056, 'mixed:e': 576, 'mixed:f': 3456 });
   }, 60_000);
   test('the three corners keep the one full-effort reader main\'s fix-check was', () => {
     const bot = { id: 'r1', head: HEAD, reviewer: 'capy-ai[bot]' };
