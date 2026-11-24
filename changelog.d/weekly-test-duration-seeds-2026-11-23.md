@@ -1,1 +1,0 @@
-**The free test suite splits its shards from this week's recorded test times.** Eight test files that now finish in under a minute leave the slow-file list, and the Linux and Windows duration seeds carry the 2026-11-22 recording.
