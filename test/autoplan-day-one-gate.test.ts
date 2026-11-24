@@ -537,7 +537,7 @@ describe('first versions: the owner page quotes the owner and letters what it le
 
     test('a ruling dated with a time parses; a short ruling, or one that only repeats the quote, never counts as recorded', () => {
       expect(parseOwnerWords("### Owner's words\n\n- The owner, 2026-11-23 10:04Z: \"add dark mode\" → ruled out 2026-11-24 09:12Z: \"not in the first version\"").quotes[0]).toMatchObject({ text: 'add dark mode', line: { kind: 'ruled_out', date: '2026-11-24 09:12Z', ruling: 'not in the first version' } });
-      const ruledWith = (ruling: string, replies: string[]) => {
+      const ruledWith = (ruling: string, replies: Array<{ text: string; at?: string }>) => {
         const state = makeRun(`ruled-floor-${ruling.replace(/\W+/g, '-')}`, { plan: plan(CASE4 + `\n- The owner, 2026-11-12 09:00Z: "never touch my calendar or my reminders" → ruled out 2026-11-12: "${ruling}"`), round2: { native: [], outside: [] }, round1: false, ui: false });
         return ownerContext(state, replies).ruled;
       };
