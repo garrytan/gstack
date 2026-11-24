@@ -7886,30 +7886,33 @@ landed on the base, a stamp on the branch's own rows in a stamp file it also
 changed as product (every changed line at a branch-added position, the mode
 unchanged, the base not touching the file), a stamp file the branch changes by
 no more than a stamp against each head's base (a changelog-fragment conversion
-that puts `package.json` back at the base's content), or base context next to unchanged
-hunks after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
+that puts `package.json` back at the base's content), base context next to unchanged
+hunks, or hunks the base merge spliced after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 
 <a id="receipt-carry-scoped-review"></a>
 ### `RECEIPT_CARRY_SCOPED_REVIEW`
 
-**Meaning.** Every product path the branch touches has the reviewed +/- lines
-in the same places, but the base edited context lines next to some of them, so
-the 3-line patches differ (GST-384: main reworded the line above the PR's
-hunk). A hunk whose added lines are unchanged but whose removed lines changed with
-the base (the base took `SAVE_VERSION := 83` under the branch's `:= 84`) doesn't
-count: the PR's own removed lines changed, so it's `RECEIPT_CARRY_PRODUCT_CHANGED`
-and a full review (GST-2706). The merge may have spliced the two, as in a JSON entry where the branch
-changed one key and the base the next, so the receipt does not carry silently.
+**Meaning.** The base replaced the very lines one of the branch's hunks
+replaces, and the merge kept both: each current line is the base's new line
+plus exactly the tokens the branch added, as when both sides appended an entry
+to one expected-value list (GST-2975). The branch's own lines are not the
+reviewed bytes, so the receipt does not carry silently. Base context that only
+moved next to the branch's unchanged hunks (GST-384: main reworded the line
+above the PR's hunk) no longer stops here: when the branch's +/- lines, file
+modes and symlink targets are the reviewed ones, the carry passes and CI on the
+merged head is the check (GST-3562). A hunk whose added lines are unchanged but
+whose removed lines changed with the base (the base took `SAVE_VERSION := 83`
+under the branch's `:= 84`) is `RECEIPT_CARRY_PRODUCT_CHANGED` and a full
+review (GST-2706).
 The refusal names the paths and a packet file with the hunks that differ and
 the base's own change. The same lines moved somewhere else are
 `RECEIPT_CARRY_PRODUCT_CHANGED`, not this code. A packet section with over
 200 of the branch's own +/- lines takes the full loop instead. Nothing else
 counts toward that limit: the context lines and headers of the branch's hunks,
 which a base merge can move (GST-2229), and the base's own change, already
-merged at base (GST-1226), are shown and not counted, so a large base edit next
-to the branch's hunks still gets the scoped read. A base change over 2,000 lines
+merged at base (GST-1226), are shown and not counted. A base change over 2,000 lines
 in one file counts in full again and takes the full loop.
 
 **Fix.** Dispatch one fix-check reviewer

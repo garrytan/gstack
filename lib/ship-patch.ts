@@ -13,10 +13,17 @@
  *   A hunk whose added lines match but whose removed lines changed with the base (founderstar#563:
  *   the base took SAVE_VERSION 83 under the branch's 84, GST-1561) is changed: the PR's own added
  *   and removed lines must both be the reviewed bytes for a head to count as reviewed (GST-2673).
- *   The merge may still have spliced the two (a JSON entry where the branch changed one key and
- *   the base the next), so a context path needs a scoped review of its hunks, never a silent pass;
- * - changed: anything else, including the same lines moved to another place, a file-mode change, and any path whose
- *   patches cannot be read (an empty patch on both sides of a path the branch touches). A binary, empty or mode-only
+ *   A context path counts as reviewed (GST-3562 G): its own added and removed lines, file modes
+ *   at both heads and symlink targets are the reviewed bytes, and CI on the merged head checks the
+ *   base context next to them;
+ * - spliced: the base replaced the very lines one of the branch's hunks replaces and the merge kept
+ *   both (GST-2975: each current line is the base's new line plus the tokens the branch added), or
+ *   the base added or replaced lines at the very spot a branch insertion sits, so the merge chose
+ *   the order of the two (GST-3562); the path needs a scoped review of its hunks;
+ * - changed: anything else, including the same lines moved to another place, a file-mode change (in either patch, or
+ *   between the reviewed and current heads of a context or spliced path), a diff git printed as bytes that are not
+ *   UTF-8 (two such bytes decode to the same character, so their comparison is lossy), and any path whose patches
+ *   cannot be read (an empty patch on both sides of a path the branch touches). A binary, empty or mode-only
  *   patch has no hunks to place, so it is same when its patch-id matches and changed otherwise.
  * Diffs skip external drivers and textconv, so a configured filter cannot hide a line.
  * Paths reach git as literal pathspecs from NUL-separated listings, so quoted names and glob
@@ -38,7 +45,7 @@ import { headPolicyDiff } from './pregate/head-policy';
 import { CHECK_IDS } from './pregate/index';
 
 export interface PatchSides { reviewedBase: string; reviewed: string; currentBase: string; current: string }
-export type PathVerdict = 'same' | 'context' | 'changed';
+export type PathVerdict = 'same' | 'context' | 'spliced' | 'changed';
 
 function git(repoRoot: string, args: string[], input?: string): string | null {
   const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { cwd: repoRoot, encoding: 'utf8', input, timeout: 120_000, maxBuffer: 256 * 1024 * 1024 });
@@ -98,18 +105,24 @@ function mapper(base: ZeroHunk[]): (line: number) => number | null {
   };
 }
 
-/** Whether a branch hunk at the reviewed base's position lands where the current branch hunk sits. */
-function sameSpot(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null): boolean {
+/**
+ * Where a branch hunk at the reviewed base's position lands against the current branch hunk: 'exact' when it sits at the one
+ * place the base's change maps it to, 'among' when it is an insertion that sits between the same surviving neighbours but the
+ * base added or replaced lines there too, so the merge chose its order against them (GST-3562), and false otherwise.
+ */
+function sameSpot(r: ZeroHunk, c: ZeroHunk, map: (line: number) => number | null): 'exact' | 'among' | false {
   if (r.oldCount > 0) {
     for (let k = 0; k < r.oldCount; k++) if (map(r.oldStart + k) !== c.oldStart + k) return false;
-    return true;
+    return 'exact';
   }
   let below = r.oldStart;
   while (below > 0 && map(below) === null) below--;
   let above = r.oldStart + 1;
   for (let guard = 0; map(above) === null && guard < 100_000; guard++) above++;
   const low = below > 0 ? map(below)! : 0;
-  return c.oldStart >= low && c.oldStart <= map(above)! - 1;
+  const high = map(above)! - 1;
+  if (c.oldStart < low || c.oldStart > high) return false;
+  return high > low ? 'among' : 'exact';
 }
 
 /**
@@ -155,7 +168,7 @@ function sideDiffs(repoRoot: string, s: PatchSides, rel: string): { diff: (from:
 export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathVerdict {
   const r3 = pathDiff(repoRoot, s.reviewedBase, s.reviewed, rel, 3);
   const c3 = pathDiff(repoRoot, s.currentBase, s.current, rel, 3);
-  if (r3 === null || c3 === null || (!r3.trim() && !c3.trim())) return 'changed';
+  if (r3 === null || c3 === null || (!r3.trim() && !c3.trim()) || r3.includes('\uFFFD') || c3.includes('\uFFFD')) return 'changed';
   const modes = (d: string) => d.split('\n').filter(l => /^(old mode|new mode|new file mode|deleted file mode) /.test(l)).join('\n');
   if (modes(r3) !== modes(c3)) return 'changed';
   const sides = sideDiffs(repoRoot, s, rel);
@@ -173,11 +186,15 @@ export function comparePath(repoRoot: string, s: PatchSides, rel: string): PathV
     const map = mapper(b0);
     let spliced = false;
     for (const [i, h] of r0.entries()) {
-      if (h.body === c0[i]!.body && sameSpot(h, c0[i]!, map)) continue;
-      if (!splicedHunk(h, c0[i]!, b0)) return 'changed';
+      const spot = h.body === c0[i]!.body ? sameSpot(h, c0[i]!, map) : false;
+      if (spot === 'exact') continue;
+      if (spot !== 'among' && !splicedHunk(h, c0[i]!, b0)) return 'changed';
       spliced = true;
     }
-    return ids[0] === ids[1] && !spliced ? 'same' : 'context';
+    if (ids[0] === ids[1] && !spliced) return 'same';
+    const mode = (ref: string) => git(repoRoot, ['ls-tree', '--full-tree', ref, '--', rel])?.split(' ')[0];
+    if (mode(s.reviewed) !== mode(s.current)) return 'changed';
+    return spliced ? 'spliced' : 'context';
   } finally {
     sides.done();
   }
@@ -197,7 +214,7 @@ function insertedTokens(from: string, to: string): string[] | null {
  * A hunk the base merge spliced (GST-2975, ghome#16): the base replaced exactly the lines the branch's hunk replaces, line
  * for line, and each current line is the base's new line with the very tokens the branch added to the reviewed line, as
  * when both sides appended an entry to one expected-value list. The branch removes nothing on those lines, so its own change
- * is the reviewed one and the merge only kept both; the caller still routes the path to a scoped reader (context), never
+ * is the reviewed one and the merge only kept both; the caller still routes the path to a scoped reader (spliced), never
  * through silently.
  */
 function splicedHunk(r: ZeroHunk, c: ZeroHunk, base: ZeroHunk[]): boolean {
@@ -266,7 +283,7 @@ export function contextPacket(repoRoot: string, s: PatchSides, paths: readonly s
   const late = Object.keys(bounded).sort();
   const sides = `reviewed ${s.reviewed.slice(0, 12)} against ${s.reviewedBase.slice(0, 12)}; current ${s.current.slice(0, 12)} against ${s.currentBase.slice(0, 12)}.`;
   const parts = [paths.length || !late.length
-    ? `# Scoped review: base context moved next to the reviewed hunks\n\n${sides} The branch's added lines are unchanged, and a removed line differs only where the base edited the line the branch replaces; read whether the merge kept their meaning next to the base's edit (a version or number the base also took). Report clean, or findings at the blocking floor.\n`
+    ? `# Scoped review: the base merge changed the reviewed hunks\n\n${sides} The branch added the same tokens it added at review, and the merge kept them beside the base's edit to the same or nearby lines; read whether the merge kept their meaning next to the base's edit (an entry, a version or a number the base also took). Report clean, or findings at the blocking floor.\n`
     : `# Scoped review: edits that landed after the review bound\n\n${sides}\n`];
   if (late.length) parts.push(`Bounded edits since review in ${late.map(p => `${p} (${bounded[p]})`).join(', ')}: each landed after the review bound, and its kind was proven from the diff; this one read replaces another review round (docs/review-policy.md#bounded-post-review-edits). Read every line under "Changed since review" as gate code. Audit prose is policy text agents follow: flag any change to what a gate, cap, reviewer, approval or exception does. A lanes edit maps files to tests: flag a glob that marks files covered by tests that do not exercise them. A bookkeeping row is an exemption or a limit: flag a row that moves an exemption onto code it should not cover, or raises a limit without a reason in the diff. Read them through the targeted brief at the end for money, gate, auth and secret wording. Report clean, or findings at the blocking floor.\n`);
   if (tests.length) parts.push(`Test code changed since review in ${tests.join(', ')}: read whether each test still checks what it did (no weakened or bypassed assertion, early return, new exemption, skip or mock). Report clean, or findings at the blocking floor.\n`);

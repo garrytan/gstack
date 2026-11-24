@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { comparePath } from '../lib/ship-patch';
-import { bindReceipt, extractReceipt } from '../lib/ship-receipt';
+import { bindReceipt, CARRY_NAMED_PATHS, extractReceipt, placeReceipt, planCarry } from '../lib/ship-receipt';
 import { RECHECK_RANGE_DIFF_CAP } from '../crew/lib/ship-recheck';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -155,7 +155,7 @@ describe('carry: a changed path plus context paths compose into one bounded re-c
     expect(eligible(r.stderr)).toBeNull();
   });
 
-  test('changed-only keeps J1 as it is; context-only keeps the scoped review', () => {
+  test('changed-only keeps J1 as it is; context-only carries with no reader (GST-3562 G)', () => {
     const changed = reviewedBranch({ [SCORE]: 'var score := 1\n' }, { [SCORE]: 'var score := 2\n' });
     changed.f.write({ [SCORE]: 'var score := 3\n' }); changed.f.commit('fix: score 3');
     const c = changed.carry();
@@ -168,25 +168,22 @@ describe('carry: a changed path plus context paths compose into one bounded re-c
     context.f.advanceBase({ [VESTING]: vesting(BASE_VESTING) });
     mergeMain(context.f, { [VESTING]: vesting({ ...BASE_VESTING, ...BRANCH_VESTING }) });
     const s = context.carry();
-    expect([s.status, s.stdout.trim().split('\n')[0]]).toEqual([EXIT.refused, 'CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)']);
+    expect(s.status, s.stderr).toBe(EXIT.ok);
     expect(s.stderr).not.toContain('RECHECK:');
+    expect(extractReceipt(fs.readFileSync(context.body, 'utf8')).receipt!.carry!.reason).toContain(`base context moved next to unchanged own lines (${VESTING}; CI at head checks it)`);
   });
 });
 
-describe('finish: the founderstar#563 shape takes the scoped reader too', () => {
-  test('ROUTE sends nothing to behavior, and one clean scoped record lets finish go on', () => {
+describe('finish: the founderstar#563 shape needs no reader (GST-3562 G)', () => {
+  test('ROUTE sends nothing to behavior or context: the moved base context next to unchanged own lines counts as reviewed', () => {
     const x = founderstar();
     const post = path.join(x.f.root, 'post.json');
     expect(x.f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
     const finish = (extra: string[] = []) => x.f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', x.reviewedTree, '--docs-post', post, '--lane', LANE, '--reviewed-base', x.reviewedBase, ...extra]);
-    const ask = finish();
-    expect([ask.status, lineOf(ask.stdout, 'ROUTE')], ask.stdout).toEqual([3, expect.stringMatching(/ behavior=0 .* context=[12]$/)]);
-    const packet = /reads (\S+\.md)[ ,]/.exec(ask.stdout)?.[1];
-    expect(fs.readFileSync(packet!, 'utf8')).toContain('moved by the base');
-    const tree = x.f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
-    const ok = finish(['--context-reviewed', recordAt(x.f, 'ctx.json', { tree, paths: [GAME, VESTING], reviewer: READER, verdict: 'clean' })]);
-    expect(lineOf(ok.stdout, 'SCOPED_REVIEW'), ok.stdout).toStartWith(`SCOPED_REVIEW: clean by ${READER} (`);
-    expect(ok.stdout).not.toContain('STOP: behavior');
+    const ok = finish();
+    expect([ok.status, lineOf(ok.stdout, 'ROUTE')], ok.stdout).toEqual([0, expect.stringMatching(/ behavior=0 .* base=[12] context=0$/)]);
+    expect(ok.stdout).not.toContain('SCOPED_REVIEW');
+    expect(ok.stdout).not.toContain('STOP:');
   });
 });
 
@@ -229,5 +226,35 @@ describe('a receipt a scoped re-check carried never carries on or lands (GST-270
       if (!recheck) { expect(bound.ok).toBe(true); continue; }
       expect(bound).toMatchObject({ ok: false, code: 'QUEUE_RECEIPT_STALE', message: expect.stringContaining('through a scoped re-check') });
     }
+  });
+});
+
+describe('a receipt that records only what binding needs (GST-3562 H)', () => {
+  // Value: protects=/ship's receipt no longer needs the docs, review-loop, issue or budget records: a write with none of them
+  //   binds at its head, and a receipt from before H that carries them still binds; fails_when=write or bindReceipt starts
+  //   requiring one of those records again, or rejects an older receipt that has them; seam=gstack-ship-receipt write +
+  //   bindReceipt; no_claim=the queue's other ready checks
+  test('a slim receipt writes and binds, and an older receipt with every record still binds', () => {
+    const x = reviewedBranch({ [VESTING]: vesting() }, { [VESTING]: vesting(BRANCH_VESTING) });
+    const body = fs.readFileSync(x.body, 'utf8');
+    const slim = extractReceipt(body).receipt!;
+    expect(['review_loop', 'calls', 'spend_usd', 'docs_audit_read'].filter(k => k in slim)).toEqual([]);
+    expect(bindReceipt(body, '5', [x.from], { base: 'main' })).toMatchObject({ ok: true, head: x.from });
+    const older = placeReceipt('## Summary\n', { ...slim, review_loop: { passes: 2, blocking_found: 1, deferred: 1, fixed: 1, rounds: 2 }, calls: 14, spend_usd: 3.25, docs_audit_read: { paths: ['README.md'], reviewer: READER, packet_sha256: 'a'.repeat(64) } } as any);
+    expect(bindReceipt(older, '5', [x.from], { base: 'main' })).toMatchObject({ ok: true, head: x.from });
+  });
+});
+
+describe('the carry reason names at most CARRY_NAMED_PATHS moved-context paths (GST-3562 G)', () => {
+  // Value: protects=a PR that merges main often keeps its receipt line bounded: the reason names at most CARRY_NAMED_PATHS
+  //   paths and counts the rest; fails_when=every path is named on every hop and the PR body grows past GitHub's limit;
+  //   seam=planCarry; no_claim=none
+  test('25 context paths name 20 and count 5', () => {
+    const paths = Array.from({ length: 25 }, (_, i) => `src/f${String(i).padStart(2, '0')}.ts`);
+    const plan = planCarry({ from: 'a'.repeat(40), head: 'b'.repeat(40), changed: [], productPatchId: { from: 'p1', head: 'p2' }, testPatchId: { from: '', head: '' }, changedProduct: [], mergeCommits: 1, rangeDiff: '', baseContext: paths });
+    expect(plan.ok).toBe(true);
+    const reason = plan.ok ? plan.carry.reason : '';
+    expect(reason).toContain(`(${paths.slice(0, CARRY_NAMED_PATHS).join(', ')} (+5 more); CI at head checks it)`);
+    expect(reason).not.toContain(paths[CARRY_NAMED_PATHS]!);
   });
 });

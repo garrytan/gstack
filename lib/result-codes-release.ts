@@ -443,7 +443,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_PRODUCT_CHANGED: {
     anchor: 'receipt-carry-product-changed',
     summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
-    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped fix-check, no /ship)',
+    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks carries as the base merge, and a hunk the base merge spliced is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped reader, no /ship)',
   },
   STOP_UNBOUND: {
     anchor: 'stop-unbound',
@@ -472,7 +472,7 @@ export const RELEASE_RESULT_CODES = {
   },
   RECEIPT_CARRY_SCOPED_REVIEW: {
     anchor: 'receipt-carry-scoped-review',
-    summary: 'the branch\'s own +/- lines are the reviewed ones, but the base edited context next to them, so the merge may have spliced the two (GST-384); the receipt carries only after a scoped review of those hunks',
+    summary: 'the base replaced the very lines one of the branch\'s hunks replaces and the merge kept both (GST-2975), so the branch\'s own lines are not the reviewed bytes; the receipt carries only after a scoped review of those hunks',
     fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /ship on the new head',
   },
   RECEIPT_DOCS_AUDIT_READ: {
