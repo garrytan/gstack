@@ -535,6 +535,17 @@ describe('first versions: the owner page quotes the owner and letters what it le
       expect(ownerContext(run('ruled-ctx-other', {}), ['never touch my calendar']).ruled).toEqual(new Set());
     });
 
+    test('a ruling dated with a time parses; a short ruling, or one that only repeats the quote, never counts as recorded', () => {
+      expect(parseOwnerWords("### Owner's words\n\n- The owner, 2026-11-23 10:04Z: \"add dark mode\" → ruled out 2026-11-24 09:12Z: \"not in the first version\"").quotes[0]).toMatchObject({ text: 'add dark mode', line: { kind: 'ruled_out', date: '2026-11-24 09:12Z', ruling: 'not in the first version' } });
+      const ruledWith = (ruling: string, replies: string[]) => {
+        const state = makeRun(`ruled-floor-${ruling.replace(/\W+/g, '-')}`, { plan: plan(CASE4 + `\n- The owner, 2026-11-12 09:00Z: "never touch my calendar or my reminders" → ruled out 2026-11-12: "${ruling}"`), round2: { native: [], outside: [] }, round1: false, ui: false });
+        return ownerContext(state, replies).ruled;
+      };
+      expect(ruledWith('no', ['c1: no, keep the dark mode'])).toEqual(new Set());
+      expect(ruledWith('never touch my calendar', ['never touch my calendar or my reminders'])).toEqual(new Set());
+      expect(ruledWith('leave my calendar alone', ['never touch my calendar or my reminders. actually leave my calendar alone'])).toEqual(new Set([3]));
+    });
+
     test('a recorded ruling beats a High finding: one item recommending the ruling, never a build-it choice or a proposal', () => {
       const list = buildGate(run('ruled-said', { said: true, native: [calendar('native')] }), 1);
       const items = calendarItems(list);
@@ -552,7 +563,7 @@ describe('first versions: the owner page quotes the owner and letters what it le
       expect(item.options.map(o => [o.text, o.changes_plan])).toEqual([['build it in this version (size not stated)', true], [`leave it out, as your ruling says: “${RULING}”`, false]]);
       expect(item.recommended_basis).toBe("your ruling as the plan quotes it; it isn't in your recorded replies, so this asks you beside the High finding");
       expect(item.origin!.split('|')[1]!.split('+')).toEqual(['quote:3', `${RUN}-ceo-r2-native-1`]);
-      expect(item.origin!.endsWith('|finding')).toBe(false);
+      expect(item.origin!.endsWith('|finding')).toBe(true);
       expect(rec(list)[item.id]).toBe('b');
       const page = renderOwnerPage(fs.readFileSync(path.join(TMP, 'ruled-unsaid', 'plan-active.md'), 'utf8'), list.owner_words?.quotes).join('\n');
       expect(page).toContain(`→ you ruled it out on 2026-11-12: “${RULING}” (not found in your recorded replies: asked below)`);

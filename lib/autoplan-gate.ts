@@ -296,8 +296,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
   const settles = (key: string) => narrowed.filter(f => key === `quote:${narrowedQuoteOf(owner, f)!.n}`);
   for (const item of dayOneItems(owner, narrowed)) {
     const found = settles(item.key);
-    const asksRuling = owner.words.quotes.some(q => item.key === `quote:${q.n}` && q.line?.kind === 'ruled_out');
-    add(item, options => ['owner', [item.key, ...found.map(f => f.id)].join('+'), optionHash(options), createHash('sha256').update(item.title).digest('hex').slice(0, 16), ...(blockingProposal(found) && !asksRuling ? [FINDING_ORIGIN] : [])].join('|'));
+    add(item, options => ['owner', [item.key, ...found.map(f => f.id)].join('+'), optionHash(options), createHash('sha256').update(item.title).digest('hex').slice(0, 16), ...(blockingProposal(found) ? [FINDING_ORIGIN] : [])].join('|'));
   }
   items.push(planApproval(state, items));
   const list: GateList = { schema_version: 1, run: state.run, gate_rev: gateRev, items, title: '/autoplan final approval gate', rec_rev: 0, rec_hash_v: 2,

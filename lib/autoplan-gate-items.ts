@@ -78,7 +78,12 @@ export function ownerContext(state: RunState, recorded: string[] = recordedOwner
   const keys = recorded.map(wordKey);
   const said = (text: string) => keys.some(k => k.includes(wordKey(text)));
   const verified = new Set(words.quotes.filter(q => said(q.text)).map(q => q.n));
-  const ruled = new Set(words.quotes.filter(q => q.line?.kind === 'ruled_out' && said(q.line.ruling)).map(q => q.n));
+  const ruledBy = (q: OwnerQuote) => {
+    if (q.line?.kind !== 'ruled_out') return false;
+    const key = wordKey(q.line.ruling);
+    return key.trim().split(/\s+/).length >= 3 && !wordKey(q.text).includes(key) && said(q.line.ruling);
+  };
+  const ruled = new Set(words.quotes.filter(ruledBy).map(q => q.n));
   return { words, verified, ruled, dayOne: parseDayOne(text), cuts: parseCuts(text), app: !!state.scope?.ui, lean: !!state.lean,
     firstVersion: isFirstVersion(text, !!state.scope?.first_version) };
 }

@@ -29,7 +29,7 @@ export interface DayOneTable { status: 'none' | 'ok' | 'malformed'; rows: DayOne
 
 const BULLET = /^\s*[-*+]\s+(.*)$/;
 const QUOTED = /[“"](.+)[”"]/;
-const RULED = /^ruled out\s+([^:“"]+?)\s*:\s*[“"](.+)[”"]\s*$/i;
+const RULED = /^ruled out\s+([^“"]+?)\s*:\s*[“"](.+)[”"]\s*$/i;
 
 const count = (s: string, c: string) => s.split(c).length - 1;
 const paired = (s: string) => count(s, '"') % 2 === 0 && count(s, '“') === count(s, '”');
