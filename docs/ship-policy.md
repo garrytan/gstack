@@ -1927,6 +1927,27 @@ base to save with the reviewed tree for finish's `--reviewed-base`.
 An own edit, a conflict resolution, an edit inside a merge, base context moved
 beside the branch's hunks or an uncommitted change reads `STALE` and says which.
 
+<a id="ruled-edits"></a>
+**Ruled edits after the final review (GST-3775).** An edit after the read-only
+final review stops finish (`behavior, tests or build inputs changed since review`),
+and `gstack-review-plan --post-review` then stops for the owner: ship the edit as
+a ruled note, or keep it and run /ship again for one more read-only full review.
+The owner's "ship it with the note" is a ruling per edited path, with `edit:<path>`
+as the finding and the stop head as the head; the stop line prints the edited
+paths and the head:
+
+```bash
+gstack-approvals rule --finding 'edit:<path>' --head <stop head> --reason '<why it ships as a note>' \
+  --by '<the owner>' --words '<their exact words>' --owner-ref <thread code>:<message id>
+```
+
+finish then routes a changed path as `RULED_EDIT: <path> (ruled at <head12> by <who>,
+approval <id>)` instead of stopping, when a ruling `edit:<path>` names HEAD or an
+ancestor of it and the path's working-tree bytes equal that head's. One ruling
+never covers another path, and a path edited again after its ruling stops finish
+again. The ruling is an ordinary ruled note, so it prints as `RULED_NOTE:`, the
+receipt records it and the PR body lists its `Ruled note:` line.
+
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier
 version in its edit history, and a ruled, dispositioned, deferred or noted

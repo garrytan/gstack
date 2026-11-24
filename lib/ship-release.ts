@@ -450,11 +450,15 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
   }
+  const edits = readRuledNotes(cwd).filter(n => n.finding.startsWith('edit:'));
+  const ruled = new Map(by.behavior.flatMap(p => edits.filter(n => n.finding === `edit:${p}` && ancestor(n.head, 'HEAD') && git(cwd, ['diff', '--quiet', n.head, '--', p]).status === 0).slice(-1).map(n => [p, n] as const)));
+  by.behavior = by.behavior.filter(p => !ruled.has(p));
   const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, accepted: by.accepted, excluded: opts.excluded });
   by.sidecar = Object.keys(uid.proven).sort();
   by.behavior = by.behavior.filter(p => !by.sidecar.includes(p));
   r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${by.mechanical.length ? ` mechanical=${by.mechanical.length}` : ''}${counted ? ` fix_checked=${by.fix_checked.length}` : ''}${loop ? ` accepted=${by.accepted.length}` : ''}${by.sidecar.length ? ` sidecar=${by.sidecar.length}` : ''}`);
   if (loop) r.add(`REVIEW_LOOP_EXCEPTION: accepted ${by.accepted.length ? short(by.accepted) : 'none'} (changed since fix-check ${loop.fix_check.head.slice(0, 12)}; accepted by ${loop.accepted_by} ${loop.date} via ${loop.via})`);
+  for (const [p, n] of ruled) r.add(`RULED_EDIT: ${p} (ruled at ${n.head.slice(0, 12)} by ${n.by}, approval ${n.approval})`);
   for (const x of bounded.refused) if (by.behavior.includes(x.path)) r.add(`ROUTE_BOUNDED_REFUSED: ${x.path} ${x.reason} (fix: ${x.fix}; docs/troubleshooting.md#route-bounded-refused)`);
   for (const p of by.mechanical) r.add(`MECHANICAL: ${p} (${mech.proven[p]})`);
   for (const x of mech.refused) r.add(`ROUTE_MECHANICAL_REFUSED: ${x.path} ${x.reason} (docs/troubleshooting.md#route-mechanical-refused)`);
