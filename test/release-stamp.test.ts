@@ -19,8 +19,8 @@ const repos: FixtureRepo[] = [];
 afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 
 /** A fixture whose main carries two landed fragments (one bump: minor) and a tentative stamp_paths mention, like PRs landed unstamped under merge: direct. */
-function landed(fragments: Record<string, string> = { 'a.md': '- a change\n', 'b.md': '---\nbump: minor\n---\n- b feature\n' }): FixtureRepo {
-  const repo = makeFixtureRepo({ policy: POLICY, prefix: 'gstack-release-stamp-fx-' });
+function landed(fragments: Record<string, string> = { 'a.md': '- a change\n', 'b.md': '---\nbump: minor\n---\n- b feature\n' }, opts: { policy?: Record<string, unknown>; version?: string } = {}): FixtureRepo {
+  const repo = makeFixtureRepo({ policy: opts.policy ?? POLICY, version: opts.version, prefix: 'gstack-release-stamp-fx-' });
   repos.push(repo);
   fs.mkdirSync(path.join(repo.work, 'changelog.d'), { recursive: true });
   for (const [name, body] of Object.entries(fragments)) fs.writeFileSync(path.join(repo.work, 'changelog.d', name), body);
@@ -32,6 +32,9 @@ function landed(fragments: Record<string, string> = { 'a.md': '- a change\n', 'b
   repo.git('checkout', '-q', '--detach', 'origin/main');
   return repo;
 }
+/** Real changelog.d fragments, byte for byte: v1.103.2.0's five (#4785) and gbrain d7278e4c's one that quotes its own VERSION (GBRA-784). */
+const realFragments = (dir: string): Record<string, string> => Object.fromEntries(fs.readdirSync(path.join(import.meta.dir, 'fixtures', 'release-stamp', dir)).sort().map(f => [f, fs.readFileSync(path.join(import.meta.dir, 'fixtures', 'release-stamp', dir, f), 'utf8')]));
+const sectionOf = (cl: string, version: string) => cl.slice(cl.indexOf(`## [${version}]`), cl.indexOf('\n## [', cl.indexOf(`## [${version}]`) + 1));
 const policyOf = (repo: FixtureRepo) => { const l = loadPolicyFromBase(repo.work, 'main'); if ('detail' in l && !('policy' in l)) throw new Error('no policy'); return (l as any).policy; };
 function stampRelease(repo: FixtureRepo): string {
   const r = runBin(repo, 'gstack-restamp', ['--release', '--base', 'main', '--allow-repo-commands']);
@@ -57,6 +60,38 @@ describe('gstack-restamp --release', () => {
     expect(readFile(repo, 'generated/digest.md')).toBe('# digest v1.3.0.0\nbody\n');
     expect(readFile(repo, 'docs/feature.md')).toBe('since: 1.3.0.0\n');
     expect(readFile(repo, 'docs/notes.md')).toContain('Previous release v1.2.3.0.');
+  });
+
+  // Value: protects=fragment prose that quotes the version being released from is copied byte for byte, even where the
+  //   CHANGELOG is a stamp file; fails_when=the stamp_paths stage moves "v0.60.769.0" in the folded prose to the new
+  //   version (GBRA-784, gbrain d7278e4c); seam=gstack-restamp --release on a gbrain-shaped policy
+  test('a fragment quoting the current version keeps its prose byte for byte when the CHANGELOG is a stamp file', () => {
+    const fragments = realFragments('gbrain-d7278e4c');
+    const repo = landed(fragments, { version: '0.60.769.0', policy: { ...POLICY, stamp_files: ['VERSION', 'package.json', 'package-lock.json', 'CHANGELOG.md'] } });
+    const base = repo.git('rev-parse', 'origin/main');
+    const head = stampRelease(repo);
+    expect(readFile(repo, 'VERSION').trim()).toBe('0.60.770.0');
+    const section = sectionOf(readFile(repo, 'CHANGELOG.md'), '0.60.770.0');
+    expect(section).toContain('- Correction to the v0.60.769.0 note on `file_drift` holds:');
+    expect(section).not.toContain('v0.60.770.0');
+    const body = fragments['capy-ghost-pages-move-evidence.md']!.replace(/^---\n[\s\S]*?\n---\n/, '').trim();
+    expect(section).toContain(body);
+    expect(classifyRelease({ repoRoot: repo.work, policy: policyOf(repo), mergeBase: base, head })).toMatchObject({ ok: true });
+  });
+
+  // Value: protects=a release section names each subsection once; fails_when=two fragments that each carry
+  //   "### For contributors" leave the heading twice in the new section (#4785); seam=gstack-restamp --release
+  test('fragments that share a subsection heading fold under one copy of it, after the unheaded entries', () => {
+    const repo = landed(realFragments('v1.103.2.0'));
+    const base = repo.git('rev-parse', 'origin/main');
+    const head = stampRelease(repo);
+    const section = sectionOf(readFile(repo, 'CHANGELOG.md'), '1.2.4.0');
+    expect(section.match(/^### For contributors$/gm)).toHaveLength(1);
+    const at = (text: string) => section.indexOf(text);
+    expect(at('**/ship\'s instructions now match how it reviews code.**')).toBeLessThan(at('### For contributors'));
+    expect(at('### For contributors')).toBeLessThan(at('- **A weekly benchmark record can no longer slip text'));
+    expect(at('### For contributors')).toBeLessThan(at('- **Every stable release plan now prints'));
+    expect(classifyRelease({ repoRoot: repo.work, policy: policyOf(repo), mergeBase: base, head }).ok).toBe(true);
   });
 
   test('takes its bump from the fragments: --bump with --release is a usage error', () => {
@@ -147,6 +182,24 @@ describe('gstack-release-stamp open', () => {
   });
 
   // GSTA-643 list: on Capy gh signs in as the owner, so open hands the release PR to the host's PR tool instead of gh pr create.
+  // Value: protects=the release PR counts and lists changes, never subsection headings; fails_when=v1.103.2.0's two
+  //   "### For contributors" headings count as changes and the body says 7 instead of 5 (#4785); seam=openRelease with a gh stub
+  test('the release notes count changes, not the subsection headings fragments carry', () => {
+    const repo = landed(realFragments('v1.103.2.0'));
+    const calls: string[][] = [];
+    const r = openRelease({ repoRoot: repo.work, base: 'main', gh: (args) => { calls.push(args); return { ok: true, out: args[1] === 'list' ? '' : 'https://github.com/o/r/pull/45\n', err: '' }; } });
+    expect(r.ok).toBe(true);
+    const body = calls[1]![calls[1]!.indexOf('--body') + 1]!;
+    expect(visibleOpening(body)[0]).toBe('v1.2.4.0 ships 5 user-visible changes, listed one per line under Release notes with the pull request that made each.');
+    expect(sectionText(body, 'Release notes').split('\n')).toEqual([
+      '- make-pdf no longer lets a NUL character hide an `onerror` handler, a `javascript:` link or a `<script>` tag from its sanitizer.',
+      '- After a blocking fix, /ship\'s second review round is always a full review whose every reader is recorded with the pass, instead of a narrower re-check whose result could go missing.',
+      '- /ship\'s instructions now match how it reviews code.',
+      '- A weekly benchmark record can no longer slip text into the release job\'s log through its error messages, or lose a model row to an odd model name.',
+      '- Every stable release plan now prints the weekly benchmark\'s result, so you can see whether this week\'s gstack measurably fixes more or fewer bugs than the current stable release.',
+    ]);
+  });
+
   test('on Capy, open pushes the release branch and hands the PR to the host tool without gh pr create', () => {
     const repo = landed();
     const state = fs.mkdtempSync(path.join(repo.work, '..', 'state-'));

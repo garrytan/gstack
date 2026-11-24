@@ -68,6 +68,17 @@ describe('effectiveBump and the fold', () => {
     const r = reheadChangelog(folded, { from: null, to: '1.2.4.0', date: '2026-10-29' });
     expect(r.text).toBe('# Changelog\n\n## [1.2.4.0] - 2026-10-29\n\n- a\n\n- b\n\n- legacy\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n');
   });
+  // Value: protects=one copy of each subsection heading per release section, every entry's lines as written;
+  //   fails_when=fragments each bring "### For contributors" and the section carries it twice (#4785); seam=foldIntoUnreleased
+  test('same-named subsection headings merge into one, unheaded entries first, and a heading inside a code fence is prose', () => {
+    const cl = '# Changelog\n\n## [Unreleased]\n\n### For contributors\n\n- legacy\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n';
+    const folded = foldIntoUnreleased(cl, [
+      { path: 'changelog.d/a.md', body: '### For contributors\n\n- a', bump: null },
+      { path: 'changelog.d/b.md', body: '**b lead.**\n\n### Fixed\n- b fix\n\n```\n### not a heading\n```', bump: null },
+      { path: 'changelog.d/c.md', body: '- c\n\n### For contributors\n\n- c contrib', bump: null },
+    ]);
+    expect(folded).toBe('# Changelog\n\n## [Unreleased]\n\n**b lead.**\n\n- c\n\n### For contributors\n\n- a\n\n- c contrib\n\n- legacy\n\n### Fixed\n- b fix\n\n```\n### not a heading\n```\n\n## [1.2.3.0] - 2026-10-01\n\n- base\n');
+  });
   test('no fragments leaves the text unchanged', () => {
     expect(foldIntoUnreleased('# C\n', [])).toBe('# C\n');
   });

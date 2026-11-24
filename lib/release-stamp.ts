@@ -26,12 +26,13 @@ export const RELEASE_BRANCH = /^release\/(\d+(?:\.\d+){2,3})$/;
 /**
  * The release notes (R76): one plain line per change the release folds, from each changelog fragment's entries (a
  * fragment may hold several `- ` entries): the bold lead sentence, or else the first sentence, with the pull request
- * whose squash commit added the fragment (`(#n)` at the end of its subject) when git finds one.
+ * whose squash commit added the fragment (`(#n)` at the end of its subject) when git finds one. A heading such as
+ * `### For contributors` groups entries and is never a change of its own (#4785).
  */
 export function releaseNoteLines(root: string, ref: string, fragments: readonly string[]): string[] {
   return fragments.flatMap(file => {
     const pr = /\(#(\d+)\)\s*$/.exec(git(root, ['log', '-1', '--diff-filter=A', '--format=%s', ref, '--', file]).out)?.[1];
-    const text = git(root, ['show', `${ref}:${file}`]).out.replace(/^---\n[\s\S]*?\n---\n/, '').trim();
+    const text = git(root, ['show', `${ref}:${file}`]).out.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/^#{1,6}\s.*$/gm, '').trim();
     return text.split(/\n(?=- )/).map(entry => {
       const first = entry.replace(/^- +/, '').replace(/\s+/g, ' ').trim();
       const lead = (/^\*\*(.+?)\*\*/.exec(first)?.[1] ?? first.split(/(?<=[.!?])\s/)[0] ?? '').replace(/\*\*/g, '').trim();

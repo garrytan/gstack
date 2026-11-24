@@ -120,23 +120,48 @@ export function effectiveBump(level: Bump, fragments: readonly Fragment[]): Bump
 /**
  * Put the fragment bodies, in path order, into the CHANGELOG's `[Unreleased]` section (created at the
  * top when absent), so the existing re-heading moves fragments and a legacy entry together under one
- * version. Returns the text unchanged when there are no fragments.
+ * version. Same-named `### ` subsections merge into one (#4785: two fragments each brought
+ * "### For contributors"): the unheaded entries come first, then each subsection once in the order it
+ * first appears, its entries in fold order. Every other line is copied as written. Returns the text
+ * unchanged when there are no fragments.
  */
 export function foldIntoUnreleased(text: string, fragments: readonly Fragment[]): string {
   if (!fragments.length) return text;
   const parsed = parseChangelog(text);
-  const bodies = fragments.map(f => f.body).join('\n\n');
   const unreleased = parsed.sections.find(s => s.unreleased);
   const lines = text.replace(/\r\n/g, '\n').split('\n');
-  if (unreleased) {
-    const own = lines.slice(unreleased.start + 1, unreleased.end);
-    while (own.length && !own[0]!.trim()) own.shift();
-    while (own.length && !own[own.length - 1]!.trim()) own.pop();
-    const merged = [lines[unreleased.start]!, '', ...bodies.split('\n'), ...(own.length ? ['', ...own] : []), ''];
-    return [...lines.slice(0, unreleased.start), ...merged, ...lines.slice(unreleased.end)].join('\n');
+  const own = unreleased ? lines.slice(unreleased.start + 1, unreleased.end) : [];
+  const groups = new Map<string, string[][]>([['', []]]);
+  for (const body of [...fragments.map(f => f.body.split('\n')), own]) {
+    let name = '';
+    let run: string[] = [];
+    let fence = false;
+    const flush = () => {
+      while (run.length && !run[run.length - 1]!.trim()) run.pop();
+      const runs = groups.get(name)!;
+      if (!runs.length && name) { if (run.some(l => l.trim())) runs.push(run); }
+      else { while (run.length && !run[0]!.trim()) run.shift(); if (run.length) runs.push(run); }
+      run = [];
+    };
+    for (const line of body) {
+      if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+      if (fence || !/^###\s+\S/.test(line)) { run.push(line); continue; }
+      flush();
+      name = line.trim();
+      if (!groups.has(name)) groups.set(name, []);
+    }
+    flush();
   }
+  const section: string[] = [];
+  for (const [name, runs] of groups) {
+    if (!name && !runs.length) continue;
+    if (section.length) section.push('');
+    if (name) section.push(name);
+    runs.forEach((r, i) => section.push(...(i ? ['', ...r] : r)));
+  }
+  if (unreleased) return [...lines.slice(0, unreleased.start), lines[unreleased.start]!, '', ...section, '', ...lines.slice(unreleased.end)].join('\n');
   const at = parsed.sections[0]?.start ?? lines.length;
   const head = lines.slice(0, at);
   while (head.length && !head[head.length - 1]!.trim()) head.pop();
-  return [...head, ...(head.length ? [''] : []), '## [Unreleased]', '', ...bodies.split('\n'), '', ...lines.slice(at)].join('\n');
+  return [...head, ...(head.length ? [''] : []), '## [Unreleased]', '', ...section, '', ...lines.slice(at)].join('\n');
 }

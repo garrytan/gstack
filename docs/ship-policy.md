@@ -2762,10 +2762,14 @@ writes no version in Step 12 and writes Step 13's entry as
 **The fold.** `gstack-restamp` (and so `land`) concatenates the fragment
 bodies in path order above any legacy `[Unreleased]` section, re-heads both as
 one `## [<version>] - <date>` section at the top, and deletes the fragment
-files, in one stamp. The tree receipt, and so `gstack-pregate clear`'s
+files, in one stamp. Same-named `### ` subsections merge into one: the
+section's unheaded entries come first, then each subsection once, in the order
+it first appears, with its entries in fold order. Every other line is copied
+as written, and no version in it is rewritten, even when the CHANGELOG is one
+of the policy's `stamp_files`. The tree receipt, and so `gstack-pregate clear`'s
 stamp-only substitution, calls a deleted fragment a stamp (rule
-`changelog_fragments`) only when the new CHANGELOG section is exactly the
-deleted fragments' bodies in path order above any legacy `[Unreleased]` text
+`changelog_fragments`) only when the new CHANGELOG section is exactly what the
+fold makes of the deleted fragments' bodies and any legacy `[Unreleased]` text
 (rule `changelog-fragments`); an edited fold, or a fragment deleted without
 its text, is a change.
 
@@ -3308,7 +3312,9 @@ bump any fragment declares (the policy `bump` when none does). It reruns the
 release tool, and it moves a tentative `stamp_paths` mention (a `*_KEY_VERSION`
 a PR wrote ahead of its release) on lines added since the last version change.
 With no fragment on main it refuses with
-[`RELEASE_STAMP_EMPTY`](troubleshooting.md#release-stamp-empty).
+[`RELEASE_STAMP_EMPTY`](troubleshooting.md#release-stamp-empty). The release
+PR's body lists one line per change, never a subsection heading.
+To correct a fragment already on main, land a small PR before the stamp that deletes it and adds the corrected text under a new file name (an edit in place is `CHANGELOG_FRAGMENT_INVALID`): `--release` refuses any head but a clean `origin/main`, so the release itself never carries the fix.
 
 When the release PR's checks are green, the Captain lands it like any other PR:
 `gstack-ship-queue land --pr <n> --pin <head>`. On a `release/<version>`
