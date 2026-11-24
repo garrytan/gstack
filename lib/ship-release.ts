@@ -451,9 +451,11 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
   }
   const edits = readRuledNotes(cwd).filter(n => n.finding.startsWith('edit:'));
+  const top = edits.length ? git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim() : '';
   const entry = (tree: string, p: string) => git(cwd, ['--literal-pathspecs', 'ls-tree', '--full-tree', tree, '--', p]).stdout;
+  const untouched = (head: string, p: string) => { const log = git(top, ['--literal-pathspecs', 'log', '--first-parent', '--format=%H', `${head}..HEAD`, '--', p]); return log.status === 0 && !log.stdout.trim(); };
   const ruled = new Map(by.behavior.flatMap(p => edits.filter(n => n.finding === `edit:${p}` && ancestor(n.head, 'HEAD') && entry(n.head, p) === entry(now, p)
-    && !git(cwd, ['log', '--full-history', '--format=%H', `${n.head}..HEAD`, '--', `:(top,literal)${p}`]).stdout.trim()).slice(-1).map(n => [p, n] as const)));
+    && !!top && untouched(n.head, p)).slice(-1).map(n => [p, n] as const)));
   by.behavior = by.behavior.filter(p => !ruled.has(p));
   const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, accepted: by.accepted, excluded: opts.excluded });
   by.sidecar = Object.keys(uid.proven).sort();

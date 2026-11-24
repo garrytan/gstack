@@ -305,10 +305,10 @@ function main(): number {
   if (carried) plan.next.reason = `the edits after the last fix-check ${fixCheckAt!.slice(0, 12)} are ${carried.paths.length ? `${carried.verdict === 'plain' ? 'plain docs' : `docs (${carried.paths.join(', ')})`}${carried.stamps.length ? ' and release stamps' : ''}` : 'release stamps'} (docsChangeSince), no gate-class edit (GST-1702): ${plan.next.reason}`;
   else if (postReview && pass > 0) plan.next.reason = `edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: ${plan.next.reason}`;
   if (postReview && plan.next.step === 'stop') {
-    const edited = rangeBase ? git(['diff', '--name-only', '--no-renames', rangeBase, head])?.trim().split('\n').filter(Boolean) : undefined;
+    const edited = rangeBase ? git(['diff', '-z', '--name-only', '--no-renames', rangeBase, head])?.split('\0').filter(Boolean) : undefined;
     const spaced = edited?.filter(p => /\s/.test(p)) ?? [];
     const rulable = edited?.filter(p => !spaced.includes(p));
-    plan.next.reason += `; to ship the edit as a ruled note, record the owner's ruling once per edited path${rulable?.length ? ` (${rulable.join(', ')})` : ''} with gstack-approvals rule --finding edit:<path> --head ${head} --reason "<why it ships as a note>" --by <the owner> --words "<their exact words>" --owner-ref <thread code>:<message id> (the relay this open /ship run needs), then rerun finish, which routes each ruled path at the ruled bytes as RULED_EDIT${spaced.length ? `; ${spaced.join(', ')} cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /ship again` : ''}`;
+    plan.next.reason += `; if the owner rules instead that the edit ships as a disclosed note, record that ruling once per edited path${rulable?.length ? ` (${rulable.join(', ')})` : ''} with gstack-approvals rule --finding edit:<path> --head ${head} --reason "<why it ships as a note>" --by <the owner> --words "<their exact words>" --owner-ref <thread code>:<message id> (the relay this open /ship run needs), then rerun finish, which routes each ruled path at the ruled bytes as RULED_EDIT${spaced.length ? `; ${spaced.join(', ')} cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /ship again` : ''}`;
   }
   const ranArg = flag('--targeted-ran');
   const delta = plan.next.step !== 'done' || !targeted.classes.length || ran ? null

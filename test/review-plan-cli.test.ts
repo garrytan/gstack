@@ -485,11 +485,13 @@ describe('gstack-review-plan --post-review stop names the edit ruling (GST-3775)
     const r = repo({ 'src/a.ts': 'export const a = 1;\n' });
     const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
     const passHead = git('rev-parse', 'HEAD');
-    fs.appendFileSync(path.join(r.dir, 'src/a.ts'), 'export const b = 2;\n'); git('commit', '-qam', 'edit after the final review');
+    fs.appendFileSync(path.join(r.dir, 'src/a.ts'), 'export const b = 2;\n'); fs.writeFileSync(path.join(r.dir, 'src/a b.ts'), 'export const c = 3;\n');
+    git('add', '.'); git('commit', '-qm', 'edit after the final review');
     const p = run(r, ['--pass', '3', '--last', 'full', '--range-base', passHead, '--post-review']);
     expect(p.status, p.stderr).toBe(0);
     expect(p.stdout).toContain("a fix followed the read-only final review: the lane's Captain decides (R51)");
-    expect(p.stdout).toContain(`record the owner's ruling once per edited path (src/a.ts) with gstack-approvals rule --finding edit:<path> --head ${git('rev-parse', 'HEAD')} --reason`);
+    expect(p.stdout).toContain(`record that ruling once per edited path (src/a.ts) with gstack-approvals rule --finding edit:<path> --head ${git('rev-parse', 'HEAD')} --reason`);
+    expect(p.stdout).toContain('src/a b.ts cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /ship again');
     expect(run(r, ['--pass', '3', '--last', 'full', '--range-base', passHead, '--fixed-below']).stdout).not.toContain('--finding edit:');
   }, 30_000);
 });
