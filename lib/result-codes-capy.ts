@@ -208,7 +208,7 @@ export const CAPY_RESULT_CODES = {
   FIRST_USE_PLAN_UNREADY: {
     anchor: 'first-use-plan-unready',
     summary: 'the plan has no usable ### Day one table or ### Owner\'s words to freeze (missing, malformed, fewer than five complete rows, a row still marked assumed or citing no quote, or a quote with no time or line)',
-    fix: 'quote the owner\'s messages that state the job under ### Owner\'s words (who, when, "words" → does it | choice), cite them from the five ### Day one rows as owner words <n>, then run start again',
+    fix: 'quote the owner\'s messages that state the job under ### Owner\'s words (who, when, "words" → does it | choice | ruled out <date>: "<ruling>"), cite them from the five ### Day one rows as owner words <n>, then run start again',
   },
   FIRST_USE_PLAY_SPEC_INCOMPLETE: {
     anchor: 'first-use-play-spec-incomplete',

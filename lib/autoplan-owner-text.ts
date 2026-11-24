@@ -10,7 +10,9 @@
  * cuts. Read by the gate builder and the owner and captain briefs. On a first
  * version each Owner's words bullet also carries a line after an arrow saying
  * what this version does with those words: `does it`, `choice` (a lettered
- * gate choice, optionally `; size: …` and `; leave out: <reason>`) (GST-3608).
+ * gate choice, optionally `; size: …` and `; leave out: <reason>`) or
+ * `ruled out <date>: "<their ruling>"`, which the gate checks against the owner's
+ * recorded replies (GST-3608, GST-3646).
  */
 import { findSection } from './markdown-sections';
 
@@ -19,7 +21,7 @@ export const DAY_ONE_TITLES = ['Day one', 'Day-one page', 'Day one page'];
 export const CUTS_TITLES = ["What it won't do yet", 'What it will not do yet', "Won't do yet"];
 export const DAY_ONE_COLUMNS = ['action', 'frequency', 'source', 'feature', 'route', 'first build', 'check'] as const;
 
-export type OwnerLine = { kind: 'does' } | { kind: 'choice'; size?: string; leave_out?: string };
+export type OwnerLine = { kind: 'does' } | { kind: 'choice'; size?: string; leave_out?: string } | { kind: 'ruled_out'; date: string; ruling: string };
 export interface OwnerQuote { n: number; who: string; text: string; line?: OwnerLine }
 export interface OwnerWordsSection { status: 'none' | 'ok' | 'malformed'; quotes: OwnerQuote[]; reason?: string; fix?: string }
 export interface DayOneRow { action: string; frequency: string; source: string; feature: string; route: string; first_build: string; check: string; assumed: boolean }
@@ -27,6 +29,7 @@ export interface DayOneTable { status: 'none' | 'ok' | 'malformed'; rows: DayOne
 
 const BULLET = /^\s*[-*+]\s+(.*)$/;
 const QUOTED = /[“"](.+)[”"]/;
+const RULED = /^ruled out\s+([^:“"]+?)\s*:\s*[“"](.+)[”"]\s*$/i;
 
 const count = (s: string, c: string) => s.split(c).length - 1;
 const paired = (s: string) => count(s, '"') % 2 === 0 && count(s, '“') === count(s, '”');
@@ -48,9 +51,11 @@ export function splitLine(bullet: string): { left: string; line?: string } {
   return arrow ? { left: bullet.slice(0, close + arrow.index).trimEnd(), line: bullet.slice(close + arrow.index + arrow[0].length).trim() } : { left: bullet };
 }
 
-/** A bullet's line: `does it` or `choice[; size: …][; leave out: …]`; undefined when it reads as neither. */
+/** A bullet's line: `does it`, `choice[; size: …][; leave out: …]` or `ruled out <date>: "<ruling>"`; undefined when it reads as none of them. */
 export function parseLine(line: string): OwnerLine | undefined {
   if (/^does it\W*$/i.test(line)) return { kind: 'does' };
+  const ruled = RULED.exec(line);
+  if (ruled) return { kind: 'ruled_out', date: ruled[1]!.trim(), ruling: ruled[2]!.trim() };
   if (!/^choice\b/i.test(line)) return undefined;
   const out: { kind: 'choice'; size?: string; leave_out?: string } = { kind: 'choice' };
   for (const part of line.replace(/^choice\b[^;]*/i, '').split(';').map(p => p.trim()).filter(Boolean)) {
@@ -86,20 +91,27 @@ export function parseOwnerWords(planText: string): OwnerWordsSection {
     quotes.push({ n: i + 1, who: left.slice(0, m.index).replace(/[\s:,-]+$/, '').trim() || 'unattributed', text: m[1]!.trim(), ...(parsed ? { line: parsed } : {}) });
   });
   const reasons = [...(bad.length ? [`bullet ${bad.join(', ')} quotes no words`] : []),
-    ...(badLine.length ? [`bullet ${badLine.join(', ')} has a line that is not does it or choice`] : [])];
-  return reasons.length ? { status: 'malformed', quotes, reason: reasons.join('; '), fix: badLine.length ? fix + ' → does it | choice' : fix } : { status: 'ok', quotes };
+    ...(badLine.length ? [`bullet ${badLine.join(', ')} has a line that is not does it, choice or ruled out <date>: "<ruling>"`] : [])];
+  return reasons.length ? { status: 'malformed', quotes, reason: reasons.join('; '), fix: badLine.length ? fix + ' → does it | choice | ruled out <date>: "<their ruling>"' : fix } : { status: 'ok', quotes };
 }
 
 /** What a first version still owes on a quote: when it was said, and a line. Empty when both are there. */
-export const quoteGaps = (q: OwnerQuote): string[] => [...(quoteWhen(q) ? [] : ['when it was said']), ...(q.line ? [] : ['a line (does it or choice)'])];
+export const quoteGaps = (q: OwnerQuote): string[] => [...(quoteWhen(q) ? [] : ['when it was said']), ...(q.line ? [] : ['a line (does it, choice or ruled out)'])];
 
 /** The quote a cut drops, by its words (cutDrops), or undefined. */
 export const cutQuote = (cut: string, quotes: OwnerQuote[]): OwnerQuote | undefined => quotes.find(q => cutDrops(cut, q.text));
 
+/** A quote as the gate shows it: whether its words, and a ruled-out line's ruling, were found in the owner's recorded replies. */
+export type CheckedQuote = OwnerQuote & { verified?: boolean; ruling_verified?: boolean };
+
+/** A ruled-out line whose ruling was found in the owner's recorded replies: it stands without asking him again. */
+export const ruledByOwner = (q: CheckedQuote): boolean => q.line?.kind === 'ruled_out' && q.ruling_verified === true;
+
 /** A quote's line in the owner's words. */
-export function lineText(q: OwnerQuote): string {
+export function lineText(q: CheckedQuote): string {
   if (!q.line) return 'no line yet: asked below';
   if (q.line.kind === 'does') return 'does it';
+  if (q.line.kind === 'ruled_out') return `you ruled it out on ${q.line.date}: “${q.line.ruling}”${q.ruling_verified === false ? ' (not found in your recorded replies: asked below)' : ''}`;
   return 'not in this version yet: a lettered choice below';
 }
 
@@ -145,9 +157,9 @@ export const FIRST_USE_LINE = "Before you're asked to try it, an agent from anot
  * this version does with them, then the day-one table, then what it won't do yet. A cut that drops a quoted line is asked
  * beside that quote as a lettered choice, never listed under "What it won't do yet". Empty when the plan has none of them.
  */
-export function renderOwnerPage(planText: string, quotes: Array<OwnerQuote & { verified?: boolean }> = [], o: { firstVersion?: boolean } = {}): string[] {
+export function renderOwnerPage(planText: string, quotes: CheckedQuote[] = [], o: { firstVersion?: boolean } = {}): string[] {
   const day = parseDayOne(planText);
-  const cuts = parseCuts(planText).filter(c => !cutQuote(c, quotes));
+  const cuts = parseCuts(planText).filter(c => !cutQuote(c, quotes.filter(q => !ruledByOwner(q))));
   const out: string[] = [];
   if (quotes.length) out.push('### Your words this plan follows', '', ...quotes.map(q => `- ${q.who}: “${q.text}”${q.verified === false ? ' (not found in your recorded replies)' : ''} → ${lineText(q)}`), '',
     'A reviewer who wants to change one of these needs your answer. Anything else in the plan was written by the planning agent, so a reviewer\'s change to it is recommended below.', '');

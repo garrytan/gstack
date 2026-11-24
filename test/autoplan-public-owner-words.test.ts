@@ -403,8 +403,8 @@ describe('every attribution, line and quote shape reads as the merge base read i
     ['does it after an ascii arrow', () => ' -> does it', () => ({ kind: 'does' })],
     ['a choice with a size', () => ' -> choice; size: one day', () => ({ kind: 'choice', size: 'one day' })],
     ['a choice left out', () => ' → choice; size: two days; leave out: needs a second permission', () => ({ kind: 'choice', size: 'two days', leave_out: 'needs a second permission' })],
-    ['a leftover ruled-out line', u => ` → ruled out 2026-11-20: "skrimblor dorvelin ${u}"`, () => undefined],
-    ['a leftover ruled-out line with nested quotes and an arrow', u => ` → ruled out 2026-11-20: "grobble "nevermore" -> ${u}"`, () => undefined],
+    ['a ruling', u => ` → ruled out 2026-11-20: "skrimblor dorvelin ${u}"`, u => ({ kind: 'ruled_out', date: '2026-11-20', ruling: `skrimblor dorvelin ${u}` })],
+    ['a ruling with nested quotes and an arrow', u => ` → ruled out 2026-11-20: "grobble "nevermore" -> ${u}"`, u => ({ kind: 'ruled_out', date: '2026-11-20', ruling: `grobble "nevermore" -> ${u}` })],
   ];
   const tag = (prefix: string, i: number) => `${prefix}${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + (i % 26))}vel`;
   /** Every attribution with every text, each line shape rotating through both, so every pair of shapes meets. */
@@ -413,12 +413,12 @@ describe('every attribution, line and quote shape reads as the merge base read i
     const [lineName, line, parsed] = LINES[(a + t) % LINES.length]!;
     const words = text(tag('qx', i)), ruling = tag('rz', i);
     const bare = `- ${attr}: "${words}"`;
-    return { name: `${attrName} / ${textName} / ${lineName}`, bullet: bare + line(ruling), bare, words, line: parsed(ruling), ruling: line(ruling).includes('ruled out') ? line(ruling).replace(/^ → ruled out [\d-]+: "|"$/g, '') : undefined };
+    return { name: `${attrName} / ${textName} / ${lineName}`, bullet: bare + line(ruling), bare, words, line: parsed(ruling), ruling: parsed(ruling)?.kind === 'ruled_out' ? ruling : undefined };
   }));
   const section = (bullets: string[]) => ["### Owner's words", '', ...bullets, '', '## Review record', ''].join('\n');
 
   test.each(ROWS.map(r => [r.name, r] as const))('%s', (_, row) => {
-    const base = mergeBase((row.line ? row.bare : row.bullet).replace(/^- /, ''));
+    const base = mergeBase(row.bare.replace(/^- /, ''));
     expect(base).toBeDefined();
     const w = parseOwnerWords(section([row.bullet]));
     expect(w.status, w.reason).toBe('ok');
@@ -430,7 +430,7 @@ describe('every attribution, line and quote shape reads as the merge base read i
     expect(slack).toEqual({ status: 'ok', quotes: [{ n: 1, who: 'Garry (Slack DM -> relayed), 2026-11-23', text: 'ship the importer tonight' }] });
     const bad = parseOwnerWords(section(['- Garry (Slack DM -> relayed), 2026-11-23: "ship the importer tonight" → maybe later']));
     expect(bad.status).toBe('malformed');
-    expect(bad.reason).toBe('bullet 1 has a line that is not does it or choice');
+    expect(bad.reason).toBe('bullet 1 has a line that is not does it, choice or ruled out <date>: "<ruling>"');
     expect(bad.quotes.map(q => q.text)).toEqual(['ship the importer tonight']);
   });
 

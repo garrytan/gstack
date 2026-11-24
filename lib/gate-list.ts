@@ -58,7 +58,7 @@ export interface GateList { schema_version: 1; run: string; gate_rev: number; it
   /** The plan's plain-language ask, read from the reviewed plan (lib/captain-brief.ts `buildEli5`); printed first. */
   eli5?: GateEli5;
   /** The plan's `### Owner's words` (lib/autoplan-owner-text.ts): the quotes a challenge must name to keep the plan's direction; `verified` when a recorded owner reply holds it. */
-  owner_words?: { status: 'ok' | 'malformed' | 'none'; quotes: Array<{ n: number; who: string; text: string; verified: boolean; line?: OwnerLine }>; reason?: string; fix?: string };
+  owner_words?: { status: 'ok' | 'malformed' | 'none'; quotes: Array<{ n: number; who: string; text: string; verified: boolean; ruling_verified?: boolean; line?: OwnerLine }>; reason?: string; fix?: string };
   /** A first version (a Day one section or `--first-version`): the owner brief adds the gstack-first-use line. */
   first_version?: boolean;
   /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
