@@ -25,7 +25,7 @@ before the first dispatch (`GRANT_SPENT` stops the run), then follow the plan's 
 class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
 receipt write the same flag; a repeat uses the plan run that picked it.
 A `scoped` repeat is a full pass on the range: its `fix-check` dispatch is one full-effort reviewer on the
-`gstack-review-plan --fix-check-prompt` prompt with `git diff $RANGE_BASE` as the hunks, inside this pass, never a step of its own.
+`gstack-review-plan --fix-check-prompt` prompt with `git diff $RANGE_BASE` as the hunks; the pass's manifest leaves it out (`FIX_CHECK: planned`), so run it yourself beside the pass.
 Save its `REVIEW_PLAN:` line and fingerprint, `REVIEW_DEPTH:` (depth,
 `runtime_lines`, `rules`) and `GATE_SCAN:`. Dispatch exactly its `DISPATCH:` lines
 (specialists, Red Team, Step 11's voices), each at its `effort=` on the same model

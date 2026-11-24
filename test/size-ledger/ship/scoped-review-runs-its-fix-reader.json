@@ -1,0 +1,4 @@
+{
+  "bytes": 51,
+  "why": "a scoped round 2 runs its fix-verifying reader beside the pass (Step 3.5 follow-up to #4779)"
+}
