@@ -6287,7 +6287,11 @@ green, a name in `changelog_fragments.required_checks` is missing or not green
 there, the PR's base is no longer the train's base, the stamp push failed while
 the branch still read the pin, `gh pr merge` refused, or the merge is not yet
 visible on main. `land` also uses it when a land lock push to origin failed and
-origin's lock ref could not be read to tell whether the push landed.
+origin's lock ref could not be read to tell whether the push landed, and when
+the `land.merged_ci` run on the merged tree could not be pushed, dispatched,
+finished within 45 minutes or proved ([land --pin](ship-policy.md#land-direct)).
+A timeout names the run it was waiting on, which is often just sitting in
+GitHub's macOS runner queue.
 
 **Fix.** Commit and push, wait for CI on that head, rerun
 `gstack-pregate run --allow-repo-commands` when the tree changed, then rerun
@@ -6298,7 +6302,12 @@ trial-merge fetch timeout, fetch the named refs by hand
 (`git fetch origin <ref>`) or raise `GSTACK_TRIAL_FETCH_TIMEOUT_MS`, then
 rerun ready. For an
 unreadable land lock, rerun the same `land` command once origin answers; it
-resumes its own lock.
+resumes its own lock. For a `land.merged_ci` timeout, rerun the same `land`
+command whenever you like and don't cancel the named run: while `origin/main`
+hasn't moved, the merged tree is the same, so land waits on that run for up to
+45 more minutes, or lands at once when it has already passed, instead of
+dispatching a new run that waits in the same queue. Once main moves, the merged
+tree changes and land dispatches a run for the new one.
 
 <a id="queue-base-unfetched"></a>
 ### `QUEUE_BASE_UNFETCHED`
@@ -6620,7 +6629,10 @@ added) before any git command in that checkout, then release the lock without
 running the checks with `gstack-ship-queue land --pr <n> --pin <sha>` (no
 `--allow-repo-commands`), and find out why the PR's checks wrote there before it
 lands. For a failed command or a red CI run, read the output or the failed job;
-a flaky case gets one rerun of land, and a real failure goes back to the lane,
+a flaky case gets one rerun (for a failed command, rerun land; for a red
+`land.merged_ci` run, rerun that run with `gh run rerun <id>` and then land,
+which waits on its new attempt, because land reuses the newest run on the same
+merged tree and would otherwise find the same red run), and a real failure goes back to the lane,
 which merges `origin/main` into the branch, fixes it, pushes, waits for the
 required checks, runs /ship and `ready` at the new head, and sends a new READY.
 
