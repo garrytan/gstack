@@ -473,11 +473,15 @@ describe("short owner quotes and leave-out reasons stay out of a first-version e
     ['a two-word reason to leave it out', r => ` → choice; leave out: blint ${r}`, true],
     ['a longer reason to leave it out', r => ` -> choice; size: one day; leave out: ${r} plinkwort drazzle fippery`, true],
     ['a reason after extra spaces', r => ` → choice; leave out :  ${r}`, true],
+    ['a reason after a capitalized key', r => ` → choice; Leave Out: ${r}`, true],
+    ['does it in mixed case', () => ' → Does It', false],
+    ['a choice and size in mixed case', () => ' → Choice; Size: one day', false],
+    ['a recommended reason in mixed case', r => ` → CHOICE; size: two days; Recommend Leave Out: ${r}`, true],
   ];
   const ROWS = QUOTES.flatMap(([qName, quote], a) => LINES.map(([lName, line, hasReason], b) => {
     const i = a * LINES.length + b, reason = tag('rz', i);
     const words = quote(tag('qx', i));
-    return { name: `${qName} / ${lName}`, bullet: `- The owner, 2026-11-20 08:${String(i).padStart(2, '0')}Z: "${words}"${line(reason)}`, words, reason: hasReason ? line(reason).replace(/^.*leave out\s*:\s*/, '') : undefined };
+    return { name: `${qName} / ${lName}`, bullet: `- The owner, 2026-11-20 08:${String(i).padStart(2, '0')}Z: "${words}"${line(reason)}`, words, reason: hasReason ? line(reason).replace(/^.*leave out\s*:\s*/i, '') : undefined };
   }));
   const plan = [
     '# Morning helper (synthetic first version)', '', '## Implementation plan', '',
@@ -503,7 +507,7 @@ describe("short owner quotes and leave-out reasons stay out of a first-version e
     expect(parseOwnerWords(plan).quotes).toHaveLength(ROWS.length);
     const { out, pub } = exported();
     const gate = JSON.stringify(gateOf(out).items);
-    expect(ROWS.filter(row => !gate.includes(row.words) && !row.bullet.includes('does it')).map(row => row.name)).toEqual([]);
+    expect(ROWS.filter(row => !gate.includes(row.words) && !/does it/i.test(row.bullet)).map(row => row.name)).toEqual([]);
     expect(ROWS.filter(row => row.reason && !gate.includes(row.reason)).map(row => row.name)).toEqual([]);
     const bytes = allText(pub);
     const leaks = ROWS.flatMap(row => [row.words, ...(row.reason ? [row.reason] : [])].flatMap(q => fragments(q).filter(w => bytes.includes(w)).map(w => `${row.name}: ${w}`)));

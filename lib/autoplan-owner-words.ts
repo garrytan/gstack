@@ -11,7 +11,7 @@
  * plan-at-gate.r*.md, plan-file.*.md; lib/autoplan-owner-text.ts), so a quote a revision removed stays redacted,
  * and a reason a human gave for `close --deferred <reason> --by human`. A plan quote of any length, and a
  * quote's `leave out: <reason>`, are also redacted wherever gstack renders them: the quote between quote marks,
- * the reason after `leave out:`, `leave it out for now:` or `reason to leave it out:` (GST-3646). A reply that
+ * the reason after `leave out:`, `leave it out for now:` or `reason to leave it out:` in any case (GST-3646). A reply that
  * parsed as gate grammar (`owner_reply_parsed`) is the decision code and is
  * not scanned for; `reply` and the agent's own `answer_words` stay.
  *
@@ -191,8 +191,7 @@ export function ownerIndex(replies: OwnerSource[], o: { deferred?: OwnerSource[]
     ...(o.deferred ?? []).flatMap(d => DEFERRAL_RENDERINGS(escape(d.text))),
     ...(o.carried ?? []).map(w => `words=(${escape(JSON.stringify(w))})(?= by=|$)`),
     ...(o.quoted ?? []).map(q => `["“](${escape(q)})["”]`),
-    ...(o.reasons ?? []).map(r => `(?:leave out|leave it out for now|reason to leave it out)\\s*:\\s*(${escape(r)})`),
-  ].map(p => new RegExp(p, 'gd'));
+  ].map(p => new RegExp(p, 'gd')).concat((o.reasons ?? []).map(r => new RegExp(`(?:leave out|leave it out for now|reason to leave it out)\\s*:\\s*(${escape(r)})`, 'gdi')));
   return { replies: indexed, placements };
 }
 
