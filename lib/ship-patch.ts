@@ -244,7 +244,7 @@ export function baseHolds(repoRoot: string, s: PatchSides, rel: string): boolean
     return r.status === 0 ? r.stdout : null;
   });
   if (blobs.some(b => b === null)) return false;
-  const [mc, mb, mr] = [s.currentBase, s.reviewedBase, s.reviewed].map(ref => git(repoRoot, ['ls-tree', '--full-tree', ref, '--', rel])?.split(' ')[0]);
+  const [mc, mb, mr] = [s.currentBase, s.reviewedBase, s.reviewed].map(ref => git(repoRoot, ['--literal-pathspecs', 'ls-tree', '--full-tree', ref, '--', rel])?.split(' ')[0]);
   if (!mc || !mr || (mr !== mb && mr !== mc)) return false;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-patch-'));
   try {
