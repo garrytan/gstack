@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import { gateCost, gateCostSentence, priorChoices } from './autoplan-gate-cost';
 import { parseReply, recHash, type GateEli5, type GateItem } from './gate-list';
 import { renderUrgentBlock } from './headless-artifacts';
-import { renderDayOne } from './autoplan-owner-text';
+import { renderOwnerPage } from './autoplan-owner-text';
 import { findSection, firstTitle } from './markdown-sections';
 import type { BriefInputs } from './owner-brief';
 
@@ -142,7 +142,7 @@ export function renderCaptainBrief(inputs: BriefInputs, o: { outDir: string; cap
     `\`gstack-autoplan answer --out ${o.outDir} --gate-rev ${list.gate_rev} --reply rec --rec-hash ${hash} --by agent:<id> --owner-reply "<their exact words>"\`, then \`gstack-approvals import --autoplan ${o.outDir} --by <name>\`.`;
   // The price sits above the trailer: the relaying agent sends everything above that line, so the person approving sees it.
   const cost = inputs.run ? ['### Cost', '', gateCostSentence(gateCost(o.outDir, list, { phase_order: inputs.run.phase_order ?? [], outside_enabled: inputs.run.outside_enabled !== false, spend_cap_usd: inputs.run.spend_cap_usd ?? null, scope_flags: inputs.run.scope_flags, lean: inputs.run.lean })), ''] : [];
-  const dayOne = renderDayOne(plan.text, list.owner_words?.quotes);
+  const dayOne = renderOwnerPage(plan.text, list.owner_words?.quotes, { firstVersion: list.first_version });
   const text = [...urgent, ...header, '', ...dayOne, ...body, ...need, ...cost, '---', '', trailer, ''].join('\n');
   return { text, missing, pending, recHash: hash };
 }

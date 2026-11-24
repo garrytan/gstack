@@ -177,8 +177,12 @@ owner; it never raises the cap itself. The owner's answer runs the RECOVER line 
 
 ## 5. Asks to try a build
 
-An ask for the owner to try an app build, and any "v1 is ready" report, goes out only after the build clears
-`gstack-first-use` (`docs/first-use-check.md` in the checkout): an agent from another model family plays that exact
-build cold on the same kind of device and does the plan's first five day-one actions, with a screenshot or video of
-each. Send the text `gstack-first-use message` prints, unchanged; when it refuses, fix the build and replay instead of
-asking. Record the owner's score and words with `gstack-first-use score`, never in a PR or the repository.
+An ask for the owner to try a first version or an app build, and any "v1 is ready" report, goes out only after the
+build clears `gstack-first-use` (`docs/first-use-check.md` in the checkout): an agent from another model family follows
+the exact try-it message, step by step, on the real target (the owner's setup, or a copy loaded with realistic data when
+a step writes; his own Mac through Aside for anything installed there) and records useful, thin, wrong or broken and one
+line per step. The message opens with the owner's quoted words and what this version does with each, names every thin
+step and every notice he'll see, and names the known defects in the build he holds now. Send the text
+`gstack-first-use message` prints, unchanged; when it refuses, fix the build or the step and replay instead of asking.
+Any report of a passing test on a build he doesn't hold yet names the build he does hold and its known defects. Record
+the owner's score and words with `gstack-first-use score`, never in a PR or the repository.

@@ -42,6 +42,8 @@ export interface Scope {
   source?: 'detected' | 'flags';
   /** A docs-only plan runs CEO (native voice only) and Eng; `--docs-only`, the marker, or every Implementation-plan path docs-class. */
   docs_only?: boolean; docs_only_source?: ScopeSource;
+  /** `--first-version` (flag or marker): the plan is a first version even without a Day one section (lib/autoplan-owner-text.ts isFirstVersion). */
+  first_version?: boolean;
 }
 
 export function snapshotTool(args: string[], cwd: string): any {
@@ -64,7 +66,7 @@ export function detectScope(activePlan: string, cwd: string, flags: ScopeFlags, 
   const dxSource: ScopeSource = flags.dx !== undefined ? 'flag' : m.dx !== undefined ? 'marker'
     : flags.developerTool || flags.agentPrimary ? 'flag' : m.developerTool || m.agentPrimary ? 'marker' : 'detected';
   const cli = scopeTokens(flags);
-  const merged = scopeTokens({ ui: flags.ui ?? m.ui, dx: flags.dx ?? m.dx, developerTool, agentPrimary, docsOnly: !!(flags.docsOnly || m.docsOnly) });
+  const merged = scopeTokens({ ui: flags.ui ?? m.ui, dx: flags.dx ?? m.dx, developerTool, agentPrimary, docsOnly: !!(flags.docsOnly || m.docsOnly), firstVersion: !!(flags.firstVersion || m.firstVersion) });
   const pinned = !cli.length || (marker !== null && [...merged].sort().join(' ') === [...marker.tokens].sort().join(' '));
   // A flag or marker that turns a phase on outranks docs-only detection; --docs-only itself outranks everything.
   const enables = flags.ui === true || m.ui === true || developerTool || agentPrimary;
@@ -77,6 +79,7 @@ export function detectScope(activePlan: string, cwd: string, flags: ScopeFlags, 
     sources: { ui: flags.ui !== undefined ? 'flag' : m.ui !== undefined ? 'marker' : 'detected', dx: dxSource }, ui_evidence: detected.uiEvidence, dx_terms: detected.matches,
     cli_flags: cli, marker: marker?.tokens ?? null, pin: pinned ? null : { marker: scopeMarker(merged), file: sourcePlan },
     docs_only: docsOnly, docs_only_source: docsOnlySource,
+    ...(flags.firstVersion || m.firstVersion ? { first_version: true } : {}),
   };
 }
 
@@ -124,7 +127,7 @@ ${RESULT_FORMAT_HEADER}
 \`\`\`gstack-findings
 {"id":"F1","severity":"High","title":"<one line>","file":"<path or omit>","line":12,"fix":"<the fix>"}
 \`\`\`
-   severity is Critical | High | Medium | Low | Informational. Any finding that recommends changing the plan's scope, cost or direction adds "changes": "scope" | "cost" | "direction", or "packaging" | "ordering" when only its delivery packaging or build order changes, with no Implementation-plan edit; that holds at any severity. Only the owner's own words are the plan's direction: add "user_challenge": true and "owner_quote": <n> only when the change goes against bullet n (from 1) of the plan's "Owner's words" section. Scope, order or features the planning agent wrote are proposals, so a change to them is an ordinary finding with "changes" and no user_challenge. A plan with no "Owner's words" section: add "user_challenge": true (no owner_quote) when you recommend changing its stated direction. Naming and other reversible choices are ordinary findings with no "changes". Add "urgent": true and "suggested_owner": "<who>" for a security or data-loss finding this plan does not own. An empty fence means no findings; a missing fence is refused.
+   severity is Critical | High | Medium | Low | Informational. Any finding that recommends changing the plan's scope, cost or direction adds "changes": "scope" | "cost" | "direction", or "packaging" | "ordering" when only its delivery packaging or build order changes, with no Implementation-plan edit; that holds at any severity. Only the owner's own words are the plan's direction: add "user_challenge": true and "owner_quote": <n> only when the change goes against bullet n (from 1) of the plan's "Owner's words" section. Scope, order or features the planning agent wrote are proposals, so a change to them is an ordinary finding with "changes" and no user_challenge. Check every "What it won't do yet" cut and every "does it" line against each quoted owner bullet and any owner answer under DECIDED AT THE GATE: a cut or line that does less than bullet n asked is a finding with "narrows_quote": <n> and "changes": "scope" (no user_challenge), even when the two share no words. A plan with no "Owner's words" section: add "user_challenge": true (no owner_quote) when you recommend changing its stated direction. Naming and other reversible choices are ordinary findings with no "changes". Add "urgent": true and "suggested_owner": "<who>" for a security or data-loss finding this plan does not own. An empty fence means no findings; a missing fence is refused.
 3. Write the whole result to this file: ${resultPath}
 `;
 

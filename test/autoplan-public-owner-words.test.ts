@@ -16,6 +16,7 @@ import { readState } from '../lib/autoplan-state';
 import { recHash } from '../lib/gate-list';
 import { ROOT, SMALL_PLAN, resultOf } from './helpers/autoplan-run-fixture';
 import { capyRunner, phaseVia, readJsonl, readRunJson, writePlan } from './helpers/autoplan-capy';
+import { parseOwnerWords, wordKey, type OwnerLine } from '../lib/autoplan-owner-text';
 
 setDefaultTimeout(60_000);
 const r = capyRunner();
@@ -332,3 +333,128 @@ describe("export --public drops the owner's own words (GST-1243)", () => {
     expect(fs.readFileSync(path.join(pub, 'plan.md'))).toEqual(fs.readFileSync(path.join(out, 'plan.md')));
   });
 });
+
+describe('a first-version export keeps no fragment of any owner quote (GST-3608)', () => {
+  const QUOTES = [
+    'blorptastic zanquiver mellowfrond grumbletide',
+    'zoëlqvist brûxelkorp façadrinth naïvequor',
+    '毎朝の予定をスヌーピー通知で教えてください',
+    '🚀 launchpadzz 🎉 fizzwickery 🌮 tacoloopz',
+  ];
+  const plan = [
+    '# Morning helper (synthetic first version)', '', '## Implementation plan', '',
+    'Add a morning summary job in lib/morning.ts that reads the calendar and sends one notification.', '',
+    "### Owner's words", '',
+    `- The owner, 2026-11-20 08:00Z: "${QUOTES[0]}" → does it`,
+    `- The owner, 2026-11-20 08:01Z: "${QUOTES[1]}" → choice; size: one day`,
+    `- The owner, 2026-11-20 08:02Z: "${QUOTES[2]}" → choice; size: two days; leave out: needs a second permission`,
+    `- The owner, 2026-11-20 08:03Z: "${QUOTES[3]}" → ruled out 2026-11-20: "${QUOTES[3]} never"`, '',
+    '### Day one', '', '| action | frequency | source | feature | route | first build | check |', '|---|---|---|---|---|---|---|',
+    '| reads the morning summary | daily | owner words 1 | Summary | notification | build 1 | the summary lists today |', '',
+    "### What it won't do yet", '', '- No weekly digest', '', '## Review record', ''].join('\n');
+  const fragments = (q: string) => [...new Set([...q.split(/\s+/), ...wordKey(q).trim().split(' ')].filter(w => [...w].length >= 3))];
+
+  test('accented, CJK and emoji quotes leave no 3+ character fragment, raw or normalized, anywhere in the public bytes', () => {
+    const dir = path.join(r.host.base, `owner${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir, plan), '--no-ui', '--no-dx', '--first-version']).status).toBe(0);
+    const narrowing = [{ id: 'F1', severity: 'Medium', title: 'The summary does less than the owner asked', changes: 'scope', narrows_quote: 2 }];
+    phaseVia(r, out, 'ceo', { native: narrowing, outside: [] });
+    expect(phaseVia(r, out, 'eng', { native: [], outside: [] }).outside.stdout).toContain('status=gate_pending');
+    expect(gateOf(out).items.filter((i: { item_class?: string }) => i.item_class === 'owner_choice').length).toBeGreaterThan(0);
+    const pub = path.join(dir, 'public');
+    const e = r.ap(['export', '--out', out, '--public', pub]);
+    expect(e.status, e.stderr).toBe(0);
+    const bytes = allText(pub);
+    const leaks = QUOTES.flatMap(q => fragments(q).filter(w => bytes.includes(w)));
+    expect(leaks).toEqual([]);
+  });
+});
+
+describe('every attribution, line and quote shape reads as the merge base read it, and export keeps none of it (GST-3608)', () => {
+  /** The merge base's whole Owner's words rule (0d6cc1be): the first opening quote mark to the last closing one, who before it. */
+  const mergeBase = (bullet: string) => {
+    const m = /[“"](.+)[”"]/.exec(bullet);
+    return m && m[1]!.trim() ? { who: bullet.slice(0, m.index).replace(/[\s:,-]+$/, '').trim() || 'unattributed', text: m[1]!.trim() } : undefined;
+  };
+  const ATTRIBUTIONS: Array<[string, string]> = [
+    ['plain', 'Garry, 2026-11-23 09:00Z'],
+    ['an ascii arrow', 'Garry (Slack DM -> relayed), 2026-11-23'],
+    ['an arrow', 'Garry (Slack DM → relayed), 2026-11-23'],
+    ['a colon', 'Garry (re: importer), 2026-11-23'],
+    ['straight quote marks', 'Garry ("G"), 2026-11-23'],
+    ['curly quote marks', 'Garry (“G”), 2026-11-23'],
+    ['an em dash', 'Garry — via Slack, 2026-11-23'],
+    ['quote marks and an arrow', 'Garry ("G" -> relayed), 2026-11-23'],
+  ];
+  const TEXTS: Array<[string, (u: string) => string]> = [
+    ['plain', u => `blorptastic zanquiver ${u}`],
+    ['nested straight quotes', u => `snarfle "grumbletide" vexwort ${u}`],
+    ['nested curly quotes', u => `wibbleton “quorkle” ${u}`],
+    ['an arrow between nested quotes', u => `frobnitz "plinky" -> "zorbly" ${u}`],
+    ['an em dash', u => `drevnik—slorpine ${u}`],
+    ['CJK', u => `毎朝の予定をスヌーピー通知で ${u}`],
+    ['accented', u => `zoëlqvist brûxelkorp ${u}`],
+    ['emoji', u => `🚀 launchpadzz 🎉 fizzwickery ${u}`],
+  ];
+  const LINES: Array<[string, (u: string) => string, (u: string) => OwnerLine | undefined]> = [
+    ['no line', () => '', () => undefined],
+    ['does it', () => ' → does it', () => ({ kind: 'does' })],
+    ['does it after an ascii arrow', () => ' -> does it', () => ({ kind: 'does' })],
+    ['a choice with a size', () => ' -> choice; size: one day', () => ({ kind: 'choice', size: 'one day' })],
+    ['a choice left out', () => ' → choice; size: two days; leave out: needs a second permission', () => ({ kind: 'choice', size: 'two days', leave_out: 'needs a second permission' })],
+    ['a leftover ruled-out line', u => ` → ruled out 2026-11-20: "skrimblor dorvelin ${u}"`, () => undefined],
+    ['a leftover ruled-out line with nested quotes and an arrow', u => ` → ruled out 2026-11-20: "grobble "nevermore" -> ${u}"`, () => undefined],
+  ];
+  const tag = (prefix: string, i: number) => `${prefix}${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + (i % 26))}vel`;
+  /** Every attribution with every text, each line shape rotating through both, so every pair of shapes meets. */
+  const ROWS = ATTRIBUTIONS.flatMap(([attrName, attr], a) => TEXTS.map(([textName, text], t) => {
+    const i = a * TEXTS.length + t;
+    const [lineName, line, parsed] = LINES[(a + t) % LINES.length]!;
+    const words = text(tag('qx', i)), ruling = tag('rz', i);
+    const bare = `- ${attr}: "${words}"`;
+    return { name: `${attrName} / ${textName} / ${lineName}`, bullet: bare + line(ruling), bare, words, line: parsed(ruling), ruling: line(ruling).includes('ruled out') ? line(ruling).replace(/^ → ruled out [\d-]+: "|"$/g, '') : undefined };
+  }));
+  const section = (bullets: string[]) => ["### Owner's words", '', ...bullets, '', '## Review record', ''].join('\n');
+
+  test.each(ROWS.map(r => [r.name, r] as const))('%s', (_, row) => {
+    const base = mergeBase((row.line ? row.bare : row.bullet).replace(/^- /, ''));
+    expect(base).toBeDefined();
+    const w = parseOwnerWords(section([row.bullet]));
+    expect(w.status, w.reason).toBe('ok');
+    expect(w.quotes).toEqual([{ n: 1, who: base!.who, text: base!.text, ...(row.line ? { line: row.line } : {}) }]);
+  });
+
+  test('an arrow in the attribution keeps the quote, and a line that is none of the three is still named after it', () => {
+    const slack = parseOwnerWords(section(['- Garry (Slack DM -> relayed), 2026-11-23: "ship the importer tonight"']));
+    expect(slack).toEqual({ status: 'ok', quotes: [{ n: 1, who: 'Garry (Slack DM -> relayed), 2026-11-23', text: 'ship the importer tonight' }] });
+    const bad = parseOwnerWords(section(['- Garry (Slack DM -> relayed), 2026-11-23: "ship the importer tonight" → maybe later']));
+    expect(bad.status).toBe('malformed');
+    expect(bad.reason).toBe('bullet 1 has a line that is not does it or choice');
+    expect(bad.quotes.map(q => q.text)).toEqual(['ship the importer tonight']);
+  });
+
+  test('a first-version export of every row leaves no 3+ character fragment of any quote or ruling in the public bytes', () => {
+    const plan = [
+      '# Morning helper (synthetic first version)', '', '## Implementation plan', '',
+      'Add a morning summary job in lib/morning.ts that reads the calendar and sends one notification.', '',
+      "### Owner's words", '', ...ROWS.map(r => r.bullet), '',
+      '### Day one', '', '| action | frequency | source | feature | route | first build | check |', '|---|---|---|---|---|---|---|',
+      '| reads the morning summary | daily | owner words 1 | Summary | notification | build 1 | the summary lists today |', '',
+      "### What it won't do yet", '', '- No weekly digest', '', '## Review record', ''].join('\n');
+    expect(parseOwnerWords(plan).quotes).toHaveLength(ROWS.length);
+    const dir = path.join(r.host.base, `owner${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir, plan), '--no-ui', '--no-dx', '--first-version']).status).toBe(0);
+    phaseVia(r, out, 'ceo', { native: [{ id: 'F1', severity: 'Medium', title: 'The summary does less than the owner asked', changes: 'scope', narrows_quote: 2 }], outside: [] });
+    expect(phaseVia(r, out, 'eng', { native: [], outside: [] }).outside.stdout).toContain('status=gate_pending');
+    const pub = path.join(dir, 'public');
+    const e = r.ap(['export', '--out', out, '--public', pub]);
+    expect(e.status, e.stderr).toBe(0);
+    const bytes = allText(pub);
+    const fragments = (q: string) => [...new Set([...q.split(/\s+/), ...wordKey(q).trim().split(' ')].filter(w => [...w].length >= 3))];
+    const leaks = ROWS.flatMap(row => [row.words, ...(row.ruling ? [row.ruling] : [])].flatMap(q => fragments(q).filter(w => bytes.includes(w)).map(w => `${row.name}: ${w}`)));
+    expect(leaks).toEqual([]);
+  });
+});
+

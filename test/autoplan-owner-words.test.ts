@@ -8,7 +8,8 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { MIN_TOKENS, OWNER_WORDS_MARK as MARK, WINDOW, dropOwnerFields, ownerIndex, ownerSpans, redactOwnerWords } from '../lib/autoplan-owner-words';
+import * as os from 'node:os';
+import { MIN_TOKENS, OWNER_WORDS_MARK as MARK, WINDOW, dropOwnerFields, ownerIndex, ownerSpans, ownerWords, redactOwnerWords } from '../lib/autoplan-owner-words';
 
 const LONG = 'Keep the backoff cap at thirty seconds and log every retry attempt so we can see it.';
 const quoted = (text: string, ...replies: string[]) => { const o = ownerIndex(replies.map(r => ({ text: r }))); return ownerSpans(text, o).map(([s, e]) => text.slice(s, e)); };
@@ -158,6 +159,20 @@ describe('redactOwnerWords', () => {
     const count = Object.fromEntries(fs.readdirSync(path.join(root, 'lib')).filter(f => f.startsWith('autoplan-') && f.endsWith('.ts'))
       .map(f => [f, (fs.readFileSync(path.join(root, 'lib', f), 'utf8').match(/\$\{(?:o|def|d|ps\.deferred)\.reason\}|JSON\.stringify\(o\.reason\)/g) ?? []).length]).filter(([, n]) => n));
     expect(count).toEqual({ 'autoplan-gate.ts': 5, 'autoplan-export.ts': 1, 'autoplan-run.ts': 1 });
+  });
+});
+
+describe('ownerWords over a run directory', () => {
+  test("a leftover ruled-out line is read as part of the quote, as before lines existed, so export and validate still redact the owner's ruling", () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'owner-ruling-'));
+    const ruling = 'leave my calendar alone, I mean it, no exceptions';
+    fs.writeFileSync(path.join(out, 'plan-source.md'), `# Plan\n\n## Implementation plan\n\n### Owner's words\n\n- The owner, 2026-11-12 09:00Z: "never touch my calendar or my reminders" → ruled out 2026-11-12: "${ruling}"\n\n## Review record\n`);
+    const owner = ownerWords({ out, phases: {}, gate: undefined, carry: undefined } as Parameters<typeof ownerWords>[0]);
+    const r = redactOwnerWords(`The reviewer repeats it: "${ruling}".`, owner);
+    expect(r.text).toContain(MARK);
+    expect(r.text).not.toContain('no exceptions');
+    expect(redactOwnerWords(`He said: "never touch my calendar or my reminders" → ruled out 2026-11-12: "${ruling}"`, owner).text).not.toContain('calendar');
+    fs.rmSync(out, { recursive: true, force: true });
   });
 });
 

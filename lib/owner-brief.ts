@@ -13,7 +13,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { gateCost, gateCostSentence } from './autoplan-gate-cost';
-import { renderDayOne } from './autoplan-owner-text';
+import { renderOwnerPage } from './autoplan-owner-text';
 import { decisionId, PAGE_SIZE, renderGate, type GateList } from './gate-list';
 import { readJsonl, renderUrgentBlock, type DecisionRow } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
@@ -90,7 +90,7 @@ export function renderBrief(inputs: BriefInputs, o: { page?: number; summary?: s
     '',
     renderUrgentBlock(inputs.findings).trimEnd(),
     '',
-    ...renderDayOne(planText(o.outDir, inputs.run), inputs.gate.owner_words?.quotes),
+    ...renderOwnerPage(planText(o.outDir, inputs.run), inputs.gate.owner_words?.quotes, { firstVersion: inputs.gate.first_version }),
     '### Summary',
     '',
     plainSummary(inputs, o.summary),

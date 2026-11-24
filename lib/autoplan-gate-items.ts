@@ -9,24 +9,28 @@
  * Owner's words section keeps today's defaults and gets one item asking the
  * owner to confirm its direction. The day-one items ask about every assumed
  * day-one row, a missing day-one page on an app plan, and each cut that drops
- * a day-one row or a quoted owner line (the other cuts are one grouped item).
+ * a day-one row (the other cuts are one grouped item, or one item each on a
+ * first version). A quote the plan leaves for later (its line says `choice`),
+ * a cut that drops a quote, and a reviewer's `narrows_quote` finding each become
+ * one choice to build what the owner asked for, recommended unless the plan
+ * gives a reason to leave it out (GST-3608).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { branchKey, captainApprovalsDir } from './approval-record';
 import { readVersionedSlugCache, sanitizeSlug } from './bin-context';
-import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, wordKey, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
+import { cutDrops, cutQuote, isFirstVersion, parseCuts, parseDayOne, parseOwnerWords, quoteGaps, quoteWhen, wordKey, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { readDecisions, readJournal, type RunState } from './autoplan-state';
 import { resolveStateRoot } from './state-root';
 import type { GateItem } from './gate-list';
 import type { FindingRow } from './headless-artifacts';
 
-export type ChallengeRow = FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string; owner_quote?: number; resolves?: string };
+export type ChallengeRow = FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string; owner_quote?: number; narrows_quote?: number; resolves?: string };
 export type NewItem = Omit<GateItem, 'id'> & { idKind: 'd' | 'uc'; key: string };
 export interface GateOwnerWords { status: OwnerWordsSection['status']; quotes: Array<OwnerQuote & { verified: boolean }>; reason?: string; fix?: string }
-export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>; dayOne: DayOneTable; cuts: string[]; app: boolean; lean: boolean }
+export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>; dayOne: DayOneTable; cuts: string[]; app: boolean; lean: boolean; firstVersion: boolean }
 
 /**
  * The owner's words in this repository's approvals record for the branch checked out at `cwd` (lib/approval-record.ts
@@ -72,13 +76,18 @@ export function ownerContext(state: RunState, recorded: string[] = recordedOwner
   const words = parseOwnerWords(text);
   const keys = recorded.map(wordKey);
   const verified = new Set(words.quotes.filter(q => keys.some(k => k.includes(wordKey(q.text)))).map(q => q.n));
-  return { words, verified, dayOne: parseDayOne(text), cuts: parseCuts(text), app: !!state.scope?.ui, lean: !!state.lean };
+  return { words, verified, dayOne: parseDayOne(text), cuts: parseCuts(text), app: !!state.scope?.ui, lean: !!state.lean,
+    firstVersion: isFirstVersion(text, !!state.scope?.first_version) };
 }
 
 export function gateOwnerWords(ctx: OwnerContext): GateOwnerWords {
   return { status: ctx.words.status, quotes: ctx.words.quotes.map(q => ({ ...q, verified: ctx.verified.has(q.n) })),
     ...(ctx.words.reason ? { reason: ctx.words.reason, fix: ctx.words.fix } : {}) };
 }
+
+/** The quote a reviewer says the plan narrows (a cut or a "does it" line that does less than the owner asked), when the plan quotes it. */
+export const narrowedQuoteOf = (ctx: OwnerContext, f: ChallengeRow | undefined): OwnerQuote | undefined =>
+  f?.narrows_quote ? ctx.words.quotes.find(q => q.n === f.narrows_quote) : undefined;
 
 /** The owner line a challenge names, when the plan quotes one there. */
 export const ownerQuoteOf = (ctx: OwnerContext, f: ChallengeRow | undefined): OwnerQuote | undefined =>
@@ -135,10 +144,28 @@ export function confirmDirectionItem(challenges: string[]): NewItem {
       { key: 'b', text: "no, it is a draft: quote what I said in an Owner's words section and revise, so the challenges are judged against it", changes_plan: true }] };
 }
 
-/** The day-one questions: each assumed row, a missing page on an app plan, and the plan's cuts. */
-export function dayOneItems(ctx: OwnerContext): NewItem[] {
+/**
+ * The owner-page questions: on a first version, missing quotes or lines; each assumed day-one row; a missing page on an
+ * app plan; one build-it choice per quote the plan leaves out (its `choice` line, a cut that drops it, or a reviewer's
+ * narrows_quote finding); and the cuts, one item each on a first version, else those matching a day-one row alone.
+ */
+export function dayOneItems(ctx: OwnerContext, narrowed: ChallengeRow[] = []): NewItem[] {
   const items: NewItem[] = [];
   const reopen = ctx.lean ? 'applies without re-review (lean run)' : 'reopens ceo and eng once the plan is revised';
+  if (ctx.firstVersion && ctx.words.status === 'none') {
+    items.push({ idKind: 'uc', key: 'owner-words', kind: 'approval', recommended: 'a', item_class: 'owner_words', changes: 'scope', cost: `a ${reopen}`,
+      title: 'This is a first version, but the plan quotes none of your messages that ask for it',
+      why: 'a first version is checked against your own words for the job, not against the plan: each quoted message, with its time, gets a line saying what this version does with it',
+      options: [{ key: 'a', text: "add it: an ### Owner's words section quoting each message that states the job, with its time and a line each (does it or choice), then revise", changes_plan: true },
+        { key: 'b', text: 'approve without it', changes_plan: false }] });
+  }
+  const gaps = ctx.firstVersion ? ctx.words.quotes.filter(q => quoteGaps(q).length) : [];
+  if (gaps.length) {
+    items.push({ idKind: 'uc', key: `owner-lines:${gaps.map(q => q.n).join(',')}`, kind: 'approval', recommended: 'a', item_class: 'owner_words', changes: 'scope', cost: `a ${reopen}`,
+      title: `${gaps.length} of your quoted messages ${gaps.length === 1 ? 'has' : 'have'} no time or no line saying what this version does with ${gaps.length === 1 ? 'it' : 'them'}: ${gaps.map(q => `“${q.text}” (missing ${quoteGaps(q).join(' and ')})`).join('; ')}`,
+      why: 'on a first version every quote says when it was said and whether this version does it or leaves it as a lettered choice',
+      options: [{ key: 'a', text: 'add the time and the line to each, then revise', changes_plan: true }, { key: 'b', text: 'approve without them', changes_plan: false }] });
+  }
   if (ctx.app && ctx.dayOne.status !== 'ok') {
     items.push({ idKind: 'uc', key: 'day-one-page', kind: 'approval', recommended: 'a', item_class: 'day_one', changes: 'scope', cost: `a ${reopen}`,
       title: `The plan has no day-one page${ctx.dayOne.reason ? ` (${ctx.dayOne.reason})` : ''}: the first things you will do with it, how often, and which build puts each on your device`,
@@ -151,17 +178,37 @@ export function dayOneItems(ctx: OwnerContext): NewItem[] {
       why: `no owner words or owner evidence back this row; feature: ${row.feature || 'none named'}; first build: ${row.first_build || 'none named'}`,
       options: [{ key: 'a', text: 'yes, I do that: keep the row', changes_plan: false }, { key: 'b', text: 'no, or not like that: say what you do instead, then revise', changes_plan: true }] });
   }
-  const targets = [...ctx.dayOne.rows.flatMap(r => [r.action, r.feature]), ...ctx.words.quotes.map(q => q.text)].filter(Boolean);
-  const named = ctx.cuts.filter(c => targets.some(t => cutDrops(c, t)));
+  const left = new Map<number, string[]>();
+  const note = (q: OwnerQuote, why: string) => left.set(q.n, [...(left.get(q.n) ?? []), why]);
+  for (const q of ctx.words.quotes) if (q.line?.kind === 'choice') note(q, "the plan's line for it says this version doesn't do it yet");
+  const quoteCuts = ctx.cuts.filter(c => cutQuote(c, ctx.words.quotes));
+  for (const cut of quoteCuts) note(cutQuote(cut, ctx.words.quotes)!, `the plan cuts it: "${cut}"`);
+  for (const f of narrowed) { const q = ctx.words.quotes.find(x => x.n === f.narrows_quote); if (q) note(q, `a reviewer (${f.voice}) says the plan narrows it: ${f.title}`); }
+  for (const q of ctx.words.quotes.filter(x => left.has(x.n))) {
+    const choice = q.line?.kind === 'choice' ? q.line : undefined;
+    const blocking = narrowed.find(f => f.narrows_quote === q.n && (f.severity === 'Critical' || f.severity === 'High'));
+    const leave = blocking ? undefined : choice?.leave_out;
+    const size = choice?.size ? `about ${choice.size}` : 'size not stated';
+    items.push({ idKind: 'uc', key: `quote:${q.n}`, kind: 'approval', recommended: leave ? 'b' : 'a', item_class: 'owner_choice', changes: 'scope',
+      recommended_basis: blocking ? `your own words asked for it, and a ${blocking.severity} finding says the plan falls short of them` : leave ? `the plan's reason to leave it out: ${leave}` : 'your own words asked for it, and only your words are direction',
+      cost: `a adds ${size} to this version and ${reopen}`,
+      title: `Your words${quoteWhen(q) ? ` (${quoteWhen(q)})` : ''}: “${q.text}”, which this version doesn't fully do`,
+      why: left.get(q.n)!.join('; '),
+      options: [{ key: 'a', text: `build it in this version (${size})`, changes_plan: true }, { key: 'b', text: `leave it out for now${leave ? `: ${leave}` : ''}`, changes_plan: false }] });
+  }
+  const rest = ctx.cuts.filter(c => !quoteCuts.includes(c));
+  const rowTargets = ctx.dayOne.rows.flatMap(r => [r.action, r.feature]).filter(Boolean);
+  const named = ctx.firstVersion ? rest : rest.filter(c => rowTargets.some(t => cutDrops(c, t)));
   for (const cut of named) {
+    const drops = rowTargets.some(t => cutDrops(cut, t));
     items.push({ idKind: 'uc', key: `cut:${wordKey(cut).trim()}`, kind: 'approval', recommended: 'a', item_class: 'cut', changes: 'scope', cost: `b ${reopen}`,
-      title: `Cut: ${cut}`, why: 'this cut drops something on the day-one page or in your own words',
+      title: `Cut: ${cut}`, why: drops ? 'this cut drops something on the day-one page' : 'on a first version every cut is your decision, one letter each',
       options: [{ key: 'a', text: 'keep the cut: not in the first build', changes_plan: false }, { key: 'b', text: 'put it back in the first build', changes_plan: true }] });
   }
-  const rest = ctx.cuts.filter(c => !named.includes(c));
-  if (rest.length) {
+  const grouped = rest.filter(c => !named.includes(c));
+  if (grouped.length) {
     items.push({ idKind: 'd', key: 'cuts', kind: 'auto', recommended: 'a', item_class: 'cuts', changes: 'scope', cost: `b ${reopen}`,
-      title: `${rest.length} other cut${rest.length === 1 ? '' : 's'}: ${rest.join('; ')}`, why: 'none of these drops a day-one row or a quoted owner line',
+      title: `${grouped.length} other cut${grouped.length === 1 ? '' : 's'}: ${grouped.join('; ')}`, why: 'none of these drops a day-one row or a quoted owner line',
       options: [{ key: 'a', text: 'keep these cuts', changes_plan: false }, { key: 'b', text: 'put some back: name them, then revise', changes_plan: true }] });
   }
   return items;

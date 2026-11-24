@@ -13,8 +13,23 @@
   "device": "iPhone 17 Pro on iOS 26",
   "setup": "Install TestFlight from the App Store first.",
   "account": "a fresh Apple ID with notifications allowed",
+  "target": {
+    "kind": "realistic-copy",
+    "name": "the Plantpal test account",
+    "data": "three sample plants with a watering history"
+  },
   "what": "Plantpal tells you which houseplant needs water today.",
   "start": "Open the TestFlight invite, tap Install, then open Plantpal.",
+  "steps": [
+    {
+      "text": "Open the TestFlight invite and install Plantpal",
+      "writes": "none"
+    },
+    {
+      "text": "Sign in with the account above",
+      "writes": "a Plantpal account"
+    }
+  ],
   "controls": "Tap to open, swipe left on a plant to mark it watered.",
   "minutes": 10,
   "learn": "Whether the Today list is the first thing you want every morning.",

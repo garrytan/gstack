@@ -21,7 +21,7 @@
  * Rendered by bin/gstack-gate; rows land in decisions.jsonl (lib/headless-artifacts.ts).
  */
 import { createHash } from 'node:crypto';
-import { ownerWordsLine } from './autoplan-owner-text';
+import { ownerWordsLine, type OwnerLine } from './autoplan-owner-text';
 import type { DecisionRow } from './headless-artifacts';
 
 /** `changes_plan`: choosing this option is an accepted plan change (reopens its phase plus Eng, prints APPLY:). */
@@ -49,7 +49,7 @@ export interface GateItem {
   finding?: string[];
 }
 export type ItemClass = 'challenge2' | 'challenge1' | 'disagree' | 'agent' | 'cap_deferred' | 'cap_blocker' | 'cap_delta' | 'finding' | 'p1'
-  | 'proposal' | 'confirm_direction' | 'day_one' | 'cut' | 'cuts';
+  | 'proposal' | 'confirm_direction' | 'day_one' | 'cut' | 'cuts' | 'owner_words' | 'owner_choice';
 export interface GateList { schema_version: 1; run: string; gate_rev: number; items: GateItem[]; title?: string;
   /** Bumped by every `recommend`, so a `rec` relayed before it no longer matches `recHash`. */
   rec_rev?: number;
@@ -58,7 +58,9 @@ export interface GateList { schema_version: 1; run: string; gate_rev: number; it
   /** The plan's plain-language ask, read from the reviewed plan (lib/captain-brief.ts `buildEli5`); printed first. */
   eli5?: GateEli5;
   /** The plan's `### Owner's words` (lib/autoplan-owner-text.ts): the quotes a challenge must name to keep the plan's direction; `verified` when a recorded owner reply holds it. */
-  owner_words?: { status: 'ok' | 'malformed' | 'none'; quotes: Array<{ n: number; who: string; text: string; verified: boolean }>; reason?: string; fix?: string };
+  owner_words?: { status: 'ok' | 'malformed' | 'none'; quotes: Array<{ n: number; who: string; text: string; verified: boolean; line?: OwnerLine }>; reason?: string; fix?: string };
+  /** A first version (a Day one section or `--first-version`): the owner brief adds the gstack-first-use line. */
+  first_version?: boolean;
   /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
   carry_check?: { attempt: string; model: string; verdict: 'passed' | 'failed' | 'unavailable'; max_severity: string; findings: number; at: string } }
 /** The captain approvals shape (crew/docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */

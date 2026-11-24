@@ -26,7 +26,8 @@ import { confirmBlock, openEarlier, settledIds } from '../lib/autoplan-confirm';
 import { buildTasks } from '../lib/autoplan-export';
 import { exportPublic } from '../lib/autoplan-public';
 import * as crypto from 'node:crypto';
-import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, ownerWordsLine } from '../lib/autoplan-owner-text';
+import { cutDrops, parseCuts, parseDayOne, parseOwnerWords, ownerWordsLine, renderOwnerPage } from '../lib/autoplan-owner-text';
+import { detectScope, RESULT_FORMAT } from '../lib/autoplan-prompts';
 import { ownerWords, redactOwnerWords } from '../lib/autoplan-owner-words';
 import { consensusRecord, parseReviewResult, reconcile } from '../lib/autoplan-reconcile';
 import { decisionSeverity } from '../lib/autoplan-revise';
@@ -62,7 +63,7 @@ const planText = (o: { owner?: string | null; dayOne?: boolean } = {}) => [
   '### Units', '', 'U1 the live lane. U2 the transcript. U3 the before-meeting card. U4 the promise review screen.', '',
   '## Review record', ''].join('\n');
 
-type Row = Partial<FindingRow> & { id: string; severity: FindingRow['severity']; title: string; user_challenge?: boolean; changes?: string; owner_quote?: number; resolves?: string };
+type Row = Partial<FindingRow> & { id: string; severity: FindingRow['severity']; title: string; user_challenge?: boolean; changes?: string; owner_quote?: number; narrows_quote?: number; resolves?: string };
 const row = (phase: string, voice: 'native' | 'outside', r: Row): FindingRow => ({ schema_version: 1, run: RUN, phase, voice, disposition: 'open', ...r } as FindingRow);
 
 /** Round 1 of the CEO phase: the build-order and promise-scope challenges that round 2 never repeated. */
@@ -137,17 +138,22 @@ describe('replay: a reviewed app plan whose product challenges were hidden', () 
     expect(list.items.find(i => i.id === 'p1')!.recommended).toBe('b');
   });
 
-  test('day one: the assumed row is an owner question, the cut that drops the Today screen is lettered, the rest are one item', () => {
+  test('day one: the assumed row is an owner question; on a first version every cut is lettered and a quote with no line is asked about', () => {
     expect(byClass(list, 'day_one').map(i => i.title)).toEqual(['Day one: the plan assumes you will do "reviews the promises made in a meeting" (daily); is that right?']);
-    expect(byClass(list, 'cut').map(i => i.title)).toEqual(['Cut: No Today screen in the first build: notifications only']);
-    expect(byClass(list, 'cuts').map(i => i.title)).toEqual(['2 other cuts: No Android build; No shared team calendars']);
+    expect(byClass(list, 'cut').map(i => [i.title, i.why])).toEqual([
+      ['Cut: No Today screen in the first build: notifications only', 'this cut drops something on the day-one page'],
+      ['Cut: No Android build', 'on a first version every cut is your decision, one letter each'],
+      ['Cut: No shared team calendars', 'on a first version every cut is your decision, one letter each']]);
+    expect(byClass(list, 'cuts')).toEqual([]);
+    expect(byClass(list, 'owner_words').map(i => [i.title, i.recommended])).toEqual([['1 of your quoted messages has no time or no line saying what this version does with it: “I want to remember what I promised people after every meeting” (missing a line (does it or choice))', 'a']]);
+    expect(list.first_version).toBe(true);
     expect(list.owner_words).toMatchObject({ status: 'ok', quotes: [{ n: 1, verified: false }] });
   });
 
-  test('lettered-item counts (recorded for the PR): 3 proposals, 3 day-one items, 1 High finding', () => {
+  test('lettered-item counts (recorded for the PR): 3 proposals, 1 day-one question, 3 cuts, 1 owner-words line, 1 High finding', () => {
     expect(byClass(list, 'proposal').length).toBe(3);
     expect(byClass(list, 'finding').length).toBe(1);
-    expect(lettered(list)).toBe(7);
+    expect(lettered(list)).toBe(9);
   });
 });
 
@@ -161,7 +167,7 @@ describe('negative controls', () => {
     expect(d1.options[0]!.text).toBe('keep your direction');
     expect(byClass(list, 'confirm_direction')).toEqual([]);
     expect(byClass(list, 'proposal').length).toBe(2);
-    expect(lettered(list)).toBe(7);
+    expect(lettered(list)).toBe(9);
   });
 
   test("(b) no Owner's words section: today's keep-direction default stays, plus one confirm-direction item", () => {
@@ -174,7 +180,8 @@ describe('negative controls', () => {
     expect(confirm.length).toBe(1);
     expect(confirm[0]!.title).toContain(kept.map(i => i.id).join(', '));
     expect(list.owner_words).toBeUndefined();
-    expect(lettered(list)).toBe(8);
+    expect(byClass(list, 'owner_words').map(i => i.title)).toEqual(['This is a first version, but the plan quotes none of your messages that ask for it']);
+    expect(lettered(list)).toBe(10);
   });
 
   test('(c) a round-1 challenge the revision fixed (resolves) or the owner answered does not resurface', () => {
@@ -184,7 +191,7 @@ describe('negative controls', () => {
     expect(covering(list, `${RUN}-ceo-native-18`)).toBeUndefined();
     expect(openEarlier(state, 'ceo', [...round2({ resolved: true }).native])).toEqual([]);
     expect(byClass(list, 'proposal').length).toBe(1);
-    expect(lettered(list)).toBe(5);
+    expect(lettered(list)).toBe(7);
   });
 
   test('a later round staying silent never closes a challenge, and a lean run carries nothing', () => {
@@ -267,7 +274,7 @@ describe('owner_quote downgrade, the day-one page requirement and the cost line'
 
   test('a changed cut list or challenge list gets a new origin, so an earlier answer is asked again instead of carried', () => {
     const origin = (list: GateList, cls: string) => byClass(list, cls)[0]!.origin;
-    const cuts = (extra: string) => planText().replace('- No shared team calendars\n', `- No shared team calendars\n${extra}`);
+    const cuts = (extra: string) => planText({ dayOne: false }).replace('### Units', "### What it won't do yet\n\n- No Android build\n- No shared team calendars\n\n### Units").replace('- No shared team calendars\n', `- No shared team calendars\n${extra}`);
     const before = buildGate(makeRun('cuts-before', { plan: cuts(''), round2: round2(), round1: false }), 1);
     const after = buildGate(makeRun('cuts-after', { plan: cuts('- No web dashboard\n'), round2: round2(), round1: false }), 1);
     expect(origin(after, 'cuts')).not.toBe(origin(before, 'cuts'));
@@ -431,5 +438,139 @@ describe('parsers, render and redaction', () => {
     const out = redactOwnerWords('The plan says: I want to remember what I promised people after every meeting.', words);
     expect(out.redacted).toBe(1);
     expect(out.text).not.toContain('promised people');
+  });
+});
+
+describe('first versions: the owner page quotes the owner and letters what it leaves out (GST-3608)', () => {
+  const CASE4 = [
+    "### Owner's words", '',
+    '- The owner, 2026-11-19 10:04Z: "making it really good two-way is awesome also. being able to send and receive." → does it',
+    '- The owner, 2026-11-19 10:06Z: "contacts are awesome. notes are awesome too." → choice; size: one day; leave out: notes need a second helper permission',
+  ].join('\n');
+  const plan = (owner: string, cuts = '- It never writes to your Contacts: writes keep going through the iCloud route\n- No Android build\n') => [
+    '# Contacts for the agent (synthetic, the shape of a real first version)', '', '## Implementation plan', '', owner, '',
+    '### Day one', '', '| action | frequency | source | feature | route | first build | check |', '|---|---|---|---|---|---|---|',
+    '| asks the agent who someone is | daily | owner words 1 | Contact lookup | chat | build 1 | the agent answers from the address book |', '',
+    "### What it won't do yet", '', cuts, '## Review record', ''].join('\n');
+  const narrowing = (o: { quote?: number } = {}) => ({
+    native: [row('ceo', 'native', { id: `${RUN}-ceo-r2-native-1`, severity: 'High', title: 'Read-only contacts does less than the two-way the owner asked for', changes: 'scope', resolution: 'make contacts read and write', ...(o.quote ? { narrows_quote: o.quote } : {}) } as Row)],
+    outside: [] as FindingRow[],
+  });
+
+  test('the parser reads each line and keeps an arrow inside the quote', () => {
+    const w = parseOwnerWords(CASE4 + '\n- The owner, 2026-11-20 08:00Z: "a -> b → c in the quote" -> does it');
+    expect(w.status).toBe('ok');
+    expect(w.quotes.map(q => [q.text, q.line])).toEqual([
+      ['making it really good two-way is awesome also. being able to send and receive.', { kind: 'does' }],
+      ['contacts are awesome. notes are awesome too.', { kind: 'choice', size: 'one day', leave_out: 'notes need a second helper permission' }],
+      ['a -> b → c in the quote', { kind: 'does' }],
+    ]);
+    expect(parseOwnerWords('### Owner\'s words\n\n- The owner, day 0: "x"').quotes[0]!.line).toBeUndefined();
+  });
+
+  test('case 4: a read-only cut that shares no words with "two-way", flagged by a reviewer, becomes one choice recommending build', () => {
+    const list = buildGate(makeRun('case4', { plan: plan(CASE4), round2: narrowing({ quote: 1 }), round1: false, ui: false }), 1);
+    const choices = byClass(list, 'owner_choice');
+    expect(choices.map(i => [i.title, i.recommended])).toEqual([
+      ['Your words (2026-11-19 10:04Z): “making it really good two-way is awesome also. being able to send and receive.”, which this version doesn\'t fully do', 'a'],
+      ['Your words (2026-11-19 10:06Z): “contacts are awesome. notes are awesome too.”, which this version doesn\'t fully do', 'b'],
+    ]);
+    expect(choices[0]!.why).toBe('a reviewer (native) says the plan narrows it: Read-only contacts does less than the two-way the owner asked for');
+    expect(choices[0]!.options.map(o => o.text)).toEqual(['build it in this version (size not stated)', 'leave it out for now']);
+    expect(choices[1]!.recommended_basis).toBe("the plan's reason to leave it out: notes need a second helper permission");
+    expect(choices[1]!.cost).toBe('a adds about one day to this version and reopens ceo and eng once the plan is revised');
+    expect(covering(list, `${RUN}-ceo-r2-native-1`)).toBeUndefined();
+    expect(byClass(list, 'cut').map(i => i.title)).toEqual(['Cut: It never writes to your Contacts: writes keep going through the iCloud route', 'Cut: No Android build']);
+    expect(rec(list)[choices[0]!.id]).toBe('a');
+  });
+
+  test('without the reviewer finding, the same read-only cut is still its own letter on a first version, never a grouped "other cuts" line', () => {
+    const list = buildGate(makeRun('case4-quiet', { plan: plan(CASE4), round2: narrowing(), round1: false, ui: false }), 1);
+    expect(byClass(list, 'cuts')).toEqual([]);
+    expect(byClass(list, 'cut').length).toBe(2);
+  });
+
+  test('a cut that names a quoted line is that quote\'s build-it choice, exactly one item, and leaves the "won\'t do yet" list', () => {
+    const cuts = '- No notes: contacts awesome, notes awesome too later\n- No Android build\n';
+    const state = makeRun('cut-quote', { plan: plan(CASE4, cuts), round2: narrowing(), round1: false, ui: false });
+    const list = buildGate(state, 1);
+    const notes = byClass(list, 'owner_choice').filter(i => i.title.includes('notes are awesome'));
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.why).toBe('the plan\'s line for it says this version doesn\'t do it yet; the plan cuts it: "No notes: contacts awesome, notes awesome too later"');
+    expect(byClass(list, 'cut').map(i => i.title)).toEqual(['Cut: No Android build']);
+    const page = renderOwnerPage(fs.readFileSync(state.active_plan, 'utf8'), list.owner_words?.quotes, { firstVersion: true }).join('\n');
+    expect(page).toContain('### Your words this plan follows');
+    expect(page.indexOf('### Your words this plan follows')).toBeLessThan(page.indexOf('### Day one'));
+    expect(page).toContain('“contacts are awesome. notes are awesome too.” (not found in your recorded replies) → not in this version yet: a lettered choice below');
+    expect(page).toContain("### What it won't do yet\n\n- No Android build\n");
+    expect(page).not.toContain('- No notes');
+    expect(page).toContain('(gstack-first-use)');
+    expect(renderOwnerPage(fs.readFileSync(state.active_plan, 'utf8'), list.owner_words?.quotes, { firstVersion: false }).join('\n')).not.toContain('(gstack-first-use)');
+  });
+
+  test('a High finding that narrows a quote recommends build over the plan\'s leave-out reason, and only build settles it', () => {
+    const list = buildGate(makeRun('high-narrow', { plan: plan(CASE4), round2: narrowing({ quote: 2 }), round1: false, ui: false }), 1);
+    const notes = byClass(list, 'owner_choice').find(i => i.title.includes('notes are awesome'))!;
+    expect(notes.recommended).toBe('a');
+    expect(notes.recommended_basis).toBe('your own words asked for it, and a High finding says the plan falls short of them');
+    expect(notes.origin!.split('|')[1]!.split('+')).toContain(`${RUN}-ceo-r2-native-1`);
+    expect(notes.origin!.endsWith('|finding')).toBe(true);
+  });
+
+  describe("the default reply never changes or overrides an owner line, whatever kind of finding touches it", () => {
+    type Kind = { name: string; native: Row[]; outside?: Row[] };
+    const finding = (voice: 'native' | 'outside', quote: number, severity: FindingRow['severity'] = 'High') =>
+      ({ id: `${RUN}-ceo-r2-${voice}-1`, severity, title: 'Read-only contacts does less than what the owner asked for', changes: 'scope', resolution: 'make contacts read and write', narrows_quote: quote } as Row);
+    const KINDS: Kind[] = [
+      { name: 'narrows a does-it quote', native: [finding('native', 1)] },
+      { name: 'narrows an open choice quote (High)', native: [finding('native', 2)] },
+      { name: 'narrows an open choice quote (Medium)', native: [finding('native', 2, 'Medium')] },
+      { name: 'a paired finding: both on a does-it quote', native: [finding('native', 1)], outside: [finding('outside', 1)] },
+    ];
+    test.each(KINDS.map(k => [k.name, k] as const))('%s', (_, kind) => {
+      const state = makeRun(`rec-${kind.name.replace(/\W+/g, '-')}`, { plan: plan(CASE4), round2: { native: kind.native.map(r => row('ceo', 'native', r)), outside: (kind.outside ?? []).map(r => row('ceo', 'outside', r)) }, round1: false, ui: false });
+      const list = buildGate(state, 1);
+      const chosen = rec(list);
+      const quotes = parseOwnerWords(CASE4).quotes;
+      for (const r of [...kind.native, ...(kind.outside ?? [])]) {
+        const q = quotes.find(x => x.n === r.narrows_quote)!;
+        const items = list.items.filter(i => i.title.includes(r.id) || (i.item_class === 'owner_choice' && i.title.includes(q.text)));
+        expect(items.length, `${r.id} reaches the gate`).toBeGreaterThan(0);
+        for (const item of items) {
+          expect(item.item_class, `${r.id}: never a plain proposal`).not.toBe('proposal');
+          expect(item.why ?? '').not.toContain('no quoted owner line says otherwise');
+          const option = item.options.find(o => o.key === (chosen[item.id] ?? item.recommended))!;
+          if (item.item_class === 'owner_choice' && (r.severity === 'High' || r.severity === 'Critical' || q.line?.kind === 'does')) expect([item.id, option.text.startsWith('build it')], `${r.id}: the default builds what was asked`).toEqual([item.id, true]);
+        }
+      }
+    });
+  });
+
+  test('--first-version makes a plan with no Day one section a first version; a plain backend plan stays as it was', () => {
+    const noDay = plan(CASE4).replace(/### Day one[\s\S]*?\n\n### What/, '### What');
+    const flagged = makeRun('fv-flag', { plan: noDay, round2: narrowing(), round1: false, ui: false });
+    (flagged.scope as any).first_version = true;
+    expect(buildGate(flagged, 1).first_version).toBe(true);
+    const plain = buildGate(makeRun('fv-none', { plan: noDay.replace(/ → [^\n]*/g, ''), round2: narrowing(), round1: false, ui: false }), 1);
+    expect(plain.first_version).toBeUndefined();
+    expect(byClass(plain, 'owner_words')).toEqual([]);
+    expect(byClass(plain, 'cuts').map(i => i.title)).toEqual(['2 other cuts: It never writes to your Contacts: writes keep going through the iCloud route; No Android build']);
+  });
+
+  test('--first-version reaches the run scope from the CLI flag and from the plan\'s scope marker', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-scope-'));
+    const bare = path.join(dir, 'bare.md'), marked = path.join(dir, 'marked.md');
+    fs.writeFileSync(bare, '# A plan\n\n## Implementation plan\n\n- Edit lib/x.ts\n\n## Review record\n');
+    fs.writeFileSync(marked, '<!-- gstack-autoplan-scope: --first-version -->\n' + fs.readFileSync(bare, 'utf8'));
+    expect(detectScope(bare, dir, { firstVersion: true }).first_version).toBe(true);
+    expect(detectScope(marked, dir, {}).first_version).toBe(true);
+    expect(detectScope(bare, dir, {}).first_version).toBeUndefined();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('the reviewer prompt asks for narrows_quote and the reconciler keeps it', () => {
+    expect(RESULT_FORMAT('eng', SHA, '/x')).toContain('"narrows_quote": <n>');
+    const parsed = parseReviewResult('INPUT: eng ' + SHA + '\n\n```gstack-findings\n{"id":"F1","severity":"High","title":"t","changes":"scope","narrows_quote":2}\n```\n');
+    expect(JSON.stringify(parsed)).toContain('"narrows_quote":2');
   });
 });

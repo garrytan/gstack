@@ -2500,12 +2500,12 @@ whose Plan line differs from the PR body's current line.
 <a id="first-use-plan-unready"></a>
 ### `gstack-first-use start: ... (FIRST_USE_PLAN_UNREADY)`
 
-**Meaning.** `start` could not freeze the day-one actions: the plan has no `### Day one` table, the table is missing a column or has fewer than five rows, one of its first five rows has an empty cell, or one of them is still marked `assumed`. Exit 3; nothing is written. **Fix.** Give the plan the pinned table ([first-use-check.md](first-use-check.md#the-day-one-table)) and confirm every assumed row with the owner, then rerun `start`.
+**Meaning.** `start` could not freeze the steps: the plan has no `### Day one` table, the table is missing a column or has fewer than five rows, one of its first five rows has an empty cell, is still marked `assumed` or cites none of the owner's quotes (`owner words <n>`), or the plan has no `### Owner's words` section, or a quote there has no time or no line (`does it` or `choice`). Exit 3; nothing is written. **Fix.** Quote the owner's messages that state the job and cite them from the table ([first-use-check.md](first-use-check.md#the-owners-words-and-the-day-one-table)); a row the owner confirmed at the gate cites his answer, added to Owner's words. Then rerun `start`.
 
 <a id="first-use-play-spec-incomplete"></a>
 ### `gstack-first-use start: ... (FIRST_USE_PLAY_SPEC_INCOMPLETE)`
 
-**Meaning.** The play spec JSON misses one of the ten parts every ask to play or try a build carries (links, device and setup, what it is, how to start, controls, how long, what we want to learn, how to report back, known quirks, reply word). The line names each missing part and field. Exit 3. **Fix.** Fill them in ([first-use-check.md](first-use-check.md#play-spec)); "none" is a fine value for known quirks.
+**Meaning.** The play spec JSON misses one of the ten parts every ask to play or try a build carries (links, device and setup with its `target`, what it is, how to start with its numbered `steps`, controls, how long, what we want to learn, how to report back, known quirks, reply word), or a step writes on the owner's real setup with no `approved_write` naming his approval. The line names each missing part and field. Exit 3. **Fix.** Fill them in ([first-use-check.md](first-use-check.md#play-spec)); "none" is a fine value for known quirks and for a step's writes. Run a step that writes on a realistic copy, or get the owner's lettered approval for that write first.
 
 <a id="first-use-same-family"></a>
 ### `gstack-first-use start|record|predict: ... (FIRST_USE_SAME_FAMILY)`
@@ -2520,12 +2520,12 @@ whose Plan line differs from the PR body's current line.
 <a id="first-use-record-invalid"></a>
 ### `gstack-first-use: ... (FIRST_USE_RECORD_INVALID)`
 
-**Meaning.** A value or file is invalid: a bad `--commit`, `--action`, `--verdict` or score, an `--account` or `--device-class` that isn't the run's owner-equivalent audience, a run directory outside the record root, evidence that is not a screenshot or short video (or is empty, a link, or over 100 MB), an unreadable manifest, or a second prediction on a run. Exit 1. **Fix.** Correct the value. Run files are written once; to redo a check, start a new run.
+**Meaning.** A value or file is invalid: a bad `--commit`, `--platform`, `--step`, `--verdict`, `--line` or score, missing `--holding` or `--holding-defects`, an `--account`, `--target` or `--device-class` that isn't the run's owner-equivalent audience and target, a run directory outside the record root, evidence that is not a screenshot, short video or terminal capture (or is empty, a link, or over 100 MB), an unreadable manifest or a schema-1 run from before the try-it steps were checked, or a second prediction on a run. Exit 1. **Fix.** Correct the value. Run files are written once; to redo a check, or to continue from a schema-1 run, start a new run.
 
 <a id="first-use-refused"></a>
 ### `gstack-first-use check|message: ... (FIRST_USE_REFUSED)`
 
-**Meaning.** The build has not cleared its first-use check, so `message` prints no "try this build" text and `check` prints no `FIRST_USE: pass` line. The detail lists every reason: `build_mismatch`, `source_changed`, `source_missing`, `action_<n>_not_played`, `action_<n>_failed`, `action_<n>_evidence_stale`, `link_unchecked`, `link_down`, `link_stale` (over 15 minutes old), `no_predicted_score`, `record_unreadable`. Exit 3. **Fix.** Fix the build and replay failed actions, rerun `links` right before sending, or start a new run for a new build or changed day-one rows.
+**Meaning.** The build has not cleared its first-use check, so `message` prints no try-it message and `check` prints no `FIRST_USE: pass` line. The detail lists every reason: `build_mismatch`, `source_changed` (the day-one rows or the owner's quotes changed), `source_missing`, `try_text_changed`, `step_<n>_not_played`, `step_<n>_broken`, `step_<n>_wrong`, `step_<n>_needs_lookup` (the step asks the owner for something an agent could look up or do), `step_<n>_thin` (only for a day-one action, which comes from the owner's words), `step_<n>_evidence_stale`, `link_unchecked`, `link_down`, `link_stale` (over 15 minutes old), `no_predicted_score`, `record_unreadable`. Exit 3. **Fix.** Fix the build or the step and replay it, rerun `links` right before sending, or start a new run for a new build, changed day-one rows or changed quotes.
 
 ## /ship token budget and fresh-context handoffs (gstack-ship-budget)
 

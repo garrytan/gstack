@@ -27,7 +27,7 @@ import { applyCapChoices, pendingDeltas, releaseUndispatched, roundCap, roundOf 
 import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry';
 import { buildEli5, capyRelayLine } from './captain-brief';
 import { FINDING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
-import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, heaviestChanges, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
+import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, heaviestChanges, narrowedQuoteOf, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
 import { phaseClose } from './autoplan-timing';
 import { agentWords, ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
 import type { DecisionRow, FindingRow } from './headless-artifacts';
@@ -201,6 +201,7 @@ export function buildGate(state: RunState, gateRev: number): GateList {
   const quoted = owner.words.status !== 'none';
   const kept: string[] = [];
   const keptIds: string[] = [];
+  const narrowed: ChallengeRow[] = [];
   const add = ({ idKind, key, ...item }: NewItem, origin: (options: GateOption[]) => string): string => {
     const id = idKind === 'uc' ? `uc${++uc}` : `d${++d}`;
     items.push({ id, ...item, origin: origin(item.options) });
@@ -251,9 +252,10 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     const twinOf = (id: string) => twins.get(id) ?? [...twins].find(([, out]) => out === id)?.[0];
     for (const f of [...native, ...outside, ...carried] as ChallengeRow[]) {
       if (challenged.has(f.id) || f.settled_by) continue;
+      if (narrowedQuoteOf(owner, f)) { challenged.add(f.id); narrowed.push(f); continue; }
       if (quoted && (f.changes || f.user_challenge) && !ownerQuoteOf(owner, f)) {
         const twin = twinOf(f.id) ? byId.get(twinOf(f.id)!) as ChallengeRow | undefined : undefined;
-        propose(twin && !twin.settled_by && !ownerQuoteOf(owner, twin) ? [f, twin] : [f], carried.includes(f));
+        propose(twin && !twin.settled_by && !ownerQuoteOf(owner, twin) && !narrowedQuoteOf(owner, twin) ? [f, twin] : [f], carried.includes(f));
         continue;
       }
       if (!f.user_challenge || !directionIsOwners(owner, [f])) continue;
@@ -280,10 +282,14 @@ export function buildGate(state: RunState, gateRev: number): GateList {
   }
   items.push(...capItems(state, { d: () => `d${++d}`, uc: () => `uc${++uc}` }));
   if (!quoted && kept.length) add(confirmDirectionItem(kept), options => ['owner', 'confirm-direction', optionHash(options), keptIds.join('+')].join('|'));
-  for (const item of dayOneItems(owner)) add(item, options => ['owner', item.key, optionHash(options), createHash('sha256').update(item.title).digest('hex').slice(0, 16)].join('|'));
+  const settles = (key: string) => narrowed.filter(f => key === `quote:${narrowedQuoteOf(owner, f)!.n}`);
+  for (const item of dayOneItems(owner, narrowed)) {
+    const found = settles(item.key);
+    add(item, options => ['owner', [item.key, ...found.map(f => f.id)].join('+'), optionHash(options), createHash('sha256').update(item.title).digest('hex').slice(0, 16), ...(blockingProposal(found) ? [FINDING_ORIGIN] : [])].join('|'));
+  }
   items.push(planApproval(state, items));
   const list: GateList = { schema_version: 1, run: state.run, gate_rev: gateRev, items, title: '/autoplan final approval gate', rec_rev: 0, rec_hash_v: 2,
-    ...(quoted ? { owner_words: gateOwnerWords(owner) } : {}),
+    ...(quoted ? { owner_words: gateOwnerWords(owner) } : {}), ...(owner.firstVersion ? { first_version: true } : {}),
     ...(fs.existsSync(state.active_plan) ? { eli5: buildEli5(fs.readFileSync(state.active_plan, 'utf8'), state.active_plan) } : {}) };
   const problems = validateGateList(list);
   if (problems.length) throw new Error(`gate list invalid: ${problems.join('; ')}`);
