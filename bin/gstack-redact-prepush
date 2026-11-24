@@ -19,6 +19,9 @@
  * pushed). Special cases:
  *   - remote sha all-zeroes  → new branch: diff against merge-base with the
  *     remote's default branch (fallback: scan all commits unique to local ref).
+ *   - remote sha not in this repo → the remote moved since the last fetch:
+ *     diff against merge-base with that branch's tracking ref, else as a new
+ *     branch (#4790). Never the whole tree while a fetched ref anchors it.
  *   - local sha all-zeroes   → branch delete: nothing to scan, skip.
  *   - force-push             → remote..local still gives the net new content.
  *
@@ -84,6 +87,9 @@ function gitStrict(args: string[]): string {
   // status !== 0 covers BOTH a non-zero exit AND null (process killed by a
   // signal or maxBuffer overflow — null !== 0 is true).
   if (r.status !== 0) {
+    if ((r.error as NodeJS.ErrnoException | undefined)?.code === "ENOBUFS") {
+      throw new Error(`git ${args[0]} failed (status=killed/overflow): it printed more than 64 MiB, more than the guard reads in one pass (ENOBUFS, SPAWN_OUTPUT_INCOMPLETE)`);
+    }
     throw new Error(
       `git ${args[0]} failed (status=${r.status ?? "killed/overflow"}${r.error ? `, ${r.error.message}` : ""}): ${(r.stderr ?? "").slice(0, 300)}`,
     );
@@ -191,6 +197,27 @@ function unknownRemoteTipBase(localSha: string): string | null {
 }
 
 /**
+ * Base for a ref whose remote tip is not in this repository (#4790). The tip
+ * cannot be an ancestor of localSha, so the remote moved since the last fetch
+ * (or the branch was never fetched here). What this machine last fetched of
+ * that branch from the push remote anchors the range; without it, the
+ * new-branch chain does. Scanning from the empty tree instead re-reported
+ * content already on the remote as this push's, and on a large repository
+ * overflowed the diff buffer and blocked every such push.
+ *
+ * Scoped like remotesExclusionArgs: a URL push has no tracking namespace and
+ * falls through, so a secret only another remote has seen is still scanned.
+ */
+function missingRemoteTipBase(localSha: string, remoteRef: string): string | null {
+  const target = pushTarget();
+  const remote = target.kind === "remote" ? target.name : target.kind === "unknown" ? "origin" : null;
+  const branch = remoteRef.startsWith("refs/heads/") ? remoteRef.slice("refs/heads/".length) : "";
+  const tracking = remote && branch ? git(["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${branch}^{commit}`]).trim() : "";
+  const base = tracking ? git(["merge-base", localSha, tracking]).trim() : "";
+  return base || unknownRemoteTipBase(localSha);
+}
+
+/**
  * The commits this push actually adds — reachable from localSha and from NO
  * remote-tracking ref.
  *
@@ -277,15 +304,26 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): AddedFil
 interface AddedFile { file: string; text: string; lines: number[]; commit?: string; binary?: boolean }
 
 /** Return the added lines for a ref update being pushed. */
-function addedLinesFor(localSha: string, remoteSha: string): AddedFile[] {
+function addedLinesFor(localSha: string, remoteSha: string, remoteRef: string): AddedFile[] {
   // Preferred ONLY when this push carries catch-up commits: scanning them again
   // is the bug. Every other shape falls through to the range logic below.
   const fromNew = addedLinesFromNewCommits(localSha, remoteSha);
   if (fromNew !== null) return fromNew;
 
   let range: string;
-  if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
-    const base = ZERO.test(remoteSha) ? unknownRemoteTipBase(localSha) : null;
+  if (ZERO.test(remoteSha)) {
+    const base = unknownRemoteTipBase(localSha);
+    range = base ? `${base}..${localSha}` : `${emptyTreeOid()}..${localSha}`;
+  } else if (!objectExists(remoteSha)) {
+    const base = missingRemoteTipBase(localSha, remoteRef);
+    process.stderr.write(
+      `gstack-redact-prepush: ${remoteRef} on the remote is at ${remoteSha.slice(0, 12)}, which this repository has not fetched; ` +
+        `scanning ${base ? `the commits after ${base.slice(0, 12)}` : "all of its history"}. ` +
+        "If git rejects the push, run `git fetch`, then rebase or merge and push again.\n",
+    );
+    // The base stands in for the remote tip, so catch-up commits narrow as they do for a known tip.
+    const fromBase = base ? addedLinesFromNewCommits(localSha, base) : null;
+    if (fromBase !== null) return fromBase;
     range = base ? `${base}..${localSha}` : `${emptyTreeOid()}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
@@ -654,7 +692,7 @@ function main() {
     // exactly "<local ref> <local sha> <remote ref> <remote sha>" — anything
     // else means we cannot tell WHAT is being pushed, and silently skipping
     // it would leave that ref unscanned.
-    const [, localSha, , remoteSha] = fields;
+    const [, localSha, remoteRef, remoteSha] = fields;
     const shaShaped = (s: string | undefined) => !!s && /^[0-9a-f]{40,64}$/i.test(s);
     if (fields.length !== 4 || !shaShaped(localSha) || !shaShaped(remoteSha)) {
       process.stderr.write(
@@ -669,15 +707,21 @@ function main() {
     pushedRefs.push({ localSha: localSha!, remoteSha: remoteSha! });
     let added: AddedFile[];
     try {
-      added = addedLinesFor(localSha, remoteSha || "0");
+      added = addedLinesFor(localSha, remoteSha || "0", remoteRef!);
     } catch (err) {
       // Fail CLOSED (#1946): if we can't compute the pushed diff we can't
       // scan it, and unscanned-but-allowed is the failure mode this hook
       // exists to prevent.
+      const reason = err instanceof Error ? err.message.split("\n")[0] : String(err);
+      const tipMissing = !ZERO.test(remoteSha) && !objectExists(remoteSha);
       process.stderr.write(
         "\n⛔ gstack-redact-prepush BLOCKED the push — could not compute the pushed diff, " +
           "so it cannot be scanned for credentials.\n" +
-          `  (${err instanceof Error ? err.message.split("\n")[0] : String(err)})\n` +
+          `  (${reason})\n` +
+          (tipMissing
+            ? `The remote's ${remoteRef} is at a commit this repository has not fetched, so the guard could not tell what this push adds. ` +
+              "Run `git fetch`, rebase or merge, then push again.\n"
+            : /ENOBUFS/.test(reason) ? "The pushed range is too large to scan in one pass; push fewer commits at a time.\n" : "") +
           "Bypass if you're sure: GSTACK_REDACT_PREPUSH=skip git push   (or git push --no-verify)\n",
       );
       process.exit(1);
