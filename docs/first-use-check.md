@@ -16,7 +16,7 @@ A plan is a first version when it has a `Day one` section or the run passes `--f
 
 - Ada Example, 2026-11-18 09:12Z: "I keep forgetting which plant needs water" → does it
 - Ada Example, 2026-11-18 09:14Z: "and tell my partner when I'm away" → choice; size: two days; leave out: needs a second account
-- Ada Example, 2026-11-18 09:20Z: "and maybe post my streak" → ruled out 2026-11-18: "no posting anywhere, ever"
+- Ada Example, 2026-11-18 09:20Z: "and maybe post my streak" → ruled out 2026-11-18 09:31Z: "no posting anywhere, ever"
 ```
 
 Each bullet is who, when, the words in quotes, then an arrow (`→` or `->`) and the line:
