@@ -99,7 +99,7 @@ Once a finding is challenged, submit it to the helper **and surface it to the us
 
 When updating coverage, copy every record's `domain` and `scope` exactly from `inspect`; a new scope leaves the planned scope unassessed. Only helper commands may update helper-owned records.
 
-Budgets: ten minutes daily, thirty comprehensive. Use at most three investigation workers and two reproduction groups per Docker endpoint. Attempts get five minutes and three harness repairs per finding. Report model usage only when exposed. Helper replies carry investigation `remainingSeconds`: start only what fits; below 120, stop and `finish`. A short list is no reason to finish early; before `finish`, submit every unchallenged candidate as a hypothesis.
+Budgets: ten minutes daily, thirty comprehensive. Use at most three investigation workers and two reproduction groups per Docker endpoint. Attempts get five minutes and three harness repairs per finding. Time is only the latest helper reply's `remainingSeconds` (`inspect` refreshes it); never estimate it. Above 120, keep going: read the next unread attacker-reachable file or run the next selected phase. Below 120, or with every selected phase covered, submit every unchallenged candidate as a hypothesis and `finish`; list length never decides when to stop.
 
 ---
 ## Section index — Read each section when its situation applies
@@ -122,7 +122,7 @@ In comprehensive mode, review transformations first and block reproduction if sa
 
 ### Phase 1: Attack surface census
 
-Record scoped endpoints and boundaries: public/authenticated/admin, cross-tenant access, uploads, webhooks, jobs, WebSockets, integrations, secrets, CI/CD, containers, infrastructure, agent tools, stores, and a library's public API and parsed formats. Counts and scanner success do not establish coverage. Spend most time in source; Phases 2–5, 8 and 11 are quick unless a lead appears.
+Record scoped endpoints and boundaries: public/authenticated/admin, cross-tenant access, uploads, webhooks, jobs, WebSockets, integrations, secrets, CI/CD, containers, infrastructure, agent tools, stores, and a library's public API and parsed formats. Counts and scanner success do not establish coverage. Run every selected phase; spend most time in source.
 
 > **STOP.** Before running the scope-dependent audit phases (Phases 2-11) selected by the resolved mode, after the Phase 0 stack detection and Phase 1 attack-surface census, Read `~/.claude/skills/gstack/cso/sections/audit-phases.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
@@ -168,4 +168,4 @@ Give the run ID and the useful next operation. `resume` keeps the retained snaps
 
 `recheck` snapshots current source and links the old finding. Establish closure only from new evidence covering the same root cause and security boundary: fresh caller evidence and the original boundary by snapshot path/handle and line, whose current hash or absence the helper records. A partial or incompatible audit, changed title, absent warning, or proposed bundle cannot resolve an old finding. Identity follows root cause, location, and advisory IDs, not titles. Import v2 reports read-only and read them with `inspect-v2`. Legacy `VERIFIED` means **legacy review evidence**, never reproduced, runtime-tested, or tested.
 
-On cancellation, deadline, or agent loss, the helper's watchdog cleans exact run-owned resources and keeps recoverable partial state. Never prune Docker globally or remove resources matched only by a broad name. End with the actual completion status, supported findings and candidates, exact prerequisites, and saved artifact paths returned by the helper.
+Never prune Docker globally or remove resources matched only by a broad name. End with the actual completion status, supported findings and candidates, exact prerequisites, and saved artifact paths returned by the helper.
