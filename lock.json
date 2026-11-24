@@ -4,7 +4,7 @@
   "started_at": "2026-11-24T21:42:58.537Z",
   "phase": "merging",
   "journal": "land-pin:f661d67ce14fa434a9934c93adef378df5a95a50",
-  "phase_at": "2026-11-24T21:42:58.537Z",
+  "phase_at": "2026-11-24T21:58:56.775Z",
   "proc": {
     "boot": "60fe889b-198b-4fb1-bd3c-9596691b9c19",
     "pidns": "pid:[4026531836]",
@@ -13,5 +13,5 @@
     "start": 1256564,
     "mark": "47643e39-deea-4083-9bfb-9da94dcedf8f"
   },
-  "expires_at": "2026-11-24T23:12:58.537Z"
+  "expires_at": "2026-11-24T23:28:56.775Z"
 }
