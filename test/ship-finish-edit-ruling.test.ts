@@ -19,9 +19,9 @@ const TEST_V2 = "import { expect, test } from 'bun:test';\ntest('a', () => { exp
 const TEST_V3 = "import { expect, test } from 'bun:test';\ntest('a', () => { expect(2).toBe(2); }, 2_000);\n";
 const STOPPED = 'STOP: behavior, tests or build inputs changed since review';
 
-const run = (f: ShipFx, bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
+const run = (f: ShipFx, bin: string, args: string[]) => f.run(path.join(BIN, '..', bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
 const finish = (f: ShipFx, reviewed: string, post: string) => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
-const rule = (f: ShipFx, file: string, head: string) => run(f, 'gstack-approvals', ['rule', '--finding', `edit:${file}`, '--head', head, '--reason', 'the one-line timeout edit after the final review ships as a disclosed note', '--words', 'ship it with the note', '--by', 'GStack Minder (GSTA-36)']);
+const rule = (f: ShipFx, file: string, head: string) => run(f, 'bin/gstack-approvals', ['rule', '--finding', `edit:${file}`, '--head', head, '--reason', 'the one-line timeout edit after the final review ships as a disclosed note', '--words', 'ship it with the note', '--by', 'GStack Minder (GSTA-36)']);
 
 /** GBRA-795's sequence: the read-only final review read passHead, then a one-line edit to a test landed after it. */
 function editedAfterFinalReview() {
