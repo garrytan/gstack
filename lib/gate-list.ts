@@ -42,7 +42,7 @@ export interface GateItem {
   /** Answered at an earlier revision on an unchanged proposal from a phase that did not rerun. */
   carried?: { from: string; chosen: string; gate_rev: number };
   /** A round-cap item (lib/autoplan-budget.ts): `b` grants the phase one more round and reopens it. */
-  cap?: { phase: string; kind: 'deferred' | 'blocker' | 'delta'; ref?: string };
+  cap?: { phase: string; kind: 'deferred' | 'blocker' | 'delta'; ref?: string; /** A delta item for every phase revise `ref` passed at its cap; absent on a gate written with one delta item per phase. */ phases?: string[] };
   /** The buildGate branch that wrote it (lib/autoplan-gate.ts); `kind` alone mislabels disagreements and single-voice challenges. */
   item_class?: ItemClass;
   /** An open Critical or High finding (its ids, a paired twin included): `a` applies the reviewer's fix to the plan. */
@@ -61,6 +61,8 @@ export interface GateList { schema_version: 1; run: string; gate_rev: number; it
   owner_words?: { status: 'ok' | 'malformed' | 'none'; quotes: Array<{ n: number; who: string; text: string; verified: boolean; ruling_verified?: boolean; line?: OwnerLine }>; reason?: string; fix?: string };
   /** A first version (a Day one section or `--first-version`): the owner brief adds the gstack-first-use line. */
   first_version?: boolean;
+  /** Each cut's stable id (lib/autoplan-owner-text.ts cutIds): the next gate revision matches its cuts to these, so a reworded cut keeps its answer. */
+  cut_ids?: Array<{ id: string; text: string }>;
   /** The one-reviewer check of an unreviewed post-cap delta before a carry (lib/autoplan-carry.ts). */
   carry_check?: { attempt: string; model: string; verdict: 'passed' | 'failed' | 'unavailable'; max_severity: string; findings: number; at: string } }
 /** The captain approvals shape (crew/docs/captain.md § Approvals), section text taken from the reviewed plan; '' when absent. */

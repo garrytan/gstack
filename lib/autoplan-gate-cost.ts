@@ -62,7 +62,7 @@ export function recReopens(list: GateList, run: Pick<GateCostRun, 'phase_order' 
     if (item.id === 'p1') continue;
     const choice = choiceOf(item);
     if (item.carried && choice === item.carried.chosen) continue;
-    if (item.cap && choice === 'b') { named.add(item.cap.phase); if (run.phase_order.includes('eng')) named.add('eng'); continue; }
+    if (item.cap && choice === 'b') { for (const p of item.cap.phases ?? [item.cap.phase]) named.add(p); if (run.phase_order.includes('eng')) named.add('eng'); continue; }
     if (item.reopens === false) continue;
     if (item.options.find(o => o.key === choice)?.changes_plan ?? choice !== item.recommended) for (const p of bound) named.add(p);
   }

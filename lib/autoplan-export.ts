@@ -99,7 +99,7 @@ function runLog(state: RunState, findings: number, tasks: number, decisions: { t
   if (state.history.length) lines.push('');
   const budget = [
     ...state.phase_order.flatMap(p => { const d = state.phases[p]?.deferred; return d ? [`Deferred ${p} at round ${d.round} (${d.cause}, by ${d.by}): ${d.reason}; ${d.open} open finding(s) carried into tasks.jsonl; owner items: ${d.blockers.join(', ') || 'none'}`] : []; }),
-    ...(state.capped_deltas ?? []).map(d => `Plan changed after the ${d.phase} cap (revise v${d.k}, round ${d.round} of ${d.cap}): +${d.added} -${d.removed} lines unreviewed; ${d.status}`),
+    ...(state.capped_deltas ?? []).map(d => `Plan changed after the ${d.phase} cap (revise v${d.k}, round ${d.round} of ${d.cap}): +${d.added} -${d.removed} lines unreviewed; ${d.status}${d.basis ? ` without a gate (${d.basis}: ${(d.decisions ?? []).join(',')}); ${d.ruling ? `closed by ${d.ruling.by}: ${d.ruling.reason}` : 'open note until a ruling (gstack-autoplan rule)'}` : ''}`),
     ...[...(state.stops ?? []), ...(state.stop ? [state.stop] : [])].map(s => `Stopped ${s.reason} at ${s.at}: cap ${s.cap_usd ?? 'none'}, spent ${s.spent}, reserved ${s.reserved}, unknown ${s.unknown}${s === state.stop ? '' : ' (lifted)'}`),
   ];
   if (budget.length) lines.push(`Budget: max_rounds ${state.max_rounds ?? 'none'}${state.round_grants ? `, grants ${JSON.stringify(state.round_grants)}` : ''}.`, ...budget, '');

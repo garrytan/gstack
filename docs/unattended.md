@@ -824,8 +824,8 @@ item, "do it" cases included, goes to the owner.
   decision row gets `carried_under: do it`, the output prints
   `CARRIED_UNDER_DO_IT:` per item, and the approval record lists them as
   "taken under "do it", not seen by the owner". `rec` carries no new item.
-- **Unreviewed post-cap delta.** A "plan changed after <phase> cap" item
-  recommending `a` (accept) is read by one reviewer before it carries. `CARRY_CHECK:` names the attempt and
+- **Unreviewed post-cap delta.** A "plan changed after the <phases> cap" item
+  (one per revise, naming every capped phase) recommending `a` (accept) is read by one reviewer before it carries. `CARRY_CHECK:` names the attempt and
   the prompt (the delta against `plan-at-gate.r<m>.md`, the accepted changes,
   the full plan); the run reserves the estimate in `spend.json` and refuses
   when it is over `--carry-check-cap <usd>` (default 5) or the run's cap.
@@ -838,6 +838,29 @@ item, "do it" cases included, goes to the owner.
   check is void, its reservation released and the gate left for the owner,
   when the owner answers the gate, the plan is revised, a new gate is
   written, or the delta changed after dispatch.
+
+At the round cap, a `revise` that only incorporates recommendations the owner
+took in his own words (each decision approved as recommended, none in an
+agent's own words) raises no gate at all: the owner already approved exactly
+those changes. The capped phases' deltas are recorded `accepted` with
+`basis: applied owner-approved recommendations at the round cap`, the journal
+gets `unreviewed_at_cap`, and `revise` prints one `UNREVIEWED:` line naming
+the revision, the phases that never read it, the decisions and the owner's
+words, then `APPROVED:`. That line is an open note, as a finding /ship ships
+with after round two is: `gstack-autoplan rule --out <dir> --revision <k> --by
+<ruler> --reason "<why>" [--owner-ref <thread>:<message>]` records a Captain's
+or the owner's ruling on it (`unreviewed_ruled`; gstack cannot rule on its
+own note). A phase that does review the revision (one newly in scope) still
+raises its findings at a gate, and a revise that takes anything else (an
+override, an agent's own words, an edit with no `--incorporates`) keeps the
+one cap item above.
+
+Cuts under `### What it won't do yet` carry by a stable id (`c1`, `c2`, ...,
+saved as `cut_ids` on `gate.json`), not by their text: a cut keeps its id when
+its words are unchanged or differ only in command names (a backticked name,
+`gstack-*`, `--flag` or `/command`, so `share` renamed to `invite`). Any other
+change, a hyphenated word, a number or a version included, makes it a new cut
+with a new id, and the owner is asked about it.
 
 Carried rows keep `answered_by: agent:gstack-autoplan` and name their source
 (`carried_gate_from`, `carried_gate_rev`, `carried_answered_by`);

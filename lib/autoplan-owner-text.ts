@@ -190,5 +190,29 @@ export function cutDrops(cut: string, target: string): boolean {
   return covers(t, new Set(c)) || covers(c, new Set(t));
 }
 
+export interface CutId { id: string; text: string }
+const CODE_NAME = /^`[^`]+`$|^(?:gstack-|--|\/)[a-z][a-z-]*$/;
+const cutWord = (w: string) => w.toLowerCase().replace(/^[^\w`/-]+|[^\w`]+$/g, '');
+/** Two cuts that differ, word for word, only in command names (`share` -> `invite`, gstack-sync -> gstack-push): a renamed command. A hyphenated word, a number or a version is a scope word, never a rename. */
+const renamedOnly = (a: string, b: string) => {
+  const x = a.trim().split(/\s+/).map(cutWord), y = b.trim().split(/\s+/).map(cutWord);
+  return x.length === y.length && x.every((w, i) => w === y[i] || (CODE_NAME.test(w) && CODE_NAME.test(y[i]!)));
+};
+
+/**
+ * A stable id per cut (`c1`, `c2`, ...), so the gate carries an answer to a cut by id, not by its text (GST-3753). A cut keeps
+ * the id it had at the gate before (`prior`, gate.json `cut_ids`) when its words are the same or differ only in renamed
+ * code names; any other cut, a reworded one included, takes a new id above every id the run has `issued`, so a dropped
+ * cut's id (and its answer) never passes to another cut.
+ */
+export function cutIds(cuts: string[], prior: CutId[] = [], issued: CutId[] = prior): CutId[] {
+  const used = new Set<string>();
+  const take = (p: CutId | undefined) => { if (p) used.add(p.id); return p?.id; };
+  const ids = cuts.map(c => take(prior.find(p => !used.has(p.id) && wordKey(p.text) === wordKey(c))));
+  cuts.forEach((c, i) => { ids[i] ??= take(prior.find(p => !used.has(p.id) && renamedOnly(p.text, c))); });
+  let n = Math.max(0, ...[...prior, ...issued].map(p => Number(/^c(\d+)$/.exec(p.id)?.[1] ?? 0)));
+  return cuts.map((c, i) => ({ id: ids[i] ?? `c${++n}`, text: c }));
+}
+
 /** Text compared as words: case, punctuation and spacing ignored. */
 export const wordKey = (t: string) => ` ${(t.toLowerCase().match(/[a-z0-9]+/g) ?? []).join(' ')} `;

@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { branchKey, captainApprovalsDir } from './approval-record';
 import { readVersionedSlugCache, sanitizeSlug } from './bin-context';
-import { cutDrops, cutQuote, isFirstVersion, parseCuts, parseDayOne, parseOwnerWords, quoteGaps, quoteWhen, wordKey, type CheckedQuote, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
+import { cutDrops, cutQuote, isFirstVersion, parseCuts, parseDayOne, parseOwnerWords, quoteGaps, quoteWhen, wordKey, type CheckedQuote, type CutId, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { readDecisions, readJournal, type RunState } from './autoplan-state';
 import { resolveStateRoot } from './state-root';
@@ -28,10 +28,12 @@ import type { GateItem } from './gate-list';
 import type { FindingRow } from './headless-artifacts';
 
 export type ChallengeRow = FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string; owner_quote?: number; narrows_quote?: number; resolves?: string };
-export type NewItem = Omit<GateItem, 'id'> & { idKind: 'd' | 'uc'; key: string };
+/** `stable`: the key alone identifies the item across revisions (a cut's id), so its origin carries no hash of its title. */
+export type NewItem = Omit<GateItem, 'id'> & { idKind: 'd' | 'uc'; key: string; stable?: true };
 export interface GateOwnerWords { status: OwnerWordsSection['status']; quotes: Array<CheckedQuote & { verified: boolean }>; reason?: string; fix?: string }
 /** `verified`: quotes whose words are in a recorded owner reply; `ruled`: ruled-out lines whose ruling is (GST-3646). */
-export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>; ruled: Set<number>; dayOne: DayOneTable; cuts: string[]; app: boolean; lean: boolean; firstVersion: boolean }
+/** `cutIds`: each cut's stable id (cutIds in lib/autoplan-owner-text.ts), set by buildGate from the gate before. */
+export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>; ruled: Set<number>; dayOne: DayOneTable; cuts: string[]; app: boolean; lean: boolean; firstVersion: boolean; cutIds?: CutId[] }
 
 /**
  * The owner's words in this repository's approvals record for the branch checked out at `cwd` (lib/approval-record.ts
@@ -222,15 +224,18 @@ export function dayOneItems(ctx: OwnerContext, narrowed: ChallengeRow[] = []): N
   const rest = ctx.cuts.filter(c => !quoteCuts.includes(c));
   const rowTargets = ctx.dayOne.rows.flatMap(r => [r.action, r.feature]).filter(Boolean);
   const named = ctx.firstVersion ? rest : rest.filter(c => rowTargets.some(t => cutDrops(c, t)));
+  const idOf = (cut: string) => ctx.cutIds?.find(c => c.text === cut)?.id;
   for (const cut of named) {
     const drops = rowTargets.some(t => cutDrops(cut, t));
-    items.push({ idKind: 'uc', key: `cut:${wordKey(cut).trim()}`, kind: 'approval', recommended: 'a', item_class: 'cut', changes: 'scope', cost: `b ${reopen}`,
+    const id = idOf(cut);
+    items.push({ idKind: 'uc', key: `cut:${id ?? wordKey(cut).trim()}`, ...(id ? { stable: true as const } : {}), kind: 'approval', recommended: 'a', item_class: 'cut', changes: 'scope', cost: `b ${reopen}`,
       title: `Cut: ${cut}`, why: drops ? 'this cut drops something on the day-one page' : 'on a first version every cut is your decision, one letter each',
       options: [{ key: 'a', text: 'keep the cut: not in the first build', changes_plan: false }, { key: 'b', text: 'put it back in the first build', changes_plan: true }] });
   }
   const grouped = rest.filter(c => !named.includes(c));
   if (grouped.length) {
-    items.push({ idKind: 'd', key: 'cuts', kind: 'auto', recommended: 'a', item_class: 'cuts', changes: 'scope', cost: `b ${reopen}`,
+    const ids = grouped.map(idOf);
+    items.push({ idKind: 'd', key: ids.every(Boolean) ? `cuts:${ids.join(',')}` : 'cuts', ...(ids.every(Boolean) ? { stable: true as const } : {}), kind: 'auto', recommended: 'a', item_class: 'cuts', changes: 'scope', cost: `b ${reopen}`,
       title: `${grouped.length} other cut${grouped.length === 1 ? '' : 's'}: ${grouped.join('; ')}`, why: 'none of these drops a day-one row or a quoted owner line',
       options: [{ key: 'a', text: 'keep these cuts', changes_plan: false }, { key: 'b', text: 'put some back: name them, then revise', changes_plan: true }] });
   }

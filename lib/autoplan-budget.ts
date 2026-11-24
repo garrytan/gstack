@@ -14,10 +14,10 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ANSWERED_BY_RE, type GateItem } from './gate-list';
+import { agentWords, ANSWERED_BY_RE, type GateItem } from './gate-list';
 import { settledIds } from './autoplan-confirm';
 import { sameProblem, type ConsensusRecord } from './autoplan-reconcile';
-import { FILES, RunError, journal, now, readJournal, voiceRows, type RunState, type RunStop } from './autoplan-state';
+import { FILES, RunError, journal, now, readDecisions, readJournal, voiceRows, type CappedDelta, type RunState, type RunStop } from './autoplan-state';
 import { readLedger, release, setCap, summarize } from './spend-ledger';
 
 export const DEFAULT_MAX_ROUNDS = 2;
@@ -180,19 +180,61 @@ export function applyCapChoices(state: RunState, choices: Array<{ item: GateItem
     const cap = item.cap;
     if (!cap) continue;
     const reopens = chosen === 'b';
-    for (const d of pendingDeltas(state)) if (d.phase === cap.phase && (cap.kind !== 'delta' || String(d.k) === cap.ref)) { d.status = reopens ? 'reopened' : 'accepted'; d.decided_at = now(); }
-    if (!reopens || granted.has(cap.phase)) continue;
-    granted.add(cap.phase);
-    (state.round_grants ??= {})[cap.phase] = (state.round_grants[cap.phase] ?? 0) + 1;
-    journal(state.out, { event: 'budget_changed', by: by ?? 'gate', round_grant: { phase: cap.phase, cap: roundCap(state, cap.phase) }, item: item.id });
-    reopen.add(cap.phase);
-    lines.push(`ROUND_GRANTED: ${cap.phase} cap=${roundCap(state, cap.phase)} (${item.id}b by ${by ?? 'gate'})`);
-    if (cap.phase === 'eng' || !state.phase_order.includes('eng') || granted.has('eng')) continue;
-    granted.add('eng');
-    state.round_grants.eng = (state.round_grants.eng ?? 0) + 1;
-    journal(state.out, { event: 'budget_changed', by: by ?? 'gate', round_grant: { phase: 'eng', cap: roundCap(state, 'eng') }, item: item.id, reason: `eng reruns after ${cap.phase}` });
-    reopen.add('eng');
-    lines.push(`ROUND_GRANTED: eng cap=${roundCap(state, 'eng')} (reruns after ${cap.phase}; ${item.id}b by ${by ?? 'gate'})`);
+    const matched = pendingDeltas(state).filter(d => (cap.kind === 'delta' ? String(d.k) === cap.ref && (cap.phases ?? [cap.phase]).includes(d.phase) : d.phase === cap.phase));
+    for (const d of matched) { d.status = reopens ? 'reopened' : 'accepted'; d.decided_at = now(); }
+    if (!reopens) continue;
+    const phases = cap.phases ? state.phase_order.filter(p => cap.phases!.includes(p)) : [cap.phase];
+    for (const phase of phases) {
+      if (granted.has(phase)) continue;
+      granted.add(phase);
+      (state.round_grants ??= {})[phase] = (state.round_grants[phase] ?? 0) + 1;
+      journal(state.out, { event: 'budget_changed', by: by ?? 'gate', round_grant: { phase, cap: roundCap(state, phase) }, item: item.id });
+      reopen.add(phase);
+      lines.push(`ROUND_GRANTED: ${phase} cap=${roundCap(state, phase)} (${item.id}b by ${by ?? 'gate'})`);
+      if (phase === 'eng' || !state.phase_order.includes('eng') || granted.has('eng')) continue;
+      granted.add('eng');
+      state.round_grants.eng = (state.round_grants.eng ?? 0) + 1;
+      journal(state.out, { event: 'budget_changed', by: by ?? 'gate', round_grant: { phase: 'eng', cap: roundCap(state, 'eng') }, item: item.id, reason: `eng reruns after ${phase}` });
+      reopen.add('eng');
+      lines.push(`ROUND_GRANTED: eng cap=${roundCap(state, 'eng')} (reruns after ${phase}; ${item.id}b by ${by ?? 'gate'})`);
+    }
   }
   return lines;
+}
+
+export const OWNER_RECS_AT_CAP = 'applied owner-approved recommendations at the round cap';
+
+/**
+ * The owner's words when every decision a revise incorporates is a recommendation the owner took in his own words (an
+ * approved row, chosen = recommended, no agent's own words, none taken under "do it" without being shown to him); undefined otherwise. At the round cap such a revise needs no
+ * gate: the owner already approved exactly these changes, so the unreviewed revision is recorded instead (GST-3753).
+ */
+export function ownerTookRecs(state: RunState, ids: string[]): string | undefined {
+  if (!ids.length) return undefined;
+  const rows = readDecisions(state.out);
+  const words: string[] = [];
+  for (const id of ids) {
+    const r = rows.find(d => d.id === id);
+    if (!r || r.status !== 'approved' || r.chosen !== r.recommended || agentWords(r) || (r as { carried_under?: string }).carried_under) return undefined;
+    const said = r.owner_reply ?? (r.answered_by === 'human' ? r.reply : undefined);
+    if (!said?.trim()) return undefined;
+    words.push(said.trim());
+  }
+  return [...new Set(words)].join(' / ');
+}
+
+/** Revisions accepted at the cap with no re-review, by revise number: the open notes `rule` closes. */
+export function unreviewedRevisions(state: RunState): Map<number, CappedDelta[]> {
+  const out = new Map<number, CappedDelta[]>();
+  for (const d of state.capped_deltas ?? []) if (d.basis === OWNER_RECS_AT_CAP) out.set(d.k, [...(out.get(d.k) ?? []), d]);
+  return out;
+}
+
+/** The one line naming an unreviewed revision and how it closes (or who closed it). */
+export function unreviewedLine(state: RunState, k: number): string {
+  const ds = unreviewedRevisions(state).get(k) ?? [];
+  const d = ds[0]!;
+  const head = `UNREVIEWED: revise v${k} (+${d.added} -${d.removed} lines) changed the plan after ${ds.map(x => x.phase).join(',')} used their last round, so no reviewer read it; accepted without a gate: ${OWNER_RECS_AT_CAP} (${(d.decisions ?? []).join(',')}, answered in the owner's words ${JSON.stringify(ownerTookRecs(state, d.decisions ?? []) ?? '')})`;
+  return d.ruling ? `${head}; closed by ${d.ruling.by}${d.ruling.owner_ref ? ` (relayed from ${d.ruling.owner_ref})` : ''}: ${d.ruling.reason}`
+    : `${head}; open note: gstack-autoplan rule --out ${state.out} --revision ${k} --by <ruler> --reason "<why>" closes it`;
 }
