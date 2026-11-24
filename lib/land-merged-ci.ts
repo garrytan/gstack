@@ -37,8 +37,8 @@ export interface CiDeps {
   now(): number;
   url(id: number): string;
 }
-/** `run`: the run the refusal is about: a red run, or one still going that the next land on the same merged tree waits on. */
-export type CiResult = { ok: true; line: string } | { ok: false; red: boolean; detail: string; run?: number };
+/** `run`: the run the refusal is about: a red run, or one still going that the next land on the same merged tree waits on. `unproved`: the run finished green but does not prove the merged tree. */
+export type CiResult = { ok: true; line: string } | { ok: false; red: boolean; detail: string; run?: number; unproved?: true };
 type CiInput = { pr: string; commit: string; tree: string; ci: MergedCi; timeoutMs?: number };
 
 /** The newest workflow_dispatch run of `ci.workflow` on the scratch branch or at the merged commit whose head commit has the merged tree, unless it was cancelled. */
@@ -62,8 +62,8 @@ function settle(deps: CiDeps, o: CiInput, branch: string, first: ApiRun | undefi
   const at = `${o.ci.workflow} run ${deps.url(run.id)} on the merged tree ${o.tree.slice(0, 12)}`;
   if (run.conclusion !== 'success') return { ok: false, red: true, run: run.id, detail: `${at} concluded ${run.conclusion ?? 'unknown'}` };
   const v = deps.verify(run.id);
-  if (!v.ok) return { ok: false, red: false, detail: `${at} passed, but it does not prove the tree under ${o.ci.profile}: ${v.detail}` };
-  if (v.head !== run.head_sha || v.tree !== o.tree) return { ok: false, red: false, detail: `${at} tested ${v.head.slice(0, 12)} (tree ${v.tree.slice(0, 12)}), not the merged commit ${o.commit.slice(0, 12)} or a commit with its tree` };
+  if (!v.ok) return { ok: false, red: false, unproved: true, detail: `${at} passed, but it does not prove the tree under ${o.ci.profile}: ${v.detail}` };
+  if (v.head !== run.head_sha || v.tree !== o.tree) return { ok: false, red: false, unproved: true, detail: `${at} tested ${v.head.slice(0, 12)} (tree ${v.tree.slice(0, 12)}), not the merged commit ${o.commit.slice(0, 12)} or a commit with its tree` };
   const earlier = run.head_sha === o.commit ? '' : `; run by an earlier land at ${run.head_sha.slice(0, 12)}, not dispatched again`;
   return { ok: true, line: `MERGED_CI: pass ${at} (profile ${o.ci.profile}${earlier})` };
 }
@@ -74,7 +74,7 @@ export function runMergedCi(deps: CiDeps, o: CiInput): CiResult {
   const earlier = earlierRun(deps, o, branch);
   if (earlier) {
     const r = settle(deps, o, branch, earlier, deps.now());
-    if (r.ok || earlier.status !== 'completed' || earlier.conclusion !== 'success') { deps.remove(branch); return r; }
+    if (r.ok || !r.unproved || earlier.status !== 'completed') { deps.remove(branch); return r; }
   }
   const pushed = deps.push(o.commit, branch);
   if (pushed) return { ok: false, red: false, detail: `cannot push the merged commit ${o.commit.slice(0, 12)} to ${branch}: ${pushed}` };
