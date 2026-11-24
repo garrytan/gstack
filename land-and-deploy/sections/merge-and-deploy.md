@@ -140,8 +140,8 @@ Identify candidates: a worktree is stale if (a) it is checked out on the base br
 - Do NOT use `--force`. Do NOT remove the user's primary working tree.
 
 Remote-branch reconciliation. Run the deletion guard block if it has not run.
-`DELETE_FLAG=none` means the branch stays: say why (a fork's branch is its
-contributor's) and skip this check. Otherwise verify the branch outcome instead of
+`DELETE_FLAG=none` means the branch stays: name the check that kept it (fork, default
+branch or `main`, an open PR's base, failed lookup) and skip this check. Otherwise verify the branch outcome instead of
 claiming cleanup from a merge exit code, in the PR head repository the guard read
 (never the checkout's `origin`):
 
