@@ -154,6 +154,25 @@ describe('redactOwnerWords', () => {
     for (const kept of ['deferred: no time to spare', 'eng closed accepted-with-findings at round 1 (no time left): 0 open', '(no time; by agent:x)', 'we had no time to spare']) expect(redactOwnerWords(kept, o).text).toBe(kept);
   });
 
+  test('a short plan quote in quote marks is redacted however the padding or the text is encoded, and a bare mention stays (GST-3646)', () => {
+    const o = ownerIndex([], { quoted: ['water alerts'] });
+    const cases: Array<[string, string]> = [
+      ['He said "water alerts".', `He said "${MARK}".`],
+      ['He said " water alerts ".', `He said " ${MARK} ".`],
+      ['He said "&nbsp;water alerts&nbsp;".', `He said "&nbsp;${MARK}&nbsp;".`],
+      ['He said "\u200bwater alerts\u200b".', `He said "\u200b${MARK}\u200b".`],
+      ['He said &quot;water alerts&quot;.', `He said &quot;${MARK}&quot;.`],
+      ['He said “water&#32;alerts”.', `He said “${MARK}”.`],
+      ['He said “water&nbsp;alerts”.', `He said “${MARK}”.`],
+      ['He said "water  alerts".', `He said "${MARK}".`],
+      ['{"title":"He said \\"water\\u00a0alerts\\""}', `{"title":"He said \\"${MARK}\\""}`],
+      ['{"title":"He said \\"water alerts\\""}', `{"title":"He said \\"${MARK}\\""}`],
+      ['Pick "panel" water alerts "toggle" here', `Pick "panel" ${MARK} "toggle" here`],
+    ];
+    expect(cases.filter(([text, want]) => redactOwnerWords(text, o).text !== want).map(([text]) => text)).toEqual([]);
+    for (const kept of ['Turn on water alerts today.', 'He said "water alerts are noisy".']) expect(redactOwnerWords(kept, o).text).toBe(kept);
+  });
+
   test('every template that renders a deferral reason has a placement (add one to DEFERRAL_RENDERINGS with any new template)', () => {
     const root = path.resolve(import.meta.dir, '..');
     const count = Object.fromEntries(fs.readdirSync(path.join(root, 'lib')).filter(f => f.startsWith('autoplan-') && f.endsWith('.ts'))

@@ -6030,7 +6030,7 @@ Markdown markup, invisible format characters, contractions and case; replies
 of 1 or 2 words are not scanned for, and words the owner echoed from earlier
 text he didn't write are not his (the words a reply adds to an echo still are).
 A plan quote of any length is also one wherever it appears inside quote
-marks, spaces just inside them included, and so is its `leave out:` reason after `leave out:`, `leave it out for
+marks, padding just inside them and encoded characters included, and so is its `leave out:` reason after `leave out:`, `leave it out for
 now:` or `reason to leave it out:`, in any case. See
 [the public copy](unattended.md#the-public-copy). `gstack-artifact validate --public <dir> --private
 <run>/run.json` reports each quote with file:line, and `gstack-autoplan export

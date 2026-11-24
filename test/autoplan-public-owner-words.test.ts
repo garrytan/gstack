@@ -466,6 +466,8 @@ describe("short owner quotes and leave-out reasons stay out of a first-version e
     ['an emoji and a word', u => `🚀 ${u}`],
     ['CJK', u => `毎朝ベル${u}`],
     ['two words padded inside the quote marks', u => `skelvy ${u}`, ' '],
+    ['two words padded with a no-break space entity', u => `drimble ${u}`, '&nbsp;'],
+    ['two words padded with a zero-width space', u => `frawny ${u}`, '\u200b'],
   ];
   const LINES: Array<[string, (r: string) => string, boolean]> = [
     ['does it', () => ' → does it', false],
@@ -524,6 +526,8 @@ describe("short owner quotes and leave-out reasons stay out of a first-version e
     const ownerWordsAt = (added: string) => { fs.writeFileSync(record, before + added); return validate().stderr.includes('ARTIFACT_OWNER_WORDS'); };
     expect(ownerWordsAt(`The owner said “${ROWS[0]!.words}”.\n`)).toBe(true);
     expect(ownerWordsAt(`The owner said " ${ROWS[1]!.words} ".\n`)).toBe(true);
+    expect(ownerWordsAt(`The owner said "&nbsp;${ROWS[1]!.words}&nbsp;".\n`)).toBe(true);
+    expect(ownerWordsAt(`The owner said "\u200b${ROWS[1]!.words}\u200b".\n`)).toBe(true);
     expect(ownerWordsAt(`The plan's reason: leave out: ${ROWS[2]!.reason}\n`)).toBe(true);
     expect(ownerWordsAt(`A plain mention of ${ROWS[0]!.words} and ${ROWS[2]!.reason}.\n`)).toBe(false);
     fs.writeFileSync(record, before);

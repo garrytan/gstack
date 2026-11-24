@@ -387,7 +387,7 @@ owner's own words: nothing a person wrote leaves without their click (GST-1243).
   quote too. Replies of 1 or 2 words ("yes", "do it") are not scanned for:
   they are codes or grammar, and the field itself is already dropped. A quote
   under the plan's `### Owner's words` heading is redacted at any length
-  wherever it appears inside quote marks (spaces just inside them included), and the reason on its
+  wherever it appears inside quote marks (padding just inside them included, and the same after entities, JSON escapes and invisible characters are decoded), and the reason on its
   `leave out:` line wherever it follows `leave out:`, `leave it out for now:`
   or `reason to leave it out:`, in any case; a bare mention of a short quote's
   words outside quote marks stays. A quote
