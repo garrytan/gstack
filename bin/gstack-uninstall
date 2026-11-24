@@ -306,7 +306,7 @@ CLAUDE_SKILLS="$HOME/.claude/skills"
 # The seed names below are the alias dirs setup's _install_alias_skill_md
 # creates (setup: link_claude_root_skill_alias + the connect-chrome call
 # sites) — keep in sync with setup if an alias is added or renamed there.
-_INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome "
+_INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome gstack-ship "
 if [ -d "$GSTACK_DIR" ]; then
   for _SRC in "$GSTACK_DIR"/*/; do
     [ -f "$_SRC/SKILL.md" ] || continue

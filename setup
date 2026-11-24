@@ -2890,6 +2890,27 @@ link_claude_root_skill_alias() {
   echo "  linked root skill alias: gstack"
 }
 
+# Agent-runnable gstack /ship alias: Claude Code's built-in /ship shadows the flat
+# "ship" skill, so agents invoke Skill "gstack-ship" instead of the built-in /ship.
+# Always installed alongside flat "ship" (--no-prefix); when skill_prefix=1 the
+# primary entry is already gstack-ship, and this refreshes name: on the copy.
+link_claude_gstack_ship_alias() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local wrapper_md="$gstack_dir/gstack-ship/SKILL.md"
+  local ship_dir="$gstack_dir/ship"
+  local target="$skills_dir/gstack-ship"
+
+  [ -f "$wrapper_md" ] || return 0
+  case "${_DISABLED_SKILLS:- }" in *" ship "*) return 0 ;; esac
+  _install_alias_skill_md "$wrapper_md" "$target" "gstack-ship"
+  if [ -d "$ship_dir/sections" ]; then
+    rm -f "$target/sections"
+    ln -sf "$(cd "$ship_dir/sections" && pwd)" "$target/sections"
+  fi
+  echo "  linked ship agent alias: gstack-ship"
+}
+
 # ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
 # Migration: when switching from flat names to gstack- prefixed names,
 # clean up stale symlinks or directories that point into the gstack directory.
@@ -3836,6 +3857,7 @@ EOF
     _render_claude_install "$INSTALL_GSTACK_DIR" || true
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    link_claude_gstack_ship_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     _CLAUDE_SKILLS_LINKED=1
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
@@ -3937,6 +3959,7 @@ EOF
       "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      link_claude_gstack_ship_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       _CLAUDE_SKILLS_LINKED=1
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
       if [ -x "$GSTACK_RELINK" ]; then
