@@ -32,6 +32,8 @@ Reentry never resets the count or authorizes a launch.
    (`--select <path>` narrows release paths). It records HEAD, branch, index, path
    lists and hashes of release paths, generated outputs and docs, NUL-safely. Read only new files' content;
    the helper hashes the rest. Fill the prompt placeholders with literal candidate values.
+   In `edit` mode, `--docs` names only README.md, `docs/` and `bench/README.md`: the audit edits nothing else. A SKILL.md or
+   template edit after review is a code change and costs the next review round, so a change one needs goes in the PR body as a note.
 
 ## Launch the audit
 

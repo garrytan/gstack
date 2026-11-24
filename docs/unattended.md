@@ -313,7 +313,7 @@ counters are kept, because the reviewed product diff is unchanged or its only
 difference passed a scoped review. `CARRY: current` means nothing moved.
 `CARRY: refused (RECEIPT_CARRY_SCOPED_REVIEW)` means the base merge spliced
 lines into reviewed hunks (moved context next to unchanged hunks carries). Carry without `--dry-run` writes the packet the
-refusal names (a dry run writes none), one fix-check reviewer reads it, and a
+refusal names (a dry run writes none), one scoped reader reads it, and a
 clean record reruns carry with `--scoped-review <record.json>`
 ([troubleshooting](troubleshooting.md#receipt-carry-scoped-review)). `CARRY: refused (RECEIPT_CARRY_PRODUCT_CHANGED)`,
 `(RECEIPT_CARRY_TREE_MISMATCH)` or `(RECEIPT_CARRY_REFUSED)` with the refused

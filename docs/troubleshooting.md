@@ -704,9 +704,9 @@ cannot repair it.
 **Fix.** Keep the checkout frozen (no edits, commits, merges or pushes) from a pass's start
 until every reviewer in it has returned and its row is logged. If the mid-pass change was
 your own fix to that pass's findings, log the pass with `"converged":false` and the fix
-as `"action":"fixed"`. `gstack-review-plan` then picks the repeat: one fix-check reading
-the touched hunks when every fix is below the blocking floor, and 11.5 accepts that
-fix-check record as Step 9's. Rerun Step 11's native pass on the same frozen tree.
+as `"action":"fixed"`. `gstack-review-plan` then picks the repeat, never a fix-check since GST-3562: a fix
+after round 1 gets a full round 2 on the range, and a fix in the last round gets the
+read-only final review. Step 11.5 binds that pass's record. Rerun Step 11's native pass on the same frozen tree.
 
 **Expected result.** `gstack-review-read` shows both records at one tree with
 `review_freshness` `CURRENT`, and Step 11.5 continues to Step 12.
@@ -7767,7 +7767,9 @@ prints each `RULED_NOTE:`, and the PR body and receipt list every `Ruled
 note:` line ([ship-policy.md](ship-policy.md#ruled-notes)). A ruling at a head
 outside the range is listed as `not applied`, and a path edited after the
 fix-check still routes by the post-review rules. When the owner wants the
-findings fixed instead, fix them and ask for a grant for one more fix-check.
+findings fixed instead, fix them and run /ship again: fix-check grants are
+deprecated (GST-3562 A), so ask for none, and a PR past its two rounds whose code
+changed gets one read-only full review of its final head.
 A stopped final review or native reader row works the same way: its
 `gstack-review-read` reason lists each finding still waiting for a ruling, a
 `noted` CRITICAL included, so rule each listed fingerprint at the head it names.
@@ -7787,8 +7789,8 @@ counted here.
 
 **Fix.** Fix the finding, commit, and run /ship again on the new head; that
 run's Step 9 row records it `fixed`. If it should ship unfixed, take the stop
-to the owner: their ruled note (`gstack-approvals rule`) closes it, or their
-grant buys one fix-check. Never edit the review-log row or the loop file to
+to the owner: their ruled note (`gstack-approvals rule`) closes it. Ask for no
+fix-check grant: those are deprecated (GST-3562 A). Never edit the review-log row or the loop file to
 drop the finding, and never write the receipt by hand
 ([ship-policy.md](ship-policy.md#ship-receipt)).
 
@@ -7798,7 +7800,7 @@ drop the finding, and never write the receipt by hand
 **Meaning.** `gstack-ship-receipt write --review-loop-exception` refused the
 record and wrote nothing: it is not `{ accepted_by, date, via, reason }` with
 exactly one of `fix_check: { head, findings[, files] }` (a stop after a
-fix-check) or `second_pass: { head, deferred: [<finding id>] }` (a stop after
+fix-check; deprecated with fix-check grants and removed next release) or `second_pass: { head, deferred: [<finding id>] }` (a stop after
 the second full pass left a finding open, TRUT-7), `--review-loop` is missing
 or does not show that stop (no fix-check counted, or fewer than two passes or
 no deferred finding), the head is neither the receipt head nor its ancestor, or
@@ -7918,8 +7920,9 @@ which a base merge can move (GST-2229), and the base's own change, already
 merged at base (GST-1226), are shown and not counted. A base change over 2,000 lines
 in one file counts in full again and takes the full loop.
 
-**Fix.** Dispatch one fix-check reviewer
-([review-policy.md](review-policy.md)) on the packet. When it comes back clean,
+**Fix.** Dispatch one scoped reader
+([review-policy.md](review-policy.md)) on the packet, without asking: it is not a
+review round. When it comes back clean,
 write `{"head":"<HEAD>","paths":[...],"reviewer":"<model>","verdict":"clean"}`
 and rerun `gstack-ship-receipt carry ... --scoped-review <record.json>`; the
 carry reason records the reviewer and the paths. A blocking finding means /ship
@@ -7994,9 +7997,11 @@ final head; this stop then means that review found a blocker or a gate-class edi
 notes; a fix applied after it, even below the floor, stops for the lane's
 Captain (GST-3562 A).
 
-**Fix.** The lane's Captain decides. Ship with the open notes listed, park, or,
-when a finding above the floor is open in this PR's own change, buy the stopped
-review's fix round:
+**Fix.** The lane's Captain decides: ship with the open notes listed, park, or
+keep the fix and run /ship again for one more read-only full review of the final
+head. Round grants are deprecated (GST-3562 A) and the next release removes them,
+so record no new one. The steps below serve only a grant recorded before
+GST-3562, which still buys the stopped review's fix round:
 
 1. Record the stop: `gstack-ship-receipt stop --pr <n> --run <the /ship run>
    --since <REVIEW_SINCE>` (`/ship` runs it on `NEXT: stop`). It prints
@@ -8011,7 +8016,8 @@ review's fix round:
    since that head, with no new full review. The run claims the grant first
    (`gstack-ship-receipt claim`).
 
-A head no review has stopped at takes an `--kind extra-round` grant instead:
+A head no review has stopped at takes an `--kind extra-round` grant instead
+(deprecated the same way):
 one full round with its fix round. Each grant is spent by the one run that
 claims it. When `PR_REVIEW_GRANT: not applied (...)` prints, the reason names
 what doesn't match (another stop or head, a stale stop, a claimed grant). This
@@ -8028,8 +8034,10 @@ gstack can tie to one commit: the newest `via:ship` reading row since
 or its commit isn't HEAD or under it. It recorded no stop record, so
 no fix-check grant can buy that review's fix round.
 
-**Fix.** The lane's Captain ships with the open notes listed, parks, or rules
-the fix round with a grant that needs no stop record: `gstack-approvals
+**Fix.** The lane's Captain ships with the open notes listed, or parks. Fix-check
+grants are deprecated (GST-3562 A) and go in the next release, so record no new
+one. Before GST-3562 the Captain could rule the fix round with a grant that needs
+no stop record, and one recorded then still works for one release: `gstack-approvals
 round-grant --pr <n> --head <the reviewed head> --kind fix-check --reason <why>
 --by <lane or Captain>` (add `--owner-ref` and `--words` inside an open run).
 The run then claims it, commits the fix, runs the one scoped fix-check
@@ -8088,8 +8096,9 @@ fix-check row that doesn't count (`converged:false`, partial hunks) spends
 nothing: log a correct row in the same run instead of asking for a new grant
 ([review-policy.md](review-policy.md#one-grant-path)).
 
-**Fix.** Record a new grant for the stop the PR is at now; `gstack-ship-receipt
-stop` prints the command ([troubleshooting](#pr-round-cap)).
+**Fix.** Record no new grant: fix-check and round grants are deprecated
+(GST-3562 A). The lane's Captain decides the stop as
+[`PR_ROUND_CAP`](#pr-round-cap) says.
 
 <a id="grant-unknown"></a>
 ### `GRANT_UNKNOWN`

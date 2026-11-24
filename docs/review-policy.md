@@ -90,48 +90,35 @@ incomplete coverage, which blocks until the reviewer is rerun.
    for every reviewer (the gate scan and QA probes keep the whole candidate) and
    classifies with `--range-base`. Only a blocking finding in that range or in
    the diff is `fix`; every below-floor finding is a `note`.
-3. **Two rounds is the cap** (R51): a full pass, a scoped pass
-   ([below](#scoped-pass)) or a fix-check is a round of this table. The counters
-   (`review_loop.rounds`, `PR_REVIEW_HISTORY: rounds=`) count passes only: a
-   fix-check reads only a round's fixes, and R51 counts a re-check of only what
-   changed as no round, so it shows as `fix_checks=`. After round 2 the run
+3. **Two rounds is the cap** (R51): a full pass or a scoped pass
+   ([below](#scoped-pass)) is a round of this table, and /ship plans no
+   fix-check (GST-3562 A). Any code change after round 1, blocking, gate-class
+   or below the floor, gets a full round 2 on the range. After round 2 the run
    finishes with its open notes listed in the PR body and receipt (an owner-ruled
    note is closed and listed: [ruled notes](ship-policy.md#ruled-notes)), or stops for
-   the owner when a blocking finding is open, naming it (path, severity,
-   problem); a round-2 fix, blocking, gate-class or below the floor, first gets
-   the read-only full review described below. The cap limits fix rounds, not Step 11's voices: on gate
+   the lane's Captain when a blocking finding is open, naming it (path, severity,
+   problem); a round-2 fix first gets one read-only full review of the final
+   head: the dispatcher stages it on the merge base whatever `--diff-base` it is
+   given, prints `READ_ONLY:`, and no fix round follows it. A fix after that
+   review stops for the Captain. The cap limits fix rounds, not Step 11's voices: on gate
    class a stop waits for Step 11's adversarial, outside and targeted voices
-   (`NEXT: voices`), so gate code never reaches the owner's "ship with open
-   notes" without them (GST-967). A fix in round 2 gets one read-only full
-   review, never a fix-check (GST-3562 A). For one release, a grant recorded in
-   `review_loop_exception` (its ask or scope naming `review_loop_grant` and the
-   stop head's sha) still answers one row: `gstack-review-plan --grant <approval
-   id> --range-base <round 2's PASS_HEAD>` plans one more fix-check after a
-   round-2 fix-check that was the run's only one (`--fix-checks 1`, GEVA-223),
-   with a fixed blocking finding or a gate-class edit, and refuses any other row,
-   including a grant for a stop head before `--range-base` (an earlier /ship).
-   A fix-check never earns another, so the grant cannot repeat, and a stop after
-   the granted fix-check still goes to the owner. The cap approves nothing.
-   This cap counts rounds inside one run. Across heads and runs the PR's own
-   count applies ([rounds per pull request](#rounds-per-pull-request)), and an
-   extra round there is the lane's or Captain's grant, never an owner ask.
-   Edits that /ship Step 16 later finds after the review bound are a new stop: a
-   new grant at a stop head after the last fix-check's commit, passed as
-   `gstack-review-plan --post-review --last fix-check --range-base <that commit>
-   --grant <id>`, plans one more fix-check, the next link of the
-   [fix-check chain](ship-policy.md#fix-check-chain) (GST-1676). The last link's
-   own grant is refused there, so each link still needs the owner's word. In the
-   loop, a new grant naming the last fix-check's commit (`--range-base`) plans
-   the next link the same way; a grant recorded before a later logged fix-check
-   already bought a link and is refused (GST-1681). Edits after the last
-   fix-check that are only release stamps under the base policy's stamp rule
-   (line-exact: one other line in a stamp file makes the file an edit) and docs
-   are no gate-class edit: the plan reads them with the receipt's classifier
-   (`docsChangeSince`, the [targeted-only read](#targeted-only-read-after-the-loop)'s)
-   and prints `NEXT: done`, or `NEXT: targeted` when a docs claim on a
-   targeted-class diff needs the read, with no grant (GST-1702). An executable,
-   symlink or gitlink file in that range, or a commit the gate scan tags there
-   (a `[skip ci]` message), still stops.
+   (`NEXT: voices`), so gate code never reaches "ship with open notes" without
+   them (GST-967). The cap approves nothing. This cap counts rounds inside one
+   run. Across heads and runs the PR's own count applies ([rounds per pull
+   request](#rounds-per-pull-request)).
+   Owner grants of a fix-check (`review_loop_exception`, `--grant`, the
+   [fix-check chain](ship-policy.md#fix-check-chain)) are deprecated: code still
+   honors a grant recorded before GST-3562 for one release, and the next release
+   removes them. Record no new one.
+   Edits that /ship Step 16 finds after the review bound that are only release
+   stamps under the base policy's stamp rule (line-exact: one other line in a
+   stamp file makes the file an edit) and docs are no gate-class edit: the plan
+   reads them with the receipt's classifier (`docsChangeSince`, the
+   [targeted-only read](#targeted-only-read-after-the-loop)'s) and prints
+   `NEXT: done`, or `NEXT: targeted` when a docs claim on a targeted-class diff
+   needs the read (GST-1702). An executable, symlink or gitlink file in that
+   range, or a commit the gate scan tags there (a `[skip ci]` message), still
+   stops. Any other code edit after review costs the next round.
 
 <a id="rounds-per-pull-request"></a>
 ### Rounds per pull request (R51, GST-2673)
@@ -184,15 +171,12 @@ caught on another crew's PRs.
    hop covered never got a full review, so the head runs `/ship` until a fresh
    full review replaces that receipt.
 4. **Stop rule.** `gstack-review-plan --prior-full <n>` adds the PR's earlier
-   full rounds to this run's full passes; fix-checks stay the in-run table's
-   call, and `--prior-rounds` is printed as `pr_rounds=`. The per-PR cap counts
-   full passes only, by design (`lib/review-depth.ts` `prCapped`): earlier runs'
-   scoped passes show in `pr_rounds=` but don't count against it, fix-checks
-   show in neither,
-   because each run's own fix round is the in-run table's call. A full pass past two
-   stops with `PR_ROUND_CAP` and says how to record the stop and its grant
-   (item 6); a fix at the cap gets one read-only full review of the final head
-   (GST-3562 A), and a fix after that review stops for the lane's Captain. The stop is the lane's or Captain's call, never an owner ask
+   full rounds to this run's full passes, and `--prior-rounds` is printed as
+   `pr_rounds=`. The per-PR cap counts full passes only, by design
+   (`lib/review-depth.ts` `prCapped`): earlier runs' scoped passes show in
+   `pr_rounds=` but don't count against it. A fix at the cap gets one read-only
+   full review of the final head (GST-3562 A), and a fix after that review stops
+   for the lane's Captain. The stop is the lane's or Captain's call, never an owner ask
    ([troubleshooting](troubleshooting.md#pr-round-cap)).
 5. **Read-only final review.** A PR that already had two full rounds and whose
    own code changed since still gets one full review of its final head. It has
@@ -201,61 +185,25 @@ caught on another crew's PRs.
    to decide: ship with the note, park, or keep the fix and run /ship again for
    one more read-only full review of the final head. A below-floor fix applied
    after that review also stops for the Captain (GST-3562 A). The count does not
-   reopen.
-6. **Round grants.** Two kinds, each recorded with `gstack-approvals round-grant
-   --pr <n> --head <sha> --reason <why> --by <lane or Captain>`, and each spent
-   by the one run that claims it.
-   - **`--kind fix-check`, after a stop** (GST-2968). When a review stops,
-     `/ship` runs `gstack-ship-receipt stop`, which writes a stop record into
-     the PR body's runs block: the run, and the commit and tree the stopped review
-     read. It writes one only when that review finished, read one committed tree
-     from start to end on a clean checkout, and that commit is HEAD or under it
-     (`STOP_UNBOUND` otherwise). The grant names that stop's head, its run
-     (`--stop-run`) and the findings its fix round is for (`--findings`). It
-     buys the stopped review's fix round: one scoped fix-check of the PR's own
-     change since the stop's head (a base merge in between is not part of it), in
-     the same run or a new one on another machine, never a new full review.
-     Step 1's `PR_REVIEW_FLAGS:` adds `--round-grant <id> --stop <head>` and the
-     route is `fix-check`. It answers only the newest stop record, and nothing
-     once another run reviewed after that stop, HEAD no longer contains the stop's
-     head, or another run claimed it (`PR_REVIEW_GRANT: not applied (why)`).
-     A fix-check found nothing to read (an empty, reverted or base-only change)
-     plans no fix-check. The fix-check never earns another: a blocker there
-     stops with `PR_ROUND_CAP` again.
-   - **`--kind extra-round`, before review.** One round past the cap, with its fix
-     round, at a head no review has stopped at: instead of the read-only review.
-     Step 1's `PR_REVIEW_FLAGS:` adds `--round-grant <id>` when the grant names
-     HEAD, or a head HEAD only merges the base into with the PR's own added and
-     removed lines byte-identical and in the same places (preflight merges the base
-     first); the plan raises that run's cap by one round, keeps the round's fix
-     round, and keeps the grant after the fix round's commits move HEAD past it.
-     An extra-round grant never answers a stop.
-   A run whose flags name a grant runs `gstack-ship-receipt claim` before its
-   first dispatch, which writes a grant record into the runs block; a grant
-   another run claimed, or a fix-check grant a counted fix-check already read
-   under (one carrying no grant and logged after it included), is refused (`GRANT_SPENT`), a
-   voided run's claim still
-   spends it, and stop and grant records are never trimmed from the block. When
-   the run record cannot save the claim, claim fails and the run starts no
-   reviewers; rerun claim with the same `--run` once the record is writable, since
-   a new run id reads `GRANT_SPENT`.
-   gstack never grants itself a round: `--by` naming gstack (one of the names
-   gstack writes for itself, `gstack` or `gstack no-stop default (K1)`, matched
-   whole and case-insensitively, so "gstack-evals Captain" or "GStack Minder" can
-   grant) and a grant from inside an open `/ship` run are refused, and `add`
-   refuses the scope. A stopped run (state `stopped` in its run record,
-   [what ends a run](ship-policy.md#what-ends-a-run)) may record the fix-check grant
-   for its own stop, once per run; any other grant on that checkout, a second fix
-   round included, is the lane's relay of its Captain's grant: `--owner-ref <thread
-   code>:<message id or timestamp> --words <their exact words>`, the same relay
-   `gstack-approvals rule` takes, which the row keeps as `relayed:<ref>` (#4531). `--by` is otherwise the caller's own text, recorded and
-   not checked: a lane that records a grant (or a ruling) from another checkout
-   under its Captain's name can't be told apart from the Captain doing it, so the
-   Captain's check of the receipt's `review_round_grants` and the PR body's lines
-   is the control. The receipt lists grants under `review_round_grants`.
+   reopen. A new /ship run on such a PR plans this review as its pass 1, with the
+   same `READ_ONLY:` staging and no fix round as the in-run case.
+6. **Round grants (deprecated).** `gstack-approvals round-grant` (`--kind
+   fix-check` after a stop, `--kind extra-round` before review), `gstack-ship-receipt
+   claim` and the `--round-grant`/`--stop` flags Step 1 adds for them still work
+   for one release, so a grant recorded before GST-3562 keeps verifying; the next
+   release removes them. Record no new grant: after round 2 the PR ships with its
+   open notes or its Captain rules, and a PR whose code changed after the cap gets
+   the read-only full review in item 5. gstack never grants itself a round, and the
+   receipt lists older grants under `review_round_grants`.
 
 <a id="what-closes-a-finding"></a>
 ### What closes a finding (GST-3260)
+
+The grant paths in this section are deprecated with the fix-check (GST-3562 A):
+they keep a grant recorded before it verifying for one release, and the next
+release removes them. /ship no longer plans a fix-check, so a new finding closes
+by a fix that a later full round or the read-only final review reads clean, a
+`Review-Finding` trailer, or the Captain's ruled note.
 
 A fix-check that a grant bought and that read the fix clean closes exactly the
 findings the grant names, with no owner ruling. `gstack-ship-receipt write`
@@ -467,7 +415,7 @@ lane knows the diff has, `gstack-review-plan --declare-risk <classes>` adds it: 
 detected classes, only raises the depth, and prints `RISK_DECLARED: classes=<declared> detected=<found>`.
 The outside voice reads its diff from a file the brief names with its sha256; past
 2,000,000 bytes it reads a path-scoped slice whose brief lists the files left out.
-`--fix-checks <n>` tells the loop how many fix-checks ran, so the owner's grant
+For a grant recorded before GST-3562 only (deprecated), `--fix-checks <n>` tells the loop how many fix-checks ran, so the grant
 adds one fix-check after the first and never a second, in the lean loop and after
 a round-2 fix-check in the full loop (GEVA-223).
 
@@ -987,7 +935,7 @@ class the lane added shows apart from what the matchers found) and the queue ref
 (capy-ai[bot]'s review id, reviewer and head); write and the queue accept it only under
 `review.platform on`, on a docs or tests diff with no numeric, results or prereg claims,
 with the review at that exact head, so a new head needs `/ship` again. A stop the owner
-accepted after a fix-check edit, or after the second full pass with a finding
+accepted after a fix-check edit (deprecated with fix-check grants; removed next release), or after the second full pass with a finding
 left open (`second_pass`), goes in `review_loop_exception`, never in prose
 under `REVIEW_LOOP:`. Step 16 takes the same record:
 `gstack-ship-release finish --review-loop-exception <json|@file>` routes the
@@ -1099,7 +1047,7 @@ larger edit still refuse; a finding goes to the lane's Captain
 
 | Value | Pass 1 | Blocking finding in unchanged code | Pass 2+ | Cap |
 |---|---|---|---|---|
-| `frozen` (default) | the diff | listed as deferred in the PR body | the range since the previous pass, blocking only | 2 rounds (a fix-check is one) |
+| `frozen` (default) | the diff | listed as deferred in the PR body | the range since the previous pass, blocking only | 2 full rounds per PR, then the read-only final review if code changed |
 | `diff-plus-blocking` | the diff | fixed in this PR | the range since the previous pass, blocking only | 3 fix cycles (Step 9.4 runs the review plan's two-round cap only under `frozen`) |
 | `all` | everything | fixed in this PR | the whole diff, every finding | 3 fix cycles |
 
@@ -1351,7 +1299,7 @@ ones, and the arm lost blockers. `bin/gstack-review-dispatch` closes both ends:
    create whose result was lost by its title and never starts a reader twice; a
    missing or doubled title stops the pass. On Capy the pass runs as one call to the
    checked-in program `lib/capy-review-pass.js`, served by `program` and loaded
-   unchanged by the gstack Capy skill. A full repeat pass takes `--diff-base` (RANGE_BASE; a scoped pass, none), a
+   unchanged by the gstack Capy skill. A full repeat pass takes `--diff-base` (RANGE_BASE; a scoped pass and the read-only final review, none), a
    fix-check plan renders its reader from `--fix-list`, `--hunks`, `--tests` and `--callers`,
    `--audit-only` runs just the `--extras` readers (Step 14.5's docs audit), `--voices`
    keeps only the plan's voices for Step 11 on its own `--out` (it takes no `--extras`, and a

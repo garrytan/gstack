@@ -15,7 +15,7 @@ the next act. Read a section only when a phase or the list below sends you, neve
 up front. A STOP or decision this file does not cover: read `ship/SKILL.md` at that step, finish there,
 come back. Unattended, take a question's recommended option (log it); gate
 dispositions and approvals stay pending and end the run, except `gstack-no-stop`. Keep a record (`--record`): write its six headings at Phase 1, fill each per phase: **Checks**
-(Phases 2-4: lanes, pregate, evals, `Coverage:`, the plan checks, `Exploratory QA:`, `Scope Check:`), **Decisions** (any
+(Phases 2-4: lanes, pregate, evals, `Coverage:` and Step 8's `--audit` line), **Decisions** (any
 phase: questions and answers, verbatim), **Reviews** (Phases 3-5: the plan line,
 start tokens, `Pre-Landing Review:`, `Gate edits:`, the reviewed tree), **Release** (Phases 5-7:
 version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (every phase: the next act).
@@ -23,11 +23,11 @@ version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (
 **Reviewers are the sections' own.** Every reviewer brief, its severity and confidence rules
 and gates come from its section verbatim; this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
-file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers (Steps 7, 8, 14.5) cannot block: low effort on `AUDIT_MODEL:`,
+file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade. Audit readers cannot block (here only 14.5 runs): low effort on `AUDIT_MODEL:`,
 14.5 once; findings go to the PR body.
 
 **Calls.** One pass with no fixes is 9 calls: Phases 1-8 and the report; at most 12 with a STOP's
-section read or fix-check, plus a keep-alive per 200 s waited under ~80 min (longer: end the turn on one wait; no 10-15 min polls).
+section read or a repeat pass, plus a keep-alive per 200 s waited under ~80 min (longer: end the turn on one wait; no 10-15 min polls).
 
 **Budget: observe.** `gstack-ship-budget start --mode observe` only records: each program ends
 with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in it
@@ -68,23 +68,22 @@ harness: start the eval selector and pre-merge command (detached past 30 min); e
 record `evals: none affected`. Step 6.5 runs only if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
 (`CONTEXT:`) and the TODOS.md items on touched paths (`TODOS:`); prints the coverage map,
-plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`; read a section only when its reader is `needed`.
+plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`; Phase 3 runs neither reader.
 Never read TODOS.md or the full diff into the parent. A `PERSIST:` hint never replaces Step 9.
 
 ## 3. Audits and review: Steps 7, 8, 9, 9.1, 9.2, 9.2.1
 
-One program: the audit readers `READER:` names (Step 7 from `sections/test-coverage.md`, Step 8 from
-`sections/plan-completion.md`, each run as written; Step 7 may write tests, so it settles first), 9.2.1's Reads only and the pass
-(above): Steps 9-9.2 from `sections/review-army.md` as written. `Coverage:` and Step 8's line come from `--audit` when no
-reader ran.
+One program: `--audit`'s lines and the pass (above): Steps 9-9.2 from `sections/review-army.md` as written. Skipped: the Step 7
+reader (`sections/test-coverage.md`, GST-3562 K); on `plan=none` also Step 8's (`sections/plan-completion.md`) and 9.2.1 (L), else
+both run as written. `Coverage:` and Step 8's line come from `--audit`.
 
 ## 4. Judgment: Steps 8.1, 8.2, 9.3, 9.4 and Step 11
 
-Step 8.1, 9.2.1's probes, 8.2 (`Scope Check:`) on the todos and commits files, then the core checklist, Steps
+On `plan=none` Steps 8.1, 8.2 and 9.2.1 are skipped (L). The core checklist, Steps
 9.3, 9.4 and the repeat decision as written (`JUDGMENT: ok` before any fix), fixes and persistence in
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full` or
-`scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated (`diffBase` RANGE_BASE on `full` only; scoped fix-check: Step 3.5); `fix-check`: the
-pass with `fixCheck: {fix_list, hunks, tests, callers}`; `done` or `voices`: that program runs Step 11 from
+`scoped`: one program runs the failing test, fix, `--tests-only` and Phase 3, each gated (`diffBase` RANGE_BASE on a `full` round 2 only, never
+on a scoped pass or the `READ_ONLY:` final review, which reads the whole PR and takes no fix); `fix-check` (only a pre-GST-3562 grant's, deprecated): the pass with `fixCheck: {fix_list, hunks, tests, callers}`; `done` or `voices`: that program runs Step 11 from
 `sections/adversarial.md` as written (above), only the voices the last full-pass plan lists (none:
 `ADVERSARIAL: skipped (review plan)`).
 
@@ -99,10 +98,11 @@ approvals; `VERSION: skipped|kept`: no write.
 ## 6. Notes and documentation: Steps 13, 14, 14.5
 
 Step 13: one user-facing entry from the commits file where `NEXT:` says;
-`gstack-prose-lint <it> --base origin/<base> --gate` until `PROSE_LINT: ok`. Step 14: TODOS.md deferrals and
-completions, edited from the todos file. Step 14.5, every ship: read `sections/documentation.md` and run its audit as written, as
+`gstack-prose-lint <it> --base origin/<base> --gate` until `PROSE_LINT: ok`. Step 14 is skipped (no catch
+recorded, L). Step 14.5, every ship: read `sections/documentation.md` and run its audit as written, as
 one program (above), then `gstack-ship-receipt docs-caps --base <base>`; print `Documentation:`.
-One re-audit at most.
+One re-audit at most. It edits only README.md, `docs/`, `bench/README.md`;
+a SKILL.md or template edit after review costs the next round.
 
 ## 7. Release: Steps 15, 16, 17
 
@@ -117,7 +117,7 @@ repo gates run with CI. Unattended, push defers the pre-push offer; else its STO
 
 - Step 18: the open-PR lookup; a plain `v<NEW_VERSION> ` title (`gstack-plain-title check`). `UNATTENDED_SHIP:` with no open PR at HEAD takes Step 18-H.
 - Step 19 body: plain opening sentences, then sections `sections/pr-body.md` lists, led under `CAPY_PR: on` (Step 19-C) by What changed, Why and Blast radius; Agent notes last (receipt, `gstack-approvals render --plan`, `REVIEW_LOOP:`). `gstack-prose-lint <top> --sections 'Why,Summary,Blast radius' --gate`; `gstack-issue-links`; `gstack-review-scope summary --since "$REVIEW_SINCE" --run <dir> && gstack-ship-receipt write --pr <n> --base <base> --gate @<f> --pregate <f> --issues @<f> --review-loop @<f> --docs @<f> --budget-record <rec> [--review-exclude <d>] [--review-targeted @<f>] --body <body>`; `gstack-post pr-body` and `pr-title` (new PR: host PR tool; draft while a gate finding is `open`). `SHIP_RECEIPT:` opens your report.
-- Step 20: a metrics row via `gstack-review-log`.
+- Steps 20 and 21 are skipped (no catch recorded, L; /retro gets no row).
 - Step 22: `gstack-ship-budget close --reading R --credits C` (report `BUDGET_FINAL:`, `BUDGET_TIMELINE:`, any `METER:` line), then `gstack-ship-receipt result --pr <n>`: `GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>`. Under a merge queue, `gstack-ship-queue ready --pr <n> [--screen|--no-screen]` at the pushed head; paste its output.
 
 ## Where each STOP sends you (paths under `<root>/ship/`)
@@ -131,11 +131,9 @@ repo gates run with CI. Unattended, push defers the pre-push offer; else its STO
 - a red eval or a failed free-suite shard: `sections/measure.md#measure-then-fix-loop-a-red-paid-eval-or-a-failed-free-suite-shard`
 - Greptile found: `sections/greptile-early.md#step-65-early-greptile-pr-after-the-free-tests-pass`
 - Step 10 with a PR: `sections/greptile.md#step-10-address-review-bot-comments-if-pr-exists`
-- coverage below target, a failed audit: `sections/test-coverage.md#step-7-test-coverage-audit`
 - plan items NOT DONE or UNVERIFIABLE: `sections/plan-completion.md#gate-logic`
 - `NEXT: stop`: `sections/review-army.md#decide-whether-to-repeat-step-9`
 - a `REVIEW_SCOPE_*` refusal, the review-log row: `sections/review-army.md#step-94-fix-first-and-persistence`
-- a required probe not passed: `sections/review-army.md#step-921-exploratory-qa-before-fix-first`
 - native adversarial incomplete, queued fixes: `sections/adversarial.md#finish-the-adversarial-phase`
 - Step 11.5 mismatch: `SKILL.md#step-115-bind-the-reviews`
 - a `version` STOP: `SKILL.md#step-12-version-bump-auto-decide`

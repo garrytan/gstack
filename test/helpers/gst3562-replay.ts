@@ -17,12 +17,14 @@
  *      the voices before one).
  *   e. main stopped (or ran the voices before stopping) on a blocker fixed or a gate edit made at the cap; the branch gives the
  *      final head one read-only full review.
+ *   f. a new /ship run on a PR whose full rounds are spent: both plan the same read-only full review of the head, and the
+ *      branch marks it read-only (no fix round, staged on the merge base) and keeps every reader main dispatched (GST-3562 part 2).
  */
 import { expect } from 'bun:test';
 import { planReviewAt, type PlanInput, type ReviewPlan } from '../../lib/review-depth';
 import { mainNextStep } from '../fixtures/review-depth-main/next-step-0408128';
 
-export type Gst3562Kind = 'a' | 'b' | 'c' | 'd' | 'e';
+export type Gst3562Kind = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
 
 export function asMainBeforeGst3562(input: PlanInput, plan: ReviewPlan): { plan: ReviewPlan; kind?: Gst3562Kind } {
   const main = planReviewAt(input, mainNextStep);
@@ -35,9 +37,11 @@ export function asMainBeforeGst3562(input: PlanInput, plan: ReviewPlan): { plan:
     : was.step === 'fix-check' && (now.step === 'stop' || now.step === 'voices') && now.reason.includes('a fix followed the read-only final review') ? 'c'
     : was.step === 'done' && !!h.fixedBelow && ['full', 'stop', 'voices', 'fix-check'].includes(now.step) ? 'd'
     : (was.step === 'stop' || was.step === 'voices') && !!(h.fixedBlocking || h.touchedGate) && now.step === 'full' && now.reason.startsWith('read-only final review (R51)') ? 'e'
+    : h.last === 'none' && was.step === 'full' && !was.readOnly && now.readOnly && now.reason === was.reason && was.reason.startsWith('read-only final review (R51)') ? 'f'
     : undefined;
   expect([h, was, now, kind]).toEqual([h, was, now, expect.any(String)]);
   if (kind === 'b') expect({ ...plan, next: was }).toEqual(main);
+  if (kind === 'f') expect([h, main.dispatches.filter(d => !plan.dispatches.some(p => Bun.deepEquals(p, d)))]).toEqual([h, []]);
   if (kind === 'a') {
     const lost = main.dispatches.filter(d => d.role === 'fix-check'
       ? !plan.dispatches.some(p => p.role !== 'targeted' && p.effort === 'full' && p.exclude.every(e => d.exclude.includes(e)))

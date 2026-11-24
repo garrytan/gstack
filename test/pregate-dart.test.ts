@@ -38,7 +38,7 @@ const DART_FILES: Record<string, string> = {
 };
 
 /** A base policy with no declared runner, so Dart files are planned per package. */
-const DART_PREGATE = { $schema: 'https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1', dependencies: { 'docs/**': [], 'README.md': [] } };
+const DART_PREGATE = { $schema: 'https://github.com/garrytan/gstack/blob/main/docs/pregate.md#pregate-v1', dependencies: { 'docs/**': [], 'README.md': [] } };
 
 /**
  * The fixture plus DART_FILES on main. `policy` is committed as the base's

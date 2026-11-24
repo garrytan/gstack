@@ -746,7 +746,7 @@ If your project doesn't have a test framework, `/ship` sets one up — detects y
 
 ### Coverage audit
 
-Every `/ship` run builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with quality stars. Gaps get tests auto-generated. Your PR body shows the coverage: `Tests: 42 → 47 (+5 new)`.
+Every `/ship` run builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with quality stars. Gaps get tests auto-generated. Your PR body shows the coverage: `Tests: 42 → 47 (+5 new)`. An unattended `/ship` ([ship/DRIVER.md](../ship/DRIVER.md)) skips this coverage reader, and with no plan it also skips the plan-completion audit and the exploratory pass below (GST-3562).
 
 `/review` and `/ship` also run a bounded exploratory pass on changed behavior and nearby risks, even for a small diff without a plan or web server. Their existing approval and test rules govern any fixes or permanent tests; a blocked probe remains a coverage gap, not a passing QA result.
 
