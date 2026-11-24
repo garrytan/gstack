@@ -82,7 +82,7 @@ import { containedRelative, globToRegExp, runningGstackVersion, SHIP_POLICY_PATH
 import { cmpVersion, parseVersion } from '../version-source';
 
 export const PREGATE_CONFIG_PATH = '.gstack/pregate.json';
-export const PREGATE_CONFIG_SCHEMA = 'https://github.com/garrytan/gstack/docs/pregate.md#pregate-v1';
+export const PREGATE_CONFIG_SCHEMA = 'https://github.com/garrytan/gstack/blob/main/docs/pregate.md#pregate-v1';
 export const NON_DOWNGRADABLE = ['secrets', 'guards'] as const;
 /** Finding ids (or categories) no allowlist entry may name: the real value of a credential-named environment variable (#3449), and the secret wildcard. */
 export const NON_ALLOWLISTABLE = ['env.value', 'secret'] as const;

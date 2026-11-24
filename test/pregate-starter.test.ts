@@ -56,6 +56,8 @@ describe('no policy anywhere: warn plus a printed starter (never PREGATE_NO_LANE
     expect(row.fix).toContain('gstack-pregate init');
     const starter = starterJson(r.out);
     expect(validateConfig(starter, CHECK_IDS)).toEqual([]);
+    expect(starter.$schema).toBe('https://github.com/garrytan/gstack/blob/main/docs/pregate.md#pregate-v1');
+    expect(fs.readFileSync(path.join(import.meta.dir, '..', 'docs', 'pregate.md'), 'utf8')).toContain('<a id="pregate-v1"></a>');
     expect(starter.runner).toBe('node --test {files}');
     expect((starter.dependencies as Record<string, string[]>)['scripts/report.js']).toEqual(['test/report.test.js']);
     expect(starter.dependencies).not.toHaveProperty('lib/orphan.js');
