@@ -101,6 +101,17 @@ describe('argChunks and argBudget', () => {
     expect(argBudget('bun test {files}', { BIG: 'x'.repeat(900 * 1024) }, 'linux')).toBeLessThan(1024 * 1024 - 64 * 1024 - 900 * 1024);
     expect(argBudget('bun test {files}', {}, 'win32')).toBeLessThan(32 * 1024);
   });
+
+  // Value: protects=on Windows a lane's whole `bash -c` string, supervise's `set -o pipefail; ` prefix included, fits the
+  //   8,186 characters Git Bash keeps of one argument, so a long file list runs as chunks instead of arriving cut;
+  //   fails_when=the Windows cap is the 32,767-character CreateProcess limit or the prefix is not counted; why_new=#4773, a
+  //   172-file vitest lane of 8,244 characters exited 2 with an empty log; seam=none
+  test('the budget counts the pipefail prefix, and on Windows the whole command fits Git Bash\'s 8,186 characters', () => {
+    const runner = 'npx vitest run {files}';
+    const command = (platform: NodeJS.Platform) => 'set -o pipefail; ' + runner.replace('{files}', 'x'.repeat(argBudget(runner, {}, platform)));
+    expect(command('win32').length).toBeLessThanOrEqual(8186);
+    expect(Buffer.byteLength(command('linux'))).toBeLessThanOrEqual(96 * 1024 - 512);
+  });
 });
 
 describe('E2BIG is its own cause', () => {
