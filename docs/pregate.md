@@ -228,7 +228,10 @@ Two stages with separate clocks, both printed:
   under its YAML key) are caught in UTF-16 text as in plain text. Only
   credential findings count in such a file, so image bytes that look like a
   phone number are not reported. A file whose scanned text is over the
-  scanner's 16 MiB limit fails the check, and the pre-push hook blocks a push
+  scanner's 16 MiB limit is scanned in parts cut at line ends, each repeating
+  at least 64K characters of the text before it, with findings reported at
+  their line in the file; a single line too long to scan whole, or to share a
+  part with that context, fails the check and names the line. The pre-push hook blocks a push
   whose diff is over 64 MiB. The hook leaves deleted files out of that diff,
   so removing a large binary does not count toward the limit, but a replaced
   binary's old bytes still do. Keep large binaries in Git LFS, whose small
