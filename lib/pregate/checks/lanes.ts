@@ -40,8 +40,9 @@ import { docsOnlyLane } from '../docs-only-lane';
 import { selectLanes, type Selection } from '../lane-selection';
 import { launchRuntime } from '../runtime';
 import { cargoModel, type CargoModel } from '../rust';
-import { adapterFor, readRange, STALL_IDLE, supervise, type Counter, type Supervised } from '../supervise';
+import { adapterFor, PIPEFAIL, readRange, STALL_IDLE, supervise, type Counter, type Supervised } from '../supervise';
 import { ranFiles, runChanged, runReceiptFields, verifyFromRun, type RunProfile } from '../../run-evidence';
+import { WINDOWS_BASH_ARG_MAX } from '../../script-invocation';
 import { matchesAny } from '../../ship-policy';
 import { testFileArgs } from '../../test-paths';
 import type { CheckDef, CheckResult, PregateContext, RemoteObligation } from '../types';
@@ -406,15 +407,14 @@ interface LocalRun { exit: number | null; outcome: Supervised['outcome']; signal
 const quote = (f: string) => `'${f.replace(/'/g, `'\\''`)}'`;
 
 /**
- * Bytes of quoted file arguments one runner process may take. supervise passes the whole command as one `bash -c`
- * argument: Linux caps a single execve argument at 128 KiB (MAX_ARG_STRLEN), every POSIX system caps argv plus the
- * environment (ARG_MAX: 1 MiB on macOS, 2 MiB by default on Linux), and Windows caps a whole command line at 32,767
- * characters. The runner text itself and a margin come off the top.
+ * Bytes of quoted file arguments one runner process may take (unlimited without a {files} placeholder: `cargo test -p`).
+ * supervise passes PIPEFAIL plus the command as one `bash -c` argument: Linux caps one execve argument at 128 KiB, POSIX
+ * caps argv plus environment (ARG_MAX), and Git Bash on Windows keeps its first 8,186 characters only (#4773).
  */
 export function argBudget(runner: string, env: NodeJS.ProcessEnv, platform = process.platform): number {
   const envBytes = Object.entries(env).reduce((n, [k, v]) => n + Buffer.byteLength(`${k}=${v ?? ''}`) + 9, 0);
-  const cap = platform === 'win32' ? 24 * 1024 : Math.min(96 * 1024, 1024 * 1024 - 64 * 1024 - envBytes);
-  return cap - Buffer.byteLength(runner) - 512;
+  const cap = platform === 'win32' ? WINDOWS_BASH_ARG_MAX : Math.min(96 * 1024, 1024 * 1024 - 64 * 1024 - envBytes);
+  return runner.includes('{files}') ? cap - Buffer.byteLength(PIPEFAIL) - Buffer.byteLength(runner) - 512 : Infinity;
 }
 
 /** `args` split in order into chunks whose quoted, space-joined text fits `budget` bytes; an argument over it runs alone. */
@@ -452,8 +452,8 @@ async function runOnce(ctx: PregateContext, env: NodeJS.ProcessEnv, g: RunGroup,
     if (r.exit === null) break;
   }
   if (parts.length === 1) return parts[0]!;
-  const bad = parts.find(p => p.exit === null) ?? parts.find(p => p.exit !== 0) ?? parts.at(-1)!;
-  const sum = (k: 'ran' | 'failed') => (parts.some(p => p[k] === null) ? null : parts.reduce((n, p) => n + (p[k] as number), 0));
+  const bad = parts.find(p => p.exit === null) ?? parts.find(p => p.exit !== 0) ?? parts.find(p => p.ran === 0) ?? parts.at(-1)!;
+  const sum = (k: 'ran' | 'failed') => (k === 'ran' && parts.some(p => p.ran === 0) ? 0 : parts.some(p => p[k] === null) ? null : parts.reduce((n, p) => n + (p[k] as number), 0));
   return { ...(parts.every(p => p.noBrowsers) ? { noBrowsers: parts[0]!.noBrowsers } : {}), exit: bad.exit, outcome: bad.outcome, signal: bad.signal, observedStart: parts.some(p => p.observedStart), ran: sum('ran'), failed: sum('failed'), tail: bad.tail, runner: g.runner, command: parts.map(p => p.command).join(' && '), files: parts.flatMap(p => p.files), lastFile: bad.lastFile, ms: parts.reduce((n, p) => n + p.ms, 0), ...(bad.error ? { error: bad.error } : {}) };
 }
 

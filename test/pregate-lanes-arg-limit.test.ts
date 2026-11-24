@@ -21,7 +21,8 @@ afterEach(() => { while (repos.length) cleanup(repos.pop()!); });
 const FILES = 700;
 const name = (i: number, tag = 'x') => `test/big/${tag.padEnd(186, 'x')}${String(i).padStart(4, '0')}.test.js`;
 const RUNNER = [
-  'const files = process.argv.slice(2);',
+  "if (process.argv.slice(2).some(f => f.includes('yodd'))) { console.log('done'); process.exit(0); }",
+  "const files = process.argv.slice(2).filter(f => !f.includes('zskip'));",
   "const failed = files.filter(f => f.includes('fail')).length;",
   "console.log(`ℹ tests ${files.length}\\nℹ pass ${files.length - failed}\\nℹ fail ${failed}`);",
   'process.exit(failed ? 1 : 0);',
@@ -54,6 +55,20 @@ describe.skipIf(process.platform === 'win32')('a local lane whose file list is o
 
     const red = await lanesOver([...tests.slice(0, -1), name(FILES - 1, 'zfail')]);
     expect(red).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED', detail: `local lane exited 1 (1 failed of ${FILES} ran; ${FILES} files; pipefail)` });
+  }, 120_000);
+
+  // Value: protects=a chunk that exits 0 having run no tests fails the lane as ZERO-RUN, as the same files alone would;
+  //   fails_when=the chunks' counts are summed, so another chunk's tests hide it; why_new=#4773 sends ordinary Windows
+  //   selections through chunks; seam=runPregate --only lanes with a runner that runs nothing for zskip files
+  test('a chunk that ran no tests makes the lane zero-run, even when another chunk ran tests', async () => {
+    const tests = Array.from({ length: FILES }, (_, i) => name(i, i < FILES / 2 ? 'x' : 'zskip'));
+    const lane = await lanesOver(tests);
+    expect(lane).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED' });
+    expect(lane.detail).toStartWith('ZERO-RUN: the runner reported 0 tests');
+
+    const odd = await lanesOver(Array.from({ length: FILES }, (_, i) => name(i, i < FILES / 2 ? 'yodd' : 'zskip')));
+    expect(odd).toMatchObject({ status: 'fail', code: 'PREGATE_LANE_FAILED' });
+    expect(odd.detail).toStartWith('ZERO-RUN: the runner reported 0 tests');
   }, 120_000);
 });
 
@@ -100,6 +115,18 @@ describe('argChunks and argBudget', () => {
     expect(linux).toBeLessThan(128 * 1024);
     expect(argBudget('bun test {files}', { BIG: 'x'.repeat(900 * 1024) }, 'linux')).toBeLessThan(1024 * 1024 - 64 * 1024 - 900 * 1024);
     expect(argBudget('bun test {files}', {}, 'win32')).toBeLessThan(32 * 1024);
+  });
+
+  // Value: protects=on Windows a lane's whole `bash -c` string, supervise's `set -o pipefail; ` prefix included, fits the
+  //   8,186 characters Git Bash keeps of one argument, so a long file list runs as chunks instead of arriving cut;
+  //   fails_when=the Windows cap is the 32,767-character CreateProcess limit or the prefix is not counted; why_new=#4773, a
+  //   172-file vitest lane of 8,244 characters exited 2 with an empty log; seam=none
+  test('the budget counts the pipefail prefix, and on Windows the whole command fits Git Bash\'s 8,186 characters', () => {
+    const runner = 'npx vitest run {files}';
+    const command = (platform: NodeJS.Platform) => 'set -o pipefail; ' + runner.replace('{files}', 'x'.repeat(argBudget(runner, {}, platform)));
+    expect(command('win32').length).toBeLessThanOrEqual(8186);
+    expect(Buffer.byteLength(command('linux'))).toBeLessThanOrEqual(96 * 1024 - 512);
+    expect(argBudget('cargo test -p core', {}, 'win32')).toBe(Infinity);
   });
 });
 
