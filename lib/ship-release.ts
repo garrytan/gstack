@@ -317,7 +317,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   }
   const inRange = (l: FixLink, c: string) => !!l.from && !!l.commit && ancestor(l.from, c) && ancestor(c, l.commit);
   const rulings = readRuledNotes(cwd).map(n => ({ ...n, links: chain.filter(l => inRange(l, n.head)) }));
-  for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}${chain.length && !n.links.length ? ' (outside this fix-check\'s range; not applied)' : ''}`);
+  for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}${chain.length && !n.links.length && !n.finding.startsWith('edit:') ? ' (outside this fix-check\'s range; not applied)' : ''}`);
   const gates = readGateDispositions(cwd);
   for (const d of gates) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).length) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
   const gatedOn = (l: FixLink) => new Set(dispositionedOn(cwd, l.row, gates).map(d => gateKey(d.finding, d.gate_id)));
@@ -451,7 +451,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
   }
   const edits = readRuledNotes(cwd).filter(n => n.finding.startsWith('edit:'));
-  const ruled = new Map(by.behavior.flatMap(p => edits.filter(n => n.finding === `edit:${p}` && ancestor(n.head, 'HEAD') && git(cwd, ['diff', '--quiet', n.head, '--', p]).status === 0).slice(-1).map(n => [p, n] as const)));
+  const entry = (tree: string, p: string) => git(cwd, ['--literal-pathspecs', 'ls-tree', '--full-tree', tree, '--', p]).stdout;
+  const ruled = new Map(by.behavior.flatMap(p => edits.filter(n => n.finding === `edit:${p}` && ancestor(n.head, 'HEAD') && entry(n.head, p) === entry(now, p)
+    && !git(cwd, ['log', '--full-history', '--format=%H', `${n.head}..HEAD`, '--', `:(top,literal)${p}`]).stdout.trim()).slice(-1).map(n => [p, n] as const)));
   by.behavior = by.behavior.filter(p => !ruled.has(p));
   const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, accepted: by.accepted, excluded: opts.excluded });
   by.sidecar = Object.keys(uid.proven).sort();

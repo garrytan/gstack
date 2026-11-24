@@ -64,6 +64,9 @@ describe('finish honours an edit ruling after the final review (GST-3775)', () =
     const r = finish(later.f, later.reviewed, later.post);
     expect([r.status, r.stdout]).toEqual([3, expect.stringContaining(`${STOPPED} (test/x.test.ts)`)]);
     expect(r.stdout).not.toContain('RULED_EDIT');
+    later.f.write({ 'test/x.test.ts': TEST_V2 }); later.f.commit('restore the ruled bytes');
+    const restored = finish(later.f, later.reviewed, later.post);
+    expect([restored.status, restored.stdout]).toEqual([3, expect.stringContaining(`${STOPPED} (test/x.test.ts)`)]);
 
     const early = editedAfterFinalReview();
     expect(rule(early.f, 'test/x.test.ts', early.passHead).status).toBe(0);
