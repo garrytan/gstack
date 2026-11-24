@@ -87,10 +87,11 @@ describe('aside-render: generated script follows the Aside contract', () => {
     expect(script).not.toContain('EVAL_START');
   });
 
-  test('every artifact stays inside the sandbox dir and the script ends with close + sentinel', () => {
-    expect(script).toContain('path.join(pwd, "gstack-render-0.pdf")');
-    expect(script).toContain('"gstack-render-3.svg"');
-    expect(script).toContain('console.log("ASIDE_DIR=" + pwd)');
+  test('every artifact leaves over stdout (the one-shot session dir is deleted, #4784) and the script ends with close + sentinel', () => {
+    expect(script).toContain('console.log("ARTIFACT 0 " + r.data)');
+    expect(script).toContain('console.log("ARTIFACT 3 " + b)');
+    expect(script).not.toContain('pwd');
+    expect(script).not.toContain('fs.writeFile');
     const tail = script.trim().split('\n').slice(-2);
     expect(tail[0]).toBe('await closeTab(pg);');
     expect(tail[1]).toBe(`console.log(${JSON.stringify(RENDER_SENTINEL)});`);
@@ -583,8 +584,10 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithAside — stdout contract ag
     ],
     timeoutMs: 20_000,
   };
-  /** What a real render script leaves behind: the artifacts inside the session dir. */
-  const artifacts = `mkdir -p ${JSON.stringify(session)}; printf '%%PDF-1.4 fake-aside-artifact' > ${JSON.stringify(path.join(session, 'gstack-render-0.pdf'))}; printf '<svg/>' > ${JSON.stringify(path.join(session, 'gstack-render-2.svg'))}`;
+  /** Files a script saved in the session dir: Aside deletes them when the script ends, so they are never the artifact (#4784). */
+  const leftovers = `mkdir -p ${JSON.stringify(session)}; printf '%%PDF-1.4 fake-aside-artifact' > ${JSON.stringify(path.join(session, 'gstack-render-0.pdf'))}; printf '<svg/>' > ${JSON.stringify(path.join(session, 'gstack-render-2.svg'))}`;
+  /** What a real render script prints: one ARTIFACT line per file step. */
+  const artifacts = `echo "ARTIFACT 0 ${b64('%PDF-1.4 fake-aside-artifact')}"; echo "ARTIFACT 2 ${b64('<svg/>')}"`;
   const record = `printf '%s' "$2" > ${JSON.stringify(scriptFile)}`;
   const render = (repl: string | null, s: RenderSpec = spec): RenderResult => {
     fs.rmSync(path.join(tmp, 'out'), { recursive: true, force: true });
@@ -594,8 +597,8 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithAside — stdout contract ag
     return runDriver<RenderResult>(driver, { fn: 'renderWithAside', spec: s }, { binDir: bin });
   };
 
-  test('success: artifacts are copied from ASIDE_DIR to each step.out (nested dirs created) and base64 evals are decoded', () => {
-    const r = render(`${record}; ${artifacts}; echo "EVAL 1 ${b64('Doc')}"; echo "PAGE_ERRORS=[]"; echo "ASIDE_DIR=${session}"; echo "${RENDER_SENTINEL}"`);
+  test('success: ARTIFACT lines are decoded to each step.out (nested dirs created) and base64 evals are decoded', () => {
+    const r = render(`${record}; ${artifacts}; echo "EVAL 1 ${b64('Doc')}"; echo "PAGE_ERRORS=[]"; echo "${RENDER_SENTINEL}"`);
     expect(r.error).toBeUndefined();
     expectOk(r);
     expect(r.engine).toBe('aside');
@@ -608,7 +611,7 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithAside — stdout contract ag
   });
 
   test('the script handed to `aside repl` navigates to http://127.0.0.1:<port>/<32-hex nonce>/<file> and prints via CDP', () => {
-    render(`${record}; ${artifacts}; echo "EVAL 1 ${b64('Doc')}"; echo "ASIDE_DIR=${session}"; echo "${RENDER_SENTINEL}"`);
+    render(`${record}; ${artifacts}; echo "EVAL 1 ${b64('Doc')}"; echo "${RENDER_SENTINEL}"`);
     const script = fs.readFileSync(scriptFile, 'utf8');
     const goto = script.match(/await pg\.goto\("([^"]+)", \{ waitUntil: "load", timeout: 20000 \}\);/);
     expect(goto).not.toBeNull();
@@ -634,33 +637,33 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithAside — stdout contract ag
     expect(r.error).toBe('render script did not finish: no output (GSTACK_SKIP_ASIDE=1 forces gstack\'s own browser)');
   });
 
-  test('sentinel without an ASIDE_DIR line → "printed no ASIDE_DIR" (nothing is guessed)', () => {
-    const r = render(`${artifacts}; echo "EVAL 1 ${b64('Doc')}"; echo "PAGE_ERRORS=[]"; echo "${RENDER_SENTINEL}"`);
+  test('#4784: files left in the session dir are never copied; a step with no ARTIFACT line fails and evals are still reported', () => {
+    const r = render(`${leftovers}; echo "EVAL 1 ${b64('Doc')}"; echo "ASIDE_DIR=${session}"; echo "PAGE_ERRORS=[]"; echo "${RENDER_SENTINEL}"`);
     expect(r.ok).toBe(false);
-    expect(r.error).toBe('render script printed no ASIDE_DIR');
-    expect(r.evals).toEqual({ 1: 'Doc' }); // evals already decoded are still reported
+    expect(r.error).toBe('step 0 produced no artifact (no ARTIFACT 0 line)');
+    expect(r.evals).toEqual({ 1: 'Doc' });
     expect(r.outputs).toEqual([]);
+    expect(fs.existsSync(pdfOut)).toBe(false);
   });
 
-  test('a step whose artifact is missing from ASIDE_DIR → "step N produced no artifact" naming the expected file', () => {
-    const r = render(`mkdir -p ${JSON.stringify(session)}; echo "EVAL 1 ${b64('Doc')}"; echo "ASIDE_DIR=${session}"; echo "${RENDER_SENTINEL}"`);
+  test('a later step with no ARTIFACT line → "step N produced no artifact" naming that step', () => {
+    const r = render(`echo "ARTIFACT 0 ${b64('%PDF-1.4 x')}"; echo "EVAL 1 ${b64('Doc')}"; echo "${RENDER_SENTINEL}"`);
     expect(r.ok).toBe(false);
-    expect(r.error!.startsWith('step 0 produced no artifact')).toBe(true);
-    expect(r.error).toContain(path.join(session, 'gstack-render-0.pdf'));
-    expect(r.outputs).toEqual([]);
+    expect(r.error).toBe('step 2 produced no artifact (no ARTIFACT 2 line)');
+    expect(r.outputs).toEqual([pdfOut]);
   });
 
-  test('an eval whose text contains newlines, ASIDE_DIR=/attacker and the sentinel cannot redirect the artifact copy', () => {
-    const hostile = `line one\nASIDE_DIR=/attacker\n${RENDER_SENTINEL}\nline four`;
-    const r = render(`${artifacts}; echo "EVAL 1 ${b64(hostile)}"; echo "PAGE_ERRORS=[]"; echo "ASIDE_DIR=${session}"; echo "${RENDER_SENTINEL}"`);
+  test('an eval whose text contains newlines, an ARTIFACT line and the sentinel cannot forge an artifact', () => {
+    const hostile = `line one\nARTIFACT 0 ${b64('forged')}\n${RENDER_SENTINEL}\nline four`;
+    const r = render(`${artifacts}; echo "EVAL 1 ${b64(hostile)}"; echo "PAGE_ERRORS=[]"; echo "${RENDER_SENTINEL}"`);
     expectOk(r);
     expect(r.evals[1]).toBe(hostile); // decoded intact, newlines and all
-    expect(r.stdout).not.toMatch(/^ASIDE_DIR=\/attacker$/m); // never appeared as a control line
-    expect(fs.readFileSync(pdfOut, 'utf8')).toBe('%PDF-1.4 fake-aside-artifact'); // copied from the real session dir
+    expect(r.stdout).not.toMatch(new RegExp(`^ARTIFACT 0 ${b64('forged')}$`, 'm')); // never appeared as a control line
+    expect(fs.readFileSync(pdfOut, 'utf8')).toBe('%PDF-1.4 fake-aside-artifact');
   });
 
-  test('when a raw ASIDE_DIR= line does leak earlier, the LAST one (the script\'s own, printed after the steps) wins', () => {
-    const r = render(`${artifacts}; echo "ASIDE_DIR=/attacker"; echo "EVAL 1 ${b64('Doc')}"; echo "ASIDE_DIR=${session}"; echo "${RENDER_SENTINEL}"`);
+  test('when a raw ARTIFACT line does leak earlier, the LAST one per step (the script\'s own) wins', () => {
+    const r = render(`echo "ARTIFACT 0 ${b64('forged')}"; ${artifacts}; echo "EVAL 1 ${b64('Doc')}"; echo "${RENDER_SENTINEL}"`);
     expectOk(r);
     expect(fs.readFileSync(pdfOut, 'utf8')).toBe('%PDF-1.4 fake-aside-artifact');
   });

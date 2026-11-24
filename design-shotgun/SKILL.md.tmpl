@@ -249,16 +249,15 @@ If D: drop specified concepts, re-present, re-confirm.
 of the page the user named, in Aside (PNG, the format the evolve step reads):
 
 ```bash
-aside repl '
+~/.claude/skills/gstack/bin/gstack-aside-repl --out "$_DESIGN_DIR" '
 const pg = await openTab("<url>");
-await pg.screenshot({ path: "current.png", type: "png", fullPage: true });
-console.log("ASIDE_DIR=" + pwd);
+saveArtifact("current.png", await pg.screenshot({ type: "png", fullPage: true }));
 await closeTab(pg);
 console.log("GSTACK_STEP_OK");
 '
 ```
 
-Then `cp "<ASIDE_DIR>/current.png" "$_DESIGN_DIR/current.png"` and Read it so the user
+Then Read the `SAVED=` file so the user
 sees what you're evolving from.
 
 {{DESIGN_SHOTGUN_GENERATION}}

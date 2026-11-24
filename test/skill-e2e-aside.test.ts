@@ -7,7 +7,7 @@
  * localhost fixture page, and check that the agent actually drove Aside the way
  * the {{ASIDE_SETUP}} contract (scripts/resolvers/aside.ts) says to: `aside repl`
  * scripts that print labelled evidence and the GSTACK_STEP_OK sentinel, and
- * artifacts copied out of the printed ASIDE_DIR. "Actually drove" means the
+ * artifacts saved through bin/gstack-aside-repl (#4784). "Actually drove" means the
  * sentinel appeared on its own line in a BASH tool_result — the skill doc the
  * agent Reads also contains the token, so Read results are excluded and the
  * tokens are line-anchored (Read output is line-numbered; the cookbook wraps
@@ -150,7 +150,7 @@ const filesIn = (dir: string): string[] => (fs.existsSync(dir) ? fs.readdirSync(
 /** Common preface: the fixture server is up, Aside is up, drive it through the skill's own cookbook. */
 const preface = (skillMd: string) => `Aside is installed and running on this machine; its BROWSER SETUP probe will print READY.
 Read ${skillMd} and follow its BROWSER SETUP and cookbook exactly. Skip the preamble bash block, lake intro, telemetry, and contributor-mode sections — go straight to the workflow.
-Drive the browser ONLY with 'aside repl' scripts, each ending with console.log("GSTACK_STEP_OK"); copy any screenshot out of the printed ASIDE_DIR in bash.
+Drive the browser ONLY with 'aside repl' scripts, each ending with console.log("GSTACK_STEP_OK"); run any script that saves a screenshot through gstack-aside-repl --out <dir> with saveArtifact, as the skill says.
 Do not use AskUserQuestion. The target is a local test server that is already running — do not start servers or discover ports.
 `;
 
@@ -187,8 +187,7 @@ Your final message must quote the page title verbatim.`,
     timeout: CAPTURE_MS,
     prompt: (dir, url) => `${preface('browse/SKILL.md')}
 Drive this flow in ONE script, shaped like the cookbook's "Drive a flow" recipe:
-open ${url}/forms.html, take a baseline interactive snapshot, fill #name with "Aside QA", select "user" in #role, click #profile-btn, wait for #result to be visible, then print the DIFF_START/DIFF_END block, the URL= line and the CONSOLE_ERRORS= line, save a screenshot named "flow-result.jpg", print ASIDE_DIR=, close the tab, print the sentinel.
-Then, in bash, mkdir -p ${dir}/screenshots and copy flow-result.jpg from the printed ASIDE_DIR into ${dir}/screenshots/.
+open ${url}/forms.html, take a baseline interactive snapshot, fill #name with "Aside QA", select "user" in #role, click #profile-btn, wait for #result to be visible, then print the DIFF_START/DIFF_END block, the URL= line and the CONSOLE_ERRORS= line, save a screenshot named "flow-result.jpg" with saveArtifact, close the tab, print the sentinel. Run that script through gstack-aside-repl --out ${dir}/screenshots.
 Your final message must include the DIFF and CONSOLE_ERRORS lines verbatim.`,
     check: (dir, result) => {
       expect(result.exitReason).toBe('success');

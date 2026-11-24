@@ -63,11 +63,15 @@ the resolver ever disagree, the resolver wins. The contract in one screen:
    exit code is always 0, so every script ends with
    `console.log("GSTACK_STEP_OK")` and a missing sentinel (or a line starting
    with `[error`) is failure.
-8. **Artifacts leave through the session directory.** Relative `screenshot`/`pdf`
-   paths land in Aside's per-run directory; the script prints
-   `ASIDE_DIR=<pwd>` and bash copies files into the report directory. Never
-   print image data — stdout truncates.
-9. **Show the user.** Copied screenshots are opened with the Read tool so they
+8. **Artifacts leave through stdout.** A one-shot `aside repl` deletes its
+   session directory when the script ends, and its sandbox refuses every path
+   outside that directory, so a file saved there is gone before bash can copy
+   it (#4784). A script that saves files runs through
+   `bin/gstack-aside-repl --out <dir>`, which gives it
+   `saveArtifact(name, bytes)`: each call prints the bytes as one base64 line
+   behind a per-run marker, and the wrapper writes them to `<dir>/<name>` and
+   prints `SAVED=<path>` in their place. Never print image data yourself.
+9. **Show the user.** Saved screenshots are opened with the Read tool so they
    appear inline. JPEG quality 60 keeps them small.
 10. **Deterministic first.** `aside repl` for anything expressible as steps;
     `aside exec "<task>"` (Aside's own agent) only for open-ended, read-only
@@ -81,7 +85,7 @@ What exists inside `aside repl` (Aside CLI 1.26, verified by running it):
 screenshot/pdf/waitForSelector/waitForURL/waitForLoadState/reload/goBack/content`,
 raw CDP via `pg._sendToTarget(method, params)`, locators with
 `click/fill/check/selectOption/press/hover/textContent/innerText/isVisible/
-count/screenshot/waitFor`, and the globals `fs` (promises, session dir only),
+count/screenshot/waitFor`, `saveArtifact` (added by `gstack-aside-repl`), and the globals `fs` (promises, session dir only),
 `path`, `Buffer`, `pwd`, `fetch` (user's cookies), `sleep`. Nothing else: no
 `process`, `require`, `import`, no viewport setter (use CDP
 `Emulation.setDeviceMetricsOverride`), no console event hook (install one
@@ -146,8 +150,9 @@ containment is checked on the real path of every request (a symlink that
 escapes the directory is 403, malformed encoding is 400) and directories are
 never listed. One `aside repl` script does the whole job
 (open, wait, run the steps in order, close the tab) because nothing persists
-between CLI calls. Artifacts are written inside Aside's sandbox (the per-run
-session directory is the only writable place) and copied out afterwards. PDFs
+between CLI calls. Artifacts come back over stdout as base64 `ARTIFACT` lines,
+because the per-run session directory (the only writable place) is deleted
+when the script ends. PDFs
 go through raw CDP `Page.printToPDF` so header/footer templates, tagged PDF,
 and the document outline keep working; sized screenshots use CDP
 `Emulation.setDeviceMetricsOverride`. The CLI exit code is 0 even when the
@@ -222,7 +227,7 @@ What changes when the fallback is active:
 | You watch the tabs the agent opens in Aside | `/open-gstack-browser` (or `$B connect`) shows the headed GStack Browser with the side panel |
 | Sign-in wall: sign in inside Aside, say "done" | `$B handoff` opens a visible Chrome at the same page; `$B resume` continues |
 | One `aside repl` script per flow, fresh session each time | Persistent daemon: cookies, tabs, and localStorage carry over between `$B` calls |
-| Evidence lines from the cookbook (`CONSOLE_ERRORS=`, `DIFF_START…DIFF_END`, `ASIDE_DIR=`, `GSTACK_STEP_OK`) | `$B` prints raw output; the skill labels it with the same evidence lines (`URL=`, `CONSOLE_ERRORS=`, `DIFF_START`/`DIFF_END`) so the report reads identically. No `ASIDE_DIR` copy step — `$B screenshot <path>` is already on disk |
+| Evidence lines from the cookbook (`CONSOLE_ERRORS=`, `DIFF_START…DIFF_END`, `SAVED=`, `GSTACK_STEP_OK`) | `$B` prints raw output; the skill labels it with the same evidence lines (`URL=`, `CONSOLE_ERRORS=`, `DIFF_START`/`DIFF_END`) so the report reads identically. No `gstack-aside-repl` wrapper — `$B screenshot <path>` is already on disk |
 | Durable per-site automation belongs to Aside's own skills | `/scrape` → `/skillify` codifies a flow into a browser-skill; domain-skills keep per-site notes |
 | Other agents open their own Aside tabs | `/pair-agent` shares the daemon over a scoped tunnel |
 | Aside keeps the browsing history | The daemon logs to `.gstack/*.log` and writes egress receipts for tunnel starts |
