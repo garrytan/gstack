@@ -688,7 +688,7 @@ export function planReviewAt(i: PlanInput, table: (h: History, depth: Depth) => 
     const raised = !full && (raise || runtimeLines <= SMALL_DIFF_LINES);
     const lines = full ? i.diffLines : Math.max(runtimeLines, raised ? SMALL_DIFF_LINES : 0);
     const checklists = batchChecklists(dcls, i, skipped);
-    if (checklists.length) add('specialist', 'batched', specialist, full ? [] : docsAndOutputs, { checklists });
+    if (checklists.length) add('specialist', 'batched', specialist, full || (next.rangeReaders && SPECIALISTS.some(forcedBy(i))) ? [] : docsAndOutputs, { checklists });
     const redTeam = dcls === 'gate' || !!next.rangeReaders || (dcls === 'code' && (lines > RED_TEAM_LINES || !!i.criticalFound || raised));
     if (redTeam) add('red-team', 'red-team', 'full');
     else skipped.push(`red-team (${dcls} class${dcls === 'code' ? `, ${lines} runtime lines, no critical` : ''})`);

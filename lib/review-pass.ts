@@ -135,7 +135,7 @@ const STAGE_OF: Record<string, Stage> = { specialist: 'specialists', 'fix-check'
 export function buildManifest(o: {
   pass: string; out: string; ledger: string; base: string; diffBase: string; root: string; checklistRoot: string;
   dispatches: Array<Dispatch & { excerpt?: string[] }>; next: string; planLines: string[]; learnings?: string | null; extras?: Extra[];
-  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string; readers?: EffectiveReaders; voices?: boolean;
+  targetedClasses?: readonly string[]; mergeBase?: string; rangeBase?: string; voiceBase?: string; fixCheck?: FixCheckFiles; reviewExclude?: Record<string, unknown>; disclosure?: string; readers?: EffectiveReaders; voices?: boolean;
 }): Manifest {
   if (o.voices && o.extras?.length) throw new BriefError(`Step 11's voices pass sends no audit reader, so it takes no --extras: ${o.extras.map(e => e.name).join(', ')}`);
   const readers: PassReader[] = [];
@@ -155,6 +155,7 @@ export function buildManifest(o: {
     const keep = (d.keep ?? []).filter(s => !excerpt.includes(s));
     readers.push({ reader, stage, title: `ship ${o.pass} ${reader}`, state: 'planned', role, name, effort: d.effort, exclude, checklists: d.checklists,
       ...(policy.length ? { policy_exclude: policy.map(shellQuote).join(' ') } : {}), ...(keep.length ? { keep } : {}), ...(excerpt.length ? { excerpt } : {}),
+      ...((role === 'adversarial-native' || role === 'outside-voice') && o.voiceBase ? { diff_base: o.voiceBase } : {}),
       ...(role === 'targeted' ? { classes: [...(o.targetedClasses ?? [])], diff_base: o.mergeBase ?? o.diffBase } : {}),
       ...(role === 'adversarial-native' && d.classes?.length ? { classes: [...d.classes], diff_base: o.mergeBase ?? o.diffBase } : {}),
       ...(d.model === 'cross-family' ? { cross_family: true } : d.model && d.model !== 'lane' ? { model: { model_id: d.model } } : {}),
@@ -241,7 +242,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
     }
     let slice: Record<string, unknown> = {};
     if (role === 'outside-voice') {
-      const s = sliceDiff(diffFor(m.diff_base, r), REVIEW_DIFF_MAX_BYTES);
+      const s = sliceDiff(diffFor(r.diff_base ?? m.diff_base, r), REVIEW_DIFF_MAX_BYTES);
       const diffFile = path.join(briefs, 'outside-voice.diff');
       fs.writeFileSync(diffFile, s.text, { mode: 0o600 });
       Object.assign(slots, { diff_file: diffFile, diff_bytes: String(s.bytes), diff_sha256: createHash('sha256').update(s.text).digest('hex'), ...(s.sliced ? { diff_slice: sliceNote(s, REVIEW_DIFF_MAX_BYTES) } : {}) });

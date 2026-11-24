@@ -738,6 +738,16 @@ describe('D6 retired: round 2 after a small blocking fix is a full pass, never a
     expect(roles(planReview(n19({ numbers, reviewedNumbers: 'old' })))).toContain('outside-voice:outside-voice (numbers changed):host');
     expect(roles(planReview(n19({ numbers, reviewedNumbers: numbers.fingerprint })))).not.toContain('outside-voice:outside-voice (numbers changed):host');
   });
+  // Value: protects=main's scoped pass dispatched a forced specialist on its own with no exclusion, so a forced checklist keeps reading the docs and outputs the batched reader would exclude; fails_when=a docs-only blocking fix with --force security plans a batched security reader that excludes the docs it should read;
+  //   why_new=GST-3562 part 3 round-1 review (the forced security checklist read nothing on a docs-only fix); seam=planReview; no_claim=what the reader finds
+  test('a docs-only blocking fix with a forced specialist keeps its paths: the batched specialist carries it and excludes nothing', () => {
+    const p = planReview(mixed({ perPath: per({ 'docs/a.md': 40 }), diffLines: 40, history: fixed(0), adversarialRan: true, force: ['security'] }));
+    expect(p.next).toMatchObject({ step: 'full', rangeReaders: true });
+    const spec = p.dispatches.filter(d => d.role === 'specialist');
+    expect(spec.map(d => [d.name, d.checklists, d.exclude])).toEqual([['batched', ['security'], []]]);
+    const unforced = planReview(mixed({ perPath: per({ 'docs/a.md': 40, 'src/a.ts': 20 }), diffLines: 60, history: fixed(0), adversarialRan: true }));
+    expect(unforced.dispatches.find(d => d.role === 'specialist')!.exclude).not.toEqual([]);
+  });
   test('150 and 151 are both full; a range with no runtime lines keeps the Red Team without the native adversarial after Step 11', () => {
     expect(SCOPED_RANGE_LINES).toBe(150);
     expect(planReview(n19({ history: fixed(150) })).next).toMatchObject({ step: 'full', rangeReaders: true });

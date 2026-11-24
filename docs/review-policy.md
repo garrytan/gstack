@@ -329,7 +329,10 @@ as the depth counts them: `gstack-review-plan --range-base $PASS_HEAD` prints
 scoped pass ran: a full-effort Red Team that excludes nothing, the native
 adversarial pass again when the range changes runtime lines (even after Step 11
 ran it), every force-included specialist, the outside voice when published
-numbers changed, and Step 11's voices that have not run yet. The range holds only
+numbers changed, and Step 11's voices that have not run yet. The driver's
+`--diff-base RANGE_BASE` sets every reader's base except the targeted reader's
+and, before Step 11 has run (no `--adversarial-ran`), the native adversarial's and
+the outside voice's, which keep the merge base and read the whole PR. The range holds only
 the PR's own change since `RANGE_BASE`: when a base merge lands inside it, what
 the base brought is not counted, and neither is its gate class (GST-2229,
 harness-evals #354). A full pass 1, a fix that touched a gate-class path, a larger

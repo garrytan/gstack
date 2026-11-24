@@ -215,9 +215,9 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(res).toContain('NEXT: judge (Phase 4)');
   }, 240_000);
 
-  // Value: protects=the Capy pass program runs a scoped repeat with no fix-check files, dispatches its Red Team and leaves the fix-check to Step 3.5 as GST-619 does on the CLI; fails_when=the program stops a scoped plan for missing files or creates a fix-check reader in the scoped manifest;
-  //   why_new=#3670 Step 11 (adversarial 1, red team 1), re-scoped to GST-619's model in the merge of main; seam=none; no_claim=the Step 3.5 fix-check itself
-  test('a scoped repeat runs without fixCheck files and leaves its fix-check to Step 3.5 (GST-619)', async () => {
+  // Value: protects=the Capy pass program runs the full round 2 that replaced the scoped pass with no fix-check files, plans no fix-check and dispatches the Red Team in the manifest (GST-3562 part 3); fails_when=the program stops the round for missing files, plans a fix-check, or leaves the Red Team out;
+  //   why_new=#3670 Step 11 (adversarial 1, red team 1), re-scoped to GST-3562 part 3's full round 2; seam=none; no_claim=what the readers find
+  test('a full round 2 on a small fix range runs without fixCheck files, plans no fix-check and dispatches the Red Team (GST-3562 part 3)', async () => {
     const { dir, env } = repo();
     const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
     const rangeBase = sh('git rev-parse HEAD').stdout.trim();
@@ -225,31 +225,41 @@ describe('Capy pass program (fake host, real bins)', () => {
     const planFlags = ['--pass', '1', '--last', 'full', '--fixed-blocking', '--pass1-depth', 'standard', '--range-base', rangeBase];
     const h = host(dir, env);
     const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/s1'), pass: 'x22s1', diffBase: rangeBase, planFlags });
-    expect(res).toContain('next=scoped');
+    expect(res).toContain('next=full');
     expect(res).not.toContain('STOP:');
-    expect(res).toContain('FIX_CHECK: planned');
+    expect(res).not.toContain('FIX_CHECK:');
     expect(h.creates.map(c => c.title)).not.toContain('ship x22s1 fix-check');
     expect(h.creates.map(c => c.title)).toContain('ship x22s1 red-team');
+    const m = JSON.parse(fs.readFileSync(path.join(dir, '.state/run/s1/pass-manifest.json'), 'utf8')) as { readers: { role?: string }[] };
+    expect(m.readers.some(r => r.role === 'red-team')).toBe(true);
+    expect(m.readers.some(r => r.role === 'fix-check')).toBe(false);
   }, 240_000);
 
-  // Value: protects=a scoped pass run through the Capy program as the driver now says, with no diffBase, gives the pending Step 11 voices the merge base and only the Red Team the fix range (GST-619); fails_when=the program sends a scoped pass a base of its own or the voices read the range before Step 11 ran;
-  //   why_new=#3670 merge fix-check (row 454); the driver test "a scoped repeat pass passes no diffBase" is the failing-first half; seam=none; no_claim=an explicit --diff-base, which GST-619 lets win
-  test('a scoped pass run as the driver says keeps the merge base for the Step 11 voices; only the Red Team reads the fix range', async () => {
+  // Value: protects=a full round 2 run through the Capy program as the driver says (--diff-base RANGE_BASE) gives the Red Team and specialists the fix range, and the Step 11 voices that have not run yet the merge base, so they read the whole PR; once Step 11 ran (--adversarial-ran) the voices read the range;
+  //   fails_when=a pending native adversarial or outside voice reads only the fix range, or a voice that already ran ignores --diff-base; why_new=GST-3562 part 3 round-1 second-model review (first-time Step 11 voices read only the fix range); seam=none; no_claim=what the readers find
+  test('a full round 2 run as the driver says reads the fix range, except pending Step 11 voices, which read the merge base until Step 11 has run', async () => {
     const { dir, env } = repo();
     const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
     const mergeBase = sh('git merge-base main HEAD').stdout.trim();
     const rangeBase = sh('git rev-parse HEAD').stdout.trim();
     expect(sh('echo "export const fix = 2;" >> src/a.ts && git commit -qam fix').status).toBe(0);
-    const out = path.join(dir, '.state/run/s2');
+    type M = { diff_base: string; readers: { role?: string; stage: string; diff_base?: string }[] };
+    const at = (m: M, r: { diff_base?: string }) => r.diff_base ?? m.diff_base;
     const planFlags = ['--pass', '1', '--last', 'full', '--fixed-blocking', '--pass1-depth', 'standard', '--range-base', rangeBase];
-    const res = await runPass(host(dir, env), { base: 'main', out, pass: 'x22s2', planFlags });
-    expect(res).toContain('next=scoped');
-    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as { diff_base: string; readers: { role?: string; stage: string; diff_base?: string }[] };
-    expect(m.diff_base).toBe(mergeBase);
-    expect(m.readers.find(r => r.role === 'red-team')!.diff_base).toBe(rangeBase);
-    const voices = m.readers.filter(r => r.stage === 'voices');
-    expect(voices.length).toBeGreaterThan(0);
-    for (const v of voices) expect(v.diff_base ?? m.diff_base).toBe(mergeBase);
+    for (const [pass, flags, voiceBase] of [['x22s2', planFlags, mergeBase], ['x22s3', [...planFlags, '--adversarial-ran'], rangeBase]] as const) {
+      const out = path.join(dir, '.state/run', pass);
+      const res = await runPass(host(dir, env), { base: 'main', out, pass, diffBase: rangeBase, planFlags: [...flags] });
+      expect(res).toContain('next=full');
+      const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as M;
+      expect(m.diff_base).toBe(rangeBase);
+      expect(at(m, m.readers.find(r => r.role === 'red-team')!)).toBe(rangeBase);
+      const specialists = m.readers.filter(r => r.stage === 'specialists');
+      expect(specialists.length).toBeGreaterThan(0);
+      for (const s of specialists) expect(at(m, s)).toBe(rangeBase);
+      const voices = m.readers.filter(r => r.role === 'adversarial-native' || r.role === 'outside-voice');
+      expect(voices.length).toBeGreaterThan(0);
+      for (const v of voices) expect(at(m, v)).toBe(voiceBase);
+    }
   }, 240_000);
 
   // Value: protects=the program's final NEXT line survives a return that its reader outputs push to the 32 KB cap, and a pass whose out is not <run dir>/<pass dir> says it skipped the parts; fails_when=finish() cuts the tail line, the room ignores the parts trailer, or parts are skipped without a line;
