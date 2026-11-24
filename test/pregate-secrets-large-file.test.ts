@@ -10,12 +10,16 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { scanParts } from '../lib/pregate/checks/secrets';
+import { scan } from '../lib/redact-engine';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const PREGATE = path.join(ROOT, 'bin', 'gstack-pregate');
 const MIB = 1024 * 1024;
 const AWS = 'AKIA' + 'ZQ3XN7P2LM4RT8WV';
 const PAT = ['ghp', 'Zq8Lm2Xv7Nc4Rt9Wy1Kp6Hd3Fs5Gb0Jx8Ue2'].join('_');
+/** An AWS secret key the scanner reports only with `aws_secret_access_key` within 100 characters, here the end of the line before it. */
+const AWS_SECRET = ['Zq8Lm2Xv7Nc4Rt9Wy1Kp6Hd3', 'Fs5Gb0Jx8Ue2Ab1C'].join('');
+const AWS_SECRET_NAME = 'aws_secret_access_key:';
 const PEM = ['-----BEGIN ' + 'RSA PRIVATE KEY-----', ...Array.from({ length: 29 }, (_, i) => 'MIIEowIBAAKCAQEA' + String(i).padStart(2, '0').repeat(24)), '-----END ' + 'RSA PRIVATE KEY-----'];
 /** One 1,024-byte line with its newline, so 16,384 of them fill one 16 MiB part. */
 const row = (n: number, text = `{"trial":${n},"task":"repo-fix-${n % 97}","passed":${n % 3 > 0}}`) => text.padEnd(1023, ' ');
@@ -71,7 +75,7 @@ describe('scanParts: line-aligned overlapping parts under the scanner limit (GST
 
   test('parts repeat the last overlap lines of the part before and cover every line in order', () => {
     const lines = Array.from({ length: 25 }, (_, i) => `line-${String(i).padStart(4, '0')}`);
-    const parts = scanParts(lines.join('\n'), 100, 2);
+    const parts = scanParts(lines.join('\n'), 100, 2, 0);
     expect(Array.isArray(parts) && parts.map(p => p.first)).toEqual([0, 8, 16]);
     expect(Array.isArray(parts) && parts.map(p => p.text)).toEqual([lines.slice(0, 10).join('\n'), lines.slice(8, 18).join('\n'), lines.slice(16).join('\n')]);
   });
@@ -83,12 +87,14 @@ describe('scanParts: line-aligned overlapping parts under the scanner limit (GST
     for (let trial = 0; trial < 200; trial++) {
       const max = 40 + rand(200);
       const lines = Array.from({ length: 1 + rand(80) }, () => rand(4) ? 'x'.repeat(rand(max + 1)) : 'é'.repeat(rand(Math.floor(max / 2) + 1)));
-      const parts = scanParts(lines.join('\n'), max, 1 + rand(6));
-      if (!Array.isArray(parts)) throw new Error('every line fits');
+      const chars = rand(3) ? 0 : rand(max);
+      const parts = scanParts(lines.join('\n'), max, 1 + rand(6), chars);
+      if (!Array.isArray(parts)) { expect(chars).toBeGreaterThan(0); continue; }
       let covered = 0;
       for (const { first, text } of parts) {
         expect(Buffer.byteLength(text)).toBeLessThanOrEqual(max);
         expect(first).toBeLessThanOrEqual(covered);
+        if (first > 0) expect(lines.slice(first, covered).join('\n').length + 1).toBeGreaterThanOrEqual(chars);
         const count = text.split('\n').length;
         expect(text).toBe(lines.slice(first, first + count).join('\n'));
         expect(first + count).toBeGreaterThan(covered);
@@ -99,9 +105,16 @@ describe('scanParts: line-aligned overlapping parts under the scanner limit (GST
   });
 
   test('a line one byte over the limit cannot be split and is named; a line exactly at the limit is scanned alone', () => {
-    expect(scanParts(['ok', 'x'.repeat(101), 'ok'].join('\n'), 100)).toEqual({ line: 2, bytes: 101 });
-    expect(scanParts(['é'.repeat(50) + 'x', 'ok'].join('\n'), 100)).toEqual({ line: 1, bytes: 101 });
-    expect(scanParts(['ok', 'x'.repeat(100), 'ok'].join('\n'), 100)).toEqual([{ first: 0, text: 'ok' }, { first: 1, text: 'x'.repeat(100) }, { first: 2, text: 'ok' }]);
+    expect(scanParts(['ok', 'x'.repeat(101), 'ok'].join('\n'), 100)).toEqual({ line: 2, why: '101 bytes, over the limit' });
+    expect(scanParts(['é'.repeat(50) + 'x', 'ok'].join('\n'), 100)).toEqual({ line: 1, why: '101 bytes, over the limit' });
+    expect(scanParts(['ok', 'x'.repeat(100), 'ok'].join('\n'), 100, 256, 0)).toEqual([{ first: 0, text: 'ok' }, { first: 1, text: 'x'.repeat(100) }, { first: 2, text: 'ok' }]);
+  });
+
+  // Value: protects=a match and the context its rule reads (a key and the name beside it) always share a part; fails_when=the repeat drops a long line before a cut, or two lines too long to share a part with that context are scanned apart and pass; why_new=GST-3665 review (second-model reader); seam=pure splitter; no_claim=rules reading more than 64K characters around a match
+  test('the line before a cut is repeated whole however long it is, and lines that cannot share a part with that context fail', () => {
+    const lines = ['x'.repeat(20), 'y'.repeat(60), 'z'.repeat(30)];
+    expect(scanParts(lines.join('\n'), 100, 1, 40)).toEqual([{ first: 0, text: lines.slice(0, 2).join('\n') }, { first: 1, text: lines.slice(1).join('\n') }]);
+    expect(scanParts(['a'.repeat(60), 'b'.repeat(60)].join('\n'), 100, 256, 30)).toEqual({ line: 2, why: '60 bytes, too long to share the limit with the 30 characters before it that a secret\'s context can span' });
   });
 
   test('a 40 MiB reading of 1,024-byte lines splits into three 16 MiB parts that repeat 256 lines', () => {
@@ -130,12 +143,25 @@ describe('pregate secrets on an added file over 16 MiB (GST-3665)', () => {
     expect([...new Set(findingLines(r.lines))].sort((a, b) => a - b)).toEqual([100, 16_370, 24_000, 40_000]);
   }, 300_000);
 
+  // Value: protects=a secret whose rule needs the line before it is found when a 5 MiB line ends right at a cut; fails_when=the repeat skips long lines, so neither part holds the key and its name; why_new=GST-3665 review (second-model reader); seam=gstack-pregate end to end, with a scanner-level control; no_claim=none
+  test('an AWS secret key named at the end of a 5 MiB line before a cut fails at its own line', () => {
+    expect(scan(`"${AWS_SECRET}"`, {}).findings.map(f => f.id)).toEqual([]);
+    expect(scan(`${AWS_SECRET_NAME}\n"${AWS_SECRET}"`, {}).findings.map(f => f.id)).toEqual(['aws.secret_key']);
+    const named = AWS_SECRET_NAME.padStart(5 * MIB - 1, ' ');
+    const text = rows(11_264) + named + '\n' + rows(1_024, { 1: `"${AWS_SECRET}"` });
+    const parts = scanParts(text.slice(0, -1));
+    expect(Array.isArray(parts) && parts.map(p => p.first)).toEqual([0, 11_264]);
+    const r = repo({ 'results/trials.jsonl': text }).secrets();
+    expect(r.status).toBe('fail');
+    expect(r.lines.filter(l => l.includes('aws.secret_key')).map(l => findingLines([l])[0])).toEqual([11_266]);
+  }, 300_000);
+
   // Value: protects=a line too long to split keeps failing closed and says why; fails_when=the over-limit line is skipped, cut mid-line or scanned as a pass; why_new=GST-3665; seam=gstack-pregate end to end; no_claim=none
   test('a single line over 16 MiB fails closed and names the line', () => {
     const r = repo({ 'results/blob.json': `{"a":1}\n"${'x'.repeat(16 * MIB)}"\n{"b":2}\n` }).secrets();
     expect(r.status).toBe('fail');
-    expect(r.detail).toContain("over gstack-redact's 16 MiB limit; a line cannot be split for scanning");
-    expect(r.lines).toContain(`line over 16 MiB, not scanned: results/blob.json, added line 2 (${16 * MIB + 2} bytes)`);
+    expect(r.detail).toBe("1 added line(s) cannot be scanned within gstack-redact's 16 MiB limit; a line is never cut for scanning, so it never passes");
+    expect(r.lines).toContain(`line not scanned within 16 MiB: results/blob.json, added line 2 (${16 * MIB + 2} bytes, over the limit)`);
   }, 300_000);
 
   // Value: protects=a part the scanner does not report on never passes; fails_when=a later part's exit 0 or 2 with no JSON reads as clean or a warning; why_new=GST-3665 (each part is its own scanner run); seam=runScriptSync replaced in a child process; no_claim=gstack-redact's own output

@@ -209,32 +209,40 @@ export function addedLines(ctx: PregateContext): Array<{ file: string; texts: st
 const SCAN_MAX_BYTES = 16 * 1024 * 1024;
 /** Lines a part repeats from the end of the part before it, so a block of lines (a PEM key) that crosses a cut is read whole in one part. */
 const SCAN_OVERLAP_LINES = 256;
+/** Characters a part always repeats from the text before it: well over the widest context a rule reads around a match (400, PARCEL_CONTEXT_CHARS), so a key and the word that marks it (`aws_secret_access_key` within 100) are never cut apart. */
+const SCAN_OVERLAP_CHARS = 64 * 1024;
 
 /**
  * GST-3665: a reading over gstack-redact's limit is scanned in line-aligned
- * parts of at most `maxBytes`, each repeating up to `overlapLines` lines
- * (and at most a quarter of the limit) from the end of the part before it, so
- * every part reads new lines. `first` is the 0-based index of a part's first
- * line in the reading. A line longer than the limit cannot be cut at a line
- * end: it comes back as `{ line, bytes }` (1-based) and is never scanned.
+ * parts of at most `maxBytes`. Each part after the first repeats the end of
+ * the part before it: at least `overlapChars` characters of whole lines,
+ * then up to `overlapLines` lines while the repeat stays under a quarter of
+ * the limit, so every part reads new lines. `first` is the 0-based index of
+ * a part's first line in the reading. A line that cannot be scanned whole, or
+ * cannot share a part with that much of the text before it, comes back as
+ * `{ line, why }` (1-based) and the reading is never scanned as a pass.
  */
-export function scanParts(text: string, maxBytes = SCAN_MAX_BYTES, overlapLines = SCAN_OVERLAP_LINES): Array<{ first: number; text: string }> | { line: number; bytes: number } {
+export function scanParts(text: string, maxBytes = SCAN_MAX_BYTES, overlapLines = SCAN_OVERLAP_LINES, overlapChars = SCAN_OVERLAP_CHARS): Array<{ first: number; text: string }> | { line: number; why: string } {
   if (Buffer.byteLength(text) <= maxBytes) return [{ first: 0, text }];
   const lines = text.split('\n');
   const size = lines.map(line => Buffer.byteLength(line) + 1);
   const long = size.findIndex(n => n - 1 > maxBytes);
-  if (long >= 0) return { line: long + 1, bytes: size[long]! - 1 };
+  if (long >= 0) return { line: long + 1, why: `${size[long]! - 1} bytes, over the limit` };
   const parts: Array<{ first: number; text: string }> = [];
   for (let first = 0, next = 0, overlap = 0; next < lines.length; ) {
     let bytes = overlap;
     let end = next;
     while (end < lines.length && bytes + size[end]! - 1 <= maxBytes) bytes += size[end++]!;
     parts.push({ first, text: lines.slice(first, end).join('\n') });
+    if (end === lines.length) break;
     next = first = end;
     overlap = 0;
-    if (next === lines.length) break;
-    while (first > 0 && next - first < overlapLines && overlap + size[first - 1]! <= maxBytes / 4) overlap += size[--first]!;
-    while (overlap + size[next]! - 1 > maxBytes) overlap -= size[first++]!;
+    let chars = 0;
+    while (first > 0 && overlap + size[first - 1]! + size[next]! - 1 <= maxBytes && (chars < overlapChars || (next - first < overlapLines && overlap + size[first - 1]! <= maxBytes / 4))) {
+      overlap += size[--first]!;
+      chars += lines[first]!.length + 1;
+    }
+    if (first > 0 && chars < overlapChars) return { line: next + 1, why: `${size[next]! - 1} bytes, too long to share the limit with the ${overlapChars} characters before it that a secret's context can span` };
   }
   return parts;
 }
@@ -261,7 +269,7 @@ function run(ctx: PregateContext): CheckResult {
     const unsplit = new Set<string>();
     for (const [i, part] of parts.entries()) for (const [j, reading] of part.texts.entries()) {
       const pieces = scanParts(reading);
-      if (!Array.isArray(pieces)) { unsplit.add(`${part.file ? `${displayPath(part.file)}, ` : ''}${part.keep ? 'line' : 'added line'} ${pieces.line} (${pieces.bytes} bytes)`); continue; }
+      if (!Array.isArray(pieces)) { unsplit.add(`${part.file ? `${displayPath(part.file)}, ` : ''}${part.keep ? 'line' : 'added line'} ${pieces.line} (${pieces.why})`); continue; }
       for (const [k, name] of scratchNames(part).entries()) for (const [m, { first, text }] of pieces.entries()) {
         const file = path.join(tmp, `${i}.${j}.${k}.${m}`, name);
         fs.mkdirSync(path.dirname(file), { mode: 0o700 });
@@ -301,7 +309,7 @@ function run(ctx: PregateContext): CheckResult {
     const scanned = `${parts.length} file${parts.length === 1 ? '' : 's'}${binary ? ` (${binary} binary)` : ''}`;
     const lineCount = parts.reduce((n, p) => n + (p.keep?.length ?? p.texts[0].split('\n').length), 0);
     const fail = (lines: string[], detail: string): CheckResult => ({ ...base, status: 'fail', cause: 'diff', lines: [...lines, ...allowLines], code: 'PREGATE_SECRETS', detail: `${detail}${allowNote}`, fix: 'rotate and remove the credential from the added lines (history included); secrets cannot be downgraded (a benign finding is allowlisted by id, path and pattern in the policy, never env.value)' });
-    if (unsplit.size) return { ...base, status: 'fail', cause: 'diff', lines: [...[...unsplit].map(l => `line over 16 MiB, not scanned: ${l}`), ...[...blocking, ...advisory].map(render), ...allowLines], code: 'PREGATE_SECRETS', detail: `${unsplit.size} added line(s) over gstack-redact's 16 MiB limit; a line cannot be split for scanning, so it never passes${allowNote}`, fix: 'break the line into shorter lines (one record per line) or keep the file out of the branch; the secrets scan reads at most 16 MiB in one line' };
+    if (unsplit.size) return { ...base, status: 'fail', cause: 'diff', lines: [...[...unsplit].map(l => `line not scanned within 16 MiB: ${l}`), ...[...blocking, ...advisory].map(render), ...allowLines], code: 'PREGATE_SECRETS', detail: `${unsplit.size} added line(s) cannot be scanned within gstack-redact's 16 MiB limit; a line is never cut for scanning, so it never passes${allowNote}`, fix: 'break the long lines into shorter ones (one record per line) or keep the file out of the branch; the secrets scan reads each line whole, beside 64K characters of the text before it, in parts of at most 16 MiB' };
     if (!high && !medium) return { ...base, status: 'pass', ...(allowLines.length ? { lines: allowLines } : {}), detail: `${lineCount} added lines clean in ${scanned}${kept.length ? ` (${kept.length} WARN)` : ''}${allowNote}` };
     if (blocking.length) return fail([...blocking, ...advisory].map(render), `${blocking.length} credential finding(s) in added lines (${blocking.map(f => f.id).join(', ')})`);
     if (high) return fail(kept.map(render), 'HIGH finding(s) in added lines');
