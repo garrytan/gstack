@@ -208,7 +208,9 @@ export function buildGate(state: RunState, gateRev: number): GateList {
   const kept: string[] = [];
   const keptIds: string[] = [];
   const narrowed: ChallengeRow[] = [];
-  owner.cutIds = fs.existsSync(state.out) ? cutIds(owner.cuts, previousGate(state.out, gateRev - 1)?.cut_ids, issuedCutIds(state.out)) : cutIds(owner.cuts);
+  const before = fs.existsSync(state.out) ? previousGate(state.out, gateRev - 1) : undefined;
+  const legacyCuts = !!before && !before.cut_ids && before.items.some(i => i.item_class === 'cut' || i.item_class === 'cuts');
+  owner.cutIds = legacyCuts ? [] : before ? cutIds(owner.cuts, before.cut_ids, issuedCutIds(state.out)) : cutIds(owner.cuts);
   const add = ({ idKind, key, stable: _stable, ...item }: NewItem, origin: (options: GateOption[]) => string): string => {
     const id = idKind === 'uc' ? `uc${++uc}` : `d${++d}`;
     items.push({ id, ...item, origin: origin(item.options) });

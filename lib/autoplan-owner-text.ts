@@ -191,12 +191,12 @@ export function cutDrops(cut: string, target: string): boolean {
 }
 
 export interface CutId { id: string; text: string }
-const CODE_NAME = /^`[^`]+`$|^(?:gstack-|--|\/)[a-z][a-z-]*$/;
-const cutWord = (w: string) => w.toLowerCase().replace(/^[^\w`/-]+|[^\w`]+$/g, '');
-/** Two cuts that differ, word for word, only in command names (`share` -> `invite`, gstack-sync -> gstack-push): a renamed command. A hyphenated word, a number or a version is a scope word, never a rename. */
+const CODE_NAME = /^`(?:--|\/)?[a-z][a-z0-9_-]*`$|^(?:gstack-|--|\/)[a-z][a-z-]*$/;
+const cutWord = (w: string) => w.replace(/^[^\w`/-]+|[^\w`]+$/g, '');
+/** Two cuts that differ, word for word, only in command names (`share` -> `invite`, gstack-sync -> gstack-push): a renamed command. A hyphenated word, a number, a version or a capitalized name (`Android`) is a scope word, never a rename. */
 const renamedOnly = (a: string, b: string) => {
   const x = a.trim().split(/\s+/).map(cutWord), y = b.trim().split(/\s+/).map(cutWord);
-  return x.length === y.length && x.every((w, i) => w === y[i] || (CODE_NAME.test(w) && CODE_NAME.test(y[i]!)));
+  return x.length === y.length && x.every((w, i) => w.toLowerCase() === y[i]!.toLowerCase() || (CODE_NAME.test(w) && CODE_NAME.test(y[i]!)));
 };
 
 /**

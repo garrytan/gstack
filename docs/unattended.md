@@ -850,17 +850,21 @@ words, then `APPROVED:`. That line is an open note, as a finding /ship ships
 with after round two is: `gstack-autoplan rule --out <dir> --revision <k> --by
 <ruler> --reason "<why>" [--owner-ref <thread>:<message>]` records a Captain's
 or the owner's ruling on it (`unreviewed_ruled`; gstack cannot rule on its
-own note). A phase that does review the revision (one newly in scope) still
+own note, an agent rules only by relaying one with `--owner-ref`, and a
+ruling stands once recorded). `gstack-autoplan status` shows each such
+change as `unreviewed open` or `unreviewed ruled by <who>`. A phase that does review the revision (one newly in scope) still
 raises its findings at a gate, and a revise that takes anything else (an
 override, an agent's own words, an edit with no `--incorporates`) keeps the
 one cap item above.
 
 Cuts under `### What it won't do yet` carry by a stable id (`c1`, `c2`, ...,
 saved as `cut_ids` on `gate.json`), not by their text: a cut keeps its id when
-its words are unchanged or differ only in command names (a backticked name,
-`gstack-*`, `--flag` or `/command`, so `share` renamed to `invite`). Any other
-change, a hyphenated word, a number or a version included, makes it a new cut
-with a new id, and the owner is asked about it.
+its words are unchanged or differ only in command names (a lowercase
+backticked name, `gstack-*`, `--flag` or `/command`, so `share` renamed to
+`invite`). Any other change, a hyphenated word, a number, a version or a
+capitalized name such as `Android` included, makes it a new cut with a new id,
+and the owner is asked about it. A run whose last gate was written before cut
+ids keeps matching its cuts by their words until it finishes.
 
 Carried rows keep `answered_by: agent:gstack-autoplan` and name their source
 (`carried_gate_from`, `carried_gate_rev`, `carried_answered_by`);

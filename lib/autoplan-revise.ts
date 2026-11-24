@@ -291,6 +291,9 @@ export function ruleUnreviewed(state: RunState, o: RuleOptions): string[] {
   if (!by || isGstackActor(by)) throw new RunError('ANSWER_BY_REQUIRED', 'rule records who ruled: pass --by <the Captain or owner> (gstack cannot rule on its own note)', 3);
   if (!o.reason?.trim()) throw new RunError('ARTIFACT_SCHEMA', 'rule needs --reason "<why the unreviewed revision stands>"', 3);
   if (o.ownerRef !== undefined && !OWNER_REF.test(o.ownerRef)) throw new RunError('ARTIFACT_SCHEMA', `--owner-ref must be ${OWNER_REF_SHAPE}`, 3);
+  if (by.startsWith('agent:') && !o.ownerRef) throw new RunError('ANSWER_BY_REQUIRED', `${by} is an agent: an agent rules only by relaying the Captain's or owner's ruling, with --owner-ref ${OWNER_REF_SHAPE}`, 3);
+  const ruled = ds.find(d => d.ruling)?.ruling;
+  if (ruled) throw new RunError('ARTIFACT_SCHEMA', `revise v${o.revision} is already ruled by ${ruled.by} (${ruled.at}); a ruling stands once recorded`, 3);
   const ruling = { by, reason: o.reason.trim(), ...(o.ownerRef ? { owner_ref: o.ownerRef } : {}), at: now() };
   for (const d of ds) d.ruling = ruling;
   journal(state.out, { event: 'unreviewed_ruled', k: o.revision, phases: ds.map(d => d.phase), ...ruling });

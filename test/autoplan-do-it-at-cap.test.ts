@@ -12,7 +12,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { OWNER_RECS_AT_CAP, ownerTookRecs } from '../lib/autoplan-budget';
 import type { RunState } from '../lib/autoplan-state';
-import { cutIds } from '../lib/autoplan-owner-text';
+import { createHash } from 'node:crypto';
+import { cutIds, wordKey } from '../lib/autoplan-owner-text';
 import { recReopens } from '../lib/autoplan-gate-cost';
 import { recHash } from '../lib/gate-list';
 import { SMALL_PLAN } from './helpers/autoplan-run-fixture';
@@ -94,7 +95,7 @@ describe('two "do it" answers, then the round cap', () => {
   test("a ruling closes the note, as a ruled note closes a /ship finding after round two; gstack can't rule on its own", () => {
     const s = toTheCap();
     expect(r.ap(['revise', '--out', s.out, '--plan', file(s.dir, V3), '--incorporates', pending(s.out)]).status).toBe(0);
-    for (const bad of [['--revision', '1', '--by', 'GStack Minder (GSTA-36)', '--reason', 'x'], ['--revision', '2', '--by', 'gstack', '--reason', 'x'], ['--revision', '2', '--by', 'GStack Minder (GSTA-36)'],
+    for (const bad of [['--revision', '1', '--by', 'GStack Minder (GSTA-36)', '--reason', 'x'], ['--revision', '2', '--by', 'gstack', '--reason', 'x'], ['--revision', '2', '--by', 'agent:lane', '--reason', 'x'], ['--revision', '2', '--by', 'GStack Minder (GSTA-36)'],
       ['--revision', '2', '--by', 'GStack Minder (GSTA-36)', '--reason', 'x', '--owner-ref', 'not a ref']]) {
       const res = r.ap(['rule', '--out', s.out, ...bad]);
       expect(res.status, res.stdout).toBe(3);
@@ -106,6 +107,9 @@ describe('two "do it" answers, then the round cap', () => {
     expect(readRunJson(s.out).capped_deltas.every((d: any) => d.ruling?.by === 'GStack Minder (GSTA-36)')).toBe(true);
     expect(fs.readFileSync(path.join(s.out, 'review-record.md'), 'utf8')).toContain('closed by GStack Minder (GSTA-36)');
     expect(r.ap(['status', '--out', s.out]).stdout).toMatch(/^CAPPED_DELTA: v2 \S+ .* accepted unreviewed ruled by GStack Minder \(GSTA-36\)$/m);
+    const again = r.ap(['rule', '--out', s.out, '--revision', '2', '--by', 'Garry', '--reason', 'second thoughts']);
+    expect(again.status).toBe(3);
+    expect(again.stderr).toContain('already ruled by GStack Minder (GSTA-36)');
     expect(r.validate(s.out).status).toBe(0);
   });
 
@@ -141,6 +145,21 @@ describe('two "do it" answers, then the round cap', () => {
     expect(reopen.stdout).toMatch(/^ROUND_GRANTED: ceo cap=3 /m);
     expect(reopen.stdout).toMatch(/^ROUND_GRANTED: eng cap=3 \(reruns after ceo; /m);
     expect(readRunJson(s.out).capped_deltas.filter((d: any) => d.k === 2).map((d: any) => d.status)).toEqual(['reopened', 'reopened']);
+  });
+
+  test('a gate written before this change, with one delta item per phase, still settles each phase on its own', () => {
+    const s = toTheCap({ round2: { native: [{ id: 'N2', severity: 'High', title: 'Dead-letter jobs after the last retry', user_challenge: true, changes: 'scope', fix: 'dead-letter after 8 attempts' }], outside: [] }, gate2: 'd1b p1b', words2: 'd1b p1b' });
+    expect(r.ap(['revise', '--out', s.out, '--plan', file(s.dir, V3), '--incorporates', pending(s.out)]).stdout).toMatch(/^GATE: gate_rev=3 /m);
+    const g = gateOf(s.out);
+    const one = g.items.find((i: any) => i.cap?.kind === 'delta');
+    const { phases: _phases, ...cap } = one.cap;
+    const id2 = `uc${g.items.filter((i: any) => i.id.startsWith('uc')).length + 1}`;
+    g.items.splice(g.items.indexOf(one), 1, { ...one, cap: { ...cap, phase: 'ceo' } }, { ...one, id: id2, origin: `${one.origin}|eng`, cap: { ...cap, phase: 'eng' } });
+    fs.writeFileSync(path.join(s.out, 'gate.json'), JSON.stringify(g, null, 2));
+    const res = r.ap(['answer', '--out', s.out, '--gate-rev', '3', '--reply', `${one.id}b ${id2}a p1a`, '--by', 'human']);
+    expect(res.status, res.stderr).toBe(0);
+    expect(res.stdout).toMatch(/^ROUND_GRANTED: ceo cap=3 /m);
+    expect(readRunJson(s.out).capped_deltas.filter((d: any) => d.k === 2).map((d: any) => [d.phase, d.status])).toEqual([['ceo', 'reopened'], ['eng', 'accepted']]);
   });
 
   test('a phase that does review the revision still raises its new finding at a gate', () => {
@@ -185,6 +204,8 @@ describe('carried items match by stable id', () => {
       expect(cutIds([b], cutIds([a]))[0]!.id).toBe('c2');
     }
     expect(cutIds(['Skip the --dry-run flag'], cutIds(['Skip the --preview flag']))[0]!.id).toBe('c1');
+    expect(cutIds(['No `iOS` build'], cutIds(['No `Android` build']))[0]!.id).toBe('c2');
+    expect(cutIds(['No `/push` command'], cutIds(['No `/sync` command']))[0]!.id).toBe('c1');
   });
 
   test('the cost line for granting rounds counts every phase the one cap item reopens', () => {
@@ -213,5 +234,31 @@ describe('carried items match by stable id', () => {
     expect(gate.cut_ids.find((c: any) => c.text.includes('invite')).id).toBe('c1');
     expect(eng.stdout).not.toMatch(/^CARRY: no \(new item/m);
     expect(eng.stdout).toMatch(/^CARRIED: gate_rev=2 <- gate_rev=1 /m);
+  });
+
+  test('a run whose last gate predates cut ids keeps matching its cuts by their words, so its answers still carry', () => {
+    const dir = path.join(r.host.base, `cuts${++n}`);
+    const out = path.join(dir, 'run');
+    expect(r.ap(['next', '--out', out, '--plan', writePlan(dir, plan('share')), '--no-ui', '--no-dx']).status).toBe(0);
+    phaseVia(r, out, 'ceo', FLAG);
+    expect(phaseVia(r, out, 'eng', NONE).outside.stdout).toMatch(/^GATE: gate_rev=1 /m);
+    const g = gateOf(out);
+    delete g.cut_ids;
+    const legacy = new Map<string, string>();
+    for (const i of g.items.filter((i: any) => i.item_class === 'cut')) {
+      legacy.set(i.origin, `${i.origin.replace(/\|cut:c\d+\|/, `|cut:${wordKey(i.title.slice('Cut: '.length)).trim()}|`)}|${createHash('sha256').update(i.title).digest('hex').slice(0, 16)}`);
+      i.origin = legacy.get(i.origin);
+    }
+    fs.writeFileSync(path.join(out, 'gate.json'), JSON.stringify(g, null, 2));
+    const rows = readJsonl(path.join(out, 'decisions.jsonl'));
+    fs.writeFileSync(path.join(out, 'decisions.jsonl'), rows.map((d: any) => JSON.stringify(legacy.has(d.origin) ? { ...d, origin: legacy.get(d.origin) } : d)).join('\n') + '\n');
+    expect(answer(out, 1, 'rec', DO_IT).status).toBe(0);
+    expect(r.ap(['revise', '--out', out, '--plan', file(dir, plan('share', ', behind RETRY_BACKOFF=1')), '--incorporates', pending(out)]).stdout).toMatch(/^REVISED: plan=\S+ reopened=ceo,eng$/m);
+    phaseVia(r, out, 'ceo', NONE);
+    const eng = phaseVia(r, out, 'eng', NONE).outside;
+    const gate = gateOf(out);
+        expect(gate.cut_ids).toBeUndefined();
+    expect(gate.items.filter((i: any) => i.item_class === 'cut').every((i: any) => i.carried?.chosen === 'a')).toBe(true);
+    expect(eng.stdout).not.toMatch(/^CARRY: no \(new item/m);
   });
 });
