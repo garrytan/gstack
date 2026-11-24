@@ -3351,8 +3351,11 @@ exact tokens it finds in these positions:
   session id (#4725). A phone number in another field of the same line, a
   `run` of any other shape, a session id under another key, a spaced or
   reordered line, and a block inside another fence or left open still
-  report. Only `pii.phone.e164` is skipped there: a session id that also
-  reads as a card number still asks;
+  report. About 1 in 10 session ids also passes the card-number checksum, so
+  this `run` value and the receipt's session-id `run` above also skip
+  `pii.cc`, but only when the whole card-shaped digit run lies inside the
+  value; a card number in another field, or as a `run` of any other shape,
+  still asks;
 - on a line outside any fenced code block that opens with `SHIP_RECEIPT:`,
   `CI_CARRY:`, `PREGATE:` or `READY_RECEIPT:` (bare, after `- `, `* ` or
   `> `, or after a backtick), the

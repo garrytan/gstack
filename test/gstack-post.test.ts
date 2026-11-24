@@ -460,6 +460,42 @@ describe("gstack-post owns the redaction scan", () => {
     }
   });
 
+  // Value: protects=a /ship session id that also reads as a Luhn-valid card number (about 1 in 10) posts without a pii.cc confirmation when it is
+  //   the run of a runs-block line or of the ship receipt (gstack#4725, gstack#4480), while a card number in another field of the same line, a card
+  //   number as the run, and the same id in prose or in a json block still need one; fails_when=about one /ship body in ten still gets a false
+  //   MEDIUM hold, or the card exemption reaches past the exact run value; why_new=the runs-block and #4480 tests cover pii.phone.e164 only;
+  //   seam=fake gh; no_claim=real gh
+  test("a session id that reads as a card number is skipped only as the run of a runs line or the receipt", () => {
+    const HEAD_A = "abc123abc123abc123abc123abc123abc123abcd";
+    const CARD_RUN = "4242405-1795338725-c32255b8";
+    const DIGIT_RUN = "99999-1795338725-12345678";
+    const post = (args: string[], text: string) => {
+      const f = fakeEnv({ files: { "/b": text }, visibility: "public" });
+      return { code: run([...args, "--body-file", "/b"], f), cards: () => f.stdout().split("\n").filter(l => l.startsWith("RULE: pii.cc ")), f };
+    };
+    const runsBlock = (...lines: string[]) => `Body.\n\n\`\`\`gstack-receipt-runs\n${lines.join("\n")}\n\`\`\`\n`;
+    const receiptBody = (runId: string) => placeReceipt("## What changed\n\nOne fix.\n", orderReceipt({ schema_version: 1, pr: 4725, head: HEAD_A, base: "main", version: "1.0.0.0", run: runId }));
+
+    for (const text of [runsBlock(JSON.stringify({ head: HEAD_A, run: CARD_RUN }), JSON.stringify({ head: HEAD_A, run: DIGIT_RUN, mark: "stop" })), receiptBody(CARD_RUN), receiptBody(DIGIT_RUN)]) {
+      const p = post(["pr-body", "4725", "--replace"], text);
+      expect([p.cards(), p.code, p.f.posts().length]).toEqual([[], EXIT.posted, 1]);
+    }
+
+    const holds: Array<[string, string, string]> = [
+      ["a card number in reason on a line with a valid run", runsBlock(JSON.stringify({ head: HEAD_A, run: CARD_RUN, mark: "abandoned", by: "ops", reason: "card 4111111111111111" })), "card 4111111111111111"],
+      ["a card number as a runs line's run", runsBlock(JSON.stringify({ head: HEAD_A, run: "4111111111111111" })), '"4111111111111111"'],
+      ["a spaced card number as a runs line's run", runsBlock(JSON.stringify({ head: HEAD_A, run: "4111 1111 1111 1111" })), '"4111 1111'],
+      ["a card number as the receipt's run", receiptBody("4111111111111111"), '"run": "4111111111111111"'],
+      ["the session id in prose after the block", runsBlock(JSON.stringify({ head: HEAD_A, run: DIGIT_RUN })) + `\nRun ${CARD_RUN} failed.\n`, `Run ${CARD_RUN}`],
+      ["the session id in a json block", `Body.\n\n\`\`\`json\n${JSON.stringify({ head: HEAD_A, run: CARD_RUN })}\n\`\`\`\n`, CARD_RUN],
+    ];
+    for (const [name, text, needle] of holds) {
+      const p = post(["pr-comment", "1"], text);
+      const line = text.split("\n").findIndex(l => l.includes(needle)) + 1;
+      expect([name, [...new Set(p.cards())], p.code, p.f.posts()]).toEqual([name, [`RULE: pii.cc LINE: ${line} PART: body`], EXIT.confirm, []]);
+    }
+  });
+
   // Value: protects=a private PR's Approvals table (renderRecord, full mode) posts through pr-body without a pii.phone.e164 confirmation when a
   //   fix-check grant row's Covers cell names a run id like 507-7192673 (GST-3246, trail-read row 8), while the same digits in that row's
   //   Asked or Exact words cell, in prose, or in a table no Source footer closes still need one; fails_when=every private /ship body with such a
