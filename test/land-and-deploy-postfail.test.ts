@@ -60,7 +60,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
   test("Authoritative state query includes auto request and queue membership", () => {
     const body = readTmpl();
     expect(body).toMatch(/gh api graphql/);
-    expect(body).toContain('autoMergeRequest { enabledAt } mergeQueueEntry { id state }');
+    expect(body).toContain('autoMergeRequest { enabledAt } mergeQueueEntry { id state } isMergeQueueEnabled');
   });
 
   test("All three state branches named: MERGED, OPEN, CLOSED", () => {
@@ -128,12 +128,12 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/state == "CLOSED"[\s\S]{0,200}\bstop\b/i);
   });
 
-  test("Hard rule: no replay after MERGED and only one guarded direct fallback", () => {
+  test("Hard rule: no replay after MERGED and exactly one direct attempt (#4770)", () => {
     const body = readTmpl().replace(/\s+/g, " ");
     expect(body).toMatch(/never replay a merge after MERGED/i);
-    expect(body).toMatch(/one direct fallback/i);
-    expectMentions(body, [['no', 'fallback', 'attempt']], 'body');
-    expect(body).toMatch(/confirmed OPEN, no auto request and no queue entry/i);
+    expect(body).toMatch(/only START makes the one attempt/i);
+    expect(body).toMatch(/never arm auto-merge or join a queue/i);
+    expectMentions(body, [['no', 'retry', 'fallback']], 'body');
   });
 
   test("Generated merge-and-deploy.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {

@@ -16,14 +16,14 @@ describe('land-and-deploy decision ordering', () => {
     expect(main).toContain('headRefOid');
     expect(main).toContain('LOCAL_TARGET_MISMATCH');
     expect(main.indexOf('gstack-diff-scope')).toBeLessThan(main.indexOf('{{SECTION:readiness-gate}}'));
-    expect(merge.match(/--match-head-commit "\$PR_HEAD"/g)).toHaveLength(2);
+    expect(merge.match(/--match-head-commit "\$PR_HEAD"/g)).toHaveLength(1);
     expect(merge).toContain('invalidate the approval');
   });
 
-  test('readback precedes the only direct fallback and includes queue membership', () => {
+  test('readback precedes the one direct merge and includes queue membership', () => {
     const merge = source('sections/merge-and-deploy.md.tmpl');
     expect(merge).toContain('mergeQueueEntry { id state }');
-    expect(merge.indexOf('gh api graphql')).toBeLessThan(merge.indexOf('gh pr merge "$MERGE_FLAG" --delete-branch'));
+    expect(merge.indexOf('gh api graphql')).toBeLessThan(merge.indexOf('gh pr merge "$MERGE_FLAG" ${DELETE_FLAG:+"$DELETE_FLAG"}'));
     expect(merge).not.toContain('Both fall through');
     expect(merge).not.toContain('never call `gh pr merge` a second time');
     expect(merge).toMatch(/never\s+replay a merge after MERGED/);
@@ -73,7 +73,7 @@ describe('land-and-deploy native readback dispatcher', () => {
   const head = 'a'.repeat(40);
   const pr = (extra = {}) => ({
     state: 'OPEN', headRefOid: head, baseRefName: 'main', mergeCommit: null,
-    autoMergeRequest: null, mergeQueueEntry: null, ...extra,
+    autoMergeRequest: null, mergeQueueEntry: null, isMergeQueueEnabled: false, ...extra,
   });
   const dispatch = (pullRequest: unknown, env: Record<string, string> = {}, errors?: unknown[]) => {
     expect(shell).toBeDefined();
@@ -98,37 +98,41 @@ describe('land-and-deploy native readback dispatcher', () => {
   });
 
   for (const error of [
-    'Auto-merge is not allowed for this repository',
+    'Pull request is not mergeable: the base branch policy prohibits the merge.',
     'Pull request is in clean status',
-    'Pull request is in unstable status',
+    '',
   ]) {
-    test(`only an unsuccessful auto attempt permits direct fallback: ${error}`, () => {
-      const env = { MERGE_ATTEMPT: 'auto', MERGE_EXIT: '1', MERGE_ERROR: error };
-      expect(dispatch(pr(), env).stdout.trim()).toBe('DIRECT');
-      expect(dispatch(pr(), { ...env, MERGE_ATTEMPT: 'direct' }).stdout.trim()).toBe('STOP');
-      expect(dispatch(pr(), { ...env, MERGE_EXIT: '0' }).stdout.trim()).toBe('STOP');
+    test(`an open PR after the one direct attempt is reported, never retried: ${error || 'exit 0'}`, () => {
+      for (const exit of ['0', '1']) {
+        expect(dispatch(pr(), { MERGE_ATTEMPT: 'direct', MERGE_EXIT: exit, MERGE_ERROR: error }).stdout.trim()).toBe('STOP');
+      }
     });
   }
 
+  test('a merge-queue base is reported before any attempt, never queued', () => {
+    expect(dispatch(pr({ isMergeQueueEnabled: true })).stdout.trim()).toBe('QUEUE_REQUIRED');
+    expect(dispatch(pr({ isMergeQueueEnabled: true }), { MERGE_ATTEMPT: 'direct', MERGE_EXIT: '1' }).stdout.trim()).toBe('STOP');
+  });
+
   test('merged wins over the original cleanup error, without replay', () => {
     const result = dispatch(pr({ state: 'MERGED', mergeCommit: { oid: 'b'.repeat(40) } }), {
-      MERGE_ATTEMPT: 'auto', MERGE_EXIT: '1', MERGE_ERROR: 'Pull request is in clean status',
+      MERGE_ATTEMPT: 'direct', MERGE_EXIT: '1', MERGE_ERROR: 'Pull request is in clean status',
     });
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe('MERGED');
   });
 
-  test('either auto request or queue entry waits even when auto request is null', () => {
+  test("someone else's auto request or queue entry waits even when auto request is null", () => {
     for (const active of [
       { autoMergeRequest: { enabledAt: '2026-09-24T00:00:00Z' } },
       { mergeQueueEntry: { id: 'queue-entry', state: 'QUEUED' } },
     ]) {
-      expect(dispatch(pr(active), { MERGE_ATTEMPT: 'auto', MERGE_EXIT: '1', MERGE_ERROR: 'Pull request is in clean status' }).stdout.trim()).toBe('WAIT');
+      for (const attempt of ['none', 'direct']) expect(dispatch(pr(active), { MERGE_ATTEMPT: attempt, MERGE_EXIT: '1', MERGE_ERROR: 'Pull request is in clean status' }).stdout.trim()).toBe('WAIT');
     }
   });
 
   test('removal after waiting never falls back or restarts the merge', () => {
-    for (const attempt of ['none', 'auto', 'direct']) {
+    for (const attempt of ['none', 'direct']) {
       expect(dispatch(pr(), { WAITED: 'true', MERGE_ATTEMPT: attempt, MERGE_EXIT: '1', MERGE_ERROR: 'Pull request is in clean status' }).stdout.trim()).toBe('STOP');
     }
   });
@@ -148,15 +152,17 @@ describe('land-and-deploy native readback dispatcher', () => {
   });
 
   test('permission failures and closed PRs stop rather than taking direct fallback', () => {
-    expect(dispatch(pr(), { MERGE_ATTEMPT: 'auto', MERGE_EXIT: '1', MERGE_ERROR: 'permission denied' }).stdout.trim()).toBe('STOP');
+    expect(dispatch(pr(), { MERGE_ATTEMPT: 'direct', MERGE_EXIT: '1', MERGE_ERROR: 'permission denied' }).stdout.trim()).toBe('STOP');
     expect(dispatch(pr({ state: 'CLOSED' })).stdout.trim()).toBe('STOP');
   });
 
   test('missing queue fields, GraphQL errors and failed queries are unknown, not absence', () => {
     const missingQueue = pr();
     delete (missingQueue as Partial<typeof missingQueue>).mergeQueueEntry;
+    const missingQueueSetting = pr();
+    delete (missingQueueSetting as Partial<typeof missingQueueSetting>).isMergeQueueEnabled;
     for (const result of [
-      dispatch(missingQueue), dispatch(null), dispatch(pr(), {}, [{ message: 'unsupported field' }]),
+      dispatch(missingQueue), dispatch(missingQueueSetting), dispatch(null), dispatch(pr(), {}, [{ message: 'unsupported field' }]),
       dispatch(pr(), { READBACK_EXIT: '1' }), dispatch(pr(), { READBACK_FIXTURE: 'not JSON' }),
     ]) {
       expect(result.status).not.toBe(0);
