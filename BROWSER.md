@@ -2,7 +2,7 @@
 
 gstack's browser surface in one document. Every skill that opens a web page —
 `/browse`, `/qa`, `/qa-only`, `/design-review`, `/canary`, `/benchmark`,
-`/scrape`, `/devex-review`, and the third-party web actions inside `/ship`,
+`/scrape`, `/devex-review`, and the third-party web actions inside `/gstack-ship`,
 `/spec`, `/land-and-deploy`, `/setup-deploy`, and `/office-hours` — drives the
 [Aside](https://aside.com) AI browser first (macOS 15+). It is your real
 browser: real cookies, real logged-in accounts, your actual tabs. The agent
@@ -102,7 +102,7 @@ through CDP before `goto`, as the cookbook does), and no `file://` navigation.
 | `/benchmark` | Navigation and resource timings read from the page's own `performance` entries on a real load. |
 | `/scrape` | Prototype the extraction with `aside repl`, hand back the table, list, or prices as structured data. Read-only. |
 | `/devex-review` | Walk the real onboarding flow and time it, carrying the cookbook inline. |
-| `/ship`, `/spec`, `/land-and-deploy`, `/setup-deploy`, `/office-hours` | Third-party web actions (vendor dashboards, API keys, webhooks) offered as an Aside drive across your real sessions, with the one-question consent gate for anything mutating. |
+| `/gstack-ship`, `/spec`, `/land-and-deploy`, `/setup-deploy`, `/office-hours` | Third-party web actions (vendor dashboards, API keys, webhooks) offered as an Aside drive across your real sessions, with the one-question consent gate for anything mutating. |
 | `/plan-ceo-review`, `/plan-eng-review`, `/plan-devex-review`, `/design-consultation`, `/review`, `/cso`, `/office-hours` | Web research runs through `aside exec` in your real browser (`{{ASIDE_RESEARCH}}`), one read-only request per question, answers treated as untrusted content. No Aside → the same queries go to the host's WebSearch tool; no WebSearch either → "Search unavailable" once and the skill proceeds on in-distribution knowledge. |
 
 ### Local-HTML rendering
@@ -936,7 +936,7 @@ of killing it. `browse profiles` lists the profiles; `browse profiles prune
 ### Aside and third-party drives (v1.72.0.0+)
 
 For third-party website moments (registering an API key, configuring a vendor
-dashboard), the workflow skills (`/ship`, `/spec`, `/office-hours`,
+dashboard), the workflow skills (`/gstack-ship`, `/spec`, `/office-hours`,
 `/land-and-deploy`, `/setup-deploy`) recommend the Aside AI browser when it's
 installed — it acts across your real logged-in sessions — with `$B` headed
 mode + handoff as the universal fallback. Consent is per-task and explicit;
@@ -1885,7 +1885,7 @@ skillify/SKILL.md.tmpl           # /skillify gstack skill — codify last /scrap
 ## QA surfaces and setup
 
 QA uses this browser path only for selected browser surfaces. `/qa-only`, `/review`
-and `/ship` discovery never install the fallback browser or invoke cookie import;
+and `/gstack-ship` discovery never install the fallback browser or invoke cookie import;
 unavailable browser access blocks the affected probes. Standalone `/qa` may run
 setup or cookie import only after explicit approval.
 
