@@ -257,6 +257,7 @@ export function dropOwnerFields(value: unknown): { value: unknown; dropped: numb
     if ('owner_words' in o && 'gate_rev' in o) { delete o.owner_words; dropped++; }
     if ('verdict' in o && typeof o.words === 'string') { delete o.words; dropped++; }
     if (o.by === 'human' && typeof o.reason === 'string' && 'cause' in o) { o.reason = OWNER_WORDS_MARK; dropped++; }
+    if (o.ruling && typeof o.ruling === 'object' && 'reason' in o.ruling) { const { reason: _reason, ...rest } = o.ruling as Record<string, unknown>; o.ruling = rest; dropped++; }
     return Object.fromEntries(Object.entries(o).map(([k, x]) => [k, walk(x)]));
   };
   return { value: walk(value), dropped };

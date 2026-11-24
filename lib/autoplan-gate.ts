@@ -124,7 +124,7 @@ export function closeDeferred(state: RunState, phase: Phase, o: { reason: string
   return { lines, blockers };
 }
 
-/** The round-cap items: one per deferred phase, one per deferred blocker, one per capped plan delta. */
+/** The round-cap items: one per deferred phase, one per deferred blocker, one per revise that changed the plan after capped phases (not one per phase). */
 function capItems(state: RunState, next: { d: () => string; uc: () => string }): GateItem[] {
   const items: GateItem[] = [];
   const push = (item: GateItem, ids: string) => items.push({ ...item, origin: ['cap', ids, optionHash(item.options)].join('|') });
@@ -147,11 +147,16 @@ function capItems(state: RunState, next: { d: () => string; uc: () => string }):
         options: [{ key: 'a', text: 'carry it into the build as a blocking task (you accept the risk)', changes_plan: false }, reopen(phase)] }, id);
     }
   }
-  for (const delta of pendingDeltas(state)) {
-    push({ id: next.uc(), title: `plan changed after ${delta.phase} cap: unreviewed delta (+${delta.added} -${delta.removed} lines, ${delta.old_plan_sha256.slice(0, 12)} -> ${delta.new_plan_sha256.slice(0, 12)})`,
-      kind: 'approval', recommended: 'a', recommended_basis: 'the run budget; the delta is reviewed during the build', phase: delta.phase, cap: { phase: delta.phase, kind: 'delta', ref: String(delta.k) }, item_class: 'cap_delta',
-      why: `revise v${delta.k} changed the plan after ${delta.phase} used round ${delta.round} of ${delta.cap}, so ${delta.phase} never reviewed it`,
-      options: [{ key: 'a', text: 'accept the unreviewed delta into the approved plan', changes_plan: false }, reopen(delta.phase)] }, `delta-${delta.k}`);
+  const byRevise = new Map<number, ReturnType<typeof pendingDeltas>>();
+  for (const d of pendingDeltas(state)) byRevise.set(d.k, [...(byRevise.get(d.k) ?? []), d]);
+  for (const [k, deltas] of byRevise) {
+    const delta = deltas[0]!;
+    const phases = deltas.map(d => d.phase).join(' and ');
+    push({ id: next.uc(), title: `plan changed after the ${phases} cap: unreviewed delta (+${delta.added} -${delta.removed} lines, ${delta.old_plan_sha256.slice(0, 12)} -> ${delta.new_plan_sha256.slice(0, 12)})`,
+      kind: 'approval', recommended: 'a', recommended_basis: 'the run budget; the delta is reviewed during the build', phase: delta.phase, cap: { phase: delta.phase, kind: 'delta', ref: String(k), phases: deltas.map(d => d.phase) }, item_class: 'cap_delta',
+      why: `revise v${k} changed the plan after ${deltas.map(d => `${d.phase} used round ${d.round} of ${d.cap}`).join(' and ')}, so no phase reviewed it`,
+      options: [{ key: 'a', text: 'accept the unreviewed delta into the approved plan', changes_plan: false },
+        { key: 'b', text: `reopen ${phases} for one more round (an owner budget raise${deltas.every(d => d.phase === 'eng') ? '' : '; Eng reruns last'})`, changes_plan: false }] }, `delta-${k}`);
   }
   return items;
 }
