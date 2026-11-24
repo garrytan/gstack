@@ -290,15 +290,16 @@ function run(ctx: PregateContext): CheckResult {
       }
     }
     // The allowlist applies only to findings the scanner reported in full; an unparsed report keeps its exit-code verdict.
-    const applied = parsedAll && ctx.config.allowlist.length ? applyAllowlist(findings, ctx.config.allowlist) : { kept: findings, allowlisted: [], untested: [], missed: [] };
-    // Readings of one binary file that keep a line unchanged report its token again: list each finding once.
+    // Readings of one binary file that keep a line unchanged, and the lines a part repeats from the part before it, report a token again: list each finding once.
     const reported = new Set<string>();
-    const kept = applied.kept.filter(f => {
+    const unique = findings.filter(f => {
       const key = JSON.stringify([f.file, f.id, f.line, f.col, f.lineText]);
       if (reported.has(key)) return false;
       reported.add(key);
       return true;
     });
+    const applied = parsedAll && ctx.config.allowlist.length ? applyAllowlist(unique, ctx.config.allowlist) : { kept: unique, allowlisted: [], untested: [], missed: [] };
+    const kept = applied.kept;
     if (parsedAll) { high = kept.some(f => f.severity === 'HIGH'); medium = kept.some(f => f.severity === 'MEDIUM'); }
     const render = (f: Scanned) => `${f.severity} ${f.id} [${f.category}]: ${f.description ?? ''}${f.line ? ` (${f.file ? `${displayPath(f.file)}, ` : ''}${f.fileLine ? 'line' : 'added line'} ${f.line})` : ''}`;
     const allowLines = [...applied.allowlisted.map(describeAllowlisted), ...applied.untested.map(describeUntested), ...applied.missed.map(describeMissed)];

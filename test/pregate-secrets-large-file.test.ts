@@ -11,6 +11,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { scanParts } from '../lib/pregate/checks/secrets';
 import { scan } from '../lib/redact-engine';
+import { secretsCheck } from '../lib/pregate/checks/secrets';
+import type { PregateContext } from '../lib/pregate/types';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const PREGATE = path.join(ROOT, 'bin', 'gstack-pregate');
@@ -185,6 +187,17 @@ describe('pregate secrets on an added file over 16 MiB (GST-3665)', () => {
     const r = repo({ 'results/trials.jsonl': text }).secrets({ FIXTURE_LONG_TOKEN: value });
     expect(r.status).toBe('fail');
     expect(r.lines.filter(l => l.includes('env.value')).map(l => findingLines([l])[0])).toEqual([16_301]);
+  }, 300_000);
+
+  // Value: protects=a finding in the lines two parts share is allowlisted and reported once; fails_when=duplicates from the repeat reach the allowlist, so its note counts one finding twice; why_new=GST-3665 review (testing specialist); seam=secretsCheck.run in process with a policy allowlist; no_claim=allowlist matching itself (pregate-allowlist.test.ts)
+  test('an allowlisted finding in the lines two parts share is counted once', async () => {
+    const key = ['sk', 'trial', '1f2e3d4c-5b6a-7f8e-9d0c-1b2a3f4e5d6c'].join('-');
+    const f = repo({ 'evals/trials.jsonl': rows(20_480, { 16_300: `  "key": "${key}",` }) });
+    const scratch = path.join(f.root, 'scratch');
+    fs.mkdirSync(scratch);
+    const allowlist = [{ finding: 'env.kv', paths: ['evals/**'], pattern: 'sk-trial-[0-9a-f-]+', reason: 'dummy per-trial meter ids' }];
+    const check = await secretsCheck.run({ repoRoot: f.dir, mergeBase: f.mergeBase, wtree: 'w', head: 'h', baseRef: 'origin/main', baseSha: f.mergeBase, touched: [], config: { allowlist }, scratch, timeoutMs: 120_000, env: f.env } as unknown as PregateContext);
+    expect({ status: check.status, detail: check.detail }).toEqual({ status: 'pass', detail: '20480 added lines clean in 1 file; 1 allowlisted (env.kv)' });
   }, 300_000);
 
   // Value: protects=a line too long to split keeps failing closed and says why; fails_when=the over-limit line is skipped, cut mid-line or scanned as a pass; why_new=GST-3665; seam=gstack-pregate end to end; no_claim=none
