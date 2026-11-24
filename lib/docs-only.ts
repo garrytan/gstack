@@ -50,6 +50,7 @@ export const DOCS_READER_TESTS: readonly { tree: RegExp; tests: readonly string[
 /** Repo-wide listers that never read an allowlisted doc, with the reason. */
 export const DOCS_READER_EXEMPT: Readonly<Record<string, string>> = {
   'test/bash32-case-in-substitution.test.ts': 'skips .md files',
+  'test/aside-artifacts.test.ts': 'lists generated SKILL.md and sections only',
   'test/branch-slug-hygiene.test.ts': 'lists SKILL.md and sections only',
   'test/cso-cli.test.ts': 'lists a fixture repository',
   'test/free-fixtures.test.ts': 'reads test/fixtures only',

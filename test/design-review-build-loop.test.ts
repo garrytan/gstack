@@ -67,7 +67,7 @@ describe('the build-loop section (T7, T8, T17, T18, T29, T37)', () => {
       expect(b).not.toMatch(/\$(_DB|RUN|SLUG|GSTACK_STATE_ROOT)\b/);
       expect(b).toContain('{{BIN_DIR}}/gstack-design-build');
     }
-    expect(SECTION).toContain("Save it where the driver can write (Aside's\n   session directory; /tmp for $B), then cp it to the `SHOT:` path.");
+    expect(SECTION).toContain("Aside: `gstack-aside-repl --out` the\n   `SHOT:` path's folder (rule 8); $B: /tmp, then cp it to the `SHOT:` path.");
   });
 
   test('the seven items are single-sourced in this section', () => {

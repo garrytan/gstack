@@ -212,14 +212,14 @@ Every \`aside repl\` script in this skill maps onto \`$B\` commands. State persi
 | \`pg.fill(sel, text)\` | \`$B fill @eN "text"\` |
 | \`DIFF_START\`/\`DIFF_END\` (\`s.diff\`) | \`$B snapshot -D\` |
 | \`CONSOLE_ERRORS=\` (the console hook) | \`$B console --errors\` |
-| \`pg.screenshot({ path })\` + the \`ASIDE_DIR\` copy | \`$B screenshot <path>\` (already on disk) |
+| \`pg.screenshot()\` + \`saveArtifact\` | \`$B screenshot <path>\` (already on disk) |
 | \`annotatedScreenshot(pg)\` | \`$B snapshot -i -a -o <path>\` |
 | the responsive loop (\`Emulation.setDeviceMetricsOverride\`) | \`$B responsive <prefix>\` |
 | the links script (\`LINK <status> <url>\`) | \`$B links\` (\`text → href\`, no status); for statuses run the HEAD-fetch loop via \`$B js\` |
 | \`document.body.innerText\` (\`TEXT_START\`/\`TEXT_END\`) | \`$B text\` |
 | \`NAV=\` / \`RESOURCES=\` | \`$B perf\` (+ \`$B js "<expr>"\` for resources) |
 | \`pg.evaluate(() => ...)\` | \`$B js "<expr>"\` (\`$B eval <file>\` for multi-line) |
-| \`pg.pdf({ path })\` | \`$B pdf <out> [flags]\` |
+| \`pg.pdf()\` + \`saveArtifact\` | \`$B pdf <out> [flags]\` |
 | \`closeTab(pg)\` | nothing (daemon tabs persist); \`$B closetab\` when done |
 
 Label \`$B\` output with the same evidence lines (\`URL=\`, \`CONSOLE_ERRORS=\`, \`DIFF_START\`/\`DIFF_END\`) so the report reads the same.

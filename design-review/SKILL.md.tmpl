@@ -218,7 +218,7 @@ git commit -m "style(design): FINDING-NNN — short description"
 
 ### 8d. Re-test
 
-Re-run the Phase 3 read script on the affected page, one script per finding, saving `await pg.screenshot({ path: "finding-NNN-after.png", type: "png", fullPage: true })` in place of the annotated screenshot. Then `cp "<ASIDE_DIR>/finding-NNN-after.png" "$REPORT_DIR/screenshots/"` and Read it next to the before shot. `CONSOLE_ERRORS=` must be `[]` (or no worse than the baseline) — a new error is a regression.
+Re-run the Phase 3 read script on the affected page, one script per finding, saving `saveArtifact("finding-NNN-after.png", await pg.screenshot({ type: "png", fullPage: true }))` in place of the annotated screenshot. Read its `SAVED=` file next to the before shot. `CONSOLE_ERRORS=` must be `[]` (or no worse than the baseline) — a new error is a regression.
 
 Take **before/after screenshot pair** for every fix.
 

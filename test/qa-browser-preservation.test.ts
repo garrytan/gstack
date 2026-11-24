@@ -95,7 +95,7 @@ describe('compact QA bootstrap preserves native detection', () => {
 });
 
 async function runRecipe(marker: string, options: { flow?: boolean; hostname?: string; response?: string } = {}) {
-  const scripts = [...method.matchAll(/aside repl '([\s\S]*?)'\n```/g)].map(match => match[1]);
+  const scripts = [...method.matchAll(/(?:aside repl|gstack-aside-repl --out \S+) '([\s\S]*?)'\n```/g)].map(match => match[1]);
   const matches = scripts.filter(script => script.includes(marker));
   expect(matches).toHaveLength(1);
   let script = matches[0];
@@ -123,13 +123,13 @@ async function runRecipe(marker: string, options: { flow?: boolean; hostname?: s
       listeners.get('error')?.({ message: 'uncaught failure' });
       listeners.get('unhandledrejection')?.({ reason: { message: 'promise failure' } });
     },
-    screenshot: async (value: any) => events.push({ name: 'screenshot', value }),
+    screenshot: async (value: any) => { events.push({ name: 'screenshot', value }); return Buffer.from('shot'); },
     locator: (ref: string) => ({ click: async () => events.push({ name: 'click', value: ref }) }),
     evaluate: async (fn: Function) => new Function('window', 'document', 'location', `return (${fn.toString()})();`)(window, document, { origin, hostname }),
     url: () => origin,
   };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  await new AsyncFunction('openTab', 'closeTab', 'snapshot', 'console', 'sleep', 'pwd', 'fetch', 'annotatedScreenshot', 'fs', 'path', 'Buffer', script)(
+  await new AsyncFunction('openTab', 'closeTab', 'snapshot', 'console', 'sleep', 'pwd', 'fetch', 'annotatedScreenshot', 'fs', 'path', 'Buffer', 'saveArtifact', script)(
     async (url: string) => { events.push({ name: 'open', value: url }); return pg; },
     async (page: unknown) => { expect(page).toBe(pg); events.push({ name: 'close' }); },
     async (_page: unknown, value: unknown) => { events.push({ name: 'snapshot', value }); return { tree: '[ref=e12] Save', diff: 'Saved' }; },
@@ -140,6 +140,7 @@ async function runRecipe(marker: string, options: { flow?: boolean; hostname?: s
     async () => ({ base64Image: Buffer.from('image').toString('base64') }),
     { writeFile: async (file: string, bytes: Buffer) => events.push({ name: 'writeFile', value: { file, bytes: bytes.toString() } }) },
     path.posix, Buffer,
+    (name: string, data: Buffer | string) => events.push({ name: 'saveArtifact', value: { name, bytes: data.toString() } }),
   );
   expect(events[0].name).toBe('open');
   expect(events.at(-1)?.name).toBe('close');
@@ -245,7 +246,7 @@ describe('compact QA browser recipes retain native operations', () => {
     expectTokens(verify, ['`flow = true`'], 'verify');
     for (const contract of ['original reproduction', '`flow = false`', 'Keep the error hook',
       '`GSTACK_STEP_OK` check', 'fresh screenshot names', 'add a suffix if it exists',
-      'Read the copied screenshot', 'Functional repairs never load this section']) expect(verify).toContain(contract);
+      'Read each `SAVED=` screenshot', 'Functional repairs never load this section']) expect(verify).toContain(contract);
     expect(verify).not.toContain('const HOOK =');
     expect(verify).not.toContain('Phase 5 Drive-a-flow');
     const orient = method.slice(method.indexOf('### Phase 3: Orient'), method.indexOf('### Phase 4: Explore'));
@@ -275,11 +276,13 @@ describe('compact QA browser recipes retain native operations', () => {
       expect(names.indexOf('Page.addScriptToEvaluateOnNewDocument')).toBeLessThan(names.indexOf('goto'));
       const screenshots = events.filter(event => event.name === 'screenshot').map(event => event.value);
       expect(screenshots).toEqual(flow ? [
-        { path: 'issue-001-step-1.jpg', type: 'jpeg', quality: 60, fullPage: false },
-        { path: 'issue-001-result.jpg', type: 'jpeg', quality: 60 },
-      ] : [{ path: 'initial.jpg', type: 'jpeg', quality: 60, fullPage: true }]);
+        { type: 'jpeg', quality: 60, fullPage: false },
+        { type: 'jpeg', quality: 60 },
+      ] : [{ type: 'jpeg', quality: 60, fullPage: true }]);
+      expect(events.filter(event => event.name === 'saveArtifact').map(event => event.value)).toEqual(
+        (flow ? ['issue-001-step-1.jpg', 'issue-001-result.jpg'] : ['initial.jpg']).map(name => ({ name, bytes: 'shot' })));
       expect(output).toContain('CONSOLE_ERRORS=["load failure","uncaught: uncaught failure","unhandledrejection: promise failure"]');
-      expect(output).toContain('ASIDE_DIR=/owned-session');
+      expect(output.join('\n')).not.toContain('ASIDE_DIR');
       expect(output).toContain('Page text');
       expect(names.filter(name => name === 'click')).toHaveLength(flow ? 1 : 0);
       if (flow) {
@@ -306,13 +309,15 @@ describe('compact QA browser recipes retain native operations', () => {
     const { events, output } = await runRecipe('Emulation.setDeviceMetricsOverride');
     expect(events).toContainEqual({ name: 'Emulation.setDeviceMetricsOverride', value: { width: 375, height: 812, deviceScaleFactor: 2, mobile: true } });
     expect(events).toContainEqual({ name: 'Emulation.clearDeviceMetricsOverride', value: {} });
-    expect(output).toContain('ASIDE_DIR=/owned-session');
+    expect(events).toContainEqual({ name: 'saveArtifact', value: { name: 'page-mobile.jpg', bytes: 'shot' } });
+    expect(output.join('\n')).not.toContain('ASIDE_DIR');
   });
 
-  test('annotated evidence is written inside the Aside session', async () => {
+  test('annotated evidence leaves through saveArtifact, never the deleted session dir (#4784)', async () => {
     const { events, output } = await runRecipe('annotatedScreenshot(pg)');
-    expect(events).toContainEqual({ name: 'writeFile', value: { file: '/owned-session/issue-002.png', bytes: 'image' } });
-    expect(output).toContain('ASIDE_DIR=/owned-session');
+    expect(events).toContainEqual({ name: 'saveArtifact', value: { name: 'issue-002.png', bytes: 'image' } });
+    expect(events.some(event => event.name === 'writeFile')).toBe(false);
+    expect(output.join('\n')).not.toContain('ASIDE_DIR');
   });
 
   test('session API requests retain status and bounded body evidence', async () => {

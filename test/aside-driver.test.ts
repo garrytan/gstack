@@ -115,10 +115,13 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     expect(section).toContain('GSTACK_STEP_OK');
   });
 
-  test('artifact handoff goes through the printed session directory', () => {
-    expect(section).toContain('ASIDE_DIR=');
-    expect(section).toContain('never print image data');
-    expect(section).toContain('use the Read tool on the copied file');
+  test('artifact handoff goes through stdout, never a copy out of the deleted session directory (#4784)', () => {
+    expect(section).toContain('Artifacts leave through stdout');
+    expect(section).toContain('gstack-aside-repl --out <dir>');
+    expect(section).toContain('saveArtifact(');
+    expect(section).toContain('Never print image data yourself');
+    expect(section).toContain('Use the Read tool on each `SAVED=` screenshot');
+    expect(section).not.toContain('ASIDE_DIR');
   });
 
   test('cookbook names the silent failure modes of aside repl scripts (#3064)', () => {
@@ -148,7 +151,7 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     expect(section).not.toContain('pg.on("console"');
     expect(section).not.toContain('TARGET_ID=');
     // Every cookbook script ends by closing its tab and printing the sentinel.
-    const scripts = [...section.matchAll(/aside repl '([\s\S]*?)'\n```/g)].map(m => m[1]);
+    const scripts = [...section.matchAll(/(?:aside repl|gstack-aside-repl --out \S+) '([\s\S]*?)'\n```/g)].map(m => m[1]);
     expect(scripts.length).toBeGreaterThanOrEqual(6);
     for (const s of scripts) {
       expect(s).toContain('await closeTab(pg)');
@@ -355,7 +358,7 @@ describe('browser fallback ({{BROWSE_FALLBACK}})', () => {
       expect({ cmd, present: fallback.includes(cmd) }).toEqual({ cmd, present: true });
     }
     // Every cookbook evidence label has a row, so a skill's report reads the same under either driver.
-    for (const label of ['CONSOLE_ERRORS=', 'DIFF_START', 'TEXT_START', 'NAV=', 'RESOURCES=', 'ASIDE_DIR']) {
+    for (const label of ['CONSOLE_ERRORS=', 'DIFF_START', 'TEXT_START', 'NAV=', 'RESOURCES=', 'saveArtifact']) {
       expect({ label, present: fallback.includes(label) }).toEqual({ label, present: true });
     }
   });

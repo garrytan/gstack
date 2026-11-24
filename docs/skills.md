@@ -1212,16 +1212,15 @@ Claude: Submitting the signup form on staging.myapp.com creates a real
 
 You:    yes
 
-Claude: [aside repl: console hook → openTab → goto /signup → snapshot
+Claude: [gstack-aside-repl: console hook → openTab → goto /signup → snapshot
          → fill → click Submit → snapshot → screenshot → closeTab]
 
         DIFF_START … heading "Welcome — set up your workspace" … DIFF_END
         URL=https://staging.myapp.com/onboarding
         CONSOLE_ERRORS=[]
-        ASIDE_DIR=/Users/you/.aside/u/0/sessions/2026-09-05_7KtoAatMItBqZvoL
+        SAVED=.gstack/qa-reports/screenshots/issue-001-result.jpg bytes=48213
         GSTACK_STEP_OK
 
-        > cp "$ASIDE_DIR/issue-001-result.jpg" .gstack/qa-reports/screenshots/
         > Read .gstack/qa-reports/screenshots/issue-001-result.jpg
 
         Signup works. Redirected to onboarding. Now checking changed pages…

@@ -1180,7 +1180,7 @@ describe('coverage: scan edges', () => {
 
   test.skipIf(!POSIX)('the rendered persist block refuses a dump with a HIGH redaction finding (DOM_DUMP_REDACTION_BLOCKED) and keeps a clean one', () => {
     const skill = fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md'), 'utf-8');
-    const start = skill.indexOf('_D="<ASIDE_DIR or $_TMP>/{page}.dom.html"; _REPORT="<REPORT_DIR from Setup>"');
+    const start = skill.indexOf('_D="<SAVED= or DUMP= path>"; _REPORT="<REPORT_DIR from Setup>"');
     const end = skill.indexOf('```', start);
     expect(start).toBeGreaterThan(0);
     const block = skill.slice(start, end);
@@ -1196,7 +1196,7 @@ describe('coverage: scan edges', () => {
       fs.writeFileSync(clean, '<html><body>hello</body></html>');
       const runBlock = (file: string, page: string) => {
         const script = block
-          .replace('_D="<ASIDE_DIR or $_TMP>/{page}.dom.html"; _REPORT="<REPORT_DIR from Setup>"; _RUN="<RUN_ID from Setup>"', `_D="${file}"; _REPORT="${report}"; _RUN="run1"`)
+          .replace('_D="<SAVED= or DUMP= path>"; _REPORT="<REPORT_DIR from Setup>"; _RUN="<RUN_ID from Setup>"', `_D="${file}"; _REPORT="${report}"; _RUN="run1"`)
           .replaceAll('{page}', page)
           .replaceAll('$HOME/.claude/skills/gstack/bin', path.join(ROOT, 'bin'))
           .replaceAll('~/.claude/skills/gstack/bin', path.join(ROOT, 'bin'));
