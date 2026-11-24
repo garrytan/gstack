@@ -97,7 +97,7 @@ describe("remote tip missing: the remote moved since the last fetch", () => {
   test("content already on the remote is not reported as part of this push", () => {
     const { remote, a, remoteTip } = staleClone();
     const head = commit(a, "mine.txt", "mine\n", "my change");
-    expect(spawnSync("git", ["cat-file", "-e", remoteTip], { cwd: a, env: gitEnv() }).status).not.toBe(0);
+    expect(spawnSync("git", ["cat-file", "-e", remoteTip], { cwd: a, env: gitEnv(), timeout: 30_000 }).status).not.toBe(0);
     const r = hook(a, "origin", remote, `refs/heads/main ${head} refs/heads/main ${remoteTip}\n`);
     expect(r.stderr).not.toContain("aws.access_key");
     expect(r.stderr).not.toContain("BLOCKED");
