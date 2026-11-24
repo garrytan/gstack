@@ -228,7 +228,10 @@ Two stages with separate clocks, both printed:
   under its YAML key) are caught in UTF-16 text as in plain text. Only
   credential findings count in such a file, so image bytes that look like a
   phone number are not reported. A file whose scanned text is over the
-  scanner's 16 MiB limit fails the check, and the pre-push hook blocks a push
+  scanner's 16 MiB limit is scanned in parts cut at line ends, each repeating
+  at least 64K characters of the text before it, with findings reported at
+  their line in the file; a single line too long to scan whole, or to share a
+  part with that context, fails the check and names the line. The pre-push hook blocks a push
   whose diff is over 64 MiB. The hook leaves deleted files out of that diff,
   so removing a large binary does not count toward the limit, but a replaced
   binary's old bytes still do. Keep large binaries in Git LFS, whose small
@@ -490,7 +493,8 @@ Two stages with separate clocks, both printed:
   `**/*.serial.test.*`) run one process per file after the unit files. A unit
   group whose quoted file list would pass the system's argument limits (Linux
   caps one argument at 128 KiB) runs as several runner processes in sequence,
-  each under about 96 KB of file arguments (24 KB on Windows), read back as one run: counts add up,
+  each under about 96 KB of file arguments (on Windows, under the 8,186 characters
+  Git Bash keeps of one argument, #4773), read back as one run: counts add up,
   any failing chunk fails the lane, and they share the group's one `--timeout`. The
   runner and every guard run with the verified launch Bun first on PATH: the
   first of `$BUN_INSTALL/bin` and `~/.bun/bin` whose Bun satisfies gstack's and

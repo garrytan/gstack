@@ -604,4 +604,4 @@ Recheck read-only evidence; never redo a merge/deploy because a section was miss
 - Step 3 is one `gstack-pr-wait` call; elsewhere poll at the stated interval (60 s for merge readback and deploy) with progress lines.
 - After merge failures, offer approved rollback when appropriate; never revert a rollback automatically.
 - Verify once; `/canary` does extended monitoring; rechecks need the user's choice.
-- Use `--delete-branch`; reconcile failed cleanup non-destructively with confirmation.
+- Merge directly; delete branches only via Step 4's guard; confirm any cleanup.

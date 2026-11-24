@@ -2,7 +2,7 @@
 
 When an agent builds the first version of something for a person, every review can pass and the first thing the owner tries can still be broken, or do less than he asked. Six first versions in November 2026 all drew a complaint first: in at least four the gap was written down before he touched it, and in none did anyone run the exact steps we then asked him to do on his real setup. Two things close that gap.
 
-1. **The plan and the try-it message start from the owner's own words.** A first version's plan quotes each message of the owner's that states the job, with its time, and gives each one a line: it does it, or it leaves it as a lettered choice. Nothing his words asked for sits under "What it won't do yet". The five things he'll do on day one cite those quotes.
+1. **The plan and the try-it message start from the owner's own words.** A first version's plan quotes each message of the owner's that states the job, with its time, and gives each one a line: it does it, it leaves it as a lettered choice, or it follows his own ruling against it. Nothing his words asked for sits under "What it won't do yet". The five things he'll do on day one cite those quotes.
 2. **An agent runs his exact try-it steps on the real target first.** Before a build reaches its owner as "ready to try", a fresh agent from a **different model family** than the one that built it follows the exact message we're about to send, step by step, on the real target, and records a verdict and one line per step. Only when nothing is broken, wrong or asks him for something an agent could look up does `gstack-first-use` print the message.
 
 It gates two things: the message that asks the owner to try a build, and any "v1 is ready" report. It does not gate `/gstack-ship`: code review and the first-use check answer different questions. Any report of a passing test on a build the owner doesn't hold yet also names the build he does hold and its known defects.
@@ -16,6 +16,7 @@ A plan is a first version when it has a `Day one` section or the run passes `--f
 
 - Ada Example, 2026-11-18 09:12Z: "I keep forgetting which plant needs water" → does it
 - Ada Example, 2026-11-18 09:14Z: "and tell my partner when I'm away" → choice; size: two days; leave out: needs a second account
+- Ada Example, 2026-11-18 09:20Z: "and maybe post my streak" → ruled out 2026-11-18 09:31Z: "no posting anywhere, ever"
 ```
 
 Each bullet is who, when, the words in quotes, then an arrow (`→` or `->`) and the line:
@@ -24,8 +25,9 @@ Each bullet is who, when, the words in quotes, then an arrow (`→` or `->`) and
 |---|---|---|
 | `does it` | this version does what the words ask | a reviewer who finds it does less files a `narrows_quote` finding, and the gate asks |
 | `choice` | this version doesn't fully do it yet | one lettered choice quoting the words: a) build it in this version, b) leave it out. It recommends a, unless the line says `leave out: <reason>`, shown on the choice. `size: <n>` is shown as the cost |
+| `ruled out <date>: "<ruling>"` | the owner ruled it out himself | `<date>` names the one recorded reply the ruling came from: its record id, its time (`2026-11-18 09:20Z`), or just its day when he sent only one reply that day. When that one reply holds the ruling, it beats a reviewer. A finding that says the plan falls short of these words becomes one item recommending his ruling, a cut of them stays a cut, and keeping the ruling leaves no build task for the fix he turned down. When the citation names no reply or more than one, or the reply it names doesn't hold the ruling, the gate asks him once, with the ruling and any finding side by side and the ruling recommended |
 
-A public export (`gstack-autoplan export --public`) drops the owner's words: every quote, however short, wherever it appears in quote marks, and every `leave out:` reason, wherever the gate shows it. A quote of three or more words is also caught where it is repeated without quote marks.
+A public export (`gstack-autoplan export --public`) drops the owner's words: every quote and every ruling, however short, wherever it appears in quote marks, and every `leave out:` reason, wherever the gate shows it. A quote of three or more words is also caught where it is repeated without quote marks.
 
 A cut under `### What it won't do yet` that drops a quoted line becomes that quote's choice and leaves the list. On a first version every other cut gets its own letter. The owner brief shows the quotes and their lines first, then the day-one table, then the remaining cuts.
 

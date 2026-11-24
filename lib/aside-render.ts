@@ -18,9 +18,10 @@
  *      wait, run the steps in order, close the tab. Nothing persists between
  *      `aside repl` calls and tabs die with the script, so a render is always
  *      a single script.
- *   3. Artifacts are written inside Aside's sandbox (`pwd` = the per-run
- *      session directory; the sandbox `fs` cannot write anywhere else), the
- *      script prints `ASIDE_DIR=<pwd>`, and this module copies them out.
+ *   3. Artifacts come back over stdout as `ARTIFACT <step> <base64>` lines and
+ *      this module writes them to each step's `out`. A one-shot `aside repl`
+ *      deletes its session directory when the script ends and its sandbox
+ *      refuses every other path, so nothing saved to disk survives (#4784).
  *   4. PDFs go through raw CDP `Page.printToPDF` (via `page._sendToTarget`)
  *      so header/footer templates, tagged PDF, and document outline keep
  *      working — `page.pdf()` exposes only the Playwright subset.
@@ -202,6 +203,7 @@ export function paperInches(format: string | undefined): [number, number] | unde
 
 const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); })()`;
 
+
 function artifactName(i: number, out: string): string {
   const ext = path.extname(out) || '.bin';
   return `gstack-render-${i}${ext}`;
@@ -244,19 +246,18 @@ export function buildRenderScript(url: string, spec: RenderSpec): string {
       for (const k of ['paperWidth', 'paperHeight', 'landscape', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'displayHeaderFooter', 'headerTemplate', 'footerTemplate', 'printBackground', 'preferCSSPageSize', 'generateTaggedPDF', 'generateDocumentOutline', 'pageRanges', 'scale'] as const) {
         if (o[k] !== undefined) cdp[k] = o[k];
       }
-      L.push(`{ const r = await pg._sendToTarget("Page.printToPDF", ${JSON.stringify(cdp)}); await fs.writeFile(path.join(pwd, ${JSON.stringify(artifactName(i, step.out))}), Buffer.from(r.data, "base64")); console.log("STEP_OK ${i}"); }`);
+      L.push(`{ const r = await pg._sendToTarget("Page.printToPDF", ${JSON.stringify(cdp)}); console.log("ARTIFACT ${i} " + r.data); console.log("STEP_OK ${i}"); }`);
     } else if (step.kind === 'screenshot') {
-      const name = artifactName(i, step.out);
-      const shot: Record<string, unknown> = { path: name, fullPage: step.fullPage !== false };
+      const shot: Record<string, unknown> = { fullPage: step.fullPage !== false };
       if (step.type) shot.type = step.type;
       if (step.quality !== undefined) shot.quality = step.quality;
       setOverride(sized(step));
       if (step.selector) {
-        const sel: Record<string, unknown> = { path: name };
+        const sel: Record<string, unknown> = {};
         if (step.type) sel.type = step.type;
-        L.push(`await pg.locator(${JSON.stringify(step.selector)}).screenshot(${JSON.stringify(sel)});`);
+        L.push(`console.log("ARTIFACT ${i} " + Buffer.from(await pg.locator(${JSON.stringify(step.selector)}).screenshot(${JSON.stringify(sel)})).toString("base64"));`);
       } else {
-        L.push(`await pg.screenshot(${JSON.stringify(shot)});`);
+        L.push(`console.log("ARTIFACT ${i} " + Buffer.from(await pg.screenshot(${JSON.stringify(shot)})).toString("base64"));`);
       }
       setOverride(null);
       L.push(`console.log("STEP_OK ${i}");`);
@@ -265,22 +266,18 @@ export function buildRenderScript(url: string, spec: RenderSpec): string {
       setOverride(sized(step));
       L.push(`{ const v = await pg.evaluate((src) => (0, eval)(src), ${JSON.stringify(step.expression)});`);
       if (step.out) {
-        L.push(`  const name = ${JSON.stringify(artifactName(i, step.out))};`);
-        L.push(`  if (typeof v === "string" && /^data:[^;]+;base64,/.test(v)) await fs.writeFile(path.join(pwd, name), Buffer.from(v.slice(v.indexOf(",") + 1), "base64"));`);
-        L.push(`  else if (typeof v === "string") await fs.writeFile(path.join(pwd, name), v);`);
-        L.push(`  else await fs.writeFile(path.join(pwd, name), JSON.stringify(v));`);
-        L.push(`  console.log("STEP_OK ${i}"); }`);
+        L.push(`  const b = typeof v === "string" && /^data:[^;]+;base64,[A-Za-z0-9+\\/=]*$/.test(v) ? v.slice(v.indexOf(",") + 1) : Buffer.from(typeof v === "string" ? v : JSON.stringify(v), "utf8").toString("base64");`);
+        L.push(`  console.log("ARTIFACT ${i} " + b); console.log("STEP_OK ${i}"); }`);
       } else {
         const max = step.maxInline ?? DEFAULT_MAX_INLINE;
         // One base64 line: the value is page-controlled text, and a newline in it
-        // must never be able to forge ASIDE_DIR= or the sentinel below.
+        // must never be able to forge an ARTIFACT line or the sentinel below.
         L.push(`  const s = typeof v === "string" ? v : JSON.stringify(v); console.log("EVAL ${i} " + Buffer.from(String(s ?? "").slice(0, ${max}), "utf8").toString("base64")); console.log("STEP_OK ${i}"); }`);
       }
     }
   });
   setOverride(null);
   L.push(`console.log("PAGE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs || [])));`);
-  L.push(`console.log("ASIDE_DIR=" + pwd);`);
   L.push(`await closeTab(pg);`);
   L.push(`console.log(${JSON.stringify(RENDER_SENTINEL)});`);
   return L.join('\n');
@@ -396,19 +393,17 @@ async function asideRender(spec: RenderSpec): Promise<RenderResult> {
       const errLine = stdout.split('\n').find((l) => /^(\[error|Error:|\w*Error:)/.test(l.trim())) ?? stdout.trim().split('\n').slice(-3).join(' | ');
       return { ok: false, outputs: [], evals, stdout, error: `render script did not finish: ${errLine || 'no output'} (GSTACK_SKIP_ASIDE=1 forces gstack's own browser)` };
     }
-    // Control lines are ours alone (eval output is one base64 token, PAGE_ERRORS
-    // is one JSON line); still take the LAST ASIDE_DIR so nothing earlier wins.
-    const dirs = [...stdout.matchAll(/^ASIDE_DIR=(.+)$/gm)];
-    const dir = dirs.length ? dirs[dirs.length - 1][1].trim() : undefined;
-    if (!dir) return { ok: false, outputs: [], evals, stdout, error: 'render script printed no ASIDE_DIR' };
+    // Control lines are ours alone (every artifact and eval is one base64 token,
+    // PAGE_ERRORS is one JSON line); still take the LAST line per step so nothing earlier wins.
+    const artifacts: Record<number, string> = {};
+    for (const m of stdout.matchAll(/^ARTIFACT (\d+) ([A-Za-z0-9+/=]*)$/gm)) artifacts[Number(m[1])] = m[2];
 
     const outputs: string[] = [];
     for (const [i, step] of spec.steps.entries()) {
       if (!('out' in step) || !step.out) continue;
-      const src = path.join(dir, artifactName(i, step.out));
-      if (!fs.existsSync(src)) return { ok: false, outputs, evals, stdout, error: `step ${i} produced no artifact (${src})` };
+      if (artifacts[i] === undefined) return { ok: false, outputs, evals, stdout, error: `step ${i} produced no artifact (no ARTIFACT ${i} line)` };
       fs.mkdirSync(path.dirname(path.resolve(step.out)), { recursive: true });
-      fs.copyFileSync(src, step.out);
+      fs.writeFileSync(step.out, Buffer.from(artifacts[i], 'base64'));
       outputs.push(step.out);
     }
     return { ok: true, outputs, evals, stdout };

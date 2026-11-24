@@ -60,8 +60,8 @@ advantage, and never for anything that mutates.
 
 ## Run it
 
-The loop is always the same: one script → labelled evidence lines → artifacts copied out
-of `ASIDE_DIR` → Read the screenshots → report.
+The loop is always the same: one script → labelled evidence lines → artifacts saved
+with `saveArtifact` → Read the screenshots → report.
 
 1. Run the setup check above. On `READY`, drive Aside. On any non-READY
    result, run the Browser fallback check and drive `$B` instead —
@@ -69,17 +69,15 @@ of `ASIDE_DIR` → Read the screenshots → report.
 2. Write ONE `aside repl` script per flow, following the cookbook skeleton exactly:
    console hook installed before `goto`, evidence printed as labelled lines
    (`CONSOLE_ERRORS=`, `DIFF_START`/`DIFF_END`, `URL=`, `LINK`, `NAV=`), screenshots
-   saved with a relative path, `ASIDE_DIR=` printed, `closeTab(pg)` last,
+   saved with `saveArtifact("name.jpg", ...)`, `closeTab(pg)` last,
    `GSTACK_STEP_OK` as the final line.
-3. Copy the artifacts out in bash right after the script, using the `ASIDE_DIR` it
-   printed. The report directory is `.gstack/browse-reports/<stamp>/` in the repo, or
-   whatever directory the calling skill told you to use. Remember the `REPORT_DIR` this
-   prints — every later step writes there.
+3. Before the first script, make the report directory: `.gstack/browse-reports/<stamp>/`
+   in the repo, or whatever directory the calling skill told you to use. Remember the
+   `REPORT_DIR` this prints; saving scripts use `--out "<REPORT_DIR>/screenshots"` (rule 8).
    ```bash
-   R=".gstack/browse-reports/$(date +%Y-%m-%d-%H%M)"; mkdir -p "$R/screenshots"
-   cp "<ASIDE_DIR>/initial.jpg" "$R/screenshots/initial.jpg"; echo "REPORT_DIR=$R"
+   R=".gstack/browse-reports/$(date +%Y-%m-%d-%H%M)"; mkdir -p "$R/screenshots"; echo "REPORT_DIR=$R"
    ```
-4. Read every copied screenshot with the Read tool so the user sees it inline. A
+4. Read every `SAVED=` screenshot with the Read tool so the user sees it inline. A
    screenshot nobody sees is not evidence.
 5. A missing `GSTACK_STEP_OK` or a line starting with `[error` is a failure. Quote the
    error verbatim, fix the script or the target, and re-run the whole flow — there is no

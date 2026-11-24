@@ -1,0 +1,86 @@
+#!/usr/bin/env -S bun --no-env-file --config=/dev/null
+/**
+ * gstack-aside-repl — run one `aside repl` script and keep the files it saves.
+ *
+ * A one-shot `aside repl` deletes its session directory when the script ends,
+ * and the sandbox refuses every path outside that directory ("escapes the
+ * session directory"), so a screenshot saved there is gone before bash can
+ * copy it (#4784; verified on Aside CLI 1.26.1107). The bytes leave the only
+ * way that survives: stdout. This wrapper prepends
+ *
+ *   saveArtifact(name, data)   // data: Buffer/Uint8Array, or a string saved as UTF-8
+ *
+ * to the script, which prints one line behind a per-run random marker: the
+ * name, the byte count and the base64 data. A name that is not one plain file
+ * name throws in the script, and a line whose data decodes to another byte
+ * count (a truncated line) is an error, never a short file.
+ * The wrapper decodes each such line into --out/<name>, prints
+ * `SAVED=<path> bytes=<n>` in its place, and passes every other line through,
+ * so image data never reaches the caller. Page content the script prints
+ * cannot forge an artifact: it never sees the marker.
+ *
+ * Usage: gstack-aside-repl --out <dir> [--] '<script>'
+ * Exit: aside's own exit code; 1 when an artifact cannot be saved; 2 on usage.
+ */
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { randomBytes } from 'node:crypto';
+
+const SCRIPT_TIMEOUT_MS = 150_000;
+const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+const args = process.argv.slice(2);
+let out = '';
+let script: string | undefined;
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--out') out = args[++i] ?? '';
+  else if (args[i] === '--') { script = args.slice(i + 1).join(' '); break; }
+  else if (script === undefined) script = args[i];
+  else script += ` ${args[i]}`;
+}
+if (!out || !script) {
+  console.error('usage: gstack-aside-repl --out <dir> [--] \'<script>\'  (the script saves files with saveArtifact(name, data))');
+  process.exit(2);
+}
+
+const local = path.join(os.homedir(), '.local/bin/aside');
+const aside = Bun.which('aside') ?? (fs.existsSync(local) ? local : null);
+if (!aside) {
+  console.error('gstack-aside-repl: aside CLI not found on PATH or at ~/.local/bin/aside');
+  process.exit(127);
+}
+
+const marker = `GSTACK_ARTIFACT_${randomBytes(12).toString('hex')}`;
+const prelude = `const saveArtifact = (name, data) => { if (!${NAME}.test(String(name))) throw new Error("saveArtifact: bad name " + JSON.stringify(name) + " (letters, digits, . _ - only; no folders or spaces)"); const b = typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data); console.log(${JSON.stringify(marker)} + " " + name + " " + b.length + " " + b.toString("base64")); };`;
+
+const child = Bun.spawn([aside, 'repl', `${prelude}\n${script}`], { stdout: 'pipe', stderr: 'inherit' });
+const timer = setTimeout(() => child.kill('SIGKILL'), SCRIPT_TIMEOUT_MS);
+const stdout = await new Response(child.stdout).text();
+const code = await child.exited;
+clearTimeout(timer);
+
+const dir = path.resolve(out);
+let failed = false;
+for (const line of stdout.replace(/\n$/, '').split('\n')) {
+  if (!line.startsWith(`${marker} `)) {
+    console.log(/^GSTACK_ARTIFACT_[0-9a-f]+ /.test(line) ? 'IGNORED a line that imitates an artifact (wrong marker)' : line);
+    continue;
+  }
+  const parts = line.split(' ');
+  const [, name = '', size = '', data = ''] = parts;
+  if (parts.length !== 4 || !NAME.test(name)) { console.log(`ARTIFACT_ERROR=bad name ${JSON.stringify(name.slice(0, 80))} (letters, digits, . _ - only; no folders)`); failed = true; continue; }
+  const file = path.join(dir, name);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('refusing to write through a symlink');
+    const bytes = Buffer.from(data, 'base64');
+    if (String(bytes.length) !== size) throw new Error(`truncated: expected ${size} bytes, decoded ${bytes.length}`);
+    fs.writeFileSync(file, bytes);
+    console.log(`SAVED=${file} bytes=${bytes.length}`);
+  } catch (e) {
+    console.log(`ARTIFACT_ERROR=${file}: ${(e as Error).message}`);
+    failed = true;
+  }
+}
+process.exit(failed ? 1 : (code ?? 1));

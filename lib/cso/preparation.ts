@@ -310,6 +310,22 @@ function inspectNode(root: string, plan: PreparationPlan) {
     if (!NAME.test(name) || typeof raw.version !== 'string' || !VERSION.test(raw.version))
       fail('INVALID_METADATA', 'Locked npm package needs an exact name and version.', lockPath);
     for (const field of DEPENDENCY_FIELDS) dependencySpecs(raw[field], lockPath);
+    if (raw.inBundle === true && raw.resolved === undefined) {
+      // A bundled package ships inside its bundler's tarball, so that archive must be pinned instead.
+      let owner = path;
+      do {
+        const cut = owner.lastIndexOf('/node_modules/');
+        if (cut < 0) fail('UNPINNED_ARCHIVE', 'Bundled npm package has no pinned parent archive.', lockPath);
+        owner = owner.slice(0, cut);
+      } while (record(lock.packages[owner]) && lock.packages[owner].inBundle === true);
+      const bundler = lock.packages[owner];
+      if (!record(bundler) || bundler.link === true || !owner.split('/').includes('node_modules'))
+        fail('UNPINNED_ARCHIVE', 'Bundled npm package has no pinned parent archive.', lockPath);
+      publicUrl(bundler.resolved, ['registry.npmjs.org'], lockPath);
+      integrity(bundler.integrity, lockPath);
+      delete clean.packages[path].scripts;
+      continue;
+    }
     plan.inputs.push({
       kind: 'public',
       name,

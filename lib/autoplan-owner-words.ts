@@ -293,7 +293,8 @@ export function ownerWords(state: Pick<RunState, 'out' | 'phases' | 'gate' | 'ca
   let names: string[] = [];
   try { names = fs.readdirSync(out).filter(f => f === FILES.active || /^plan-source.*\.md$/.test(f) || /^plan-at-gate\.r\d+\.md$/.test(f) || /^plan-file\..+\.md$/.test(f)).sort(); } catch { /* no run directory */ }
   const planQuotes = names.flatMap(f => parseOwnerWords(read(f) ?? '').quotes);
-  for (const text of new Set(planQuotes.map(q => q.text))) note(text, undefined, false);
+  const planWords = [...new Set(planQuotes.flatMap(q => [q.text, ...(q.line?.kind === 'ruled_out' ? [q.line.ruling] : [])]))];
+  for (const text of planWords) note(text, undefined, false);
 
   const deferred = new Map<string, string | undefined>();
   for (const r of journal) if (r.event === 'phase_deferred' && r.by === 'human' && typeof r.reason === 'string') deferred.set(r.reason, deferred.get(r.reason) ?? String(r.ts));
@@ -302,7 +303,7 @@ export function ownerWords(state: Pick<RunState, 'out' | 'phases' | 'gate' | 'ca
   return ownerIndex([...byText].map(([text, r]) => ({ text, parsed: r.parsed, prior: prior(r.at) })), {
     deferred: [...deferred].map(([text, at]) => ({ text, prior: prior(at) })),
     carried: state.carry?.words ? [state.carry.words] : [],
-    quoted: [...new Set(planQuotes.map(q => q.text))],
+    quoted: planWords,
     reasons: [...new Set(planQuotes.flatMap(q => (q.line?.kind === 'choice' && q.line.leave_out ? [q.line.leave_out] : [])))],
   });
 }

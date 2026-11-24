@@ -1225,25 +1225,33 @@ $_gstack_legacy_root"
       echo "gstack-gbrain-detect not found at $DETECT_BIN" >&2
       exit 1
     fi
+    _GBRAIN_PROBE=absent
     if ! "$DETECT_BIN" > "$DETECTION_FILE.tmp.$$" 2>/dev/null; then
       printf '{"gbrain_on_path":false,"gbrain_local_status":"no-cli"}\n' > "$DETECTION_FILE.tmp.$$"
+      _GBRAIN_PROBE=unknown
     fi
     mv "$DETECTION_FILE.tmp.$$" "$DETECTION_FILE"
 
-    # Summarize for the user. Use python (already required elsewhere) to
-    # parse the JSON portably; fall back to grep if python is unavailable.
+    # Summarize for the user with the first Python that runs, else grep. A
+    # python3 on PATH may not run: on Windows it is often the Microsoft Store
+    # alias, which exits 49 (#4752), so it counts as absent.
     # The file goes in on stdin (E6, #1967): bash opens the path, so a native
     # Windows Python under Git Bash never has to resolve an MSYS /c/... path.
-    PYTHON_CMD=$(command -v python3 || command -v python || true)
-    if [ -n "$PYTHON_CMD" ]; then
-      STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_local_status','unknown'))" < "$DETECTION_FILE" 2>/dev/null || echo unknown)
-      VERSION=$("$PYTHON_CMD" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_version') or 'unknown')" < "$DETECTION_FILE" 2>/dev/null || echo unknown)
-    else
-      STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
-      VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
-      [ -z "$STATUS" ] && STATUS=unknown
-      [ -z "$VERSION" ] && VERSION=unknown
+    STATUS=""; VERSION=""
+    for _py in python3 python; do
+      command -v "$_py" >/dev/null 2>&1 || continue
+      STATUS=$("$_py" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_local_status','unknown'))" < "$DETECTION_FILE" 2>/dev/null) \
+        && VERSION=$("$_py" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_version') or 'unknown')" < "$DETECTION_FILE" 2>/dev/null) \
+        && break
+      STATUS=""; VERSION=""
+    done
+    if [ -z "$STATUS" ]; then
+      STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/' || true)
+      VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/' || true)
     fi
+    [ -n "$STATUS" ] || STATUS=unknown
+    [ -n "$VERSION" ] || VERSION=unknown
+    [ "$STATUS" != unknown ] || _GBRAIN_PROBE=unknown
 
     case "$STATUS" in
       ok|timeout|db-unreachable|thin-client|engine-locked)
@@ -1308,8 +1316,12 @@ $_gstack_legacy_root"
         fi
         ;;
       *)
-        echo "gbrain not detected (local-status: $STATUS) → brain-aware blocks will be suppressed in planning-skill SKILL.md files."
-        echo "Install gbrain (see /setup-gbrain) and re-run 'gstack-config gbrain-refresh' once it's configured."
+        if [ "$_GBRAIN_PROBE" = unknown ]; then
+          echo "Could not read gbrain's state (local-status: $STATUS); an existing Claude render is left in place. Re-run 'gstack-config gbrain-refresh' to retry."
+        else
+          echo "gbrain not detected (local-status: $STATUS) → brain-aware blocks will be suppressed in planning-skill SKILL.md files."
+          echo "Install gbrain (see /setup-gbrain) and re-run 'gstack-config gbrain-refresh' once it's configured."
+        fi
         # Drop a brain-aware render, or re-render a pinned overlay without
         # brain blocks, so removing gbrain keeps the chosen overlay.
         INSTALL_DIR="$HOME/.claude/skills/gstack"
@@ -1320,19 +1332,25 @@ $_gstack_legacy_root"
             echo "Skip: bun not on PATH — the Claude render at $RENDER_DIR was not refreshed. Install bun, then re-run 'gstack-config gbrain-refresh'."
           else
             gstack_claude_overlay "$INSTALL_DIR" "$0"
-            gstack_claude_render_action "$RENDER_DIR" absent
-            if [ "$_GSTACK_RENDER_ACTION" = plain ]; then
+            if [ "$_GBRAIN_PROBE" = unknown ] && [ -d "$RENDER_DIR" ]; then
+              _GSTACK_RENDER_ACTION=keep
+            else
+              gstack_claude_render_action "$RENDER_DIR" "$_GBRAIN_PROBE"
+            fi
+            if [ "$_GSTACK_RENDER_ACTION" = keep ]; then
+              :
+            elif [ "$_GSTACK_RENDER_ACTION" = plain ]; then
               if gstack_claude_render_plain "$INSTALL_DIR" "$RENDER_DIR"; then
-                gstack_claude_render_settle "$INSTALL_DIR" "$RENDER_DIR" absent rendered
+                gstack_claude_render_settle "$INSTALL_DIR" "$RENDER_DIR" "$_GBRAIN_PROBE" rendered
               else
-                gstack_claude_render_settle "$INSTALL_DIR" "$RENDER_DIR" absent failed
+                gstack_claude_render_settle "$INSTALL_DIR" "$RENDER_DIR" "$_GBRAIN_PROBE" failed
               fi
             else
               if [ -d "$RENDER_DIR" ]; then
                 rm -rf "$RENDER_DIR"
                 echo "Removed the brain-aware render at $RENDER_DIR; Claude skills serve the committed files."
               fi
-              gstack_claude_render_settle "$INSTALL_DIR" "$RENDER_DIR" absent removed
+              gstack_claude_render_settle "$INSTALL_DIR" "$RENDER_DIR" "$_GBRAIN_PROBE" removed
             fi
             "$INSTALL_DIR/bin/gstack-relink" >/dev/null 2>&1 || true
           fi

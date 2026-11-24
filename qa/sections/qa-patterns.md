@@ -76,29 +76,28 @@ expected result/state, not merely a successful load.
 **Read/flow:** set `flow = true` and replace action/wait for interactions. Keep ONE script; tabs close at its end.
 
 ```bash
-aside repl '
+$HOME/.claude/skills/gstack/bin/gstack-aside-repl --out "$REPORT_DIR/screenshots" '
 const flow = false;
 const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()`;
 const pg = await openTab("about:blank");
 await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
 await pg.goto("<target-url>");
 console.log((await snapshot(pg, { interactive: true })).tree);
-await pg.screenshot({ path: flow ? "issue-001-step-1.jpg" : "initial.jpg", type: "jpeg", quality: 60, fullPage: !flow });
+saveArtifact(flow ? "issue-001-step-1.jpg" : "initial.jpg", await pg.screenshot({ type: "jpeg", quality: 60, fullPage: !flow }));
 if (flow) {
   await pg.locator("e12").click();
   await sleep(500);
   console.log("DIFF_START"); console.log((await snapshot(pg)).diff); console.log("DIFF_END");
-  await pg.screenshot({ path: "issue-001-result.jpg", type: "jpeg", quality: 60 });
+  saveArtifact("issue-001-result.jpg", await pg.screenshot({ type: "jpeg", quality: 60 }));
 }
 console.log("URL=" + pg.url());
 console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
 console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
-console.log("ASIDE_DIR=" + pwd);
 await closeTab(pg); console.log("GSTACK_STEP_OK");
 '
 ```
 
-EVERY screenshot: `cp "<ASIDE_DIR>/initial.jpg" "$REPORT_DIR/screenshots/initial.jpg"` (substitute names), then Read it. Never delete reports/screenshots.
+EVERY screenshot: the wrapper prints its `SAVED=` path; then Read it. Never delete reports/screenshots.
 
 **Links:** same-origin safe paths; HEAD only locally (requests carry cookies).
 
@@ -121,13 +120,13 @@ Framework: `__next`/`_next/data` = Next.js; `csrf-token` = Rails; `wp-content` =
 Select the next candidate from the preceding result. For each page, use the read script with `page-<name>.jpg`. Check layout, controls, empty/invalid/edge-case forms, navigation and empty/loading/error/overflow states per `qa/references/issue-taxonomy.md`. Prioritize core flows over secondary pages; Quick skips this checklist. For mobile:
 
 ```bash
-aside repl '
+$HOME/.claude/skills/gstack/bin/gstack-aside-repl --out "$REPORT_DIR/screenshots" '
 const pg = await openTab("<page-url>");
 await pg._sendToTarget("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
 await sleep(300);
-await pg.screenshot({ path: "page-mobile.jpg", type: "jpeg", quality: 60, fullPage: true });
+saveArtifact("page-mobile.jpg", await pg.screenshot({ type: "jpeg", quality: 60, fullPage: true }));
 await pg._sendToTarget("Emulation.clearDeviceMetricsOverride", {});
-console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK");
+await closeTab(pg); console.log("GSTACK_STEP_OK");
 '
 ```
 
@@ -143,11 +142,11 @@ or minimization unfinished.
 **Static** (copy/layout/images): one annotated screenshot and description.
 
 ```bash
-aside repl '
+$HOME/.claude/skills/gstack/bin/gstack-aside-repl --out "$REPORT_DIR/screenshots" '
 const pg = await openTab("<page-url>");
 const a = await annotatedScreenshot(pg);
-await fs.writeFile(path.join(pwd, "issue-002.png"), Buffer.from(a.base64Image, "base64"));
-console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK");
+saveArtifact("issue-002.png", Buffer.from(a.base64Image, "base64"));
+await closeTab(pg); console.log("GSTACK_STEP_OK");
 '
 ```
 

@@ -20,7 +20,7 @@ still verify docs-only. Set `TARGET=production` unless entering from staging cho
 **Full canary sequence** — one `aside repl` script (console hook, load, evidence):
 
 ```bash
-aside repl '
+~/.claude/skills/gstack/bin/gstack-aside-repl --out .gstack/deploy-reports '
 const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()`;
 const pg = await openTab("about:blank");
 await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
@@ -29,19 +29,12 @@ console.log("URL=" + pg.url());
 console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
 console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
 console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
-await pg.screenshot({ path: "post-deploy.jpg", type: "jpeg", quality: 60, fullPage: true });
+saveArtifact("post-deploy.jpg", await pg.screenshot({ type: "jpeg", quality: 60, fullPage: true }));
 const a = await annotatedScreenshot(pg);
-await fs.writeFile(path.join(pwd, "post-deploy-annotated.png"), Buffer.from(a.base64Image, "base64"));
-console.log("ASIDE_DIR=" + pwd);
+saveArtifact("post-deploy-annotated.png", Buffer.from(a.base64Image, "base64"));
 await closeTab(pg);
 console.log("GSTACK_STEP_OK");
 '
-```
-
-Then copy the evidence out of the printed session directory:
-
-```bash
-mkdir -p .gstack/deploy-reports && cp "<ASIDE_DIR>/post-deploy.jpg" "<ASIDE_DIR>/post-deploy-annotated.png" .gstack/deploy-reports/
 ```
 
 Read the output line by line:
@@ -50,7 +43,7 @@ Read the output line by line:
 - `CONSOLE_ERRORS=` — check for critical errors: entries containing `Error`, `Uncaught`, `Failed to load`, `TypeError`, `ReferenceError`. Ignore warnings.
 - `NAV=` — `responseStatus` (the document's HTTP status) must be 200; `loadEventEnd` (load time) must be under 10 seconds.
 - `TEXT_START` / `TEXT_END` — real content, not blank or an error page.
-- `post-deploy.jpg` and the annotated `post-deploy-annotated.png` are the evidence. Read the copied screenshot so the user sees it.
+- `post-deploy.jpg` and `post-deploy-annotated.png` are the evidence; Read the screenshot so the user sees it.
 
 Assess only checks required by the selected depth; mark unperformed checks N/A.
 All required checks pass: record HEALTHY for this target. Staging returns through

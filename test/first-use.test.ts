@@ -97,11 +97,11 @@ describe('the day-one table and the owner quotes it cites (pinned)', () => {
     const none = AUTOPLAN.replace(/### Owner's words[\s\S]*?### Day one/, '### Day one');
     expect(freezeActions(none)).toMatchObject({ error: { detail: expect.stringMatching(/^the plan has no ### Owner's words section/) } });
     const noLine = AUTOPLAN.replace('before work" → does it', 'before work"');
-    expect(freezeActions(noLine)).toEqual({ error: { code: 'FIRST_USE_PLAN_UNREADY', detail: 'owner quote 2 needs a line (does it or choice)' } });
+    expect(freezeActions(noLine)).toEqual({ error: { code: 'FIRST_USE_PLAN_UNREADY', detail: 'owner quote 2 needs a line (does it, choice or ruled out)' } });
     const noTime = AUTOPLAN.replace('- Ada Example, day 0: "remind', '- Ada Example: "remind');
     expect(freezeActions(noTime)).toEqual({ error: { code: 'FIRST_USE_PLAN_UNREADY', detail: 'owner quote 2 needs when it was said' } });
     const bad = AUTOPLAN.replace('before work" → does it', 'before work" → maybe later');
-    expect(freezeActions(bad)).toMatchObject({ error: { detail: expect.stringContaining('bullet 2 has a line that is not does it or choice') } });
+    expect(freezeActions(bad)).toMatchObject({ error: { detail: expect.stringContaining('bullet 2 has a line that is not does it, choice or ruled out') } });
   });
 
   test('editing or inserting a quote changes the frozen hash, even when the rows stay the same', () => {

@@ -75,6 +75,13 @@ export function buildEli5(planText: string, planFile: string): GateEli5 {
   return { summary: body(ELI5_SECTION.aliases), before_after: before!, why: why!, cause: cause!, decisions: decisions!, plan_file_sha256: createHash('sha256').update(planText).digest('hex') };
 }
 
+/** Choice n's label, counting from 0: A to Z, then AA, AB and on like spreadsheet columns, so every label is capital letters and none repeats. */
+export function choiceLabel(n: number): string {
+  let label = '';
+  for (let k = n + 1; k > 0; k = Math.floor((k - 1) / 26)) label = String.fromCharCode(65 + ((k - 1) % 26)) + label;
+  return label;
+}
+
 export interface CaptainBrief { text: string; missing: string[]; pending: boolean; recHash: string }
 
 export function renderCaptainBrief(inputs: BriefInputs, o: { outDir: string; captainName?: string }): CaptainBrief {
@@ -119,7 +126,7 @@ export function renderCaptainBrief(inputs: BriefInputs, o: { outDir: string; cap
   const summary = eli5?.summary.trim() ? [`### ${ELI5_SECTION.title}`, '', eli5.summary.trim(), ''] : [];
   const body = [...summary, ...sections.flatMap(s => [`### ${s.title}`, '', s.found?.body.trim() ? (eli5 ? s.found.body.trim() : capped(s.found.body.trim(), plan.file ?? 'plan.md')) : '_Not written for this plan yet._', ''])];
   const need: string[] = ['### What we need from you', ''];
-  const letter = (n: number) => String.fromCharCode(65 + n);
+  const letter = choiceLabel;
   const ordered = (i: GateItem) => [...i.options.filter(x => x.key === recKey(i)), ...i.options.filter(x => x.key !== recKey(i))];
   const example = asked.findIndex(i => i.options.length > 1);
   if (!pending) need.push('Nothing. This gate is answered.', '');

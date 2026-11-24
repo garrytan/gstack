@@ -2500,7 +2500,7 @@ whose Plan line differs from the PR body's current line.
 <a id="first-use-plan-unready"></a>
 ### `gstack-first-use start: ... (FIRST_USE_PLAN_UNREADY)`
 
-**Meaning.** `start` could not freeze the steps: the plan has no `### Day one` table, the table is missing a column or has fewer than five rows, one of its first five rows has an empty cell, is still marked `assumed` or cites none of the owner's quotes (`owner words <n>`), or the plan has no `### Owner's words` section, or a quote there has no time or no line (`does it` or `choice`). Exit 3; nothing is written. **Fix.** Quote the owner's messages that state the job and cite them from the table ([first-use-check.md](first-use-check.md#the-owners-words-and-the-day-one-table)); a row the owner confirmed at the gate cites his answer, added to Owner's words. Then rerun `start`.
+**Meaning.** `start` could not freeze the steps: the plan has no `### Day one` table, the table is missing a column or has fewer than five rows, one of its first five rows has an empty cell, is still marked `assumed` or cites none of the owner's quotes (`owner words <n>`), or the plan has no `### Owner's words` section, or a quote there has no time or no line (`does it`, `choice` or `ruled out <date>: "<ruling>"`). Exit 3; nothing is written. **Fix.** Quote the owner's messages that state the job and cite them from the table ([first-use-check.md](first-use-check.md#the-owners-words-and-the-day-one-table)); a row the owner confirmed at the gate cites his answer, added to Owner's words. Then rerun `start`.
 
 <a id="first-use-play-spec-incomplete"></a>
 ### `gstack-first-use start: ... (FIRST_USE_PLAY_SPEC_INCOMPLETE)`
@@ -4894,11 +4894,14 @@ line really pins the old value, so update the golden.
 the system's limit, so it never ran and no test was counted. Linux caps one
 argument at 128 KiB and a whole command line plus environment at about 2 MiB,
 macOS caps the total at 1 MiB, and Windows caps a command line at 32,767
-characters. The usual trigger is a long file list: thousands of selected test
+characters. Git Bash on Windows keeps only the first 8,186 characters of a
+`bash -c` command, so gstack refuses a longer one with `argument list too long
+for Git Bash` instead of running it cut off (#4773). The usual trigger is a long file list: thousands of selected test
 files put into one argument.
 
 **Fix.** gstack keeps file lists out of single arguments: a local lane splits
-its files into runner processes of about 96 KB each (24 KB on Windows), and
+its files into runner processes of about 96 KB each (under 8,186 characters on
+Windows), and
 the `test_backend` command for the remote gate passes them in a setup script
 (docs/pregate.md#remote-gate). So this cause is a gstack bug: report it with
 the `environment:` line and the lane or command it names. Until it is fixed,

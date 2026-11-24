@@ -67,8 +67,8 @@ they may reach a live backend.
    `app.verdict`, `app.codes`, `app.states[]` and the findings. Never
    read the lint's exit status as the result.
 2. Take a screenshot for every `SHOT:` line at its viewport (screenshot-only
-   states by their steps). Save it where the driver can write (Aside's
-   session directory; /tmp for $B), then cp it to the `SHOT:` path.
+   states by their steps). Aside: `gstack-aside-repl --out` the
+   `SHOT:` path's folder (rule 8); $B: /tmp, then cp it to the `SHOT:` path.
 3. Walk the seven items on every screenshot.
 4. Drive each changed action through busy, success, error and recovery,
    and keyboard close back to its trigger.
