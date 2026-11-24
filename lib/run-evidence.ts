@@ -64,6 +64,7 @@ export interface ApiRun {
   id: number; run_attempt: number; status: string; conclusion: string | null; event: string; head_sha: string;
   path?: string; created_at?: string; run_started_at?: string; updated_at?: string;
   repository?: { full_name: string } | null; head_repository?: { full_name: string } | null; head_branch?: string | null;
+  head_commit?: { tree_id?: string } | null;
 }
 export interface ApiStep { number: number; name: string; conclusion: string | null; started_at?: string | null; completed_at?: string | null }
 export interface ApiJob { id?: number; name: string; conclusion: string | null; started_at?: string | null; completed_at?: string | null; steps?: ApiStep[] }
