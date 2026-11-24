@@ -239,7 +239,7 @@ export function scanParts(text: string, maxBytes = SCAN_MAX_BYTES, overlapLines 
   return parts;
 }
 
-type Finding = { id?: string; description?: string; severity?: string; tier?: string; toolFenceDegraded?: boolean; category?: string; line?: number; col?: number; file: string; fileLine?: boolean; lineText?: string };
+type Finding = { id?: string; description?: string; severity?: string; category?: string; line?: number; col?: number; file: string; fileLine?: boolean };
 type Scanned = Finding & AllowlistFinding;
 
 function run(ctx: PregateContext): CheckResult {
@@ -272,8 +272,7 @@ function run(ctx: PregateContext): CheckResult {
         high ||= r.status === 3;
         medium ||= r.status === 2;
         const lines = text.split('\n');
-        // A part after the first starts below the file's opening lines, so it cannot know whether a tool fence is open: its fence-degraded findings keep their tier.
-        try { for (const f of (JSON.parse(r.stdout).findings ?? []).map((f: Omit<Finding, 'file'>) => ({ ...f, lineText: f.line ? lines[f.line - 1] : undefined, ...(f.line !== undefined ? { line: f.line + first } : {}), ...(first && f.toolFenceDegraded ? { severity: f.tier ?? 'HIGH' } : {}) })).filter((f: Omit<Finding, 'file'>) => (!part.binary || f.category === 'secret') && (!part.keep || f.id?.startsWith('engine.') || (f.line !== undefined && part.keep.includes(f.line)))).map((f: Omit<Finding, 'file'>) => ({ ...f, id: f.id ?? 'finding', category: f.category ?? '?', severity: f.severity ?? '?', file: part.file, fileLine: !!part.keep }))) findings.push(f); } catch {
+        try { for (const f of (JSON.parse(r.stdout).findings ?? []).map((f: Omit<Finding, 'file'>) => ({ ...f, lineText: f.line ? lines[f.line - 1] : undefined, ...(f.line !== undefined ? { line: f.line + first } : {}) })).filter((f: Omit<Finding, 'file'>) => (!part.binary || f.category === 'secret') && (!part.keep || f.id?.startsWith('engine.') || (f.line !== undefined && part.keep.includes(f.line)))).map((f: Omit<Finding, 'file'>) => ({ ...f, id: f.id ?? 'finding', category: f.category ?? '?', severity: f.severity ?? '?', file: part.file, fileLine: !!part.keep }))) findings.push(f); } catch {
           if (r.status !== 3) return environmentResult(base, launchCause('tool', `gstack-redact exited ${r.status} with no JSON report on ${part.file ? displayPath(part.file) : 'added lines'}`), `gstack-redact printed no JSON report; an incomplete scan never passes`);
           parsedAll = false;
         }
