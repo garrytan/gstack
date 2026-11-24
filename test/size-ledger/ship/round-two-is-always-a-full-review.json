@@ -1,0 +1,4 @@
+{
+  "bytes": -327,
+  "why": "Round 2 after a blocking fix is always a full pass: the scoped-pass instructions are removed (GST-3562 part 3)"
+}

@@ -237,10 +237,10 @@ describe('the Capy skill loader', () => {
 });
 
 
-describe('a scoped pass after a blocker fix (GST-619)', () => {
-  // Value: protects=the pass command accepts the scoped plan gstack-review-plan writes after a blocking fix, invoked as GEVA-2 ran it: the Red Team reviews the fix range, Step 11's voices still pending keep the whole branch, the fix-check is named outside the manifest for Step 3.5, and a resumed pass names it again; fails_when=pass refuses the scoped plan, stages the Red Team on the merge base, stages pending Step 11 voices on the range, drops the fix-check silently, or puts it in the manifest;
-  //   why_new=GEVA-82 on 1.91.379.0 hit BRIEF_RENDER_FAILED on every scoped pass and rendered briefs by hand; seam=none; no_claim=the fix-check's own brief
-  function scoped(flags: string[], explicitMergeBase = false) {
+describe('round 2 after a small blocker fix is a full pass in the manifest (GST-619, GST-3562 part 3)', () => {
+  // Value: protects=the pass command plans the full round 2 gstack-review-plan writes after a small blocking fix, invoked as GEVA-2 ran it: every reader is in the manifest (the full-effort Red Team, the native adversarial, the pending outside voice), no fix-check is named outside it, a resumed pass resumes them, and --diff-base reaches every reader; fails_when=pass plans a scoped step again, names a fix-check outside the manifest whose reply never reaches verify or judge, or a reader ignores --diff-base;
+  //   why_new=GST-3562 part 3 (Captain GStack Minder, 2026-11-24: the scoped pass's fix-check ran outside the pass record); GEVA-82 on 1.91.379.0 hit BRIEF_RENDER_FAILED on the scoped pass it replaces; seam=none; no_claim=what the readers find
+  function round2(flags: string[], diffBase?: 'merge' | 'range') {
     const { dir, env } = repo();
     const sh = (c: string) => { const r = spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
     const mergeBase = sh('git merge-base main HEAD');
@@ -251,15 +251,15 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
     fs.mkdirSync(path.join(dir, '.state'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.state/plan.md'), 'Check the plan items against the fix.\n');
     fs.writeFileSync(extras, JSON.stringify([{ name: 'plan', prompt_file: path.join(dir, '.state/plan.md') }]));
-    const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--extras', extras, ...(explicitMergeBase ? ['--diff-base', mergeBase] : []), '--', '--pass', '1', '--last', 'full', '--pass1-depth', 'standard', '--fixed-blocking', ...flags, '--range-base', rangeBase.slice(0, 7)];
+    const args = ['pass', '--base', 'main', '--out', out, '--pass', 'p2', '--extras', extras, ...(diffBase ? ['--diff-base', diffBase === 'merge' ? mergeBase : rangeBase] : []), '--', '--pass', '1', '--last', 'full', '--pass1-depth', 'standard', '--fixed-blocking', ...flags, '--range-base', rangeBase.slice(0, 7)];
     const p = bin(dir, env, args);
     expect(p.status, p.stdout + p.stderr).toBe(0);
-    expect(p.stdout).toMatch(/^NEXT: scoped /m);
-    expect(p.stdout).toMatch(/^FIX_CHECK: planned effort=full \(Step 3\.5 runs it on its own; not in this manifest\)$/m);
+    expect(p.stdout).toMatch(/^NEXT: full .*never a scoped pass/m);
+    expect(p.stdout).not.toMatch(/^FIX_CHECK:/m);
     const mf = path.join(out, 'pass-manifest.json');
-    return { dir, env, args, mf, mergeBase, rangeBase, m: JSON.parse(fs.readFileSync(mf, 'utf8')) as Manifest };
+    return { dir, env, args, mf, mergeBase, rangeBase, stdout: p.stdout, m: JSON.parse(fs.readFileSync(mf, 'utf8')) as Manifest };
   }
-  const settle = (s: ReturnType<typeof scoped>, stage: string) => {
+  const settle = (s: ReturnType<typeof round2>, stage: string) => {
     if (stage !== 'specialists') expect(bin(s.dir, s.env, ['stage', '--manifest', s.mf, '--stage', stage]).status).toBe(0);
     const m = JSON.parse(fs.readFileSync(s.mf, 'utf8')) as Manifest;
     const reply = path.join(s.dir, '.state/reply.txt');
@@ -268,36 +268,28 @@ describe('a scoped pass after a blocker fix (GST-619)', () => {
     return JSON.parse(fs.readFileSync(s.mf, 'utf8')) as Manifest;
   };
 
-  test('GEVA-2\'s invocation: the Red Team reads the fix range, the pending Step 11 voices read the whole branch, and the fix-check is named outside the manifest', () => {
-    const s = scoped([]);
-    expect(s.m.next).toBe('scoped');
+  test('GEVA-2\'s invocation: every reader, the full-effort Red Team and the pending Step 11 voices included, is in the manifest, and no fix-check runs outside it', () => {
+    const s = round2([]);
+    expect(s.m.next).toBe('full');
     expect(s.m.diff_base).toBe(s.mergeBase);
-    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['outside-voice', null], ['audit/plan', null]]);
-    settle(s, 'specialists');
-    const m = settle(s, 'red-team');
-    const redTeam = fs.readFileSync(m.readers.find(r => r.reader === 'red-team')!.file!, 'utf8');
-    expect(redTeam).toContain(s.rangeBase);
-    expect(redTeam).not.toContain(s.mergeBase);
-    expect(bin(s.dir, s.env, ['stage', '--manifest', s.mf, '--stage', 'voices']).status).toBe(0);
-    const voices = JSON.parse(fs.readFileSync(s.mf, 'utf8')) as Manifest;
-    const outsideBrief = voices.readers.find(r => r.reader === 'outside-voice')!.file!;
-    expect(fs.readFileSync(outsideBrief, 'utf8')).toContain(`The supplied branch diff is the file ${path.join(path.dirname(outsideBrief), 'outside-voice.diff')} `);
-    expect(fs.readFileSync(path.join(path.dirname(outsideBrief), 'outside-voice.diff'), 'utf8')).toContain('+export const v1 = 1;');
+    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['specialist-batched', null], ['red-team', null], ['adversarial-native', null], ['outside-voice', null], ['audit/plan', null]]);
+    expect(s.m.readers.find(r => r.reader === 'red-team')).toMatchObject({ effort: 'full' });
+    expect(s.m.readers.find(r => r.reader === 'red-team')!.exclude).toBeUndefined();
     const again = bin(s.dir, s.env, s.args);
     expect(again.status, again.stdout + again.stderr).toBe(0);
-    expect(again.stdout).toMatch(/^FIX_CHECK: planned effort=full /m);
-    expect(again.stdout).toContain('readers=4 resumed');
+    expect(again.stdout).not.toMatch(/^FIX_CHECK:/m);
+    expect(again.stdout).toContain(`readers=${s.m.readers.length} resumed`);
   }, 120_000);
 
-  test('after Step 11 ran (--adversarial-ran), the whole scoped pass reads the fix range', () => {
-    const s = scoped(['--adversarial-ran']);
+  test('after Step 11 ran (--adversarial-ran), the driver\'s --diff-base RANGE_BASE stages every reader on the fix range, the native adversarial included', () => {
+    const s = round2(['--adversarial-ran'], 'range');
     expect(s.m.diff_base).toBe(s.rangeBase);
-    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['red-team', s.rangeBase], ['adversarial-native', null], ['audit/plan', null]]);
+    expect(s.m.readers.map(r => [r.reader, r.diff_base ?? null])).toEqual([['specialist-batched', null], ['red-team', null], ['adversarial-native', null], ['audit/plan', null]]);
   }, 120_000);
 
-  // Value: protects=an explicit --diff-base reaches every reader, the Red Team included; fails_when=a scoped pass asked to read the whole branch still stages its Red Team on the fix range; why_new=GST-738 (outside voice); seam=none; no_claim=none
-  test('an explicit --diff-base widens the scoped Red Team too (GST-738)', () => {
-    const s = scoped([], true);
+  // Value: protects=an explicit --diff-base reaches every reader, the Red Team included; fails_when=a round 2 asked to read the whole branch still stages its Red Team on the fix range; why_new=GST-738 (outside voice); seam=none; no_claim=none
+  test('an explicit --diff-base on the merge base widens the Red Team too (GST-738)', () => {
+    const s = round2([], 'merge');
     expect(s.m.diff_base).toBe(s.mergeBase);
     const m = settle(s, 'specialists') && settle(s, 'red-team');
     const redTeam = fs.readFileSync(m.readers.find(r => r.reader === 'red-team')!.file!, 'utf8');

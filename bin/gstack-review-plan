@@ -65,13 +65,14 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
   --gated a,b               specialists the hit-rate stats tag GATE_CANDIDATE
   --force a,b|all           specialists forced by prompt flags (--all-specialists is all): at standard and full depth they join the
                             batched specialist's checklists, where maintainability, performance and simplification are read only when
-                            forced; light runtime-0 docs and scoped passes dispatch them one reader each; targeted is no specialist and
+                            forced; light runtime-0 docs dispatch them one reader each; targeted is no specialist and
                             refuses (exit 2): the plan dispatches it itself
   --reviewed-numbers <fp>   the numeric-claim fingerprint the outside voice already reviewed
   --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
   --range-base <sha>        the fix range's base (this pass's PASS_HEAD; with --post-review --last fix-check, the last fix-check's
-                            commit): after a fixed blocker on a diff below full depth, a
-                            committed range of at most ${SCOPED_RANGE_LINES} runtime lines plans a scoped pass; anything unread plans the full pass
+                            commit): after a fixed blocker, round 2 is a full pass on the range; below full depth, a
+                            committed range of at most ${SCOPED_RANGE_LINES} runtime lines now also gets a full pass (no scoped pass) that keeps
+                            the Red Team and, on a range with runtime lines, the native adversarial; anything unread plans the full pass
   --no-tiers                specialists, audits and watchers at the host's default effort too (as gstack-config review_effort_tiers off does)
   --json                    the plan as JSON (depth, runtime_lines, rules, errors with input and repair, gate_scan, per-dispatch exclude)
   --pass1-depth <d>         pass 1's REVIEW_DEPTH depth: full, or absent, keeps pass 2 full

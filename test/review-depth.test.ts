@@ -701,28 +701,23 @@ describe('review depth: diff commands and the rules hash', () => {
   });
 });
 
-describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () => {
-  const r = (p: ReturnType<typeof planReview>) => p.dispatches.map(d => `${d.role}:${d.name}`);
+describe('D6 retired: round 2 after a small blocking fix is a full pass, never a scoped one (GSTA-152 PR B, GST-3562 part 3)', () => {
+  // Value: protects=Captain GStack Minder's 2026-11-24 ruling: after a blocking fix in round 1, round 2 is a full pass on the range planned through the normal manifest, keeping every reader main's scoped pass ran (the full-effort Red Team that excludes nothing, the native adversarial on a range with runtime lines, pending Step 11 voices, forced specialists, the outside voice when numbers changed) and dispatching no fix-check; fails_when=a scoped step or a fix-check dispatch returns, or the full round 2 drops one of those readers;
+  //   why_new=GST-3562 part 3 (the scoped pass's fix-check ran outside the pass record, so its reply never reached verify or judge); seam=planReview; no_claim=what the readers find
   const fixed = (rangeRuntimeLines: number | null | undefined, o: Partial<PlanInput['history']> = {}): PlanInput['history'] => ({ fullPasses: 1, last: 'full', fixedBlocking: true, rangeRuntimeLines, ...o });
   // gstack-evals#19: a standard diff, pass 1 fixed one CRITICAL from a QA probe, the fix range was 3 files +18/-6 of runtime.
   const n19 = (o: Partial<PlanInput> = {}) => mixed({ perPath: per({ 'src/a.ts': 300, 'src/b.ts': 100, 'src/c.ts': 60, 'test/a.test.ts': 80 }), diffLines: 540, scope: { SCOPE_BACKEND: 'true' }, history: fixed(24), adversarialRan: true, ...o });
+  const fixCheck = (p: ReturnType<typeof planReview>) => p.dispatches.some(d => d.role === 'fix-check');
 
-  test('the #19 shape plans one fix-check, the Red Team and the native adversarial pass, not the specialist army', () => {
-    const before = planReview(n19({ history: { fullPasses: 1, last: 'full', fixedBlocking: true } }));
-    expect(before.next.step).toBe('full');
-    expect(roles(before)).toEqual(['specialist:batched:medium', 'red-team:red-team:full']);
+  test('the #19 shape plans a full pass with the full-effort Red Team and the native adversarial again, never a fix-check', () => {
     const p = planReview(n19());
-    expect(p.next.step).toBe('scoped');
-    expect(p.next.reason).toContain('24 runtime lines');
-    expect(r(p)).toEqual(['fix-check:fix-check', 'red-team:red-team', 'adversarial-native:adversarial']);
-    expect(p.dispatches.every(d => d.effort === 'full' && d.exclude.length === 0)).toBe(true);
+    expect(p.next).toMatchObject({ step: 'full', keepReader: true, rangeReaders: true, reason: expect.stringContaining('24 runtime lines in the fix range: full pass on the range, never a scoped pass') });
+    expect(roles(p)).toEqual(['specialist:batched:medium', 'red-team:red-team:full', 'adversarial-native:adversarial:full']);
+    expect(fixCheck(p)).toBe(false);
+    expect(p.dispatches.some(d => d.role === 'red-team' && d.effort === 'full' && d.exclude.length === 0)).toBe(true);
   });
-  test('Step 11 voices that have not run yet stay listed, as on a full pass 2', () => {
-    const p = planReview(n19({ adversarialRan: false }));
-    expect(r(p)).toEqual(['fix-check:fix-check', 'red-team:red-team', 'adversarial-native:adversarial', 'outside-voice:outside-voice']);
-    expect(p.skipped).toContain('specialists (scoped pass)');
-    expect(planReview(n19()).skipped).toEqual(expect.arrayContaining(['specialists (scoped pass)', 'outside-voice (scoped pass)']));
-    expect(planReview(n19({ force: ['security'] })).skipped).toContain('specialists (scoped pass; forced ones dispatched)');
+  test('Step 11 voices that have not run yet stay listed, as on any full pass 2', () => {
+    expect(roles(planReview(n19({ adversarialRan: false })))).toEqual(['specialist:batched:medium', 'red-team:red-team:full', 'adversarial-native:adversarial:full', 'outside-voice:outside-voice:host']);
   });
   test.each([
     ['full depth (a gate tag)', { gateTagged: 1 }],
@@ -738,25 +733,26 @@ describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () =
     expect(p.dispatches.some(d => d.role === 'specialist')).toBe(true);
   });
   test('a force-included specialist and changed published numbers keep their reviewers', () => {
-    expect(r(planReview(n19({ force: ['security'] })))).toEqual(['fix-check:fix-check', 'specialist:security', 'red-team:red-team', 'adversarial-native:adversarial']);
+    expect(batch(planReview(n19({ force: ['security'] })))).toContain('security');
     const numbers = scanNumbers({ 'docs/bench.md': ['3x faster'] });
-    expect(r(planReview(n19({ numbers, reviewedNumbers: 'old' })))).toContain('outside-voice:outside-voice (numbers changed)');
-    expect(r(planReview(n19({ numbers, reviewedNumbers: numbers.fingerprint })))).not.toContain('outside-voice:outside-voice (numbers changed)');
+    expect(roles(planReview(n19({ numbers, reviewedNumbers: 'old' })))).toContain('outside-voice:outside-voice (numbers changed):host');
+    expect(roles(planReview(n19({ numbers, reviewedNumbers: numbers.fingerprint })))).not.toContain('outside-voice:outside-voice (numbers changed):host');
   });
-  test('150 is scoped, 151 is full, and a docs-only range is scoped without the native adversarial pass', () => {
+  test('150 and 151 are both full; a range with no runtime lines keeps the Red Team without the native adversarial after Step 11', () => {
     expect(SCOPED_RANGE_LINES).toBe(150);
-    expect(planReview(n19({ history: fixed(150) })).next.step).toBe('scoped');
-    expect(planReview(n19({ history: fixed(151) })).next.step).toBe('full');
+    expect(planReview(n19({ history: fixed(150) })).next).toMatchObject({ step: 'full', rangeReaders: true });
+    const wide = planReview(n19({ history: fixed(151) }));
+    expect([wide.next.step, wide.next.rangeReaders, fixCheck(wide)]).toEqual(['full', undefined, false]);
     const docs = planReview(n19({ history: fixed(0) }));
-    expect(docs.next.step).toBe('scoped');
-    expect(r(docs)).toEqual(['fix-check:fix-check', 'red-team:red-team']);
+    expect([docs.next.step, fixCheck(docs)]).toEqual(['full', false]);
+    expect(roles(docs)).toEqual(['specialist:batched:medium', 'red-team:red-team:full']);
   });
-  test('a light diff with a fixed blocker gets the scoped set: the raise adds the Red Team, never the standard army', () => {
+  test('a light diff with a fixed blocker gets the full pass at standard: the raise adds the Red Team', () => {
     const p = planReview(mixed({ perPath: per({ 'src/app.ts': 30 }), history: fixed(12), adversarialRan: true }));
-    expect(p.next.step).toBe('scoped');
-    expect(r(p)).toEqual(['fix-check:fix-check', 'red-team:red-team', 'adversarial-native:adversarial']);
+    expect([p.next.step, p.stepDepth, fixCheck(p)]).toEqual(['full', 'standard', false]);
+    expect(roles(p)).toEqual(['specialist:batched:medium', 'red-team:red-team:full', 'adversarial-native:adversarial:full']);
   });
-  test('the scoped pass counts toward the cap: a fix after it gets the read-only full review, and a blocker it leaves stops for the owner', () => {
+  test('the full round 2 counts toward the cap: a fix after it gets the read-only full review, a blocker it leaves stops for the owner, and an old scoped row still counts as a round', () => {
     expect(nextStep(fixed(10, { fullPasses: FULL_PASS_CAP }), 'standard')).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', blockingOpen: true, rangeRuntimeLines: 10 }, 'light').step).toBe('stop');
     const at = (m: number) => new Date(Date.UTC(2026, 9, 28, 10, m)).toISOString();
@@ -769,14 +765,14 @@ describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () =
     expect(s.fix_checks).toBeUndefined();
     expect(s.dispatches).toEqual({ specialist: 1, 'adversarial-native': 2, 'fix-check': 1, 'red-team': 1 });
   });
-  test('nextStep without a depth keeps the full pass (planReview is where depth is known)', () => {
-    expect(nextStep(fixed(10)).step).toBe('full');
-    expect(nextStep(fixed(10), 'full').step).toBe('full');
-    expect(nextStep(fixed(10), 'standard').step).toBe('scoped');
+  test('nextStep never plans a scoped step: without a depth, at full and below full', () => {
+    for (const d of [undefined, 'full', 'standard', 'light'] as const) expect(nextStep(fixed(10), d).step).toBe('full');
+    expect(nextStep(fixed(10), 'standard').rangeReaders).toBe(true);
+    expect(nextStep(fixed(10), 'full').rangeReaders).toBeUndefined();
   });
-  test('REVIEW_PLAN prints the chosen step and its reason', () => {
+  test('REVIEW_PLAN prints the full step and its reason', () => {
     const line = reviewPlanLine(planReview(n19()), 2);
-    expect(line).toMatch(/^REVIEW_PLAN: class=code pass=2 next=scoped dispatches=3 numbers=no fingerprint=none reason="[^"]*24 runtime lines[^"]*"$/);
+    expect(line).toMatch(/^REVIEW_PLAN: class=code pass=2 next=full dispatches=\d+ numbers=no fingerprint=none reason="[^"]*24 runtime lines[^"]*never a scoped pass[^"]*"$/);
     expect(reviewPlanLine(planReview(n19({ history: fixed(151) })), 2)).toContain('reason="a blocking finding was fixed');
   });
   test('DEPTH_RULES changes when the scoped-range constant does', () => {
@@ -793,14 +789,12 @@ describe('D6: the scoped second pass after a blocking fix (GSTA-152 PR B)', () =
       expect(res.stdout.trim()).not.toBe(DEPTH_RULES);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
-  test('consumers name the scoped step: the Step 9 template and the transitions table', () => {
+  test('consumers name the full round 2: the Step 9 template and the transitions table', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'ship/sections/review-army.md.tmpl'), 'utf8');
     expect(tmpl).toContain('--range-base $PASS_HEAD');
-    expect(tmpl).toContain('`scoped` is 3 too.');
-    expect(tmpl).toContain('"scope":"scoped"');
     expect(tmpl).toContain('raised_by');
     const policy = fs.readFileSync(path.join(ROOT, 'docs/review-policy.md'), 'utf8');
-    expect(policy).toContain('| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | scoped pass on the range |');
+    expect(policy).toContain('| a full pass that fixed a blocking finding, below the cap, on a diff below full depth with a fix range of at most 150 runtime lines | full pass on the range (never a scoped pass, GST-3562)');
   });
 });
 

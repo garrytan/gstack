@@ -189,12 +189,13 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     for (const text of [doc, capy]) expect(text).not.toMatch(/\b270 ?s\b|duration_seconds: 240|at most 240 s/);
   });
 
-  // Value: protects=the driver and the Capy skill give diffBase to a full repeat pass only, so a scoped pass reaches GST-619's bases: its pending Step 11 voices read the merge base, not the fix range; fails_when=either text passes RANGE_BASE to every repeat pass again;
-  //   why_new=#3670 merge fix-check (row 454): an explicit --diff-base wins in pass() (GST-619), so the driver's scoped diffBase narrowed the voices; seam=none; no_claim=the parent's adherence
-  test('a scoped repeat pass and the read-only final review pass no diffBase, in the driver and the Capy skill', () => {
+  // Value: protects=the driver and the Capy skill give diffBase to a full repeat pass only, so the read-only final review reads the whole PR, and the driver plans no scoped repeat (every round 2 is full, GST-3562 part 3); fails_when=either text passes RANGE_BASE to every repeat pass again, or the driver names a scoped step again;
+  //   why_new=#3670 merge fix-check (row 454): an explicit --diff-base wins in pass() (GST-619); GST-3562 part 3 retired the scoped pass; seam=none; no_claim=the parent's adherence
+  test('the read-only final review passes no diffBase and no repeat pass is scoped, in the driver and the Capy skill', () => {
     const f = flat(doc);
     const phase = f.slice(f.indexOf('`NEXT: stop` stops;'), f.indexOf('`fix-check` (only'));
-    expect(phase).toContain('(`diffBase` RANGE_BASE on a `full` round 2 only, never on a scoped pass or the `READ_ONLY:` final review, which reads the whole PR and takes no fix)');
+    expect(phase).toContain('(`diffBase` RANGE_BASE on a `full` round 2 only, never on the `READ_ONLY:` final review, which reads the whole PR and takes no fix)');
+    expect(phase).not.toContain('scoped');
     expect(phase).not.toMatch(/`diffBase`: RANGE_BASE;/);
     const capy = flat(read('capy/skill/gstack/SKILL.md'));
     expect(capy).toContain('a full repeat pass, `diffBase: "<RANGE_BASE>"`');
@@ -206,7 +207,7 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
   test('returns stay at or under 32 KB, a fix is one gated program, and unattended push defers the pre-push offer', () => {
     const f = flat(doc);
     for (const s of ['Returns: ≤32 KB per program; split longer reads at headings, each byte once, before first use',
-      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', '(`diffBase` RANGE_BASE on a `full` round 2 only, never on a scoped pass or the `READ_ONLY:` final review',
+      'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', '(`diffBase` RANGE_BASE on a `full` round 2 only, never on the `READ_ONLY:` final review',
       'Unattended, push defers the pre-push offer; else its STOP runs Step 17\'s guard block', 'plus a keep-alive per 200 s waited']) expect(f).toContain(s);
     expect(flat(doc.slice(doc.indexOf('**Budget: observe.**')))).toContain('--reading R --credits C --record <rec>');
   });
