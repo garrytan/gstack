@@ -30,6 +30,8 @@ import { BUN_TEST } from '../test-paths';
 
 export type ProgressAdapter = 'bun';
 export const PROGRESS_ADAPTERS: Record<ProgressAdapter, RegExp> = { bun: BUN_TEST };
+/** Prefixed to every supervised command, so it counts against the argument limits too. */
+export const PIPEFAIL = 'set -o pipefail; ';
 
 export interface Counter { done: number; total: number }
 
@@ -216,7 +218,7 @@ export function supervise(o: SuperviseOptions): Promise<Supervised> {
     let fd: number;
     try { fd = fs.openSync(o.log, 'a'); }
     catch (e: any) { resolve({ outcome: 'spawn-failed', exit: null, signal: null, start, end: start, lastFile: null, observedStart: false, error: e.message, ms: 0 }); return; }
-    const inv = bashCommandInvocation(`set -o pipefail; ${o.command}`);
+    const inv = bashCommandInvocation(`${PIPEFAIL}${o.command}`);
     if (!inv.ok) {
       fs.closeSync(fd);
       resolve({ outcome: 'spawn-failed', exit: null, signal: null, start, end: start, lastFile: null, observedStart: false, error: inv.error, ms: Date.now() - started });

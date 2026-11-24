@@ -4894,11 +4894,14 @@ line really pins the old value, so update the golden.
 the system's limit, so it never ran and no test was counted. Linux caps one
 argument at 128 KiB and a whole command line plus environment at about 2 MiB,
 macOS caps the total at 1 MiB, and Windows caps a command line at 32,767
-characters. The usual trigger is a long file list: thousands of selected test
+characters. Git Bash on Windows keeps only the first 8,186 characters of a
+`bash -c` command, so gstack refuses a longer one with `argument list too long
+for Git Bash` instead of running it cut off (#4773). The usual trigger is a long file list: thousands of selected test
 files put into one argument.
 
 **Fix.** gstack keeps file lists out of single arguments: a local lane splits
-its files into runner processes of about 96 KB each (24 KB on Windows), and
+its files into runner processes of about 96 KB each (under 8,186 characters on
+Windows), and
 the `test_backend` command for the remote gate passes them in a setup script
 (docs/pregate.md#remote-gate). So this cause is a gstack bug: report it with
 the `environment:` line and the lane or command it names. Until it is fixed,

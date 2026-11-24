@@ -26,7 +26,7 @@ import { FILES, RunError, journal as journalRow, now, readDecisions, voiceRows, 
 import { applyCapChoices, pendingDeltas, releaseUndispatched, roundCap, roundOf } from './autoplan-budget';
 import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry';
 import { buildEli5, capyRelayLine } from './captain-brief';
-import { FINDING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
+import { FINDING_ORIGIN, RULING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
 import { lineText } from './autoplan-owner-text';
 import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, heaviestChanges, narrowedQuoteOf, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
 import { phaseClose } from './autoplan-timing';
@@ -256,13 +256,13 @@ export function buildGate(state: RunState, gateRev: number): GateList {
       const twin = twinOf(f.id) ? byId.get(twinOf(f.id)!) as ChallengeRow | undefined : undefined;
       const narrows = narrowedQuoteOf(owner, f) ?? narrowedQuoteOf(owner, twin);
       if (narrows) {
-        const rows = [f, ...(twin && !twin.settled_by && !challenged.has(twin.id) ? [twin] : [])];
+        const rows = [f, ...(twin && !twin.settled_by && !challenged.has(twin.id) && (!twin.narrows_quote || twin.narrows_quote === narrows.n) ? [twin] : [])];
         rows.forEach(r => challenged.add(r.id));
         if (!(narrows.line?.kind === 'ruled_out' && owner.ruled.has(narrows.n))) { narrowed.push(...rows.map(r => ({ ...r, narrows_quote: narrows.n }))); continue; }
         const ids = rows.map(r => r.id);
         push({ id: `d${++d}`, title: `${f.title} [${ids.join(' + ')}]`, kind: 'auto', recommended: 'a', phase, item_class: 'challenge1', ...(heaviestChanges(rows) ? { changes: heaviestChanges(rows) } : {}),
           why: `${rows.map(r => r.voice).join(' + ')} say${rows.length > 1 ? '' : 's'} the plan does less than your words “${narrows.text}”, but ${lineText({ ...narrows, ruling_verified: true })}`,
-          cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`, options: [KEEP('keep your ruling'), { key: 'b', text: 'accept the change', changes_plan: true }] }, ids.join('+'));
+          cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`, options: [KEEP('keep your ruling'), { key: 'b', text: 'accept the change', changes_plan: true }] }, ids.join('+'), RULING_ORIGIN);
         continue;
       }
       if (quoted && (f.changes || f.user_challenge) && !ownerQuoteOf(owner, f)) {

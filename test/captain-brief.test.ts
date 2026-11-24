@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { capyRelayLine, renderCaptainBrief } from '../lib/captain-brief';
+import { capyRelayLine, choiceLabel, renderCaptainBrief } from '../lib/captain-brief';
 import { parseReply, recHash, type GateList } from '../lib/gate-list';
 import { findSection, headings } from '../lib/markdown-sections';
 import { loadBriefInputs } from '../lib/owner-brief';
@@ -247,4 +247,48 @@ describe('carried decisions at a cap gate (#3546)', () => {
     expect(briefText).not.toContain('carried forward');
     expect(briefText).toContain('do it takes the recommendation for each.');
   });
+});
+
+describe('choice labels past Z (#4769)', () => {
+  function wide(n: number): string {
+    const dir = tmp('cb-wide-');
+    const items = [
+      ...Array.from({ length: n - 1 }, (_, k) => ({ id: `d${k + 1}`, title: `Choice ${k + 1}`, kind: 'auto', recommended: 'a', options: [{ key: 'a', text: 'keep your direction' }, { key: 'b', text: 'accept the change', changes_plan: true }] })),
+      { id: 'p1', title: 'Plan approval', kind: 'approval', recommended: 'a', options: [{ key: 'a', text: 'approve as-is' }, { key: 'e', text: 'reject' }] },
+    ];
+    fs.writeFileSync(path.join(dir, 'gate.json'), JSON.stringify({ schema_version: 1, run: 'run-1', gate_rev: 1, rec_rev: 0, items }));
+    fs.writeFileSync(path.join(dir, 'decisions.jsonl'), items.map(i => JSON.stringify({ schema_version: 1, run: 'run-1', id: `run-1-${i.id}`, label: i.id.toUpperCase(), title: i.title, options: i.options.map(x => x.key), recommended: i.recommended, kind: i.kind, gate_rev: 1, status: 'pending' })).join('\n') + '\n');
+    fs.writeFileSync(path.join(dir, 'findings.jsonl'), '');
+    fs.writeFileSync(path.join(dir, 'plan-active.md'), FULL_PLAN);
+    fs.writeFileSync(path.join(dir, 'run.json'), JSON.stringify({ run: 'run-1', status: 'gate_pending', active_plan: path.join(dir, 'plan-active.md') }));
+    return dir;
+  }
+
+  for (const n of [85, 703]) {
+    test(`${n} choices get ${n} distinct printable labels, A to Z then AA, AB…, and each answer token maps back to one choice in any case`, () => {
+      const { text } = brief(wide(n));
+      const asks = text.split('\n').filter(l => l.startsWith('- ') && l.endsWith('1 to take recommendation.'));
+      const labels = asks.map(l => l.slice(2, l.indexOf(':')));
+      expect(labels.length).toBe(n);
+      expect(labels.every(l => /^[A-Z]+$/.test(l))).toBe(true);
+      expect(new Set(labels.map(l => l.toLowerCase())).size).toBe(n);
+      expect(asks.every((l, k) => l.endsWith(`. ${labels[k]}1 to take recommendation.`))).toBe(true);
+      expect([labels[0], labels[25], labels[26], labels[27], labels[51], labels[52], labels[84]]).toEqual(['A', 'Z', 'AA', 'AB', 'AZ', 'BA', 'CG']);
+      if (n === 703) expect([labels[701], labels[702]]).toEqual(['ZZ', 'AAA']);
+      const map = /letters: ([^;]+);/.exec(text.split('\n---\n')[1]!)![1]!.split(' ').map(p => p.split('='));
+      expect(map.length).toBe(2 * n);
+      expect(new Set(map.map(([k]) => k!.toLowerCase())).size).toBe(2 * n);
+      const answer = (reply: string) => map.filter(([key]) => key!.toLowerCase() === reply.toLowerCase()).map(([, v]) => v);
+      labels.forEach((l, k) => {
+        const id = k === n - 1 ? 'p1' : `d${k + 1}`;
+        const second = k === n - 1 ? 'p1e' : `${id}b`;
+        for (const reply of [`${l}1`, `${l.toLowerCase()}1`]) expect(answer(reply)).toEqual([`${id}a`]);
+        for (const reply of [`${l}2`, `${l.toLowerCase()}2`]) expect(answer(reply)).toEqual([second]);
+        expect(choiceLabel(k)).toBe(l);
+      });
+      expect([answer('A1'), answer('AA1'), answer('aa2'), answer('a1')]).toEqual([['d1a'], ['d27a'], ['d27b'], ['d1a']]);
+      expect(parseReply(`rec except ${answer('AA2')[0]}`, brief(wide(n)).gate).choices.find(c => c.id === 'd27')?.chosen).toBe('b');
+      expect(parseReply('do it', brief(wide(n)).gate).mode).toBe('rec');
+    });
+  }
 });

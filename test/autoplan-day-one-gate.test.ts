@@ -523,7 +523,7 @@ describe('first versions: the owner page quotes the owner and letters what it le
     const calendar = (voice: 'native' | 'outside', tagged = true) => row('ceo', voice, { id: `${RUN}-ceo-r2-${voice}-1`, severity: 'High', title: 'Leaving the calendar out does less than the owner asked for', changes: 'scope', resolution: 'add calendar reads', ...(tagged ? { narrows_quote: 3 } : {}) } as Row);
     const run = (name: string, o: { said?: boolean; native?: FindingRow[]; outside?: FindingRow[]; cuts?: string }) => {
       const state = makeRun(name, { plan: plan(CASE5, o.cuts), round2: { native: o.native ?? [], outside: o.outside ?? [] }, round1: false, ui: false });
-      if (o.said) fs.writeFileSync(path.join(state.out, 'attempts.jsonl'), JSON.stringify({ owner_reply: `c3: no. ${RULING}` }) + '\n');
+      if (o.said) fs.writeFileSync(path.join(state.out, 'attempts.jsonl'), JSON.stringify({ ts: '2026-11-12T09:00:12Z', owner_reply: `c3: no. ${RULING}` }) + '\n');
       return state;
     };
     const calendarItems = (list: GateList) => list.items.filter(i => i.title.includes('calendar'));
@@ -537,13 +537,54 @@ describe('first versions: the owner page quotes the owner and letters what it le
 
     test('a ruling dated with a time parses; a short ruling, or one that only repeats the quote, never counts as recorded', () => {
       expect(parseOwnerWords("### Owner's words\n\n- The owner, 2026-11-23 10:04Z: \"add dark mode\" → ruled out 2026-11-24 09:12Z: \"not in the first version\"").quotes[0]).toMatchObject({ text: 'add dark mode', line: { kind: 'ruled_out', date: '2026-11-24 09:12Z', ruling: 'not in the first version' } });
-      const ruledWith = (ruling: string, replies: string[]) => {
+      const ruledWith = (ruling: string, replies: Array<{ text: string; at?: string }>) => {
         const state = makeRun(`ruled-floor-${ruling.replace(/\W+/g, '-')}`, { plan: plan(CASE4 + `\n- The owner, 2026-11-12 09:00Z: "never touch my calendar or my reminders" → ruled out 2026-11-12: "${ruling}"`), round2: { native: [], outside: [] }, round1: false, ui: false });
         return ownerContext(state, replies).ruled;
       };
-      expect(ruledWith('no', ['c1: no, keep the dark mode'])).toEqual(new Set());
-      expect(ruledWith('never touch my calendar', ['never touch my calendar or my reminders'])).toEqual(new Set());
-      expect(ruledWith('leave my calendar alone', ['never touch my calendar or my reminders. actually leave my calendar alone'])).toEqual(new Set([3]));
+      const at = '2026-11-12T09:00:00Z';
+      expect(ruledWith('no', [{ text: 'c1: no, keep the dark mode', at }])).toEqual(new Set());
+      expect(ruledWith('never touch my calendar', [{ text: 'never touch my calendar or my reminders', at }])).toEqual(new Set());
+      expect(ruledWith('leave my calendar alone', [{ text: 'never touch my calendar or my reminders. actually leave my calendar alone', at }])).toEqual(new Set([3]));
+    });
+
+    test('a ruling is checked against the one reply its citation names; no reply, two replies or another day means he is asked', () => {
+      const ruledCiting = (cite: string, replies: Array<{ text: string; at?: string; id?: string }>) => {
+        const state = makeRun(`ruled-cite-${cite.replace(/\W+/g, '-')}-${replies.length}`, { plan: plan(CASE4 + `\n- The owner, 2026-11-12 09:00Z: "never touch my calendar" → ruled out ${cite}: "${RULING}"`), round2: { native: [], outside: [] }, round1: false, ui: false });
+        return ownerContext(state, replies).ruled;
+      };
+      const said = { text: `c3: no. ${RULING}`, at: '2026-11-12T09:00:12Z', id: 'run-g1-d3' };
+      const other = { text: 'c1: yes, build the contacts', at: '2026-11-12T16:30:00Z', id: 'run-g1-d1' };
+      expect(ruledCiting('2026-11-12', [said])).toEqual(new Set([3]));
+      expect(ruledCiting('2026-11-12', [said, other])).toEqual(new Set());
+      expect(ruledCiting('2026-11-12 09:00Z', [said, other])).toEqual(new Set([3]));
+      expect(ruledCiting('run-g1-d3', [said, other])).toEqual(new Set([3]));
+      expect(ruledCiting('run-g1-d1', [said, other])).toEqual(new Set());
+      expect(ruledCiting('2026-11-13', [said])).toEqual(new Set());
+      expect(ruledCiting('2026-11-12', [{ text: said.text }])).toEqual(new Set());
+      const copies = [{ ...said, id: 'run-g1-p1' }, { ...said, id: 'run-g1-c3' }, { text: said.text, at: '2026-11-12T09:00:12.004Z' }, { text: said.text, at: said.at, id: 'appr-1' }];
+      expect(ruledCiting('2026-11-12', copies)).toEqual(new Set([3]));
+      expect(ruledCiting('2026-11-12 09:00Z', copies)).toEqual(new Set([3]));
+      expect(ruledCiting('2026-11-12', [...copies, other])).toEqual(new Set());
+    });
+
+    test('paired findings that name different quotes each reach their own item', () => {
+      const onDoesIt = row('ceo', 'outside', { id: `${RUN}-ceo-r2-outside-1`, severity: 'High', title: 'Leaving the calendar out does less than the owner asked for', changes: 'scope', resolution: 'add calendar reads', narrows_quote: 1 } as Row);
+      const list = buildGate(run('ruled-twin-apart', { said: true, native: [calendar('native')], outside: [onDoesIt] }), 1);
+      expect(calendarItems(list).filter(i => i.item_class === 'challenge1').map(i => i.origin!.split('|')[1])).toEqual([`${RUN}-ceo-r2-native-1`]);
+      const twoWay = byClass(list, 'owner_choice').find(i => i.title.includes('two-way'))!;
+      expect(twoWay.origin!.split('|')[1]!.split('+')).toEqual(['quote:1', `${RUN}-ceo-r2-outside-1`]);
+      expect(twoWay.recommended).toBe('a');
+    });
+
+    test('keeping a recorded ruling leaves no build task for the fix it turned down; accepting the change keeps the task', () => {
+      for (const chosen of ['a', 'b'] as const) {
+        const state = run(`ruled-task-${chosen}`, { said: true, native: [calendar('native')] });
+        const item = calendarItems(buildGate(state, 1))[0]!;
+        expect(item.origin!.endsWith('|ruling')).toBe(true);
+        writeDecisions(state.out, [{ schema_version: 1, run: RUN, id: `${RUN}-g1-${item.id}`, gate_rev: 1, label: item.id.toUpperCase(), title: item.title, status: 'overridden', chosen, origin: item.origin } as any]);
+        const tasks = buildTasks(state, [calendar('native')]);
+        expect(tasks.map(t => t.findings), chosen).toEqual(chosen === 'a' ? [] : [[`${RUN}-ceo-r2-native-1`]]);
+      }
     });
 
     test('a recorded ruling beats a High finding: one item recommending the ruling, never a build-it choice or a proposal', () => {

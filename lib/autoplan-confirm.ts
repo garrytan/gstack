@@ -131,6 +131,9 @@ export function openEarlier(state: RunState, phase: string, current: FindingRow[
 /** The origin tag of an open Critical/High finding's gate item: only `a` (its fix applied to the plan) settles it. */
 export const FINDING_ORIGIN = 'finding';
 
+/** The origin tag of a recorded owner ruling's keep item: its `a` turns the reviewer's fix down, so the build gets no task for it. */
+export const RULING_ORIGIN = 'ruling';
+
 /**
  * Earlier finding id -> the answered decision whose gate item named it. A finding carried into the build stays open,
  * and `findings: false` also leaves an applied one open, so a confirm round re-raising it is never suppressed.

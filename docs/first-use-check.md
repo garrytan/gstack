@@ -16,7 +16,7 @@ A plan is a first version when it has a `Day one` section or the run passes `--f
 
 - Ada Example, 2026-11-18 09:12Z: "I keep forgetting which plant needs water" → does it
 - Ada Example, 2026-11-18 09:14Z: "and tell my partner when I'm away" → choice; size: two days; leave out: needs a second account
-- Ada Example, 2026-11-18 09:20Z: "and maybe post my streak" → ruled out 2026-11-18: "no posting anywhere, ever"
+- Ada Example, 2026-11-18 09:20Z: "and maybe post my streak" → ruled out 2026-11-18 09:31Z: "no posting anywhere, ever"
 ```
 
 Each bullet is who, when, the words in quotes, then an arrow (`→` or `->`) and the line:
@@ -25,7 +25,7 @@ Each bullet is who, when, the words in quotes, then an arrow (`→` or `->`) and
 |---|---|---|
 | `does it` | this version does what the words ask | a reviewer who finds it does less files a `narrows_quote` finding, and the gate asks |
 | `choice` | this version doesn't fully do it yet | one lettered choice quoting the words: a) build it in this version, b) leave it out. It recommends a, unless the line says `leave out: <reason>`, shown on the choice. `size: <n>` is shown as the cost |
-| `ruled out <date>: "<ruling>"` | the owner ruled it out himself | when one of his recorded replies holds the ruling, it beats a reviewer: a finding that says the plan falls short of these words becomes one item recommending his ruling, and a cut of them stays a cut. When no recorded reply holds it, the gate asks him once, with the ruling and any finding side by side and the ruling recommended |
+| `ruled out <date>: "<ruling>"` | the owner ruled it out himself | `<date>` names the one recorded reply the ruling came from: its record id, its time (`2026-11-18 09:20Z`), or just its day when he sent only one reply that day. When that one reply holds the ruling, it beats a reviewer. A finding that says the plan falls short of these words becomes one item recommending his ruling, a cut of them stays a cut, and keeping the ruling leaves no build task for the fix he turned down. When the citation names no reply or more than one, or the reply it names doesn't hold the ruling, the gate asks him once, with the ruling and any finding side by side and the ruling recommended |
 
 A public export (`gstack-autoplan export --public`) drops the owner's words: every quote and every ruling, however short, wherever it appears in quote marks, and every `leave out:` reason, wherever the gate shows it. A quote of three or more words is also caught where it is repeated without quote marks.
 

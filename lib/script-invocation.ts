@@ -213,9 +213,18 @@ export function scriptInvocation(script: string, args: readonly string[], o: Inv
   return bash.ok ? { ok: true, cmd: bash.bash, argv: [slash(script), ...args] } : bash;
 }
 
-/** How to run `bash -c <command>` on this platform. */
+/**
+ * Characters of one argument that Git Bash keeps when a Windows program starts it: the Cygwin/MSYS runtime silently drops
+ * the rest of an argument with spaces (#4773; reported on Git for Windows 2.53, bash 5.2.37).
+ */
+export const WINDOWS_BASH_ARG_MAX = 8186;
+
+/** How to run `bash -c <command>` on this platform. On Windows a command Git Bash would cut off is refused, never run. */
 export function bashCommandInvocation(command: string, o: InvocationOptions = {}): Invocation {
   if ((o.platform ?? process.platform) !== 'win32') return { ok: true, cmd: 'bash', argv: ['-c', command] };
+  if (command.length > WINDOWS_BASH_ARG_MAX) {
+    return { ok: false, error: `argument list too long for Git Bash: the bash -c command is ${command.length.toLocaleString('en-US')} characters and Git Bash on Windows keeps only the first ${WINDOWS_BASH_ARG_MAX.toLocaleString('en-US')}, so it was not started rather than run cut off (#4773)` };
+  }
   const bash = windowsBash(o);
   return bash.ok ? { ok: true, cmd: bash.bash, argv: ['-c', command] } : bash;
 }
