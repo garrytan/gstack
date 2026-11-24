@@ -1,5 +1,17 @@
 {
-  "released": true,
-  "by": "cox.local:1623",
-  "at": "2026-11-24T06:02:26.662Z"
+  "pr": "4780",
+  "holder": "cox.local:1654",
+  "started_at": "2026-11-24T06:15:36.781Z",
+  "phase": "merging",
+  "journal": "land-pin:782b6b2c4d670dcf19aa1a6a8de8ad4941edb766",
+  "phase_at": "2026-11-24T06:15:36.782Z",
+  "proc": {
+    "boot": "f19de07e-d59c-46b6-9ec4-bfe1dacb85b8",
+    "pidns": "pid:[4026531836]",
+    "pid": 1654,
+    "pgid": 1614,
+    "start": 1520,
+    "mark": "4e74886b-d538-41c5-bee2-c2fde83c2929"
+  },
+  "expires_at": "2026-11-24T07:45:36.782Z"
 }
