@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.103.2.0] - 2026-11-24
+
+**make-pdf no longer lets a NUL character hide an `onerror` handler, a `javascript:` link or a `<script>` tag from its sanitizer.** The typography pass drops U+0000 after the sanitizer has run, so `on\u0000error=` became a live `onerror` in the print browser; the sanitizer now drops NUL first. Removing a handler could also join the two halves of a tag name, so `<scr onx="a"ipt>` came out as a live `<script>`; the sanitizer now repeats until its output stops changing. Removing a handler or a `javascript:` link also keeps the page's structure. Handler-looking text inside a quoted attribute no longer deletes the elements after it, and a `javascript:` value loses only its scheme instead of gaining quotes, and the scheme is also caught after leading spaces or with its colon written as an entity.
+
+**After a blocking fix, /ship's second review round is always a full review whose every reader is recorded with the pass, instead of a narrower re-check whose result could go missing.**
+
+**/ship's instructions now match how it reviews code.** A code change after the first review round gets a full second round, and a pull request past its two rounds whose code changed gets one read-only full review of its final head; the old narrow re-checks and the grants that bought them are marked deprecated and go away next release. Unattended /ship skips the test-coverage and plan-completion readers and the scope, exploratory-QA, TODOS, metrics and nudge steps, none of which caught anything in recorded runs. The documentation audit edits only README.md, docs/ and bench/README.md, a new /ship run on a pull request past its review rounds no longer lets that last review apply fixes, and the starter `.gstack/pregate.json` that gstack prints now links to its documentation on GitHub.
+
+### For contributors
+
+- **A weekly benchmark record can no longer slip text into the release job's log through its error messages, or lose a model row to an odd model name.** When the release tool can't read a record, the reason it prints is now stripped of control characters too, and model names that collide once cleaned make the record unreadable instead of silently dropping a row.
+
+### For contributors
+
+- **Every stable release plan now prints the weekly benchmark's result, so you can see whether this week's gstack measurably fixes more or fewer bugs than the current stable release.** The release tool reads the weekly record gstack-evals publishes, and a measured drop will hold the regular cut once holding is switched on after two weekly records. Security, data-loss and regression fixes still ship. A hand-run cut can pass a hold with the new `benchmark_waiver` input. See docs/releases.md#weekly-benchmark.
+
 ## [1.103.1.0] - 2026-11-24
 
 **`/ship` now tells you what to change when GitHub refuses a push for email privacy.** A push GitHub declines with GH007 (a commit carries an email address your account keeps private) used to be reported as a non-fast-forward, sending you into a pointless merge and a rerun of the release steps. It now says to set `user.email` to your GitHub noreply address and rewrite the commits, and any other refusal from the remote, such as a protected branch, is quoted (through the secret scanner) instead of read as a merge problem. (#4738) Reported by @raymondllee
