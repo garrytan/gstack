@@ -1,17 +1,5 @@
 {
-  "pr": "4793",
-  "holder": "cox.local:10566",
-  "started_at": "2026-11-24T18:25:57.191Z",
-  "phase": "merging",
-  "journal": "land-pin:dda1df651f7c115ebcdbd70d8c45b3ff921da7c9",
-  "phase_at": "2026-11-24T18:45:24.881Z",
-  "proc": {
-    "boot": "60fe889b-198b-4fb1-bd3c-9596691b9c19",
-    "pidns": "pid:[4026531836]",
-    "pid": 10566,
-    "pgid": 10492,
-    "start": 73919,
-    "mark": "a1423e2e-1cf9-4f1c-ac7a-16ee5ed3a3e0"
-  },
-  "expires_at": "2026-11-24T20:15:24.881Z"
+  "released": true,
+  "by": "cox.local:10566",
+  "at": "2026-11-24T18:45:44.315Z"
 }
