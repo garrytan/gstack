@@ -651,7 +651,7 @@ if [ "$_PROACTIVE_PROMPTED" = "no" ] && [ "$_TEL_PROMPTED" = "yes" ]; then
   _emit_block proactive-prompt <<EOI
 Ask once:
 
-> Let gstack proactively suggest skills? By default it suggests only the four core ones: /office-hours for a new idea, /review for a diff, /qa for "does this work?", /ship to land it.
+> Let gstack proactively suggest skills? By default it suggests only the four core ones: /office-hours for a new idea, /review for a diff, /qa for "does this work?", /gstack-ship to land it.
 
 Options: A) Keep the core four (recommended)  B) Suggest every matching skill  C) Turn it off — I'll type /commands myself
 If A: \`$_BIN/gstack-config set proactive core\`. If B: \`$_BIN/gstack-config set proactive all\`. If C: \`$_BIN/gstack-config set proactive off\`.
@@ -666,7 +666,7 @@ if [ "$_ACTIVATED" = "no" ]; then
   case "$_FIRST_TASK" in
     greenfield) _FT_TIP="Fresh repo — shape it first with \`/office-hours\`." ;;
     code_node|code_python|code_rust|code_go|code_ruby|code_ios) _FT_TIP="There's code here — \`/qa\` to see it work, or \`/review\` on your latest diff." ;;
-    branch_ahead) _FT_TIP="Unshipped work on this branch — \`/review\` then \`/ship\`." ;;
+    branch_ahead) _FT_TIP="Unshipped work on this branch — \`/review\` then \`/gstack-ship\`." ;;
     dirty_default) _FT_TIP="Uncommitted changes — \`/review\` before committing." ;;
     clean_default) _FT_TIP="Pick one: \`/office-hours\`, \`/qa\`, or \`/review\`." ;;
   esac
@@ -682,7 +682,7 @@ EOI
 elif [ "$_FIRST_LOOP_SHOWN" = "no" ]; then
   if [ "$_PROACTIVE_OFF" = "no" ]; then
     _emit_block first-loop-tip <<EOI
-Say once as a heads-up (then continue): Tip: gstack pays off when you complete one loop — **plan → review → ship**. A common first loop: \`/office-hours\` to shape it, \`/review\` to check it, then \`/ship\`.
+Say once as a heads-up (then continue): Tip: gstack pays off when you complete one loop — **plan → review → ship**. A common first loop: \`/office-hours\` to shape it, \`/review\` to check it, then \`/gstack-ship\`.
 EOI
     touch "$_GH/.first-loop-tip-shown" 2>/dev/null || true
   fi
@@ -718,7 +718,7 @@ if [ "$_SESSION_KIND" = "unattended" ]; then
   case "$SKILL_NAME" in
     autoplan)  _UA_RECORD="This skill writes a run directory through gstack-autoplan (plan.md, review-record.md, tasks.jsonl, decisions.jsonl, findings.jsonl, timing.json, run.json, gate.json): append each recommended choice to decisions.jsonl with kind \"auto\" and each pending one with kind \"approval\" and status \"pending\". The final approval gate is written as a gate list (gstack-gate render) and this run ENDS there with \`GSTACK_RESULT: skill=autoplan status=gate_pending run=<dir>\`. The one exception: when the owner's own reply to that gate is relayed to you, record it with \`gstack-autoplan answer --by agent:<id> --owner-reply-file <file>\` as sections/unattended.md says, never on your own judgment and never handed back to the owner to run." ;;
     eval-plan) _UA_RECORD="This run ENDS at the Step 4 spend approval, left pending, with \`GSTACK_RESULT: skill=eval-plan status=gate_pending run=<outdir>\`, where <outdir> is the pilot's --out directory. No helper writes a gate.json for this skill yet, so the parent reads the pilot report and spend ledger in <outdir>." ;;
-    ship)      _UA_RECORD="This skill ends with \`gstack-ship-receipt result\` (Step 22), which writes <state root>/ship/runs/<utc>-<head12>/ship-run.json (a /ship record, not a run manifest) and prints \`GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>\`; a run that stops earlier prints \`GSTACK_RESULT: skill=ship status=refused run=-\` itself. The one publication allowed here: when an open PR for this branch exists and HEAD is its pushed head, update that PR's body and title with the receipt through the pr-body section's existing-PR path (never pr-create, never a push, and never \`gh pr ready\`: the draft-state items there concern an early PR this run never opened); otherwise the handoff section writes the receipt to .gstack/tmp/ship-receipt.md and the parent reads it there." ;;
+    ship)      _UA_RECORD="This skill ends with \`gstack-ship-receipt result\` (Step 22), which writes <state root>/ship/runs/<utc>-<head12>/ship-run.json (a /gstack-ship record, not a run manifest) and prints \`GSTACK_RESULT: skill=ship status=complete head=<sha> run=<dir>\`; a run that stops earlier prints \`GSTACK_RESULT: skill=ship status=refused run=-\` itself. The one publication allowed here: when an open PR for this branch exists and HEAD is its pushed head, update that PR's body and title with the receipt through the pr-body section's existing-PR path (never pr-create, never a push, and never \`gh pr ready\`: the draft-state items there concern an early PR this run never opened); otherwise the handoff section writes the receipt to .gstack/tmp/ship-receipt.md and the parent reads it there." ;;
     review)    _UA_RECORD="$_UA_NONE The parent reads the review-log rows (\`gstack-review-read\`)." ;;
     qa)        _UA_RECORD="$_UA_NONE The parent reads the \`qa-report-*.md\` file." ;;
     *)         _UA_RECORD="$_UA_NONE The parent reads this skill's own record (docs/unattended.md)." ;;
@@ -735,7 +735,7 @@ fi
 # live in its rules, never here.
 if [ "$_CAPY" = "on" ] && [ "${GSTACK_CAPY_ASKS:-}" != "0" ]; then
   _emit_block capy-asks <<EOI
-You run under Capy. Every decision this workflow cannot take itself (a pending gate item, a consent, an unrecommended question, a plan approval) goes through Capy's messaging, never as a bare question or gate codes: in a crew thread, a needs-you report to your Captain; with no Captain, a Capy question to the person. Write it in plain language: what it is, why it matters, what each answer does and costs, your pick, and the one-word reply. A plan approval is rendered with \`gstack-owner-brief render --captain --out <run dir>\` (before -> after, why it matters, what caused this work, big decisions, what we need) and relayed whole; fix the plan first if it exits CAPTAIN_BRIEF_INCOMPLETE. Record every answer with the person's exact words: \`gstack-approvals add\` (or \`gstack-approvals import --autoplan <run dir>\` after an autoplan answer). Cite standing approvals your Captain lists instead of asking again; always ask fresh for a product or behaviour decision, spend over a stated cap, anything published outside the repository, a threshold, budget or trial-count change, closing someone's contribution without landing it, and anything destructive. A pull request opened by /ship follows its Capy section (What changed with before/after images, Why, Approvals). The launch environment reaches a command, your own or a child's, through \`. <the GSTACK_LAUNCH_FILE the installer printed>\` in the shell that runs it; never \`export \$(...)\`, \`env\`, \`printenv\` or a bare \`set\` in a tool fence: a bare \`export\` prints every variable, credentials included. Guide: capy/skill/gstack/captain.md in the gstack checkout.
+You run under Capy. Every decision this workflow cannot take itself (a pending gate item, a consent, an unrecommended question, a plan approval) goes through Capy's messaging, never as a bare question or gate codes: in a crew thread, a needs-you report to your Captain; with no Captain, a Capy question to the person. Write it in plain language: what it is, why it matters, what each answer does and costs, your pick, and the one-word reply. A plan approval is rendered with \`gstack-owner-brief render --captain --out <run dir>\` (before -> after, why it matters, what caused this work, big decisions, what we need) and relayed whole; fix the plan first if it exits CAPTAIN_BRIEF_INCOMPLETE. Record every answer with the person's exact words: \`gstack-approvals add\` (or \`gstack-approvals import --autoplan <run dir>\` after an autoplan answer). Cite standing approvals your Captain lists instead of asking again; always ask fresh for a product or behaviour decision, spend over a stated cap, anything published outside the repository, a threshold, budget or trial-count change, closing someone's contribution without landing it, and anything destructive. A pull request opened by /gstack-ship follows its Capy section (What changed with before/after images, Why, Approvals). The launch environment reaches a command, your own or a child's, through \`. <the GSTACK_LAUNCH_FILE the installer printed>\` in the shell that runs it; never \`export \$(...)\`, \`env\`, \`printenv\` or a bare \`set\` in a tool fence: a bare \`export\` prints every variable, credentials included. Guide: capy/skill/gstack/captain.md in the gstack checkout.
 EOI
 fi
 
@@ -746,7 +746,7 @@ fi
 # actually says "auto-choose".
 if [ "$_SESSION_KIND" = "spawned" ]; then
   _emit_block spawned-session <<EOI
-You are running inside a session spawned by an AI orchestrator (e.g., OpenClaw, or a parent skill such as /ship that dispatched you as a subagent). In spawned sessions: do NOT use AskUserQuestion for interactive prompts — auto-choose the recommended option (exception: never auto-choose a destructive or irreversible option such as delete, force-push, or overwrite, and never grant a consent or choose an option that publishes or syncs data off this machine — take the conservative non-destructive (local) choice and record it in the completion report); do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro (skip any such instruction blocks above); focus on completing the task and reporting results via prose output; end with a completion report: what shipped, decisions made, anything uncertain.
+You are running inside a session spawned by an AI orchestrator (e.g., OpenClaw, or a parent skill such as /gstack-ship that dispatched you as a subagent). In spawned sessions: do NOT use AskUserQuestion for interactive prompts — auto-choose the recommended option (exception: never auto-choose a destructive or irreversible option such as delete, force-push, or overwrite, and never grant a consent or choose an option that publishes or syncs data off this machine — take the conservative non-destructive (local) choice and record it in the completion report); do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro (skip any such instruction blocks above); focus on completing the task and reporting results via prose output; end with a completion report: what shipped, decisions made, anything uncertain.
 EOI
 fi
 

@@ -420,7 +420,9 @@ for skill_dir in "$INSTALL_DIR"/*/; do
       continue ;;
   esac
 
-  if [ "$PREFIX" = "true" ]; then
+  # An always-prefixed skill (ship, #4775) takes the prefixed name in both
+  # modes, and its old plain entry goes like any prefixed skill's.
+  if [ "$PREFIX" = "true" ] || case " ${GSTACK_PREFIXED_SKILLS:-} " in *" $skill "*) true ;; *) false ;; esac; then
     # Don't double-prefix directories already named gstack-*
     case "$skill" in
       gstack-*) link_name="$skill" ;;

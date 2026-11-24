@@ -87,7 +87,7 @@ A/B tested: 2x time, meaningfully better output.
 1. Read CLAUDE.md and understand the project
 2. Run /autoplan (CEO + eng + design review)
 3. Implement the approved plan
-4. Run /ship to create a PR
+4. Run /gstack-ship to create a PR
 5. Report back with PR URL and decisions
 
 ### gstack-plan (Plan tier)
@@ -146,7 +146,7 @@ the same command line:
 GSTACK_SESSION_KIND=spawned "$_SS" --skill "document-release" ...
 ```
 
-gstack itself uses this: `/ship` Step 14.5 dispatches the `/document-release`
+gstack itself uses this: `/gstack-ship` Step 14.5 dispatches the `/document-release`
 subagent with this prefix before final commit, verification and publication.
 Its ship-owned scope overrides generic spawned auto-choice: risky or uncertain
 documentation changes return as blockers for the parent, without interactive

@@ -359,6 +359,13 @@ GSTACK_RETIRED_SKILLS="investigate verify"
 # RENAMED_SKILLS in scripts/discover-skills.ts.
 GSTACK_RENAMED_SKILLS="verify:build-check"
 
+# GSTACK_PREFIXED_SKILLS — skills that install as gstack-<folder> in both
+# prefix modes, because a host keeps the plain name for a built-in: Claude
+# Code's own /ship hides a user skill named ship (#4775). The folder, the
+# internal id and disabled_skills keep the plain name. Same list as
+# PREFIXED_SKILLS in scripts/discover-skills.ts.
+GSTACK_PREFIXED_SKILLS="ship"
+
 # gstack_disabled_config VALUE — gstack_disabled_normalize for the user's own
 # disabled_skills value, with each renamed skill mapped to its new name. Only
 # the config value is mapped: the retired list keeps its old names.

@@ -36,7 +36,7 @@ describe('/captain skill', () => {
     const ready = read('captain/templates/READY.md');
     expect(ready).toMatch(/^review passes: .*\nUnverified: <none \| [^>]+>\nHead frozen from now on;/m);
     const readyFlat = ready.replace(/\s+/g, ' ');
-    for (const s of ['a review finding set aside on an assumption nobody tested', 'it never holds a PR out of a train, does not stale READYs sent before the line existed, and needs no new `ready` or /ship run']) {
+    for (const s of ['a review finding set aside on an assumption nobody tested', 'it never holds a PR out of a train, does not stale READYs sent before the line existed, and needs no new `ready` or /gstack-ship run']) {
       expect(readyFlat, s).toContain(s);
     }
     expect(read('captain/templates/report.md')).toMatch(/## Outcome\n\n<[^>]+>\n\nUnverified: <none \| [^>]+>\n\n## PR\n/);
@@ -148,7 +148,9 @@ describe('/captain skill', () => {
     // crews on their own (crew habit H5).
     // 7,300 for the first-version line (Garry's "do it" of 2026-11-23 on GST-3608: no crew ran gstack-first-use because nothing a
     // lane reads pointed at it).
-    expect(Buffer.byteLength(card)).toBeLessThanOrEqual(7300);
+    // 7,317 for /ship's new name, /gstack-ship (Garry's "do it" of 2026-11-24 on GST-3654: Claude Code keeps the name ship for
+    // its own built-in, #4775).
+    expect(Buffer.byteLength(card)).toBeLessThanOrEqual(7317);
     const doc = read('crew/docs/captain.md').replace(/\s+/g, ' ');
     for (const s of ['`duration_seconds: 240`', 'stops re-issuing the timer', 'The controller never warm-waits', '4k characters or less', 'twice the crew\'s median lane spend', '`handoffs/<code>/next.md`']) expect(doc, s).toContain(s);
     expect(read('captain/templates/brief.md')).toMatch(/^Read: <[^>]+>$/m);

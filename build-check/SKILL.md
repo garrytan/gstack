@@ -2,7 +2,7 @@
 name: build-check
 preamble-tier: 1
 version: 0.1.0
-description: "Use when coding: run the checks and tests /ship picks until green. Use for: run the checks, make the tests pass, make it green. (gstack)"
+description: "Use when coding: run the checks and tests /gstack-ship picks until green. Use for: run the checks, make the tests pass, make it green. (gstack)"
 triggers:
   - run the checks
   - make the tests pass
@@ -76,7 +76,7 @@ Host and system plan-mode restrictions and the user's current scope take precede
 
 If the user invokes a skill in plan mode, run its workflow within the host's plan-mode limits. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; any AskUserQuestion the skill fires is the workflow operating within plan mode, not a violation of it — and a skill whose instructions resolve a question themselves (e.g. a plan-mode auto-select) may legitimately not ask it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" run only where the host permits them. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
-If `PROACTIVE` is `off`: suggest no skills unasked, nor ask. `core`: only /office-hours, /review, /qa, /ship. `all`: any. Skills the user names or this one invokes run.
+If `PROACTIVE` is `off`: suggest no skills unasked, nor ask. `core`: only /office-hours, /review, /qa, /gstack-ship. `all`: any. Skills the user names or this one invokes run.
 
 If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/gstack/[skill-name]/SKILL.md`.
 
@@ -96,7 +96,7 @@ exactly as instructed.
 
 The following nudges are tuned for the claude model family. They are
 **subordinate** to skill workflow, STOP points, AskUserQuestion gates, plan-mode
-safety, and /ship review gates. If a nudge below conflicts with skill instructions,
+safety, and /gstack-ship review gates. If a nudge below conflicts with skill instructions,
 the skill wins. Treat these as preferences, not rules.
 
 **Todo-list discipline.** When working through a multi-step plan, mark each task
@@ -176,12 +176,12 @@ claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No co
 
 ## Plan Status Footer
 
-Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/gstack-ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 # /build-check — build, check, fix, repeat
 
-Use this while building, before /ship. It runs checks and fixes code. It never
-reviews, bumps a version, pushes, or opens a PR: that is /ship. A changelog entry
+Use this while building, before /gstack-ship. It runs checks and fixes code. It never
+reviews, bumps a version, pushes, or opens a PR: that is /gstack-ship. A changelog entry
 the repo expects with a change is part of the change.
 
 ## 1. See what will run
@@ -219,7 +219,7 @@ and a log path. Exit 0 is green; only `PASS` is green.
 - `UNMAPPED`: no test covers a touched file. Add a test that does, or map it in
   `.gstack/pregate.json`. `ZERO_RUN`: the selected tests ran nothing; fix the
   selector or the test file. `TOO_BROAD`: the change selects over 300 test
-  files; leave them to /ship's pregate and say so.
+  files; leave them to /gstack-ship's pregate and say so.
 - `ENV` or `TIMEOUT` (exit 2): a missing tool, service, secret or network.
   Report it with the log line; do not fix the environment or work around it.
   A `FAIL` whose own error says a service, secret or env var is missing is
@@ -242,5 +242,5 @@ C="$HOME/.claude/skills/gstack/bin/gstack-checks"; "$C" status
 
 `status` reruns nothing. Only `READY_FOR_SHIP tree=<tree> ... not_covered=<lanes>`
 (exit 0) means green at this exact tree. Print that line, name any
-`not_covered` lanes (platform tests /ship's pregate owns), and stop with
-"ready for /ship". `NOT_READY` means run again; never claim green from it.
+`not_covered` lanes (platform tests /gstack-ship's pregate owns), and stop with
+"ready for /gstack-ship". `NOT_READY` means run again; never claim green from it.

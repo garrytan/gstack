@@ -1,6 +1,6 @@
 # Lane start card
 
-For a crew lane (a thread working for a Captain). Read this once `gstack: ok <revision> for=<skill>` is in hand from this machine's install check, instead of the rest of [SKILL.md](SKILL.md). It keeps what a lane needs between the check and /ship. Before you run /ship, read SKILL.md § "Unattended runs for a parent agent" and § "Plan, approve, ship". For anything else (an upgrade that fails, driving /autoplan, loading another workflow, maintenance), read the matching SKILL.md section.
+For a crew lane (a thread working for a Captain). Read this once `gstack: ok <revision> for=<skill>` is in hand from this machine's install check, instead of the rest of [SKILL.md](SKILL.md). It keeps what a lane needs between the check and /gstack-ship. Before you run /gstack-ship, read SKILL.md § "Unattended runs for a parent agent" and § "Plan, approve, ship". For anything else (an upgrade that fails, driving /autoplan, loading another workflow, maintenance), read the matching SKILL.md section.
 
 ## After the check
 
@@ -16,8 +16,8 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 
 - New functionality gets a lean `/autoplan` (`--kind feature`) right after the check. Bug fixes skip plan review (`--kind fix`) but carry a repro on current main or a failing test written first. Exempt: read-only work, the daily flaky pass's repairs, slot stamps, CHANGELOG-only resolves, cap re-pins under a written grant, S1 emergencies and fixes from an already-diagnosed, audited problem list.
 - Send the gate to the Captain as `gstack-owner-brief render --captain --out <run dir>`, whole. Build only after the owner's word is answered into the run and it reports `APPROVED`, then `gstack-approvals import --autoplan <run dir> --by "<owner>"`.
-- /ship runs at the final pushed head before any READY; `SHIP_RECEIPT: pr=<n> head=<head>` names that head, and a later push needs a new /ship.
-- Run /ship in this thread (`ship/DRIVER.md`), with its reviewers as your subagents, never in a subagent of its own. After the receipt, read the PR's checks and comments once and run `gstack-ship-queue ready`.
+- /gstack-ship runs at the final pushed head before any READY; `SHIP_RECEIPT: pr=<n> head=<head>` names that head, and a later push needs a new /gstack-ship.
+- Run /gstack-ship in this thread (`ship/DRIVER.md`), with its reviewers as your subagents, never in a subagent of its own. After the receipt, read the PR's checks and comments once and run `gstack-ship-queue ready`.
 - Never merge. The controller merges on a recorded standing approval.
 - A first version (an app, a Mac helper, a new route on the owner's box): the plan quotes the owner's messages under `### Owner's words` with a line each, and the build clears `gstack-first-use` (`docs/first-use-check.md`) before any ask to try it or "v1 is ready" report.
 - UI work (recommended, never a READY prerequisite): once the change renders, run `install.sh --check --for design-review` and `gstack-browser-ensure`, launch with the printed `GSTACK_LAUNCH` line, then `/design-review --build <preview url>`, and paste its one `DESIGN_BUILD:` line in READY. A start that prints `GSTACK_RESULT: skill=design-review status=refused` is `DESIGN_BUILD: unrendered code=INSTALL` (`gstack-design-build admit <saved start output>` prints it). `incomplete` does not count as having run it.
@@ -32,10 +32,10 @@ For a crew lane (a thread working for a Captain). Read this once `gstack: ok <re
 
 - Batch independent reads in one parallel program. Return 4k characters or less per call; write long output to a file under `~/.capy/work` and read the part you need.
 - Never write a file back from a read that came back cut off: a file-read tool can return only the start of a long file, or cut long lines, without saying so. Edit in place (the exact-string edit tool, `sed` or a script) and compare `wc -l` and the last lines before and after; an unplanned shrink is a blocker.
-- A wait you expect to last under about 30 minutes checks in every 240 s: `wait` on the operation with `duration_seconds: 240`, then re-issue it silently on a wake that brings nothing new. After about 30 minutes, or past the expected end, stop re-issuing and sleep on the operation or pull request watch. A longer wait sleeps on its operations. While /ship runs, follow the waits in `ship/DRIVER.md`.
+- A wait you expect to last under about 30 minutes checks in every 240 s: `wait` on the operation with `duration_seconds: 240`, then re-issue it silently on a wake that brings nothing new. After about 30 minutes, or past the expected end, stop re-issuing and sleep on the operation or pull request watch. A longer wait sleeps on its operations. While /gstack-ship runs, follow the waits in `ship/DRIVER.md`.
 - Past twice the crew's median lane spend, write `handoffs/<code>/next.md` and tell the Captain in one line; it decides whether you continue, rotate or park.
 - Keep your PR until it merges or closes; never hand off mid-PR on a token count. Past 500M own tokens, check in with the Captain once, then carry on unless told otherwise. Capy's token counts read about half what they did before 2026-11-15, so every token line here is half its old figure.
-- Start a subagent only for parallel work whose context can be thrown away, a fresh-eyes review or a model from another family, never to run a step of your own procedure. Its brief names the compact result it returns (a verdict line, a file path, a short list), and nothing else comes back. /ship runs in your thread; only its reviewers are subagents. Stop and look at any subagent past 50M tokens.
+- Start a subagent only for parallel work whose context can be thrown away, a fresh-eyes review or a model from another family, never to run a step of your own procedure. Its brief names the compact result it returns (a verdict line, a file path, a short list), and nothing else comes back. /gstack-ship runs in your thread; only its reviewers are subagents. Stop and look at any subagent past 50M tokens.
 
 ## Before a push
 

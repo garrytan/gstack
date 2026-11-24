@@ -3,7 +3,7 @@
 People outside a project read its pull requests, its commit log and its release
 notes to decide whether the project is worth using. So everything gstack writes
 there, and everything you write there with gstack, follows the same few rules.
-`/ship` writes it this way for you, and the checks below catch what slips through.
+`/gstack-ship` writes it this way for you, and the checks below catch what slips through.
 
 ## The title
 
@@ -26,14 +26,14 @@ into a collapsed section (a `<details>` fold) when it posts, so you never write
 HTML by hand. Say each thing once. Link long logs and review output instead of
 pasting them.
 
-The last section is **Agent notes**, which `/ship` adds. It holds the lines
-gstack's tools read: issue links, approvals, review counts and the `/ship`
+The last section is **Agent notes**, which `/gstack-ship` adds. It holds the lines
+gstack's tools read: issue links, approvals, review counts and the `/gstack-ship`
 record. Nothing comes after it except a bot's badge.
 
 Here is how a body looks on GitHub before anyone clicks:
 
 ```
-/ship's reviewers now end their reply with one count line, and gstack checks it against the findings it read.
+/gstack-ship's reviewers now end their reply with one count line, and gstack checks it against the findings it read.
 
 Why: the findings reader misread free-form review prose, so a real problem could be lost.
 

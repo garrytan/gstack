@@ -13,7 +13,7 @@ repository.
 Two layers, kept apart on purpose:
 
 - **Harness-generic** (works in Claude Code, Codex and any host that reads the
-  SKILL.md files): `/ship`, `gstack-ship-queue`, `gstack-restamp`,
+  SKILL.md files): `/gstack-ship`, `gstack-ship-queue`, `gstack-restamp`,
   `gstack-pregate`, the ship receipt, the train protocol, the flaky-rerun
   rule, `release-cut`, `gstack-factory-scorecard`, `/retro`.
 - **Capy-specific**: the user-scope skill folder and its install check, the
@@ -27,7 +27,7 @@ flowchart LR
   C -->|briefs, slot calls| L1[Crew thread: branch A]
   C --> L2[Crew thread: branch B]
   C --> L3[Crew thread: branch C]
-  L1 -->|/ship, READY block with SHIP_RECEIPT| C
+  L1 -->|/gstack-ship, READY block with SHIP_RECEIPT| C
   L2 --> C
   L3 --> C
   C -->|train build: one gate for up to 5 PRs| G[(Gate workflow)]
@@ -58,9 +58,9 @@ What that buys you: every thread runs `bash scripts/install.sh --check
 [--for <skill>]` first and reports exactly one trailer, `gstack: ok <revision>
 for=<skill>` or `gstack: fail <ids>`. The install is about 30 seconds cold
 and prints the `GSTACK_LAUNCH:` assignments every later command needs
-([docs/capy-install.md](../../docs/capy-install.md)). A thread that runs `/ship` installs
+([docs/capy-install.md](../../docs/capy-install.md)). A thread that runs `/gstack-ship` installs
 with `--for ship`; a planning-only verdict (`SKIP pins (planning-only)`) does
-not admit `/ship`, `/review` or `/qa`.
+not admit `/gstack-ship`, `/review` or `/qa`.
 
 Two things the first week taught every crew:
 
@@ -82,7 +82,7 @@ a time; each is independent.
 
 | File | Why | Without it |
 |---|---|---|
-| `.gstack/pregate.json` | Maps changed paths to test lanes, so `/ship` runs the tests that cover the diff and the remote gate selects correctly ([docs/pregate.md](../../docs/pregate.md)) | `/ship` warns on every touched file with no test lane (`PREGATE_NO_POLICY`) and prints a starter policy; the selected tests still run. A policy that sets only `timeout_s` or other keys without `dependencies`, `empty_lanes`, `selection` or `local` behaves the same. Write it once, from one owner, before the crew starts. |
+| `.gstack/pregate.json` | Maps changed paths to test lanes, so `/gstack-ship` runs the tests that cover the diff and the remote gate selects correctly ([docs/pregate.md](../../docs/pregate.md)) | `/gstack-ship` warns on every touched file with no test lane (`PREGATE_NO_POLICY`) and prints a starter policy; the selected tests still run. A policy that sets only `timeout_s` or other keys without `dependencies`, `empty_lanes`, `selection` or `local` behaves the same. Write it once, from one owner, before the crew starts. |
 | `.gstack/ship-policy.json` | `queue_mode`, the `train` block (gate and free workflow names, the full-gate check, the train size and fill wait), the stamp files ([docs/ship-policy.md](../../docs/ship-policy.md)) | Per-PR queue; `train …` refuses with `QUEUE_TRAIN_OFF`. |
 | `CHANGELOG.md` + `VERSION` | A stamp per merge and a twice-weekly release with notes ([docs/releases.md](../../docs/releases.md)) | Skip the version and changelog steps; the train still works on the tree receipt. |
 | `AGENTS.md` validation discipline | Diagnose before fixing, focused checks during repair, one full suite at the end on a frozen tree | Threads retry blindly and report passes from older revisions. |
@@ -137,7 +137,7 @@ harness-generic; only the thread and the PR tool are Capy.
 3. **Open the PR** with the host's PR tool (Capy: `tools.pr.create`, never
    `gh pr create`, so CI and review callbacks reach the thread), base the
    default branch.
-4. **Run `/ship` unattended** with the `GSTACK_LAUNCH` assignments
+4. **Run `/gstack-ship` unattended** with the `GSTACK_LAUNCH` assignments
    exported: it runs the pregate (on a machine under 8 cores the test tier
    clears from a verified CI run at the pushed tree when the base declares
    `remote_gate_runs` ([CI carry](../../docs/pregate.md#ci-carry)); otherwise it needs
@@ -145,7 +145,7 @@ harness-generic; only the thread and the PR tool are Capy.
    or free locally for small selections), both reviews, the gate-integrity
    list, the docs audit, and writes the ship receipt into the PR body
    (`gstack-ship-receipt write --pr <n>`). With `queue_mode:
-   stamp-at-merge`, `/ship` does not bump the version. `/ship` never merges
+   stamp-at-merge`, `/gstack-ship` does not bump the version. `/gstack-ship` never merges
    and never merges main into the branch.
 5. **READY.** `gstack-ship-queue ready --pr <n> --no-screen` (after running the
    skill's own paid cases focused) or `--screen` (one paid screen on the merge
@@ -285,7 +285,7 @@ measured later does not count anything that happened after that week.
 | Merged PRs | `merged_at` in the window, base = default branch; crew by `--crew` logins, else author association OWNER/MEMBER/COLLABORATOR | several merges a day, every day; outside contributions land in the same week |
 | Lead time, created → merged | PR `created_at` to `merged_at`, median and p90 | median under 24h, p90 under 3 days (DORA "elite" change lead time is under a day) |
 | Lead time, READY → merged | first PR comment matching `--ready-marker` at or before `merged_at`; PRs with no such comment are left out and counted | under 2h; every merged PR carries a READY comment |
-| Review passes per PR | the largest count `--pass-marker` captures in the PR body (the ship receipt's `"passes": N` once /ship writes it) or a PR comment (`passes=N`, `REVIEW_PASSES: N`), median and p90, plus how many PRs reached `--pass-cap` (2, the [review policy](../../docs/review-policy.md)'s cap of two rounds, a fix-check included: pass 1 reviews the whole diff, pass 2 only the range since, and a pass that finds nothing blocking is the exit) | median 1 pass; few at the cap |
+| Review passes per PR | the largest count `--pass-marker` captures in the PR body (the ship receipt's `"passes": N` once /gstack-ship writes it) or a PR comment (`passes=N`, `REVIEW_PASSES: N`), median and p90, plus how many PRs reached `--pass-cap` (2, the [review policy](../../docs/review-policy.md)'s cap of two rounds, a fix-check included: pass 1 reviews the whole diff, pass 2 only the range since, and a pass that finds nothing blocking is the exit) | median 1 pass; few at the cap |
 | Gate runs green / red / cancelled | completed runs of the gate workflow (`workflow_dispatch` by default; `--gate-event any`); cost from the run's `report-verdict-a*` artifact (`collector-outcomes.json` `.verdict.costUsd`), else the `**$N** rule/judge cost` or `cost=$N` line of the PR's verdict comment | green on 95%+ of runs, cancelled near 0, cost known for every run |
 | Known gate cost per merged PR | known cost / merged PRs; unknown-cost runs make it a floor | known, stable or falling week over week |
 | Red-train rate | runs whose head branch starts with `--train-prefix`, cancelled excluded; red = conclusion other than success; red backstops and screens shown beside it | under 5% (each red train is a bisect plus a rebuild, about two gates) |
@@ -301,7 +301,7 @@ the gap next to the number.
 
 Measured on gstack's repository with this tool for the week of 2026-10-19
 through 2026-10-25, UTC (`--now 2026-10-26T00:00:00Z --since-days 7`; the first
-full week of trains and `/ship`-before-READY; 83 merged PRs, 54 gate runs,
+full week of trains and `/gstack-ship`-before-READY; 83 merged PRs, 54 gate runs,
 artifacts read for all 54):
 
 | Line | gstack, that week | Against the bar |
@@ -309,7 +309,7 @@ artifacts read for all 54):
 | Merged PRs | 83 (crew 80, outside 3) | volume is there; the 3 outside PRs are bot PRs (2 from github-actions, 1 from dependabot), and outside contributions are ported by the crew rather than merged from forks |
 | Lead time, created to merged | median 6.5h, p90 20.0h | inside the bar on both |
 | Lead time, READY to merged | no number: 0 of 83 PRs had a READY comment | the crew reports READY in-thread; step 6 above (post it on the PR) is what makes this measurable |
-| Review passes per PR | no number: 0 of 83 PRs carried a pass count | the receipt's `passes` field lands with /ship's convergence rule; until then crews record the count in the READY block, and the marker reads it from a PR comment |
+| Review passes per PR | no number: 0 of 83 PRs carried a pass count | the receipt's `passes` field lands with /gstack-ship's convergence rule; until then crews record the count in the READY block, and the marker reads it from a PR comment |
 | Gate runs | 52 green / 2 red / 0 cancelled; known cost $1,361.94 on 52 of 54 runs | green rate 96%; cost unknown only on the 2 red runs (the red train and the red screen) |
 | Known gate cost per merged PR | $16.41 (a floor) | trains averaged $32.48 each for up to 5 PRs (21 trains with a known cost), screens $21.18 each (29 with a known cost) |
 | Red-train rate | 5% (1 red of 22 trains; 0 red backstop, 1 red screen) | the tool rounds 1 of 22 (4.5%) to 5%, so this is just under the 5% bar; the 1 red screen is counted separately from trains |
@@ -331,7 +331,7 @@ the Captain's Drive holds the longer history behind these numbers; from here on
 | Install and health | `./setup`, `gstack-doctor`, `gstack-upgrade` | the user-scope skill folder, `scripts/install.sh --check` and its trailer, the project Setup snapshot |
 | Running a workflow | the SKILL.md files, `GSTACK_SESSION_KIND=unattended`, `GSTACK_RESULT:` lines | the `GSTACK_LAUNCH` assignments, `GSTACK_CAPY=1` and the `capy-asks` block, no enforced hooks (safety skills are advisory) |
 | Approvals | `gstack-approvals`, `gstack-owner-brief render --captain`, the `## Approvals` table | the Captain relay (`needs_you`), the Captain drive `approvals/` mirror |
-| Pull requests | `/ship`, the ship receipt, `gstack-pr-shots` | `tools.pr.create` (callbacks), `tools.pr.uploadAsset` (before/after images) |
+| Pull requests | `/gstack-ship`, the ship receipt, `gstack-pr-shots` | `tools.pr.create` (callbacks), `tools.pr.uploadAsset` (before/after images) |
 | Merging | `gstack-ship-queue` (ready, train build, verdict, verify; train land and land under `changelog_fragments`), `gstack-restamp`, `gh pr merge --match-head-commit` | the controller is a Captain thread; slot calls are thread messages |
 | Flaky pass | the rerun rule, `flake-records-a*` and `flake-ledger-*` artifacts, `test:health` | the daily automation and the ledger in the Captain's Drive |
 | Release | `release-cut`, `weekly-release.yml`, the `stable` channel | nothing |
@@ -402,7 +402,7 @@ harness on it as of that date, with the workaround the crews use.
 - `tools.pr.create` without `index` or `head` publishes the primary
   checkout's branch, not a worktree's, and targets the configured base, which
   on a project that works off a non-default branch must be passed every time.
-- Capy's per-push automatic review plus `/ship`'s two review passes double the
+- Capy's per-push automatic review plus `/gstack-ship`'s two review passes double the
   review time, and a review loop can run five or more cycles on a P0 as each
   push surfaces one new finding. Workaround: run the review voices before the
   first push; on a P0 fix only findings in the P0 path and defer the rest to a
@@ -411,7 +411,7 @@ harness on it as of that date, with the workaround the crews use.
   can sit "running" for ten minutes or more.
 - PR watches and CI callbacks fire only for repositories in a Capy project;
   a thread waiting on a repository outside one sleeps until a timer wakes it.
-- No per-subagent cost is visible, so `/ship` and plan reports cannot state
+- No per-subagent cost is visible, so `/gstack-ship` and plan reports cannot state
   what the host subagents spent ("six host subagents, spend unknown").
 - A merge rule keyed on "ship receipt on the head" has no machine-checkable
   form on the platform side: the controller greps the PR body. `gstack-ship-queue
@@ -429,10 +429,10 @@ harness on it as of that date, with the workaround the crews use.
 
 **Harness gaps the same files name (fixed or owned in gstack, listed so the
 reader knows the date):** the pregate failing every touched file in a
-repository without `.gstack/pregate.json`; `/ship` printing no
+repository without `.gstack/pregate.json`; `/gstack-ship` printing no
 `GSTACK_RESULT: skill=ship` line in unattended mode; the receipt going stale
 on a late push (now refused by `ready`); the receipt-write step truncating a
-PR body; `/ship`'s docs audit blocking on a risk the owner must accept by
+PR body; `/gstack-ship`'s docs audit blocking on a risk the owner must accept by
 hand; the pregate's secret scan refusing benign per-trial dummy tokens with no
 allowlist; no cost ceiling surfaced at autoplan gates.
 

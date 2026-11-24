@@ -42,7 +42,7 @@ by a daily pass; nothing is retried into green.
   lists it for archiving unless the owner asks, even when the Captain's own automation
   created it.
 - **A lane** (a crew thread) owns named files, builds on its own branch and machine,
-  runs /ship, sends one READY block, stamps on call (merging the base into its pin only
+  runs /gstack-ship, sends one READY block, stamps on call (merging the base into its pin only
   as part of that stamp commit, or when the controller names a real-code conflict),
   writes one report, and never merges a PR.
 - **A merge lane** (optional) is one crew thread that watches PRs and CI for the controller.
@@ -125,8 +125,8 @@ Where each rule lives:
 | 19 | CHANGELOG-only conflicts are the train's to resolve, not the lane's | folded into 14: [ship-policy.md](../../docs/ship-policy.md#ship-before-ready) ("the stamp keeps the pin's receipt") |
 | 20 | A READY from before a contract change needs a fresh receipt | [The READY contract](#the-ready-contract) |
 | 21 | Approvals, plan asks and merge asks in the three shapes | [Approvals](#approvals-three-shapes); [capy/skill/gstack/captain.md](../../capy/skill/gstack/captain.md) |
-| 22 | /ship before every READY; the block carries `SHIP_RECEIPT`; stamp commits hold only tool output | [ship-policy.md](../../docs/ship-policy.md#ship-before-ready); [the lane's /ship sequence](#the-lanes-ship-sequence-before-ready) |
-| 23 | Review loops converge: scope frozen after pass 1, later passes on the delta, a pass cap, a blocking floor | the `/ship` and `/review` skills' own convergence policy ([skills.md](../../docs/skills.md#ship)); a crew names it in one line and sets only the scope knob (`REVIEW_SCOPE`) |
+| 22 | /gstack-ship before every READY; the block carries `SHIP_RECEIPT`; stamp commits hold only tool output | [ship-policy.md](../../docs/ship-policy.md#ship-before-ready); [the lane's /gstack-ship sequence](#the-lanes-ship-sequence-before-ready) |
+| 23 | Review loops converge: scope frozen after pass 1, later passes on the delta, a pass cap, a blocking floor | the `/gstack-ship` and `/review` skills' own convergence policy ([skills.md](../../docs/skills.md#ship)); a crew names it in one line and sets only the scope knob (`REVIEW_SCOPE`) |
 | 24 | Plan before build: a sized `/autoplan` is a building lane's first act; the plan ask goes up, the build starts after the owner's word is in the run and it reports `APPROVED` | [Plan before build](#plan-before-build); the [brief template](../../captain/templates/brief.md) |
 
 ## Lane discipline
@@ -173,7 +173,7 @@ outcome: done, failed, failed partway, refused, retried) with a test for each ca
 sends, deletes or grants, or it rebuilds on a shape that can't have that kind of bug, such
 as an allowlist of named file types instead of a guess about what a file contains. Four
 crews reached this on their own: one PR met a new double-send path in each of four rounds,
-one took five /ship runs before an allowlist rebuild passed in one, one closed a
+one took five /gstack-ship runs before an allowlist rebuild passed in one, one closed a
 pattern-matching PR for a rebuild after every round found new misfires, and one dropped
 exemptions after reads kept finding bypasses.
 
@@ -205,15 +205,15 @@ cheap:
   A status read in between counts and does not restart the 30 minutes. A wait expected to run
   longer sleeps on its operations alone. For short lane waits this overrides "waits go on
   operations, never on polling wakes" ([unattended.md](../../docs/unattended.md#report-length)). The
-  controller never warm-waits, and a lane running /ship follows the waits in `ship/DRIVER.md`
-  ([the lane's /ship sequence](#the-lanes-ship-sequence-before-ready)).
+  controller never warm-waits, and a lane running /gstack-ship follows the waits in `ship/DRIVER.md`
+  ([the lane's /gstack-ship sequence](#the-lanes-ship-sequence-before-ready)).
 - **Batched reads.** Independent reads (files, greps, pull request and thread state) go in
   one parallel program, not one call each. Each call returns 4k characters or less; long
   output (logs, test output, diffs) goes to a file under `~/.capy/work`, and the lane reads
   the part it needs with `grep` or a paged read.
 - **Start card.** Once the install check passes, a lane reads
   [lane-card.md](../../capy/skill/gstack/lane-card.md) instead of the rest of the gstack
-  skill's SKILL.md. It still reads the SKILL.md sections on /ship before it ships.
+  skill's SKILL.md. It still reads the SKILL.md sections on /gstack-ship before it ships.
 - **Tail check.** When a lane's spend passes twice the crew's median lane spend per merged
   PR (about $50 at today's prices), it writes `handoffs/<code>/next.md` in the controller's
   drive (what is done, what is left and what finishing costs) and tells the controller in
@@ -239,8 +239,8 @@ cheap:
   because the subagent re-reads its own brief and context on every step and its tree's
   spend adds to the lane's: subagent trees were about a quarter of one day's crew spend.
   The brief names the compact result the subagent returns, such as a verdict line, a file
-  path or a short list, and nothing else comes back. /ship is the lane's own procedure, so
-  the lane runs it in its own thread; only /ship's reviewers are subagents.
+  path or a short list, and nothing else comes back. /gstack-ship is the lane's own procedure, so
+  the lane runs it in its own thread; only /gstack-ship's reviewers are subagents.
 
 ## New threads join the crew
 
@@ -355,7 +355,7 @@ Issues show what the crew is really doing, so keep them true:
   issues as notes for you to re-assign ([No orphaned work](#no-orphaned-work)).
 - On each wake, leave every issue you touched accurate: its status, assignee and links.
 - An unassigned Todo that nobody will start goes to Backlog.
-- Deferred findings from review or /ship never become issues: they stay on the PR's
+- Deferred findings from review or /gstack-ship never become issues: they stay on the PR's
   findings or its `## Deferred findings` section, and any still open close when the PR
   merges. Follow-up work someone will actually do gets one issue with a named owner.
 - A daily sweep re-assigns any open issue outside Backlog whose assignee is archived to a
@@ -439,7 +439,7 @@ words, never a gate the lane answered itself; an `exempt:` reason must be on thi
 crew's `crew:<rule>`. Crew sessions warn by default; `plan_record: require` or
 `GSTACK_PLAN_RECORD=require` makes ready and land refuse. A repo that commits no
 `.gstack/` sets the mode per machine (`gstack-config set plan_record warn|require`), which
-gates ready and /ship finish only, since land needs the tracked policy; on Capy, where a fresh
+gates ready and /gstack-ship finish only, since land needs the tracked policy; on Capy, where a fresh
 machine starts without it, put `GSTACK_PLAN_RECORD` in the project env. On a public repo
 render writes `Plan: approved (record r-<id>)` in place of the brief's run id, and ready
 resolves that id to the same approval row.
@@ -457,7 +457,7 @@ records a verdict per step. A one-page day-one plan written without `/autoplan` 
 under the owner's standing rule) carries the same two sections, so the same check reads it.
 
 The copy-paste brief is [`captain/templates/brief.md`](../../captain/templates/brief.md): the
-plan and the ask as step 1, the build after the word as step 2, /ship to READY as step 3,
+plan and the ask as step 1, the build after the word as step 2, /gstack-ship to READY as step 3,
 and a done line that names the approval row or the exemption.
 
 ## Contributions from outside the crew
@@ -496,7 +496,7 @@ The field table is in the `/captain` skill; the block shape, the optional lines 
 refusal list are in the [READY template](../../captain/templates/READY.md).
 The short version: the pin is the full 40-character head SHA; every required check is
 green at that head; pregate passed for that tree; `SHIP_RECEIPT: pr=<n> head=<pin>` was
-written by /ship at the pin; the screen choice is stated with its justification; flaky
+written by /gstack-ship at the pin; the screen choice is stated with its justification; flaky
 cases are already in the ledger; the CHANGELOG entry sits under `## [Unreleased]` with
 the version files at the base's version; the lane declares the head frozen; and an
 `Unverified:` line lists every claim the lane did not check itself (a local test that
@@ -510,18 +510,18 @@ contract changes (a new required line, a new check name, a new receipt), every R
 taken before the change is stale: the lane runs `ready` again at the same pin and sends
 the fresh block; the controller trains nothing older than the change. The `Unverified:`
 line is the one exception: the controller asks for a missing line in a follow-up message,
-never refuses or stales a READY for it, and the lane reruns neither `ready` nor /ship.
+never refuses or stales a READY for it, and the lane reruns neither `ready` nor /gstack-ship.
 The same exception covers a missing `Failed or skipped:` or `Also changed:` line: the
 controller asks for it in a follow-up message and never refuses or stales a READY over it.
 
-### The lane's /ship sequence before READY
+### The lane's /gstack-ship sequence before READY
 
-Every READY follows a /ship run on the branch at the head being READY'd, re-READYs after
+Every READY follows a /gstack-ship run on the branch at the head being READY'd, re-READYs after
 a push included. The sequence that works unattended on Capy (steps 3 to 8 run inside
-/ship; steps 1, 2, 9 and 10 are the lane's):
+/gstack-ship; steps 1, 2, 9 and 10 are the lane's):
 
 1. Install for ship (`bash scripts/install.sh --for ship` from the project directory; a
-   planning-only install does not admit /ship).
+   planning-only install does not admit /gstack-ship).
 2. Push the final head first. Everything below binds to it; a later push makes the
    receipt, the pregate record and the review binding stale.
 3. Launch with the printed `GSTACK_LAUNCH` assignments (unattended session kind, state
@@ -542,33 +542,33 @@ a push included. The sequence that works unattended on Capy (steps 3 to 8 run in
    ([base_red](../../docs/ship-policy.md#base-red)): the lane is waiting, not failed. It
    registers `gstack-base-red wait --pause <file>` as a background operation,
    tells the controller which cases hold it, and on `BASE_GREEN` runs
-   `/ship --resume <record>`; no READY goes out on the conditional receipt,
+   `/gstack-ship --resume <record>`; no READY goes out on the conditional receipt,
    except on a train with `gates` ([Merge trains for other repos](#merge-trains-for-other-repos)).
 9. READY: `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen|--no-screen`;
-   send the printed block. The lane runs this once /ship prints its receipt, below.
+   send the printed block. The lane runs this once /gstack-ship prints its receipt, below.
 10. After the slot call, the stamp commit keeps the pin's receipt; re-READY with the same
-    receipt, no second /ship.
+    receipt, no second /gstack-ship.
 
-The lane runs /ship itself, in its own thread: one call per `ship/DRIVER.md` phase, with every
-reviewer started as the lane's own subagent. It never hands /ship to a subagent. gstack's trial of
-/ship without one (GST-3003, 30 paired runs on fresh threads, review and fix phases only) found no
+The lane runs /gstack-ship itself, in its own thread: one call per `ship/DRIVER.md` phase, with every
+reviewer started as the lane's own subagent. It never hands /gstack-ship to a subagent. gstack's trial of
+/gstack-ship without one (GST-3003, 30 paired runs on fresh threads, review and fix phases only) found no
 clear difference in cost or catches; its verdict rested on one scoring ruling, and the owner chose to
-drop the extra layer (A1, 2026-11-22). Lanes that reach /ship with a large context were not measured.
+drop the extra layer (A1, 2026-11-22). Lanes that reach /gstack-ship with a large context were not measured.
 Every READY duty has one owner, so `train build`
 never refuses the pin with `QUEUE_NOT_READY` for a step nobody ran:
 
 | READY duty | Owner |
 |---|---|
-| The ship receipt (`SHIP_RECEIPT:`) and the pregate record behind the `PREGATE:` line (steps 4, 7 and 8) | /ship |
-| `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen\|--no-screen` at the pin, with its notes pushed to origin `refs/notes/gstack-trains` (step 9, on the lane's machine, where /ship ran) | the lane |
+| The ship receipt (`SHIP_RECEIPT:`) and the pregate record behind the `PREGATE:` line (steps 4, 7 and 8) | /gstack-ship |
+| `gstack-ship-queue ready --pr <n> --pregate <pregate.json> --screen\|--no-screen` at the pin, with its notes pushed to origin `refs/notes/gstack-trains` (step 9, on the lane's machine, where /gstack-ship ran) | the lane |
 | The decision-trail audit and the READY's `Attention` section, when the crew keeps a trail ([unattended.md](../../docs/unattended.md#the-decision-trail)) | the lane |
 
-When /ship prints its receipt, the lane reads the pull request's checks and comments once,
+When /gstack-ship prints its receipt, the lane reads the pull request's checks and comments once,
 runs `ready`, audits its trail, writes `Attention` and sends the READY. A run that ends
 `SHIP_PAUSED: base-red` follows step 8 instead: the lane
 registers the base-red wait, tells the controller, and sends no READY. From then on the lane handles the pull request's events as before: red checks, human
 review, the slot stamp and re-READY of step 10, and any receipt carry. A red check that
-lands while /ship runs waits for /ship to finish instead of being fixed mid-run. On
+lands while /gstack-ship runs waits for /gstack-ship to finish instead of being fixed mid-run. On
 Capy the mechanics are in [the gstack skill](../../capy/skill/gstack/SKILL.md#plan-approve-ship).
 
 When the base moves under a reviewed branch, merge it in; never rebase. A merge that
@@ -578,8 +578,8 @@ review rerun; CI on the merged head is the check). A merge that spliced main's c
 chose the order of the branch's inserted lines against main's at the same spot, gets the one
 scoped reader `RECEIPT_CARRY_SCOPED_REVIEW` asks for, run without asking and not a review
 round; a merge whose resolution changed the branch's own lines, a file mode or a symlink
-target needs a fresh /ship. A rebase carries only onto a tree the receipt already covers with
-the same product diff; any other rebase is a full /ship
+target needs a fresh /gstack-ship. A rebase carries only onto a tree the receipt already covers with
+the same product diff; any other rebase is a full /gstack-ship
 ([ship-policy.md](../../docs/ship-policy.md#receipt-carry)). A controller never asks a lane to
 rebase a reviewed branch.
 
@@ -605,7 +605,7 @@ finished, or when one has waited 24 hours or more. Drain before you start anythi
 
 1. Land every PR that has a verified READY ([direct land](#direct-land-merge-direct)).
 2. Sort the rest into the two lanes below.
-3. Send each idle owner its next step in one line: /ship at the head, `ready`, merge main
+3. Send each idle owner its next step in one line: /gstack-ship at the head, `ready`, merge main
    and resolve, or "goes in bundle N". A PR whose thread is gone gets a new owner
    ([no orphaned work](#no-orphaned-work)).
 
@@ -618,7 +618,7 @@ keeps re-testing a stale base (`land.merged_checks`, `land.merged_ci`).
 
 **Lane 2: risky PRs land in a bundle of 3 to 6.** Pick PRs from one area. One integrator
 lane merges their branches into one bundle branch from main and opens one PR naming each
-one; that PR gets one /ship (one review), one full CI and one landing. A PR whose part fails
+one; that PR gets one /gstack-ship (one review), one full CI and one landing. A PR whose part fails
 drops out and goes back to its owner, and the rest land. Close each bundled PR as landed in
 the bundle. A bundle lives only until it lands: never a standing merge branch, which one bad
 PR poisons.
@@ -637,7 +637,7 @@ When the base policy sets `"merge": "direct"`, there are no trains, slot calls o
 commits. Each PR merges at its own green head, and versions are set at release
 ([ship-policy.md](../../docs/ship-policy.md#land-direct)):
 
-1. Lane: /ship, then `gstack-ship-queue ready --pr <n> --no-screen` at the pinned head,
+1. Lane: /gstack-ship, then `gstack-ship-queue ready --pr <n> --no-screen` at the pinned head,
    then READY to the Captain with that pin. The PR carries a `changelog.d` fragment and
    leaves VERSION, the `package.json` version and CHANGELOG.md alone.
 2. Captain: `gstack-ship-queue land --pr <n> --pin <sha>` (add `--allow-repo-commands` when
@@ -657,7 +657,7 @@ commits. Each PR merges at its own green head, and versions are set at release
    turn it lands a PR whose fragment carries `important:` (the READY says `rides the daily
    cut`; [releases.md](../../docs/releases.md#the-daily-check)), the Captain runs
    `gstack-release-stamp open`, waits for the release PR's checks, then lands it with
-   `gstack-ship-queue land --pr <n> --pin <head>` (no /ship receipt or READY note needed for a
+   `gstack-ship-queue land --pr <n> --pin <head>` (no /gstack-ship receipt or READY note needed for a
    `release/<version>` head). The cut then tags the new version
    ([ship-policy.md](../../docs/ship-policy.md#release-stamp)).
 
@@ -665,13 +665,13 @@ What to do with each refusal (nothing was merged unless the code says so):
 
 | Code | Who acts | Action |
 |---|---|---|
-| `QUEUE_LAND_STAMPED` | lane | run the printed `git checkout $(git merge-base origin/main HEAD) -- …`, keep the fragment, commit, /ship and `ready` again |
-| `QUEUE_LAND_PIN_MOVED` | lane | /ship and `ready` at the new head, new READY |
-| `QUEUE_RECEIPT_MISSING` / `QUEUE_RECEIPT_STALE` | lane | /ship at the pin |
+| `QUEUE_LAND_STAMPED` | lane | run the printed `git checkout $(git merge-base origin/main HEAD) -- …`, keep the fragment, commit, /gstack-ship and `ready` again |
+| `QUEUE_LAND_PIN_MOVED` | lane | /gstack-ship and `ready` at the new head, new READY |
+| `QUEUE_RECEIPT_MISSING` / `QUEUE_RECEIPT_STALE` | lane | /gstack-ship at the pin |
 | `QUEUE_NOT_READY` | lane, or Captain | no READY note: `ready --pr <n> --no-screen` at the pin; `merge: train`: use the train; closed or retargeted PR: as named |
 | `QUEUE_LAND_CHECKS` | Captain, then lane | pending: `gstack-pr-wait <n> --until green` and rerun; red: back to the lane (rule 16 rerun for a flaky case); missing: dispatch the workflow on the branch |
-| `QUEUE_LAND_MERGED_CHECKS` | Captain, then lane | the message says the checks changed files land's git or gh calls read: hold, nothing goes back to the lane yet; restore each named path from a trusted copy, release the lock with `land --pr <n> --pin <sha>` (no `--allow-repo-commands`), and find out why the checks wrote there. Otherwise a `land.merged_checks` command failed, or the `land.merged_ci` run was red, on the pin merged onto main: one rerun for a flaky case (rule 16; for a red `land.merged_ci` run that is `gh run rerun <id>` then land, since land reuses that run), else back to the lane, which merges main (rule 19), fixes it, /ship, `ready`, new READY ([troubleshooting](../../docs/troubleshooting.md#queue-land-merged-checks)) |
-| `QUEUE_LAND_NOT_CLEAN` | lane, or Captain | `CONFLICTING`, or the pin conflicts with main's tip on a stale base: the lane merges main (rule 19), /ship, `ready`; `UNKNOWN`: rerun in a minute |
+| `QUEUE_LAND_MERGED_CHECKS` | Captain, then lane | the message says the checks changed files land's git or gh calls read: hold, nothing goes back to the lane yet; restore each named path from a trusted copy, release the lock with `land --pr <n> --pin <sha>` (no `--allow-repo-commands`), and find out why the checks wrote there. Otherwise a `land.merged_checks` command failed, or the `land.merged_ci` run was red, on the pin merged onto main: one rerun for a flaky case (rule 16; for a red `land.merged_ci` run that is `gh run rerun <id>` then land, since land reuses that run), else back to the lane, which merges main (rule 19), fixes it, /gstack-ship, `ready`, new READY ([troubleshooting](../../docs/troubleshooting.md#queue-land-merged-checks)) |
+| `QUEUE_LAND_NOT_CLEAN` | lane, or Captain | `CONFLICTING`, or the pin conflicts with main's tip on a stale base: the lane merges main (rule 19), /gstack-ship, `ready`; `UNKNOWN`: rerun in a minute |
 | `QUEUE_TRAIN_FROZEN` / `QUEUE_LAND_LOCKED` | Captain | finish the repair or the holder first. land takes over a lock whose land exited or expired by itself; a lock it refuses says why: a land still running (wait, or stop the process it names if stuck), another machine's land (rerun after the expiry it prints, or `--break-lock` once you know that land stopped), or a deliberate hold (release it as the `LOCK:` line says) |
 | `QUEUE_TRAIN_UNTRUSTED` | Captain | a fork head; rewrite on a crew branch |
 | `QUEUE_LAND_UNVERIFIED` | Captain | merged, but main isn't the pin on its parent, or main moved after land's check and `land.merged_checks` failed or is absent on the landed tree: revert the stray change or fix forward, report it |
@@ -716,7 +716,7 @@ stamp, its own round of required checks and its own version, one after another. 
 than 6 PRs are READY, `gstack-ship-queue wave plan` prints `WAVE_ADVISED` and suggested
 area groups of 3 to 6 (`train build` prints the same line when handed more than 6 pins). The
 controller asks the owner of each group's largest PR to integrate: `wave build` makes the
-wave branch with every constituent merged unchanged, the integrator runs /ship once and
+wave branch with every constituent merged unchanged, the integrator runs /gstack-ship once and
 READYs the wave PR, which then takes one slot and one version. Constituent heads are frozen
 once in; fixes go through the integrator, and a constituent that must change is dropped
 (`wave build --wave <nonce> --drop <pr>`) and goes back to its owner. After the wave lands,
@@ -777,7 +777,7 @@ The controller's loop shortens to `train build --prs <pins>`, then
 `train watch --train <nonce> --land`, which waits for every prefix run, reads
 the verdict and lands each landable slot in order. Lanes READY with
 `ready --pr <n> --no-screen`; there is no screen and no slot call. A lane whose
-/ship paused on a red base READYs with `--base-red --fixer <pr>`, its fixer with
+/gstack-ship paused on a red base READYs with `--base-red --fixer <pr>`, its fixer with
 `--fixes-base-red <cases>`, and the train seats the fixer at slot 1. The `update` commit `train land` pushes to a PR
 branch (the gated tree on [pin, main]) is the one exception to CREW rule 14's "never merge
 the base into a PR": it is tool-made, recorded before the push, and pushed under the pin's
@@ -808,7 +808,7 @@ format below, closed by "do it", which takes every recommendation at full scope.
 autoplan run.
 
 **C. The merge ask** ([template](../../captain/templates/merge-ask.md)): captioned
-before/after images, why, blast radius, the Approvals table, and the evidence. /ship writes the PR
+before/after images, why, blast radius, the Approvals table, and the evidence. /gstack-ship writes the PR
 body in this shape on Capy; the controller's merge report shows the key image inline.
 
 ## The ask format

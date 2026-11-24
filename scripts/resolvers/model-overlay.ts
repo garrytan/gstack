@@ -56,11 +56,11 @@ They govern ambiguous completeness words such as \`complete\`, \`full\`, \`every
 \`exhaustive\`, \`100%\`, and \`Boil the Ocean\`, and when to stop iterating on
 work the user did not ask for. Concrete skill workflow steps, STOP points,
 AskUserQuestion gates, plan-mode safety, required tests, skill-mandated
-re-verification and re-review loops, and /ship review gates still win.
+re-verification and re-review loops, and /gstack-ship review gates still win.
 Never use this patch to skip a concrete requirement.`
     : `The following nudges are tuned for the ${ctx.model} model family. They are
 **subordinate** to skill workflow, STOP points, AskUserQuestion gates, plan-mode
-safety, and /ship review gates. If a nudge below conflicts with skill instructions,
+safety, and /gstack-ship review gates. If a nudge below conflicts with skill instructions,
 the skill wins. Treat these as preferences, not rules.`;
 
   return `## Model-Specific Behavioral Patch (${ctx.model})

@@ -5,7 +5,7 @@ When an agent builds the first version of something for a person, every review c
 1. **The plan and the try-it message start from the owner's own words.** A first version's plan quotes each message of the owner's that states the job, with its time, and gives each one a line: it does it, or it leaves it as a lettered choice. Nothing his words asked for sits under "What it won't do yet". The five things he'll do on day one cite those quotes.
 2. **An agent runs his exact try-it steps on the real target first.** Before a build reaches its owner as "ready to try", a fresh agent from a **different model family** than the one that built it follows the exact message we're about to send, step by step, on the real target, and records a verdict and one line per step. Only when nothing is broken, wrong or asks him for something an agent could look up does `gstack-first-use` print the message.
 
-It gates two things: the message that asks the owner to try a build, and any "v1 is ready" report. It does not gate `/ship`: code review and the first-use check answer different questions. Any report of a passing test on a build the owner doesn't hold yet also names the build he does hold and its known defects.
+It gates two things: the message that asks the owner to try a build, and any "v1 is ready" report. It does not gate `/gstack-ship`: code review and the first-use check answer different questions. Any report of a passing test on a build the owner doesn't hold yet also names the build he does hold and its known defects.
 
 ## The owner's words and the day-one table
 

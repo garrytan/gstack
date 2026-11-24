@@ -158,7 +158,7 @@ Two cases ignore the preference on purpose: a cross-family outside voice (the
 `plan-review` role picks the other provider) and a model under test in an eval
 (`eval-arms` and `/eval-plan` arms).
 
-/ship's audit readers (Steps 7, 8 and the Step 14.5 docs audit) run on the
+/gstack-ship's audit readers (Steps 7, 8 and the Step 14.5 docs audit) run on the
 preference at low effort when their extras name no model; unset or unusable,
 they run on `anthropic/claude-sonnet-5-5` at low effort, and `host` runs them on
 the lane's own model. The pass prints the pick as `AUDIT_MODEL:`.

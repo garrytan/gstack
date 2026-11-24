@@ -845,7 +845,7 @@ describe('generated actual parent paths', () => {
     expect(body).toMatch(new RegExp(`never reset ${n.deadline}\\W+bypass ${n.guard}`, 'i'));
     expect(body).toMatch(/plan checks and revalidation remain required beyond this smoke budget/i);
     expect(body).toContain('leaves /review incomplete');
-    expect(body).toMatch(/\/ship blocked unless the user explicitly accepts that named risk/i);
+    expect(body).toMatch(/\/gstack-ship blocked unless the user explicitly accepts that named risk/i);
   });
 
   test('excerpt extraction fails loudly instead of producing an empty passing fixture', () => {

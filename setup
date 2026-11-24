@@ -806,7 +806,7 @@ _link_or_copy() {
 # Fame, the test-value bar, design-html's vendored pretext.js and VERSION.
 # And crew/lib, which bin and lib import (the crew/ move, GST-1833), plus the
 # scripts/ modules they import: a root whose bin and lib are copies (Windows)
-# needs them beside it to start (/review and /ship's review planner imports
+# needs them beside it to start (/review and /gstack-ship's review planner imports
 # fix-check.ts), and the two classifiers bin/gstack-question-preference
 # imports inside its bun -e (one-way-doors.ts, psychographic-signals.ts),
 # which the import walk cannot see.
@@ -1452,7 +1452,7 @@ if [ "$SKILL_PREFIX_FLAG" -eq 0 ]; then
       echo ""
       echo "Skill naming: how should gstack skills appear?"
       echo ""
-      echo "  1) Short names: /qa, /ship, /review"
+      echo "  1) Short names: /qa, /gstack-ship, /review"
       echo "     Recommended. Clean and fast to type."
       echo ""
       echo "  2) Namespaced: /gstack-qa, /gstack-ship, /gstack-review"
@@ -2981,6 +2981,8 @@ cleanup_prefixed_claude_symlinks() {
       # Only clean up prefixed entries for dirs that AREN'T already prefixed
       # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
       case "$skill_name" in gstack-*) continue ;; esac
+      # Nor for an always-prefixed skill (ship → gstack-ship, #4775).
+      case " ${GSTACK_PREFIXED_SKILLS:-} " in *" $skill_name "*) continue ;; esac
       prefixed_target="$skills_dir/gstack-$skill_name"
       # Remove directory symlinks pointing into gstack/ — anchored path
       # segments, same as cleanup_old_claude_symlinks and gstack-uninstall: a
@@ -5211,7 +5213,7 @@ fi
 # ─── Redact pre-push guard consent (#1946) ───────────────────────────────────
 # The credential pre-push hook is per-REPO state — setup runs in the gstack
 # checkout, the wrong repo to install it into, so setup NEVER installs the
-# hook itself. /ship installs it silently in any repo where
+# hook itself. /gstack-ship installs it silently in any repo where
 # redact_prepush_hook=true. What setup owns is CONSENT: on a real interactive
 # terminal it asks ONCE whether pushes should be scanned, recording the
 # answer to the existing redact_prepush_hook key (default stays false — a
@@ -5228,14 +5230,14 @@ if ! grep -q '^redact_prepush_hook:' "$_GSTACK_CFG_FILE" 2>/dev/null; then
     _REDACT_PROMPT_TIMEOUT=10
     log ""
     log "Credential push guard: gstack can block pushes containing credentials"
-    log "(a per-repo git pre-push hook; /ship installs it automatically in every"
+    log "(a per-repo git pre-push hook; /gstack-ship installs it automatically in every"
     log "repo you ship from — nothing is installed right now)."
     printf "Enable the pre-push credential guard? [y/N] (default: N, auto-skips in %ss): " "$_REDACT_PROMPT_TIMEOUT"
     read -t "$_REDACT_PROMPT_TIMEOUT" -r _REDACT_REPLY </dev/tty 2>/dev/null || _REDACT_REPLY=""
     case "$_REDACT_REPLY" in
       y|Y)
         "$GSTACK_CONFIG" set redact_prepush_hook true 2>/dev/null || true
-        log "Enabled. /ship will install the guard in each repo at first push."
+        log "Enabled. /gstack-ship will install the guard in each repo at first push."
         ;;
       n|N)
         "$GSTACK_CONFIG" set redact_prepush_hook false 2>/dev/null || true
@@ -5250,7 +5252,7 @@ if ! grep -q '^redact_prepush_hook:' "$_GSTACK_CFG_FILE" 2>/dev/null; then
   else
     log ""
     log "Tip: gstack can block pushes containing credentials (per-repo git hook)."
-    log "     Enable once: gstack-config set redact_prepush_hook true — /ship"
+    log "     Enable once: gstack-config set redact_prepush_hook true — /gstack-ship"
     log "     installs the hook automatically in every repo you ship from."
   fi
 fi

@@ -10,7 +10,7 @@ note past the cap stops.
 
 **Meter.** Read one per command:
 - Capy: read `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost` (the thread that runs
-  /ship, its reviewers included) in the same program as the
+  /gstack-ship, its reviewers included) in the same program as the
   `gstack-ship-budget` command, never its own call: `--reading <cost.tokens> --credits <cost.credits>`.
   `--prior-reading <n>` (per-call charge; three of them price steps at the run's own median) is a reading
   your previous call already took; never spend a call only to read the meter. One older than the run's last reading is ignored.
@@ -46,7 +46,7 @@ start and right after the last one settles, then `gstack-ship-budget settle --ru
 program (no `--dispatched-at`), `--finish` or a step change settles without measuring.
 
 **verdict=stop.** Print the STOP, RECOVER and GSTACK_RESULT lines as your last output and
-end status=incomplete. Raising the cap is the owner's call: `/ship --resume <record>
+end status=incomplete. Raising the cap is the owner's call: `/gstack-ship --resume <record>
 --token-cap <n>` runs `gstack-ship-budget resume --record <record> --token-cap <n>
 --approved-by <who> --words "<their words>" --reading <n>`. After a machine change,
 `resume --run <id>` restores the ledger and record from the Drive checkpoint; a
@@ -59,7 +59,7 @@ Steps 9–11.5 child reads review-army.md and adversarial.md and takes their res
    (add `--reviewed-tree <t>`, `--trail <file> --trail-run <id>`). It prints `HANDOFF:` and `RETURN_FILE:`;
    the brief lists the child's `READ:` line ranges and names `--to` as its last step.
 2. Launch: on Capy a subagent on the shared machine whose brief is "Load gstack, source
-   GSTACK_LAUNCH_FILE, run /ship --continue <HANDOFF file>"; on Claude Code
+   GSTACK_LAUNCH_FILE, run /gstack-ship --continue <HANDOFF file>"; on Claude Code
    `gstack-ship-budget launch --in <HANDOFF file>` (background, explicit permissions).
 3. The child runs `verify-handoff --in <file>` first, with no `--reading` on Capy (a subagent cannot read
    its own jam id; `METER: parent`: the parent's handoff and reconcile readings measure it); a

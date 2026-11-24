@@ -3,7 +3,7 @@
 Your crew's CREW.md and recorded approvals decide who may merge, update a base, spend or touch production; urgency changes priority, never permissions or gates. With no Captain, ask the person; never merge without their word. Story: capy/README.md; examples: org Drive software-factory/README.md.
 
 1. **Plan, then a yes.** New functionality starts with /autoplan sized to the work; the build waits for "do it". [SKILL.md: Plan, approve, ship]
-2. **Someone else merges.** Run /ship to a receipt on your final pushed head, send one READY quoting gstack's verify output verbatim, and stop. One open PR per lane; follow-ups ride it. The merge owner merges on green and assigns versions; docs-only PRs run only docs checks. [crew/docs/captain.md: The READY contract]
+2. **Someone else merges.** Run /gstack-ship to a receipt on your final pushed head, send one READY quoting gstack's verify output verbatim, and stop. One open PR per lane; follow-ups ride it. The merge owner merges on green and assigns versions; docs-only PRs run only docs checks. [crew/docs/captain.md: The READY contract]
 3. **Block only on the floor.** A finding blocks if it would fail a test, break production, or lose data or secrets; deferred findings stay on the PR and never become issues. [docs/review-policy.md]
 4. **Go forward, don't stop and fix.** Set a bad item aside, keep the rest moving, say what you set aside and repair it after. A red main gets its culprit reverted; a floor blocker still stops its PR. Follow-ups get one issue with an owner and one PR. [crew/docs/captain.md: Lane discipline]
 5. **Severe first, same gates.** A severe user-facing bug jumps the queue with a short plan; receipt, checks and merge owner stay.

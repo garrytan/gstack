@@ -67,7 +67,7 @@ describe('QA-only cross-host lazy rendering', () => {
     expect(record).toContain('`10.0` when small-diff specialists were skipped or this host omits Review Army');
     expectMentions(record, [['not', 'completion', 'evidence']], 'record');
     expectMentions(record, [['not', 'inconclusive', 'required']], 'record');
-    expect(record).toContain('`/ship` named-risk acceptance cannot complete `/review`');
+    expect(record).toContain('`/gstack-ship` named-risk acceptance cannot complete `/review`');
     expectTokens(record, ['`issues_found`'], 'record');
     expect(record).toContain('State INCOMPLETE if `COMPLETED` is false, even when N=0');
   });
@@ -264,7 +264,7 @@ describe('QA-only cross-host lazy rendering', () => {
           expect(explorer).toContain('## 3. Parent handoff');
           expect(explorer).toContain('Return test_stub proposals');
           expectMentions(explorer, [['never', 'create', 'freeze']], 'explorer');
-          expect(explorer).not.toMatch(/before repair|For \/review and \/ship|every new \/ship/);
+          expect(explorer).not.toMatch(/before repair|For \/review and \/(?:gstack-)?ship|every new \/(?:gstack-)?ship/);
         }
       }
       const browser = fs.readFileSync(path.join(rendered, qaDirectory, 'sections/qa-patterns.md'), 'utf8');

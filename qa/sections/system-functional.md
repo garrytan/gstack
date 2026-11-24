@@ -19,7 +19,7 @@ For /qa and /qa-only, within the selected scope:
   Preserve the prior report; report fixed, still failing and new findings separately.
   Missing safe replay inputs block affected probes, never count as passes.
 
-Mixed runs apply each surface's mode separately. /review and /ship retain their caller's
+Mixed runs apply each surface's mode separately. /review and /gstack-ship retain their caller's
 bounded smoke and explicit plan checks, not Full exploration.
 
 ## Contract map

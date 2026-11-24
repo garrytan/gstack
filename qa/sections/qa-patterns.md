@@ -11,7 +11,7 @@ exact replay and additional evidence. Never batch across checkpoints.
 ## Modes
 
 For /qa and /qa-only, choose Full, Quick or Regression. Resolve conflicting depth flags
-by asking before probes. /review and /ship keep their caller's smoke and plan bounds.
+by asking before probes. /review and /gstack-ship keep their caller's smoke and plan bounds.
 Diff-aware selects scope, not another pass. Time caps include checkpoints and evidence.
 At exhaustion, stop probing and report unfinished coverage, never skip checkpoints.
 

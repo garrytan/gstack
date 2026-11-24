@@ -1,6 +1,6 @@
 /**
  * ship/DRIVER.md resolvers (GSTA-167 PR 5): the compact entry a parent agent
- * reads to run an unattended /ship, instead of ship/SKILL.md plus its sections.
+ * reads to run an unattended /gstack-ship, instead of ship/SKILL.md plus its sections.
  * The phases live in ship/DRIVER.md.tmpl; this file owns the one list a reader
  * must trust most: which heading each STOP sends the parent to. test/ship-driver.test.ts
  * resolves every anchor against the generated files.

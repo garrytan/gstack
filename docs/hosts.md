@@ -103,7 +103,7 @@ own agent gstack's skills; ACP spawns Claude Code with the full install.
 OpenClaw spawns Claude Code sessions via ACP, so every gstack skill just works
 when Claude Code has gstack installed. Paste this to your OpenClaw agent:
 
-> Install gstack: run `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` to install gstack for Claude Code. Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use gstack skills. Include these examples — security audit: "Load gstack. Run /cso", code review: "Load gstack. Run /review", QA test a URL: "Load gstack. Run /qa https://...", build a feature end-to-end: "Load gstack. Run /autoplan, implement the plan, then run /ship", plan before building: "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
+> Install gstack: run `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` to install gstack for Claude Code. Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use gstack skills. Include these examples — security audit: "Load gstack. Run /cso", code review: "Load gstack. Run /review", QA test a URL: "Load gstack. Run /qa https://...", build a feature end-to-end: "Load gstack. Run /autoplan, implement the plan, then run /gstack-ship", plan before building: "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
 
 **After setup, just talk to your OpenClaw agent naturally:**
 
@@ -111,7 +111,7 @@ when Claude Code has gstack installed. Paste this to your OpenClaw agent:
 |---------|-------------|
 | "Fix the typo in README" | Simple — Claude Code session, no gstack needed |
 | "Run a security audit on this repo" | Spawns Claude Code with `Run /cso` |
-| "Build me a notifications feature" | Spawns Claude Code with /autoplan → implement → /ship |
+| "Build me a notifications feature" | Spawns Claude Code with /autoplan → implement → /gstack-ship |
 | "Help me plan the v2 API redesign" | Spawns Claude Code with /office-hours → /autoplan, saves plan |
 
 See [docs/OPENCLAW.md](OPENCLAW.md) for advanced dispatch routing and
@@ -233,13 +233,13 @@ resumed consultations. See [eval defaults and overrides](../CONTRIBUTING.md#test
 for capture, judge, and benchmark model selection.
 
 **Subagents on Codex.** Codex has no Agent tool, so the Codex skills start every
-audit and reviewer subagent (/ship's coverage, plan and docs audits, the native
+audit and reviewer subagent (/gstack-ship's coverage, plan and docs audits, the native
 review voices) with Codex's `spawn_agent` and wait on `wait_agent` until it reports
 a final status. Turn multi-agent on first: `multi_agent = true` under `[features]`
 in `~/.codex/config.toml`. Without it the dispatch fails and the step takes its
 documented failure path. Codex has no read-only Plan subagent type, so when the
 plan reviews' outside voice is unavailable they report it unavailable instead of
-starting a native fallback. /ship's review record still only counts a reviewer
+starting a native fallback. /gstack-ship's review record still only counts a reviewer
 whose brief gstack itself sent: a reviewer started some other way has no recorded
 send, so `gstack-review-dispatch verify` reports its brief `NOT_SENT` and prints
 `VERIFY: dirty` (exit 1) rather than trusting it.

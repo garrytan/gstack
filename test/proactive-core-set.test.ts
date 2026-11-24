@@ -14,7 +14,7 @@ import { QUESTIONS } from '../scripts/question-registry';
 import { generateUpgradeCheck } from '../scripts/resolvers/preamble/generate-upgrade-check';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const CORE = ['/office-hours', '/review', '/qa', '/ship'];
+const CORE = ['/office-hours', '/review', '/qa', '/gstack-ship'];
 const NON_CORE_SAMPLE = ['/cso', '/plan-ceo-review', '/design-review', '/retro'];
 // The one place the core block may name non-core skills: the rule that says to name them for the user to type.
 const TYPE_IT_RULE = 'under `core`, name `/browse` for the user to type instead of\ninvoking it.';
@@ -53,7 +53,7 @@ describe('proactive core set: every skill preamble', () => {
 
   test('the steady-state rule names the four core skills under core, scopes the setting to unasked suggestions, carves out only named skills, and keeps the marker the order test reads', () => {
     expect(line).toMatch(/^If `PROACTIVE` is `off`/);
-    expect(line).toContain('`core`: only /office-hours, /review, /qa, /ship');
+    expect(line).toContain('`core`: only /office-hours, /review, /qa, /gstack-ship');
     expect(line).toContain('`all`: any');
     expect(line).toContain('suggest no skills unasked, nor ask');
     expect(line).toContain('Skills the user names or this one invokes run');
@@ -64,7 +64,7 @@ describe('proactive core set: every skill preamble', () => {
   test('a generated core skill and a generated non-core skill both carry it (it is the same preamble)', () => {
     for (const skill of ['review', 'retro']) {
       const out = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
-      expect(out).toContain('`core`: only /office-hours, /review, /qa, /ship');
+      expect(out).toContain('`core`: only /office-hours, /review, /qa, /gstack-ship');
     }
   });
 });
@@ -174,7 +174,7 @@ describe('proactive core set: core skills carry their trigger phrases (#2118)', 
   const skillDirs = fs.readdirSync(ROOT).filter(dir => fs.existsSync(path.join(ROOT, dir, 'SKILL.md.tmpl')) && fs.existsSync(path.join(ROOT, dir, 'SKILL.md')));
   const catalog = Object.fromEntries(skillDirs.map(dir => [dir, description(fs.readFileSync(path.join(ROOT, dir, 'SKILL.md'), 'utf-8'))]));
 
-  test.each(CORE.map(s => s.slice(1)))('%s: every trigger phrase is in its full description, and one is in its catalog one-liner that no other one-liner carries', (skill) => {
+  test.each(CORE.map(s => s.slice(1).replace(/^gstack-/, '')))('%s: every trigger phrase is in its full description, and one is in its catalog one-liner that no other one-liner carries', (skill) => {
     const tmpl = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md.tmpl'), 'utf-8');
     const triggers = frontmatterList(tmpl, 'triggers').map(norm);
     expect(triggers.length).toBeGreaterThan(0);

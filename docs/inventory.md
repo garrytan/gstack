@@ -15,11 +15,11 @@ Token counts are offline estimates (estimate: calibrated bytes/token per content
 
 ## Parts by load per run
 
-Load per run: a skill's SKILL.md plus the files it must read on every use (`perInvocationTokens` in lib/context-bill.ts); a shared part's files. Tier 2+ skills also read the shared preamble once per session (its own row). On demand: the skill's other sections/ and references/ files, read when a step asks for them; files a shared row also counts, such as /ship's review sections, appear in both. Always-on: frontmatter every session's skill scanner reads.
+Load per run: a skill's SKILL.md plus the files it must read on every use (`perInvocationTokens` in lib/context-bill.ts); a shared part's files. Tier 2+ skills also read the shared preamble once per session (its own row). On demand: the skill's other sections/ and references/ files, read when a step asks for them; files a shared row also counts, such as /gstack-ship's review sections, appear in both. Always-on: frontmatter every session's skill scanner reads.
 
 | Rank | Part | Kind | Load per run (tokens) | On demand (tokens) | Always-on (tokens) | Loads | Status | Source, plan or reason |
 |---|---|---|---|---|---|---|---|---|
-| 1 | ship-review-panel | shared | 23,369 | n/a | n/a | every /ship run, by depth | untested | plan: GEVA-2 registry row R56-1 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered) (grandfathered) |
+| 1 | ship-review-panel | shared | 23,369 | n/a | n/a | every /gstack-ship run, by depth | untested | plan: GEVA-2 registry row R56-1 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered) (grandfathered) |
 | 2 | design-review | skill | 20,159 | 7,778 | 101 | every use | untested | plan: GEVA-2 registry row R56-9 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered) (grandfathered) |
 | 3 | ship | skill | 14,571 | 71,199 | 91 | every use | untested | plan: GEVA-2 registry row R56-4 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered) (grandfathered) |
 | 4 | plan-ceo-review | skill | 14,394 | 21,203 | 313 | every use | untested | plan: GEVA-2 registry row R56-5 (org-gstack-gbrain/research/gstack-part-evidence.json registry_rows; proposed, not yet preregistered) (grandfathered) |
@@ -77,7 +77,7 @@ Load per run: a skill's SKILL.md plus the files it must read on every use (`perI
 | 56 | setup-browser-cookies | skill | 3,289 | 0 | 79 | every use | untested | plan: none (grandfathered) |
 | 57 | deslop-shared-libs | skill | 3,100 | 0 | 64 | every use | untested | plan: none (grandfathered) |
 | 58 | landing-report | skill | 2,971 | 0 | 71 | every use | untested | plan: none (grandfathered) |
-| 59 | ship-docs-audit | shared | 2,730 | n/a | n/a | every /ship run | untested | plan: folded into GEVA-2 registry row R56-4 (ship); proposed, not yet preregistered (grandfathered) |
+| 59 | ship-docs-audit | shared | 2,730 | n/a | n/a | every /gstack-ship run | untested | plan: folded into GEVA-2 registry row R56-4 (ship); proposed, not yet preregistered (grandfathered) |
 | 60 | verify | skill | 2,678 | 0 | 91 | every use | untested | plan: none (grandfathered) |
 | 61 | ios-design-review | skill | 2,367 | 0 | 76 | every use | untested | plan: none (grandfathered) |
 | 62 | ios-sync | skill | 2,240 | 0 | 90 | every use | untested | plan: none (grandfathered) |
@@ -178,8 +178,8 @@ Untested parts, largest load per run first. A fair test runs the claude_code pre
 - **catalog**: skill catalog (every skill's frontmatter); loads every session.
 - **capy-skill**: capy/skill/gstack/SKILL.md (capy/skill/gstack/SKILL.md); loads every Capy session.
 - **capy-factory**: capy/skill/gstack/factory.md (capy/skill/gstack/factory.md); loads every Capy session.
-- **ship-review-panel**: /ship review panel (review-army and adversarial sections) (ship/sections/review-army.md, ship/sections/adversarial.md); loads every /ship run, by depth.
-- **ship-docs-audit**: /ship docs audit (Step 14.5) (ship/sections/documentation.md); loads every /ship run.
+- **ship-review-panel**: /gstack-ship review panel (review-army and adversarial sections) (ship/sections/review-army.md, ship/sections/adversarial.md); loads every /gstack-ship run, by depth.
+- **ship-docs-audit**: /gstack-ship docs audit (Step 14.5) (ship/sections/documentation.md); loads every /gstack-ship run.
 - **autoplan-phases**: /autoplan CEO, design, DX and eng phases (autoplan/sections/ceo-phase.md, autoplan/sections/design-phase.md, autoplan/sections/dx-phase.md, autoplan/sections/eng-phase.md); loads every /autoplan run, by scope.
 
 ## Paid dispatches per run
@@ -194,7 +194,7 @@ Each count is quoted from the file and line named; `bin/gstack-inventory --check
 | ship | Step 9 review, pass 1, full depth | the batched specialist on the whole diff and the Red Team always | docs/review-policy.md:301 |
 | ship | targeted reader on money, gate, auth or secret code | +1 at every depth | docs/review-policy.md:449 |
 | ship | audits (Steps 7, 8 and 14.5) | 3 | lib/ship-budget-calibration.json:3 |
-| ship | measured: one /ship child (gstack-evals#31) | 10 review dispatches | lib/ship-budget-calibration.json:43 |
+| ship | measured: one /gstack-ship child (gstack-evals#31) | 10 review dispatches | lib/ship-budget-calibration.json:43 |
 | ship | prior cost of one dispatch on the Capy meter | 7,430,000 tokens | lib/ship-budget-calibration.json:56 |
 | autoplan | voices per phase (native and outside) | 2 | autoplan/DRIVER.md.tmpl:25 |
 | autoplan | phases per round: CEO and Eng always, Design with UI scope, DX with developer-facing scope | 2 to 4, so 4 to 8 voice dispatches a round | autoplan/SKILL.md.tmpl:99 |
@@ -246,6 +246,6 @@ Each count is quoted from the file and line named; `bin/gstack-inventory --check
 
 - Out of scope: openclaw/skills/* and browser-skills/* (not gstack skills an agent loads from this checkout), and connect-chrome (a symlink to open-gstack-browser, counted once).
 - Evidence-table row "review: Review Army and adversarial pass": a section inside /review, not its own key; R2 measures it as part of the review row's plan.
-- Evidence-table row "ship: QA probes (Step 9.2.1)": a step inside /ship with no separate size; folded into the ship row (GEVA-2 registry row R56-4).
+- Evidence-table row "ship: QA probes (Step 9.2.1)": a step inside /gstack-ship with no separate size; folded into the ship row (GEVA-2 registry row R56-4).
 - Evidence-table row "gstack as a whole (installed, any skill)": not a single text part; GEVA-2's real-world outcome lane measures it (gstack-evals plan #111), not a measurement plan for any one part.
 - Evidence-table row "untold routing package (route hook, contracts and the description rewrite)": two Claude Code hooks and four description lines, not one text part with a key. L1 (GEVA-2, gstack-evals#247, merged 28be250; Opus 5.5, claude_code preset, 80 SWE-rebench tasks, no-gstack arm, pins 82db89ab → 699a41cb): helps, untold /investigate opens 17/80 vs 0/80, B1 +21.3 [+12.5, +30.0], R48 KEEP; it needs routing or contracts on, and hook vs contracts aren't split; the description rewrite alone had no effect (off-u 0/80). The investigate row carries it as a caveat.

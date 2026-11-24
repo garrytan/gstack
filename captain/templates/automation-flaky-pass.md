@@ -34,7 +34,7 @@ timeouts are not fixes; if a case needs one of those, write it up under Needs wi
 owner's decision and leave the entry Open. Move fixed entries to Fixed with the PR, and
 entries you decided against to Won't fix with the reason. Update the "Last fix pass" line.
 
-Run /ship on each PR and send the controller a READY block; never merge. Finish with
+Run /gstack-ship on each PR and send the controller a READY block; never merge. Finish with
 reports/<your code>.md (Outcome, PR, Needs, Cost, Lesson, Approvals), including the
 spend of every paid run you made.
 ```

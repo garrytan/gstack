@@ -609,7 +609,7 @@ describe('upgrade migrations', () => {
     });
 
     // After migration: real directories with SKILL.md symlinks
-    for (const skill of ['qa', 'ship', 'review']) {
+    for (const skill of ['qa', 'gstack-ship', 'review']) {
       const skillPath = path.join(skillsDir, skill);
       expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(false);
       expect(fs.lstatSync(skillPath).isDirectory()).toBe(true);

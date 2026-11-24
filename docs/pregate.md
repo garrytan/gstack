@@ -1,6 +1,6 @@
 # The pre-gate: generated files, cheap checks, issue links
 
-`/ship` Step 5 opens with `gstack-pregate`: the free checks that catch what the
+`/gstack-ship` Step 5 opens with `gstack-pregate`: the free checks that catch what the
 multi-agent wave kept paying remote gates to find (stale generated files, a
 scratch script at the repo root, a nightly-only test still asserting an old
 constant, a Windows-only change merged with its lane unrun, a `| tail`-hidden
@@ -20,7 +20,7 @@ Three bins, all over `lib/`:
 A pin file names commands. Its presence never authorizes execution: both tools
 read the committed copy on `origin/<base>` (a PR cannot smuggle a command into
 its own gate; `gstack-pregate run` alone also reads a user-owned file outside
-the repository when the base has none, see [pregate v1](#pregate-v1)) and run commands only with `--allow-repo-commands`, which `/ship`
+the repository when the base has none, see [pregate v1](#pregate-v1)) and run commands only with `--allow-repo-commands`, which `/gstack-ship`
 passes. Standalone, `gstack-regen check` lists the commands and exits 3
 (`REPO_COMMANDS_NOT_ALLOWED`); `gstack-pregate` marks `regen` and `lanes`
 `incomplete`, never `pass`. `--policy-from head` (a PR that introduces or
@@ -40,7 +40,7 @@ read from the branch under `--policy-from head`. So an allowlist entry or a
 adds counts on the base policy only once it lands; `PREGATE_NO_LANE`'s fix line
 says so when the branch edits the file
 ([troubleshooting](troubleshooting.md#pregate-no-lane-own-policy)).
-<a id="accept-head-policy"></a>/ship's reruns on the final tree (`gstack-ship-release accept`, and `finish`
+<a id="accept-head-policy"></a>/gstack-ship's reruns on the final tree (`gstack-ship-release accept`, and `finish`
 when it reruns the whole pregate on the stamped tree) choose the policy themselves
 (GST-1595). When the branch's `pregate.json` differs from the copy it forked from
 (the base tip's when the fork has none) in nothing but added test lanes, and
@@ -84,7 +84,7 @@ paths, at most 64 per list); commands are one line under 512 bytes.
 
 gstack's entries: `skill-docs` (every host render, the agents digest, llms.txt,
 the doctor component table) and `ship-goldens` (`bun scripts/gen-ship-goldens.ts`,
-the byte-pinned `/ship` renders in `test/fixtures/golden/`).
+the byte-pinned `/gstack-ship` renders in `test/fixtures/golden/`).
 
 <a id="pregate-v1"></a>
 ## `.gstack/pregate.json` (pregate-v1)
@@ -92,7 +92,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | Key | Meaning |
 |---|---|
 | `runner` | the local test command with `{files}` (gstack: `bun test --timeout=30000 {files}`, the 30 s per-test timeout CI uses); set, the local lane gives it only the selected files its tool runs, judged by extension (JS/TS files for `bun test`, `node --test`, `deno test`, vitest, jest, mocha, ava or playwright; `.py` files for pytest; each matched as a whole word, so `npx vitest run` counts and `tests/node/run.sh` does not; every file for any other command, such as a `node scripts/run-tests.js` dispatcher, or one naming both), and the lanes detail names each file it cannot run as not run and not counted as covered, so a `*_test.py` never reaches a local `bun test` (no Python lane runs beside a declared runner; the remote gate and `test_backend` commands still receive the whole selection, a declared test tree's tests included, since that exclusion is local-only); unset, it is detected (bun, vitest or jest for JS/TS files, pytest when python3 can import it (else `pytest` or `python3` is named missing), `node --test`, and `flutter test`/`dart test` per Dart package root, through fvm when that package or an ancestor pins it with `.fvmrc` or `.fvm/fvm_config.json` and fvm is on PATH; `cargo test -p <name>` per Rust crate, run from the root of the workspace the crate is a member of (Cargo's `members` globs, `exclude` and `package.workspace`), else the crate directory; a JS/TS test whose nearest package.json is a nested package declaring vitest or jest (a dependency or its `test` script) runs from that package, with package-relative paths, through the package manager its `packageManager` field or the nearest lockfile up to the repo root names: `pnpm exec`, `yarn`, `bun x`, else `npx`; a JS/TS test file that imports `@playwright/test` at the start of a line, or takes `test` from a repo module that takes `test` from it (Playwright's fixtures pattern, followed through named and `export *` re-exports and `index` modules up to 8 deep, never outside the repo; only the module `test` comes from), runs as `playwright test --reporter=list` from its nearest package through that same package manager, whatever the unit runner is, a type-only import (`import type …`, or one whose every specifier is `type X`) does not count, file arguments are passed as escaped regexes anchored to the path (Playwright reads them as regexes), and a run where every test fails and Playwright says its browser is not installed is `PREGATE_ENVIRONMENT` (a partial install, where some tests pass, stays the diff's failure); a `.js`, `.mjs` or `.cjs` test that loads `node:test` in a statement starting a line, and loads neither vitest nor `@jest/globals`, runs through `node --test` from the repo root even when the repo or its package declares vitest or jest (which find no suite in such a file), while a bun repo keeps `bun test` for it; every other test keeps the root detection, split by language when no one runner fits them all, so `.mjs` and `.py` root tests each get their own runner); nothing detected, a Dart SDK, cargo or package manager missing from PATH, a `.dart` file with no `pubspec.yaml` above it, a `.rs` file outside any crate, or one in a crate whose name Cargo would reject (anything but letters, digits, `_` and `-`), is `incomplete` (the runnable groups still run, so a real failure still fails) |
-| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` on a folder inside a test directory (`test/`, `tests/`, `spec/` or `__tests__/`, as in `"tests/live/**": []`; never the whole directory, so `"test/**": []` changes nothing) is the repo's statement that the tests under it run in their own tier, not in /ship's local lane: pregate keeps every selected test under that glob out of the local lane, whether touched or picked through an import (a test `.gstack/always-run.json` names still runs; the remote side is unchanged: the remote gate, `test_backend` and any remote platform lane that selects the test still owe it; and only a base-branch or user-owned policy's `[]` counts, never a bootstrap head file read under `--policy-from` head when neither exists), and prints `declared test tree <glob>: N test file(s) not run in the local lane` in the `lanes` lines it records; tests outside the glob still run, and a `[]` on any other glob never skips a test. A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
+| `dependencies` | glob → test files for subprocess targets, runtime reads and generated inputs the import graph cannot see; `[]` declares "no lane needed" (docs, licences). A `[]` on a folder inside a test directory (`test/`, `tests/`, `spec/` or `__tests__/`, as in `"tests/live/**": []`; never the whole directory, so `"test/**": []` changes nothing) is the repo's statement that the tests under it run in their own tier, not in /gstack-ship's local lane: pregate keeps every selected test under that glob out of the local lane, whether touched or picked through an import (a test `.gstack/always-run.json` names still runs; the remote side is unchanged: the remote gate, `test_backend` and any remote platform lane that selects the test still owe it; and only a base-branch or user-owned policy's `[]` counts, never a bootstrap head file read under `--policy-from` head when neither exists), and prints `declared test tree <glob>: N test file(s) not run in the local lane` in the `lanes` lines it records; tests outside the glob still run, and a `[]` on any other glob never skips a test. A `[]` that matches a deleted test does not skip it: the deleted test still runs its owning suite, and a file naming it that `[]` covers (a durations list) counts as covered. With this key present, even empty, the policy [declares lanes](#lane-requirements) |
 | `empty_lanes` | extra globs for the docs/no-tests empty lane. Any Markdown file already qualifies with no pin file when no test depends on it (the same import graph as other files: a quoted path, a `join()` of path segments, an import, or a `dependencies` entry). reStructuredText and AsciiDoc count as Markdown here. README, CHANGELOG, CONTRIBUTING, LICENSE, AGENTS and CLAUDE qualify even without `.md`, and so does licence text under any vendored name (`roboto-LICENSE.txt`, `LICENSE-MIT`, `licenses/*.txt`). Source code and files under a test directory never qualify. A test that reads the file still selects that test |
 | `selection` | `workflow.yml/job` → a command printing the lane's file list, for matrices a planner computes (gstack: `scripts/test-free-shards.ts --list`) |
 | `warn` | check ids downgraded to warn; `secrets` and required lanes never. `"lanes"` downgrades only a touched file with no lane: the selected tests still run, a red lane stays `fail` (`PREGATE_LANE_FAILED`) and an unfinished one `incomplete`; a green run is `warn` `PREGATE_NO_LANE` naming the unmapped files |
@@ -107,7 +107,7 @@ the byte-pinned `/ship` renders in `test/fixtures/golden/`).
 | `remote_gate` | the repo's remote test gate command; under 8 cores the local test tier becomes a `requires-remote` obligation naming it, and `--remote` runs it (see [remote gate](#remote-gate)) |
 | `run_profiles` | a map from each profile name to `{ workflow, events, jobs, artifact, max_age_hours?, os?, skippable?, tree_log_step? }`: the GitHub Actions runs `clear --run` verifies as evidence on the identical tree; a profile named after a lane (`free-tests.yml/macos-named-regressions`) clears that lane (see [run evidence](#run-evidence)). `--from-run` and the reuse job verify runs against them too ([from-run](#from-run), [CI reuse](#ci-reuse)) |
 | `remote_gate_runs` | `{ profiles, inventory, skipped? }`: the run profiles that together clear `pregate.json/remote_gate`, the command that prints the remote gate's test files, one per line, which their runs must cover, and an optional command that prints which selected files the gate itself never runs (see [run evidence](#run-evidence)) |
-| `ship_lanes_from` | maps each exact /ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases` (and, on an inventory entry, an optional `per_file` runner for files CI skipped entirely, see [skipped files](#skipped-files)): the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
+| `ship_lanes_from` | maps each exact /gstack-ship lane command to `{ profiles, inventory }` or `{ profiles, jobs }`, with optional `aliases` (and, on an inventory entry, an optional `per_file` runner for files CI skipped entirely, see [skipped files](#skipped-files)): the run profiles whose verified runs at HEAD's clean tree carry that lane instead of running it, and either the command listing its test files, which their runs must cover, or the CI jobs that must have succeeded (see [CI carry](#ci-carry)); read from the base branch only |
 | `allowlist` | `[{ finding, paths?, pattern?, reason }]`: benign findings the `secrets` check accepts and names as allowlisted, by gstack-redact finding id or non-secret category, path globs and a pattern anchored at the finding; never `env.value` (see [allowlist](#allowlist)) |
 
 Only the `origin/<base>` copy or the user-owned file below is honoured, so a
@@ -155,7 +155,7 @@ directories, the CI lanes, then the JSON between `begin` and `end`, with a
 or sharing its stem, never `[]`, and a `TODO` line for each file nothing
 covers). `run` writes nothing; `gstack-pregate init` is the explicit write.
 Once any policy exists (committed on the base, or the user-owned file), an
-unmapped file is `PREGATE_NO_LANE` again: the warning is for the first /ship
+unmapped file is `PREGATE_NO_LANE` again: the warning is for the first /gstack-ship
 in a new repository (three Captains lost their first pass to it), never a way
 to hide missing coverage. `--policy-from head` with a head policy is strict too.
 
@@ -680,7 +680,7 @@ the supervision above. Close the obligation one of four ways:
 
 The receipt `clear --receipt` validates names the tree the gate tested, and
 pregate.json names the tree being published. A repo whose full gate runs before
-its turn in the queue ("gate ahead": the gate tests commit G, then /ship's
+its turn in the queue ("gate ahead": the gate tests commit G, then /gstack-ship's
 restamp moves the version files, so the head H it publishes is G plus the
 stamp) could never clear the obligation with that run, and paid a second full
 gate on H for a diff that was nothing but stamps. `clear` now accepts that
@@ -976,7 +976,7 @@ once:
   <a id="skipped-files"></a>`skipped_files`, when present, lists the files whose every test skipped on
   the runner (a Docker image, a drive path or an installed gstack it lacks;
   GST-1190). A carry treats them as uncovered: the pregate tests stage runs
-  them here. A /ship lane or guard whose inventory names one carries the
+  them here. A /gstack-ship lane or guard whose inventory names one carries the
   covered files and runs only the skipped ones here, through the runner its
   `ship_lanes_from` entry declares as `per_file` (a command with `{files}`,
   such as `"per_file": "bun --no-env-file test --timeout=30000 {files}"`, the
@@ -1192,10 +1192,10 @@ the preflight checks, the secrets scan included, run as before, and
 `--stage tests` runs no preflight check in that invocation, with or without it.
 
 <a id="ci-carry"></a>
-### CI carry: pregate and /ship use CI's run instead of running again (GSTA-258)
+### CI carry: pregate and /gstack-ship use CI's run instead of running again (GSTA-258)
 
 CI is the one full test run. When a verified run already passed at the exact
-tree being tested, pregate's tests stage and /ship's test lanes use it instead
+tree being tested, pregate's tests stage and /gstack-ship's test lanes use it instead
 of running the suite a second time. `lib/ci-carry.ts` `findCarry` decides, and
 it accepts a run only when all of these hold:
 
@@ -1295,7 +1295,7 @@ in for the required `pull_request` check. gstack's own merge trains test the
 merged tree before they merge, so gstack is covered; a repo that merges
 without a train is not.
 
-**/ship lanes: `ship_lanes_from`.** A lane carries only when the base branch's
+**/gstack-ship lanes: `ship_lanes_from`.** A lane carries only when the base branch's
 `.gstack/pregate.json` maps its exact command (the evidence ledger binds the
 command's sha256; a label alone never carries) to the profiles whose runs carry
 it and the command that lists its test files:
@@ -1349,7 +1349,7 @@ actually ran.
 may refuse a tree on purpose: gbrain's `runs_may_attest` exits 1 for a tree
 that changes CI-reuse files (its workflows, `scripts/ci-reuse.ts`), so no CI
 run can attest to it (GBRA-345, gbrain #8727). When the carry refuses as
-`inventory_failed`, /ship's lanes (finish, accept and Step 5, through
+`inventory_failed`, /gstack-ship's lanes (finish, accept and Step 5, through
 `gstack-evidence record-ci --remote-gate-stands-in`) look for a cleared remote
 gate for the same tree, and it stands in for the lane only when every one of
 these holds (`lib/remote-gate-stand-in.ts`, GST-1688):
@@ -1413,7 +1413,7 @@ It reads the branch's own `ship_lanes_from` and `run_profiles`, checks the lane
 against the verified CI run at this tree exactly as a carry would, and prints
 `SIMULATION:` at the start of every line (`SIMULATION: CI_CARRY: accepted …` or
 `SIMULATION: CI_CARRY: none (<reason>)`). It writes no evidence or ledger row
-and clears no obligation. To check every /ship lane at once, the same dry run
+and clears no obligation. To check every /gstack-ship lane at once, the same dry run
 takes lane flags: `gstack-ship-preflight --tests-only --base main --policy-from
 head --simulate --allow-repo-commands --lane 'verify=bun run verify' …` prints `SIMULATION: LANE:
 <label> would carry run=…`, `SIMULATION: CI_CARRY: none label=<label> (<reason>)`
@@ -1439,7 +1439,7 @@ As a second guard, every `record-ci` row names the policy that mapped it
 the ship receipt reads, lists only rows whose policy is `origin/<the receipt's
 base>`. A row written by a run against another base never lands in a receipt.
 `carried` also lists a row only when `check`'s own grading, at the 24-hour age
-limit /ship uses, calls it FRESH, so a carry that never reached FRESH (a failed
+limit /gstack-ship uses, calls it FRESH, so a carry that never reached FRESH (a failed
 or zero-run row, or one older than 24 hours) leaves no `ci_carried` entry.
 
 A carried lane prints `LANE: <label> carried run=<id>/<attempt> tests_ran=<n>`
@@ -1675,7 +1675,7 @@ are fresh, the credential scan passes, and the tests that read docs by directory
 to the base branch always run the full suites.
 
 **One classifier.** `lib/docs-only.ts` (`bin/gstack-docs-only`) decides the class for CI,
-pregate, `gstack-ci-carry`, /ship's lanes and land. A path is docs only when every one of
+pregate, `gstack-ci-carry`, /gstack-ship's lanes and land. A path is docs only when every one of
 these holds:
 
 - It is a plain file (mode 100644). Executables, symlinks, submodules and type changes refuse.
@@ -1714,7 +1714,7 @@ repository: copy `.github/actions/docs-scope`, add a `docs-scope` job, and gate 
 `${{ !cancelled() && !(needs.docs-scope.result == 'success' && needs.docs-scope.outputs.docs_only == 'true') }}`.
 Never use a workflow-level `paths-ignore`: a required check that never starts stays pending.
 
-**Pregate and /ship.** On a docs-only change the `lanes` check runs the docs lane in place of the
+**Pregate and /gstack-ship.** On a docs-only change the `lanes` check runs the docs lane in place of the
 test lanes and owes no remote gate. The `regen` and `secrets` checks run as always. `ci-reuse/free-tests`
 declares `docs-scope` as its `skippable` gate. A pull request run that skipped every suite carries as not
 owed (`CI_CARRY: accepted ci-carry tree=… not_owed=docs-only`), but only when this checkout's classifier
@@ -1771,7 +1771,7 @@ the reference scan (a script or test naming the path pins it; a repo-allowed doc
 until `min_gstack_version` reaches `DOCS_ONLY_KEY_VERSION`. After a stable release carries it, add the block and
 raise `min_gstack_version` to that release in the same pull request; that pull request edits the policy, so it runs
 the full suites. Pushes to the base branch always run the full suites. A repository whose CI runs an older pinned
-gstack, or has no `docs-scope` job, gets the class in pregate, /ship and land only: bump the pin first, then add the
+gstack, or has no `docs-scope` job, gets the class in pregate, /gstack-ship and land only: bump the pin first, then add the
 `docs-scope` job from [CI](#docs-only) (never gating its own docs checks), then add the block.
 
 <a id="flaky-exception"></a>
@@ -1908,7 +1908,7 @@ place one. The guards must have checked the tree being pushed, so uncommitted
 or untracked files that change what they saw stop the push until you commit or
 stash them. A refused run (an unreadable policy, a base that is on origin but
 not fetched, a mistyped `--base`) stops the push too; only a remote that has no branch except the one
-being pushed skips the guards, as `GUARDS: not run`. Outside /ship, run the
+being pushed skips the guards, as `GUARDS: not run`. Outside /gstack-ship, run the
 command above yourself before `git push`.
 
 gstack declares its own list in `.gstack/pregate.json`: `typecheck`,
@@ -1939,7 +1939,7 @@ A guard is skipped as passed when its exact command already passed at this tree
 
 1. **CI.** When the base branch's `ship_lanes_from` maps the guard's exact
    command, the guard is carried from the verified CI run at HEAD's clean tree,
-   through the same `gstack-evidence record-ci` and `findCarry` path a /ship
+   through the same `gstack-evidence record-ci` and `findCarry` path a /gstack-ship
    lane uses ([ci-carry](#ci-carry)). It prints `GUARD: <id> carried
    runs=<id>/<attempt>`, or `GUARD: <id> not owed: CI skipped at this tree …`
    when every job it maps was skipped by an unchanged gate
@@ -1957,7 +1957,7 @@ A guard is skipped as passed when its exact command already passed at this tree
 Anything else runs the guard as before, with the same timeout, stall rule and
 fix line. This matters for repos whose suites are guards rather than lanes
 (founderstar declares `check-quick`, `play-through` and `assets` as guards),
-which otherwise reran every suite /ship had just carried from CI.
+which otherwise reran every suite /gstack-ship had just carried from CI.
 
 Known limit: `ship_lanes_from` is read from `origin/<base>` only, so the pull
 request that adds a mapping cannot carry from it. Prove it with the dry run in
@@ -2518,7 +2518,7 @@ candidate; `(see #12)`, `(closing #12)` and `(#301)` stay bare refs.
 Several in one parenthesis, `(founderstar #837, harness-evals #393)`, are each
 their own name's reference. `owner/repo#N` naming this repository is its own
 issue, so a `Fixes garrytan/gstack#N` trailer closes it. A `Review-Finding:`
-trailer line, which /ship writes for each fixed review finding, names a review
+trailer line, which /gstack-ship writes for each fixed review finding, names a review
 ledger entry (`p1/red-team#3`) or a fingerprint, never an issue, so it is skipped
 (#4371).
 Same-repo references are printed as

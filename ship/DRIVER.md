@@ -1,8 +1,8 @@
 <!-- AUTO-GENERATED from ship/DRIVER.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-# /ship driver
+# /gstack-ship driver
 
-Read this, not `ship/SKILL.md`, to run /ship (`SESSION_KIND: unattended`) in the PR's
+Read this, not `ship/SKILL.md`, to run /gstack-ship (`SESSION_KIND: unattended`) in the PR's
 own thread, never in a subagent. Commands live in `<root>/bin/` (`<root>` holds `ship/`); run each with
 the `GSTACK_LAUNCH` assignments your installer printed (`. <its GSTACK_LAUNCH_FILE>`), never
 `export $(...)`, `env`, `printenv` or a bare `set` in a tool fence.

@@ -152,7 +152,7 @@ workflow edit is itself reviewed like any other `.github/` change.
 
 When the base policy also lists `review_exclude_paths`, a file one of those
 patterns matches that verifies byte for byte counts as vendored content, so
-`/ship`'s reviewers can leave it out. Nothing else about the keep rules
+`/gstack-ship`'s reviewers can leave it out. Nothing else about the keep rules
 changes: a vendored file stays in review when it is agent prose (`AGENTS.md`,
 `CLAUDE.md`), config, executable, a link, under `.github/` or `.gstack/`, on a
 gate path, holds a credential value, or carries a gate tag. A file kept only

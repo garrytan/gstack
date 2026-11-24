@@ -79,7 +79,7 @@ version and OS to gstack's Supabase. Turn the check off with
 `gstack-config set update_check false`.
 
 **Outside reviews (on by default; the first one prints a notice).** Plan
-reviews, `/autoplan`, `/review` and `/ship` adversarial passes, `/ship`'s design
+reviews, `/autoplan`, `/review` and `/gstack-ship` adversarial passes, `/gstack-ship`'s design
 check, `/design-review`, `/design-consultation`, `/office-hours`,
 `/document-release` and `/spec` can
 ask a second model for an independent review: Codex under Claude Code, Claude

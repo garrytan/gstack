@@ -9,7 +9,7 @@ import { usePrivateStateRoot } from './helpers/private-state-root';
 import { expectMentions } from './helpers/prompt-structure';
 import { readShippedSkillRouting } from './helpers/shipped-skill-routing';
 import { readSkillStartup } from './helpers/skill-startup';
-import { RETIRED_SKILLS } from '../scripts/discover-skills';
+import { PREFIXED_SKILLS, RETIRED_SKILLS } from '../scripts/discover-skills';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -1891,7 +1891,8 @@ describe('Doc inventory cross-check', () => {
     const missing: string[] = [];
     for (const skill of discoverSkillDirs()) {
       // Match `/skill-name` as a token boundary.
-      if (!new RegExp(`/${skill}\\b`).test(agents)) missing.push(skill);
+      const invoked = PREFIXED_SKILLS.includes(skill) ? `gstack-${skill}` : skill;
+      if (!new RegExp(`/${invoked}\\b`).test(agents)) missing.push(skill);
     }
     expect(missing).toEqual([]);
   });

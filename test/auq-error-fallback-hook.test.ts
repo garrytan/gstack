@@ -99,7 +99,7 @@ describe('directiveFor — per-session-kind instruction', () => {
     expect(d).toMatch(/every other skill prints no GSTACK_RESULT line/);
     const doc = readFileSync(path.join(import.meta.dir, '..', 'docs', 'unattended.md'), 'utf8');
     expect(doc).toContain('**`/autoplan`**');
-    expect(doc).toContain('**`/ship`**');
+    expect(doc).toContain('**`/gstack-ship`**');
     expect(doc).toMatch(/`\/eval-plan` asks for a `gate_pending` line/);
     expect(doc).toMatch(/\*\*Every other workflow skill\*\*[\s\S]*prints the line/);
   });

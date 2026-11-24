@@ -51,7 +51,7 @@ itself: a local test that timed out, a paid run skipped, a number a model report
 inherited from another thread, and a review finding set aside on an assumption nobody
 tested. `none` means the lane looked for each of these and found none. A missing line is
 asked for as a follow-up message: it never holds a PR out of a train, does not stale
-READYs sent before the line existed, and needs no new `ready` or /ship run.
+READYs sent before the line existed, and needs no new `ready` or /gstack-ship run.
 
 Every number, "green" and "ready" in the block names where it came from (a run id, a commit,
 a command) and is read at the pinned head; anything carried over from an earlier head goes

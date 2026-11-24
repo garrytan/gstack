@@ -47,7 +47,7 @@ function fixture() {
   put(path.join(render, 'ship/SKILL.md'), '---\nname: ship\ndescription: t\n---\n# ship rendered');
   put(path.join(render, 'ship/sections/adversarial.md'), `body\n${SAVE_BLOCK}\n`);
   fs.mkdirSync(skills, { recursive: true });
-  return { install, render, skills, dst: path.join(skills, 'ship') };
+  return { install, render, skills, dst: path.join(skills, 'gstack-ship') };
 }
 
 function runSetupHelper(src: string, dst: string, render?: string) {

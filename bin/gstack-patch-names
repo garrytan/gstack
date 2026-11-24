@@ -10,6 +10,8 @@ DO_PREFIX="$2"
 case "$DO_PREFIX" in true|1) DO_PREFIX=1 ;; *) DO_PREFIX=0 ;; esac
 # Names are read with a bash builtin loop: no process per skill (#2120).
 . "$(dirname "$0")/gstack-skill-name.sh"
+# GSTACK_PREFIXED_SKILLS: skills whose name keeps gstack- in both modes (#4775).
+if [ -f "$(dirname "$0")/gstack-install-registry.sh" ]; then . "$(dirname "$0")/gstack-install-registry.sh"; fi
 
 PATCHED=0
 for skill_dir in "$GSTACK_DIR"/*/; do
@@ -25,6 +27,7 @@ for skill_dir in "$GSTACK_DIR"/*/; do
   else
     case "$cur" in gstack-*) ;; *) continue ;; esac
     [ "$dir_name" = "$cur" ] && continue  # inherently prefixed (gstack-upgrade)
+    case " ${GSTACK_PREFIXED_SKILLS:-} " in *" $dir_name "*) continue ;; esac  # always prefixed (ship, #4775)
     new="${cur#gstack-}"
   fi
   tmp="$(mktemp "${skill_dir}/SKILL.md.XXXXXX")"

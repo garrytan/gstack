@@ -134,7 +134,7 @@ gstack is not a hypothetical. It's a product with real users:
 - **305,309 skill invocations** recorded since January 2026
 - **~7,000 weekly active users** at peak
 - **95.2% success rate** across all skill runs (290,624 successes / 305,309 total)
-- **57,650 /qa runs**, **28,014 /plan-eng-review runs**, **24,817 /office-hours sessions**, **18,899 /ship workflows**
+- **57,650 /qa runs**, **28,014 /plan-eng-review runs**, **24,817 /office-hours sessions**, **18,899 /gstack-ship workflows**
 - **27,157 sessions used the browser** (real Playwright, not toy)
 - Median session duration: **2 minutes**. Average: **6.4 minutes**.
 
@@ -144,7 +144,7 @@ Top skills by usage:
 /qa               57,650  ████████████████████████████
 /plan-eng-review  28,014  ██████████████
 /office-hours     24,817  ████████████
-/ship             18,899  █████████
+/gstack-ship             18,899  █████████
 /browse           13,675  ██████
 /review           13,459  ██████
 /plan-ceo-review  12,357  ██████

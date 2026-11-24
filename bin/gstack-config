@@ -55,7 +55,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # Docs: https://github.com/garrytan/gstack
 #
 # ─── Behavior ────────────────────────────────────────────────────────
-# proactive: core           # core = auto-invoke only /office-hours, /review, /qa and /ship
+# proactive: core           # core = auto-invoke only /office-hours, /review, /qa and /gstack-ship
 #                           # when your request matches one; every other skill waits
 #                           # for you to type it. all = auto-invoke any matching skill.
 #                           # off = only run skills you type explicitly.
@@ -87,7 +87,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #
 # ─── Skill naming ────────────────────────────────────────────────────
 # skill_prefix: false       # true = namespace skills as /gstack-qa, /gstack-ship
-#                           # false = short names /qa, /ship
+#                           # false = short names /qa, /gstack-ship
 # disabled_skills:          # comma-separated skills to leave unregistered,
 #                           # e.g. make-pdf,pair-agent ("" = all enabled)
 #
@@ -221,9 +221,9 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   the outside voice of every workflow may run.
 #                           #   disabled: the send binaries refuse (not_run,
 #                           #   consent_missing) and start no CLI and make no API call;
-#                           #   /review, /ship, /autoplan keep native passes; plan and
+#                           #   /review, /gstack-ship, /autoplan keep native passes; plan and
 #                           #   document reviews skip the extra step. Covers design
-#                           #   review, /ship design-lite, office hours and /spec.
+#                           #   review, /gstack-ship design-lite, office hours and /spec.
 #                           #   /codex and /claude-code still run when you ask by name.
 #                           #   An unreadable config counts as disabled.
 #                           #   Invalid values preserve the old value.
@@ -246,7 +246,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   design skills to download the impeccable engine with
 #                           #   "never ask again"; flip back to false to be asked again.
 # design_detector: auto     # Deterministic design pre-pass through a user-installed
-#                           #   impeccable engine (/design-review, /review, /ship,
+#                           #   impeccable engine (/design-review, /review, /gstack-ship,
 #                           #   /design-html). auto = use the engine when the probe
 #                           #   finds one (gstack never installs or downloads it);
 #                           #   off = no probe, no scan, no hint, no /impeccable
@@ -259,7 +259,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   GSTACK_PLAN_RECORD wins over this. Unset: warn in
 #                           #   a Capy session, else off.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
-# skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
+# skip_eng_review: false    # true = skip eng review gate in /gstack-ship (not recommended)
 #
 # ─── Browser extension ───────────────────────────────────────────────
 # browse_extension_id:      # Chrome extension ID the browse daemon trusts for
@@ -270,7 +270,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   or project .env can change it. An invalid value
 #                           #   is REJECTED and the stored value kept.
 #
-# ─── /ship measure-then-fix loop ─────────────────────────────────────
+# ─── /gstack-ship measure-then-fix loop ─────────────────────────────────────
 # A red eval case is measured alone before the full gate reruns
 # (scripts/ship-measure.ts; docs/TESTING_INTERNALS.md#ship-measure).
 # Bar (scripts/lib/measure-bar.ts): MEETS at 9/10 of the trials, MEETS-qualified
@@ -294,7 +294,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   recommends ubicloud under 8 cores; ubicloud
 #                           #   needs UBICLOUD_API_KEY and scripts/ubicloud/.
 #                           #   Invalid values are REJECTED (value kept).
-# ship_greptile_early: true # true | false — when the repo uses Greptile, /ship
+# ship_greptile_early: true # true | false — when the repo uses Greptile, /gstack-ship
 #                           #   pushes and opens a draft PR after its free tests
 #                           #   so Greptile reviews in parallel (a public repo
 #                           #   asks once). false keeps the old order.
@@ -304,7 +304,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   bot owns logins starting with its name and
 #                           #   checks mentioning it).
 # pr_wait_advisory_bots: coderabbit  # review bots gstack-pr-wait reports but
-#                           #   never waits for. /review and /ship triage the
+#                           #   never waits for. /review and /gstack-ship triage the
 #                           #   comments of every bot in both lists (e.g.
 #                           #   coderabbit,copilot). Both lists: lowercase names,
 #                           #   letters, digits, . _ - only; none empties a list.
@@ -312,7 +312,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #
 # ─── Workspace-aware ship ────────────────────────────────────────────
 # workspace_root: $HOME/conductor/workspaces  # When picking a VERSION slot,
-#                           # /ship checks every git worktree of the repo,
+#                           # /gstack-ship checks every git worktree of the repo,
 #                           # wherever it lives, plus <root>/<repo>/<workspace>/
 #                           # here, which also finds separate clones.
 #                           # Set to "null" to disable sibling scanning entirely.
@@ -324,7 +324,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # AND the env override is not set. Keep in sync with the CONFIG_HEADER comments.
 lookup_default() {
   case "$1" in
-    proactive) echo "core" ;; # core | all | off (true = all, false = off); core suggests only /office-hours, /review, /qa, /ship
+    proactive) echo "core" ;; # core | all | off (true = all, false = off); core suggests only /office-hours, /review, /qa, /gstack-ship
     telemetry) echo "off" ;;
     auto_upgrade) echo "false" ;;
     update_check) echo "true" ;;
@@ -384,7 +384,7 @@ lookup_default() {
     # a synthesized "unknown" default turns the classifier into dead code.
     # Empty + exit 0 = "no override set, go classify".
     repo_mode) echo "" ;;
-    # /ship measure-then-fix loop (scripts/ship-measure.ts reads these).
+    # /gstack-ship measure-then-fix loop (scripts/ship-measure.ts reads these).
     ship_measure_rule_trials) echo "10" ;;
     ship_measure_behavior_panels) echo "4" ;;
     ship_measure_judge_outputs) echo "10" ;;
@@ -402,7 +402,7 @@ lookup_default() {
     codex_effort) echo "" ;; # empty = each gate's own effort; /codex --effort, then GSTACK_CODEX_EFFORT, win (gstack-codex-probe run-with-timeout --effort)
     review_effort_tiers) echo "on" ;; # on | off — gstack-review-plan effort tiers (docs/model-policy.md#reasoning-effort)
     harness_start_hook) echo "" ;; # on | off — empty = each harness registration keeps its saved choice, else on (docs/hosts.md#start-hook)
-    ship_greptile_early) echo "true" ;; # true | false — /ship's early Greptile PR
+    ship_greptile_early) echo "true" ;; # true | false — /gstack-ship's early Greptile PR
     pr_wait_gating_bots) echo "greptile,macroscope" ;; # review bots gstack-pr-wait --until ready waits for
     pr_wait_advisory_bots) echo "coderabbit" ;; # review bots gstack-pr-wait reports but never waits for
     # Unknown key: exit non-zero instead of printing "". The fallback pattern
@@ -867,7 +867,7 @@ $_gstack_legacy_root"
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
-    # plan_record decides whether ship-queue ready and /ship finish refuse a PR with no approved plan: reject a
+    # plan_record decides whether ship-queue ready and /gstack-ship finish refuse a PR with no approved plan: reject a
     # typo instead of coercing it, so a misspelt require never silently turns the check off.
     if [ "$KEY" = "plan_record" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "warn" ] && [ "$VALUE" != "require" ]; then
       echo "Error: plan_record '$VALUE' not recognized. Valid values: off, warn, require. Existing value left unchanged." >&2
@@ -922,7 +922,7 @@ $_gstack_legacy_root"
         fi ;;
     esac
     # The measure-loop controls bound paid spend: reject a typo instead of
-    # coercing it, so a bad value never changes how much /ship may spend.
+    # coercing it, so a bad value never changes how much /gstack-ship may spend.
     case "$KEY" in
       ship_measure_rule_trials|ship_measure_behavior_panels|ship_measure_judge_outputs|ship_measure_max_rounds|ship_measure_sweep_cases)
         if ! printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[1-9][0-9]*$'; then

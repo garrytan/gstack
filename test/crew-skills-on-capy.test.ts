@@ -108,7 +108,7 @@ describe('gstack-relink registers /captain only on Capy', () => {
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
     expect(fs.lstatSync(path.join(skills, 'captain'), { throwIfNoEntry: false })).toBeUndefined();
-    expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(true);
     expect(r.stdout).not.toContain('Disabled (gstack-config disabled_skills');
   });
 
@@ -117,7 +117,7 @@ describe('gstack-relink registers /captain only on Capy', () => {
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
     expect(fs.existsSync(path.join(skills, 'captain', 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(true);
   });
 
   test('an install that leaves Capy loses the gstack-owned captain entry and keeps a user\'s own', () => {
@@ -150,7 +150,7 @@ describe('the harness registrar registers /captain only on Capy', () => {
 
   test('off Capy neither the Claude render nor a host render carries captain', () => {
     const { dots, hermes } = sourceNames();
-    expect(dots).toContain('ship');
+    expect(dots).toContain('gstack-ship');
     expect(dots).not.toContain('captain');
     expect(hermes).toContain('gstack-ship');
     expect(hermes).not.toContain('gstack-captain');
