@@ -125,8 +125,8 @@ Where each rule lives:
 | 19 | CHANGELOG-only conflicts are the train's to resolve, not the lane's | folded into 14: [ship-policy.md](../../docs/ship-policy.md#ship-before-ready) ("the stamp keeps the pin's receipt") |
 | 20 | A READY from before a contract change needs a fresh receipt | [The READY contract](#the-ready-contract) |
 | 21 | Approvals, plan asks and merge asks in the three shapes | [Approvals](#approvals-three-shapes); [capy/skill/gstack/captain.md](../../capy/skill/gstack/captain.md) |
-| 22 | /gstack-ship before every READY; the block carries `SHIP_RECEIPT`; stamp commits hold only tool output | [ship-policy.md](../../docs/ship-policy.md#ship-before-ready); [the lane's /gstack-ship sequence](#the-lanes-ship-sequence-before-ready) |
-| 23 | Review loops converge: scope frozen after pass 1, later passes on the delta, a pass cap, a blocking floor | the `/gstack-ship` and `/review` skills' own convergence policy ([skills.md](../../docs/skills.md#ship)); a crew names it in one line and sets only the scope knob (`REVIEW_SCOPE`) |
+| 22 | /gstack-ship before every READY; the block carries `SHIP_RECEIPT`; stamp commits hold only tool output | [ship-policy.md](../../docs/ship-policy.md#ship-before-ready); [the lane's /gstack-ship sequence](#the-lanes-gstack-ship-sequence-before-ready) |
+| 23 | Review loops converge: scope frozen after pass 1, later passes on the delta, a pass cap, a blocking floor | the `/gstack-ship` and `/review` skills' own convergence policy ([skills.md](../../docs/skills.md#gstack-ship)); a crew names it in one line and sets only the scope knob (`REVIEW_SCOPE`) |
 | 24 | Plan before build: a sized `/autoplan` is a building lane's first act; the plan ask goes up, the build starts after the owner's word is in the run and it reports `APPROVED` | [Plan before build](#plan-before-build); the [brief template](../../captain/templates/brief.md) |
 
 ## Lane discipline
@@ -206,7 +206,7 @@ cheap:
   longer sleeps on its operations alone. For short lane waits this overrides "waits go on
   operations, never on polling wakes" ([unattended.md](../../docs/unattended.md#report-length)). The
   controller never warm-waits, and a lane running /gstack-ship follows the waits in `ship/DRIVER.md`
-  ([the lane's /gstack-ship sequence](#the-lanes-ship-sequence-before-ready)).
+  ([the lane's /gstack-ship sequence](#the-lanes-gstack-ship-sequence-before-ready)).
 - **Batched reads.** Independent reads (files, greps, pull request and thread state) go in
   one parallel program, not one call each. Each call returns 4k characters or less; long
   output (logs, test output, diffs) goes to a file under `~/.capy/work`, and the lane reads

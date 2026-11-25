@@ -76,7 +76,7 @@ describe('PR round cap', () => {
     for (const roundGrant of [undefined, 'a-000000000001']) {
       const stop = nextStep(h({ priorFull: 3, fullPasses: 1, last: 'full', fixedBlocking: true, roundGrant }), 'standard');
       expect(stop.step).toBe('stop');
-      expect(stop.reason).toContain("the lane's Captain decides (ship with the note, park, or keep the fix and run /ship again for one more read-only full review of the final head)");
+      expect(stop.reason).toContain("the lane's Captain decides (ship with the note, park, or keep the fix and run /gstack-ship again for one more read-only full review of the final head)");
       expect(stop.reason).not.toContain('fix-check grant');
       expect(stop.reason).not.toContain('does not buy a fix round');
     }

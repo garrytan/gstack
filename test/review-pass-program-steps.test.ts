@@ -10,22 +10,6 @@ import { withWorkspace } from '../lib/review-brief';
 import { PARENT_ONLY_QA, type Manifest } from '../lib/review-pass';
 import { ROOT, BIN, spec, manifest, repo, host, runPass, bin } from './helpers/review-pass-harness';
 
-/**
- * GST-3562 A: the planner plans a fix-check only for a grant answering the stop after a round-2 fix-check (GEVA-223), until a
- * later release removes it. Commit a fix, record the owner's grant at that stop head, and return the plan flags of that stop.
- */
-function legacyGrantFlags(dir: string, env: NodeJS.ProcessEnv): string[] {
-  const sh = (c: string) => spawnSync('bash', ['-c', c], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
-  const rangeBase = sh('git rev-parse HEAD').stdout.trim();
-  expect(sh('echo "export const fix = 1;" >> src/a.ts && git commit -qam fix').status).toBe(0);
-  const stopHead = sh('git rev-parse HEAD').stdout.trim();
-  env.GSTACK_APPROVALS_MIRROR = '0';
-  delete env.GSTACK_APPROVALS_DIR;
-  const a = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${stopHead.slice(0, 12)})`, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
-  expect(a.status, a.stderr).toBe(0);
-  return ['--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--fixed-blocking', '--adversarial-ran', '--range-base', rangeBase, '--grant', JSON.parse(a.stdout).added[0]];
-}
-
 describe('Capy pass program (fake host, real bins)', () => {
   test('Step 11 notes its own growth from its first dispatch, not from the pass\'s starting reading', async () => {
     const { dir, env } = repo();
@@ -138,6 +122,25 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(Object.keys(m.log_starts).sort()).toEqual(['voices:adversarial-review', 'voices:adversarial-review#2']);
     const again = await runPass(h, { ...base, stage: 'voices', models, logStart: ['adversarial-review', 'adversarial-review'] });
     expect(again).not.toContain('REVIEW_LOG_START:');
+  }, 240_000);
+
+  // Value: protects=a stop on a second-model blocker binds: Step 11 with no logStart starts one adversarial-review token per voice
+  //   row it will log (the native adversarial and the second-model reader), so neither row is logged unbound; fails_when=the
+  //   default starts one token for two voice rows, the second-model row logs uncaptured and gstack-ship-receipt stop refuses
+  //   STOP_UNBOUND (CAPY-1 on yc-software/qm#3973, GSKI-1 on gskills#45 and #46); seam=the pass program's voices start
+  test('Step 11 with no logStart starts one token per voice row it logs, so a second-model blocker can bind its stop', async () => {
+    const { dir, env } = repo();
+    const out = path.join(dir, '.state/run/p1');
+    const h = host(dir, env);
+    const base = { base: 'main', out, pass: 'x22p1', planFlags: ['--depth-floor', 'full'] };
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
+    const res = await runPass(h, { ...base, stage: 'voices', models });
+    const starts = res.split('\n').filter(l => l.startsWith('REVIEW_LOG_START: adversarial-review'));
+    expect(starts.length).toBe(2);
+    expect(new Set(starts.map(l => l.split('token=')[1])).size).toBe(2);
+    const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
+    expect(Object.keys(m.log_starts).sort()).toEqual(['voices:adversarial-review', 'voices:adversarial-review#2']);
   }, 240_000);
 
   test('a repeat pass reads the range: diffBase reaches the specialists and the Red Team, byte for byte the render CLI at that base', async () => {

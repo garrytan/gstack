@@ -4,8 +4,8 @@
  * Each class has one deterministic test here; anything that fails it, and any stop outside the four,
  * still stops for the owner.
  *
- * - scoped-fix-check: one scoped fix-check past R51's two-round cap when the round-2 fix is docs-only
- *   (docs class, lib/review-depth.ts classifyPath) or timeout-only. One per branch.
+ * - scoped-fix-check: removed with fix-check grants (GST-3562 part 4); refused, so a stop after round 2 goes to the lane's
+ *   Captain. The class stays in NO_STOP_CLASSES so receipts written before still validate.
  * - test-timeout-fix: a fix whose every changed line, all in test files, only raises a timeout value.
  * - pregate-flake-rerun: one rerun of a failed pregate case at the same tree (CREW rule 16). One per branch.
  * - autoplan-regate: a later autoplan gate revision whose plan-file edit only adds ELI5 lines that name no
@@ -19,7 +19,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { branchKey } from './approval-record';
 import { NO_STOP_CLASSES, type NoStopClass } from './headless-artifacts';
-import { classifyPath } from './review-depth';
 
 export interface NoStopRecord { class: NoStopClass; reason: string; evidence: string }
 export type NoStopVerdict = { ok: true; record: NoStopRecord; detail: string } | { ok: false; reason: string };
@@ -82,13 +81,6 @@ export function notTimeoutOnly(files: FileDiff[]): string | null {
   return null;
 }
 
-/** Why the paths are not docs-only, or null: each is docs class as /ship's review classifies it (agent-read and skill prose is not). */
-export function notDocsOnly(paths: string[], root: string): string | null {
-  if (!paths.length) return 'the fix changes nothing';
-  const code = paths.filter(p => classifyPath(p, root) !== 'docs');
-  return code.length ? `not docs: ${code.slice(0, 3).join(', ')}` : null;
-}
-
 const HEADING = /^#{1,6}\s+(.*)$/;
 const ELI5 = /^eli5\b/i;
 
@@ -123,20 +115,15 @@ export function checkNoStop(i: NoStopInput): NoStopVerdict {
   const cls = i.cls as NoStopClass;
   if (!i.reason.trim() || !i.evidence.trim()) return { ok: false, reason: 'a no-stop record needs a reason and evidence that resolves (run id, commit or file)' };
   const record = { class: cls, reason: i.reason.trim(), evidence: i.evidence.trim() };
-  if ((cls === 'scoped-fix-check' || cls === 'pregate-flake-rerun') && i.prior.some(r => r.class === cls)) return { ok: false, reason: `one ${cls} per branch is recorded already; a second goes to the owner` };
+  if (cls === 'scoped-fix-check') return { ok: false, reason: "scoped-fix-check was removed with fix-check grants (GST-3562 part 4): a stop after round 2 goes to the lane's Captain, who ships it with notes or parks it" };
+  if (cls === 'pregate-flake-rerun' && i.prior.some(r => r.class === cls)) return { ok: false, reason: `one ${cls} per branch is recorded already; a second goes to the owner` };
   if (cls === 'pregate-flake-rerun') return { ok: true, record, detail: 'one rerun at the same tree (rule 16): green is flaky, red again is real' };
   if (cls === 'autoplan-regate') return { ok: false, reason: 'gstack-autoplan decides re-gates at the gate (lib/autoplan-carry.ts), never by hand' };
   const files = parseDiff(i.diff ?? '');
-  const where = files.map(f => f.path).join(', ');
+  const outside = files.filter(f => !TEST_PATH.test(f.path)).map(f => f.path);
+  if (outside.length) return { ok: false, reason: `not a test file: ${outside.slice(0, 3).join(', ')}` };
   const timeout = notTimeoutOnly(files);
-  if (cls === 'test-timeout-fix') {
-    const outside = files.filter(f => !TEST_PATH.test(f.path)).map(f => f.path);
-    if (outside.length) return { ok: false, reason: `not a test file: ${outside.slice(0, 3).join(', ')}` };
-    return timeout ? { ok: false, reason: timeout } : { ok: true, record, detail: `timeout raised in ${where}` };
-  }
-  if (!timeout) return { ok: true, record, detail: `timeout-only fix in ${where}` };
-  const docs = notDocsOnly(files.map(f => f.path), i.root ?? process.cwd());
-  return docs ? { ok: false, reason: `the fix is neither docs-only (${docs}) nor timeout-only (${timeout})` } : { ok: true, record, detail: `docs-only fix in ${where}` };
+  return timeout ? { ok: false, reason: timeout } : { ok: true, record, detail: `timeout raised in ${files.map(f => f.path).join(', ')}` };
 }
 
 /** The branch's ledger under the checkout's git dir, or null outside a git checkout. */

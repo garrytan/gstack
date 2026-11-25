@@ -158,7 +158,7 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   --carry): files the earlier audit edited reset too, to their content before it, when HEAD holds what it left; a carried audit of
   another run refuses (GST-1616).
   --no-stop <json|@file> (a JSON array of {class, reason, evidence}: each routine stop the run recorded and went on past, class one of
-  scoped-fix-check, test-timeout-fix, pregate-flake-rerun, autoplan-regate); recorded as no_stop.
+  test-timeout-fix, pregate-flake-rerun, autoplan-regate; gstack-no-stop refuses the retired scoped-fix-check); recorded as no_stop.
   --declare-risk <classes> (the same list gstack-review-plan --declare-risk took): joins review_depth's risk and only raises
   its depth; review_depth.declared and .detected record both lists (GST-1129). An unknown class is RECEIPT_INVALID.
   --platform-review <id> (NEXT: platform's PLATFORM_REVIEW: id): records review_depth platform with capy-ai[bot]'s review <id> at HEAD;
@@ -777,7 +777,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     if (packetBody && !changedProduct.length) {
       const record = flag(rest, '--scoped-review');
       if (!record && rest.includes('--dry-run')) {
-        scopedDryRun = `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one fix-check reviewer, then carry --scoped-review <record.json>; nothing written`;
+        scopedDryRun = `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}: carry without --dry-run writes the scoped-review packet for one scoped reader (not a review round), then carry --scoped-review <record.json>; nothing written`;
         scopedReview = `spliced hunks (scoped review pending: ${contextPaths.join(', ')})`;
       } else if (!record) {
         const gitPath = git(['rev-parse', '--git-path', `gstack/scoped-review-${head.slice(0, 12)}.md`], repoRoot);
@@ -788,7 +788,7 @@ function cmdCarry(rest: string[], json: boolean): number {
         } catch (e) {
           return refused('RECEIPT_CARRY_REFUSED', `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}, but the scoped-review packet ${packet} cannot be written (${(e as Error).message.split('\n')[0]}); make its directory writable, then rerun carry`);
         }
-        return refused('RECEIPT_CARRY_SCOPED_REVIEW', `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /gstack-ship on ${head.slice(0, 12)}`);
+        return refused('RECEIPT_CARRY_SCOPED_REVIEW', `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}: one scoped reader (not a review round) reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /gstack-ship on ${head.slice(0, 12)}`);
       }
       if (record) {
         const review = readScopedReview(record, { head }, contextPaths);

@@ -22,7 +22,7 @@ import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
 import { forbidSpecs } from './review-fetch';
-import { readRuledNotes, ruledNoteText } from './ruled-notes';
+import { readRuledNotes, ruledEditLine, ruledEdits, ruledNoteText } from './ruled-notes';
 import { dispositionedOn, gateDispositionText, readGateDispositions } from './gate-dispositions';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { redactFindingSpans } from './redact-engine';
@@ -299,33 +299,14 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     for (const k of ['context', 'tests', 'bounded'] as const) by[k] = by[k].filter(p => !packetBody.over.includes(p));
   }
   printRulings(cwd, r);
-  const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
   const edits = readRuledNotes(cwd).filter(n => n.finding.startsWith('edit:'));
-  const top = edits.length ? git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim() : '';
-  const entry = (tree: string, p: string) => { const ls = git(cwd, ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', tree, '--', p]); const rows = ls.stdout.split('\0').filter(Boolean);
-    return ls.status !== 0 || rows.length > 1 || rows.some(e => e.slice(e.indexOf('\t') + 1) !== p) ? null : rows[0] ?? ''; };
-  const untouched = (head: string, p: string) => { const log = git(top, ['--literal-pathspecs', 'log', '--first-parent', '--format=%H', `${head}..HEAD`, '--', p]); return log.status === 0 && !log.stdout.trim(); };
-  const refusal = (n: (typeof edits)[number], p: string) => {
-    if (!ancestor(n.head, 'HEAD')) return `ruled at ${n.head.slice(0, 12)}, which is not HEAD or an ancestor of it`;
-    const [at, cur] = [entry(n.head, p), entry(now, p)], where = (e: string | null) => e === at ? n.head.slice(0, 12) : 'the tree finish routes';
-    if (at === null || cur === null) return `git ls-tree could not read it at ${where(null)}`;
-    if (!at || !cur) return `no file at ${where('')}: a ruling covers a file git holds under this spelling, never a deletion`;
-    if (p.includes('\uFFFD')) return 'its spelling holds a replacement character (U+FFFD), so the file git changed may have another name';
-    if (at !== cur) return `its mode or bytes differ from the ruled head ${n.head.slice(0, 12)}`;
-    return top && untouched(n.head, p) ? '' : `a commit after ${n.head.slice(0, 12)} touches it, or git could not list them`;
-  };
-  const ruled = new Map<string, (typeof edits)[number]>(), refusedEdits: string[] = [];
-  for (const p of by.behavior) {
-    const why = edits.filter(n => n.finding === `edit:${p}`).map(n => [n, refusal(n, p)] as const);
-    const ok = why.filter(([, w]) => !w).at(-1);
-    if (ok) ruled.set(p, ok[0]); else if (why.length) refusedEdits.push(`${p} (${why.at(-1)![1]}; keep the edit and run /ship again, docs/ship-policy.md#ruled-edits)`);
-  }
+  const { ruled, refused: refusedEdits } = ruledEdits(cwd, by.behavior, now, edits);
   by.behavior = by.behavior.filter(p => !ruled.has(p));
   const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, excluded: opts.excluded });
   by.sidecar = Object.keys(uid.proven).sort();
   by.behavior = by.behavior.filter(p => !by.sidecar.includes(p));
   r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${by.mechanical.length ? ` mechanical=${by.mechanical.length}` : ''}${by.sidecar.length ? ` sidecar=${by.sidecar.length}` : ''}`);
-  for (const [p, n] of ruled) r.add(`RULED_EDIT: ${p} (ruled at ${n.head.slice(0, 12)} by ${n.by}, approval ${n.approval})`);
+  for (const [p, n] of ruled) r.add(ruledEditLine(p, n));
   for (const x of refusedEdits) r.add(`RULED_EDIT_REFUSED: ${x}`);
   for (const n of edits) r.add(`RULED_NOTE: ${ruledNoteText(n)}${[...ruled.values()].includes(n) ? '' : ' (no RULED_EDIT at this head; not applied)'}`);
   for (const x of bounded.refused) if (by.behavior.includes(x.path)) r.add(`ROUTE_BOUNDED_REFUSED: ${x.path} ${x.reason} (fix: ${x.fix}; docs/troubleshooting.md#route-bounded-refused)`);

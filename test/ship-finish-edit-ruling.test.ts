@@ -88,7 +88,7 @@ describe('finish honours an edit ruling after the final review (GST-3775)', () =
     for (const p of ['test/x.test.ts', routed]) expect(rule(f, p, stopHead).status).toBe(0);
     const r = finish(f, reviewed, post);
     expect([r.status, r.stdout]).toEqual([3, expect.stringContaining(`${STOPPED} (${routed})`)]);
-    expect(lineOf(r.stdout, 'RULED_EDIT_REFUSED')).toBe(`RULED_EDIT_REFUSED: ${routed} (no file at ${stopHead.slice(0, 12)}: a ruling covers a file git holds under this spelling, never a deletion; keep the edit and run /ship again, docs/ship-policy.md#ruled-edits)`);
+    expect(lineOf(r.stdout, 'RULED_EDIT_REFUSED')).toBe(`RULED_EDIT_REFUSED: ${routed} (no file at ${stopHead.slice(0, 12)}: a ruling covers a file git holds under this spelling, never a deletion; keep the edit and run /gstack-ship again, docs/ship-policy.md#ruled-edits)`);
     expect(r.stdout).toContain('RULED_EDIT: test/x.test.ts (');
     expect(r.stdout).toMatch(new RegExp(`^RULED_NOTE: edit:test/\\uFFFDy\\.test\\.ts at .* \\(no RULED_EDIT at this head; not applied\\)$`, 'm'));
   });
