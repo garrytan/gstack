@@ -132,7 +132,7 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   const modelValue = value('--model');
   const model = modelValue === undefined ? null : resolveModel(modelValue);
   if (modelValue !== undefined && !model) {
-    throw new Error(`Unknown model: ${modelValue}. Use ${ALL_MODEL_NAMES.join(', ')}, or a family variant (e.g., claude-opus-4-7, gpt-5.4-mini, o3).`);
+    throw new Error(`Unknown model: ${modelValue}. Use ${ALL_MODEL_NAMES.join(', ')}, or a family variant (e.g., claude-opus-5-5, gpt-6.2-astra, o3).`);
   }
   const catalogMode = value('--catalog-mode') ?? 'trim';
   if (catalogMode !== 'trim' && catalogMode !== 'full') {

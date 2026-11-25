@@ -60,7 +60,7 @@ describe('gstack-models inspector', () => {
     const { env, state } = fixture();
     const human = models([], env);
     expect(human.code).toBe(0);
-    expect(human.stdout).toContain('plan-review via openai: gpt-6-astra');
+    expect(human.stdout).toContain('plan-review via openai: gpt-6.2-astra');
     expect(human.stdout).toContain('implementation via anthropic: claude-opus-5-5');
     expect(human.stdout).toContain('gstack-config set plan_review_tier smart');
     expect(human.stderr).toBe('');
@@ -73,7 +73,7 @@ describe('gstack-models inspector', () => {
     expect(doc.selections.map((s: { role: string; provider: string }) => `${s.role}/${s.provider}`)).toEqual(['plan-review/anthropic', 'plan-review/openai', 'implementation/anthropic', 'implementation/openai']);
     expect(doc.tiers).toHaveLength(4);
     expect(doc.settings.plan_review_tier).toEqual({ value: null, effective: 'frontier', origin: 'default' });
-    expect(doc.settings.model_smart_openai).toEqual({ value: null, effective: 'gpt-6.1-sol', origin: 'default' });
+    expect(doc.settings.model_smart_openai).toEqual({ value: null, effective: 'gpt-6.2-sol', origin: 'default' });
   });
 
   test('resolve plan-review returns one tagged selection with its source', () => {
@@ -117,7 +117,7 @@ describe('gstack-models inspector', () => {
     const { env } = fixture('implementation_tier: frontier\n');
     const both = json(['resolve', '--role', 'implementation'], env);
     expect(both.code).toBe(0);
-    expect(both.doc.selections.map((s: { provider: string; requestedModel: string }) => [s.provider, s.requestedModel])).toEqual([['anthropic', 'claude-fable-5-1'], ['openai', 'gpt-6-astra']]);
+    expect(both.doc.selections.map((s: { provider: string; requestedModel: string }) => [s.provider, s.requestedModel])).toEqual([['anthropic', 'claude-fable-5-2'], ['openai', 'gpt-6.2-astra']]);
     const one = json(['resolve', '--role', 'implementation', '--provider', 'openai'], env);
     expect(one.doc.selections).toHaveLength(1);
     expect(one.doc.selections[0].provider).toBe('openai');
@@ -192,10 +192,10 @@ describe('gstack-models inspector', () => {
     const { env, home } = fixture();
     fs.mkdirSync(path.join(home, '.codex'));
     const toml = (model: string) => fs.writeFileSync(path.join(home, '.codex', 'config.toml'), `model = "${model}"\nmodel_provider = "proxy"\n`);
-    toml('gpt-6-astra');
+    toml('gpt-6.2-astra');
     const ok = json(['resolve', '--role', 'plan-review', '--provider', 'openai'], env);
     expect(ok.code).toBe(0);
-    expect(ok.doc.selections[0]).toMatchObject({ role: 'plan-review', provider: 'openai', requestedModel: 'gpt-6-astra' });
+    expect(ok.doc.selections[0]).toMatchObject({ role: 'plan-review', provider: 'openai', requestedModel: 'gpt-6.2-astra' });
     expect(json([], env).doc.errors.filter((e: { role: string }) => e.role === 'plan-review')).toEqual([]);
     toml('my-alias');
     const alias = json(['resolve', '--role', 'plan-review', '--provider', 'openai'], env);
@@ -284,7 +284,7 @@ process.exit(result.status ?? 1);
 `, { mode: 0o755 });
     const portable = { ...env, PATH: `${bin}${path.delimiter}${env.PATH}` };
     for (const key of ['model_frontier_claude', 'model_smart_claude']) {
-      for (const value of ['claude-fable-5-1', 'a'.repeat(512)]) {
+      for (const value of ['claude-fable-5-2', 'a'.repeat(512)]) {
         expect(config(['set', key, value], portable).code).toBe(0);
         expect(config(['get', key], portable).stdout).toBe(value);
       }
@@ -309,7 +309,7 @@ process.exit(result.status ?? 1);
 
     expect(config(['unset', 'plan_review_tier'], env).code).toBe(0);
     expect(config(['unset', 'model_smart_openai'], env).code).toBe(0);
-    expect(json(['resolve', '--role', 'plan-review', '--provider', 'openai'], env).doc.selections[0]).toMatchObject({ tier: 'frontier', requestedModel: 'gpt-6-astra', source: { kind: 'catalog' } });
+    expect(json(['resolve', '--role', 'plan-review', '--provider', 'openai'], env).doc.selections[0]).toMatchObject({ tier: 'frontier', requestedModel: 'gpt-6.2-astra', source: { kind: 'catalog' } });
   });
 
   test.each([
@@ -337,7 +337,7 @@ process.exit(result.status ?? 1);
       ['implementation_tier', 'frontier'], ['implementation_tier', 'smart'], ['implementation_tier', 'host'],
       ['model_frontier_claude', 'claude-opus-4-6[1m]'], ['model_frontier_claude', 'vendor+claude@2026'], ['model_frontier_claude', 'a'.repeat(512)],
       ['model_frontier_claude', 'a'.repeat(513)], ['model_smart_claude', 'claude;x'], ['model_smart_claude', 'claude x'], ['model_smart_claude', '$(id)'],
-      ['model_frontier_openai', 'gpt-6.1-sol'], ['model_frontier_openai', 'org/model:v1'], ['model_frontier_openai', 'a'.repeat(100)],
+      ['model_frontier_openai', 'gpt-6.2-sol'], ['model_frontier_openai', 'org/model:v1'], ['model_frontier_openai', 'a'.repeat(100)],
       ['model_frontier_openai', 'a'.repeat(101)], ['model_smart_openai', 'gpt+6'], ['model_smart_openai', 'gpt@6'],
     ];
     const { env } = fixture();

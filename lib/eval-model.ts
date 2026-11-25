@@ -19,14 +19,17 @@
  *   judge   — LLM-judge rubric calls: CLAUDE_JUDGE_EVAL_MODEL
  */
 
+import { newestModel } from "./model-families";
+
 /** The model under test: Anthropic's best code model (Garry, 2026-10-18). */
-export const CLAUDE_CAPTURE_EVAL_MODEL = "claude-opus-5-5";
+export const CLAUDE_CAPTURE_EVAL_MODEL = newestModel("opus");
 /**
- * The judge is the ruler, not the model under test: its calibration fixtures
- * (test/fixtures/judge-calibration) are keyed to it, so it moves only with a
- * recalibration, never with the model under test.
+ * The judge is the ruler, not the model under test, and it is the newest Fable
+ * (Garry, 2026-11-24: "gstack should always be using latest astra, sol, fable or
+ * opus"). The calibration fixtures in test/fixtures/judge-calibration record
+ * the earlier Fable they were measured on.
  */
-export const CLAUDE_JUDGE_EVAL_MODEL = "claude-fable-5-1";
+export const CLAUDE_JUDGE_EVAL_MODEL = newestModel("fable");
 export const DEFAULT_JUDGE_MAX_TOKENS = 8192;
 
 // `as const satisfies` keeps EvalModelKind the literal union

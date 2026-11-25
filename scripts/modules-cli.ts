@@ -87,7 +87,7 @@ export async function modulesMain(args: string[]): Promise<CliResult> {
       if (loadout === undefined && modules === undefined) throw new ModuleError('MODULE_SPEC_INVALID', 'render needs --loadout or --modules', 'add --loadout full for the control arm');
       const modelValue = flag(rest, '--model');
       const model = modelValue === undefined ? null : resolveModel(modelValue);
-      if (modelValue !== undefined && !model) throw new ModuleError('MODULE_SPEC_INVALID', `--model ${JSON.stringify(modelValue.slice(0, 80))} is not a model gstack knows`, 'pass the same --model setup uses, for example gpt-6-astra');
+      if (modelValue !== undefined && !model) throw new ModuleError('MODULE_SPEC_INVALID', `--model ${JSON.stringify(modelValue.slice(0, 80))} is not a model gstack knows`, 'pass the same --model setup uses, for example gpt-6.2-astra');
       const planMode = flag(rest, '--plan-mode');
       if (planMode !== undefined && planMode !== 'on' && planMode !== 'off') throw new ModuleError('MODULE_SPEC_INVALID', '--plan-mode takes on or off', 'drop it, or pass --plan-mode off');
       const installRoot = flag(rest, '--install-root');

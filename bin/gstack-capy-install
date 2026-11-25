@@ -15,7 +15,7 @@
 # release archive, SHA-256 verified, is published in the runtime store
 # <state root>/runtimes/bun/<version>/bun, GSTACK_BUN_INSTALL_VERSION
 # overriding the default); ./setup
-# --host claude --no-prefix; ./setup --host codex --model gpt-6-astra (both
+# --host claude --no-prefix; ./setup --host codex --model gpt-6.2-astra (both
 # skipped when this HEAD was already set up and the check passes);
 # gstack-doctor --check with the launch PATH; the install verdict
 # (bin/gstack-install-verdict.sh), keyed by checkout and project and holding
@@ -420,7 +420,7 @@ export GSTACK_SKIP_COREUTILS="${GSTACK_SKIP_COREUTILS:-1}" GSTACK_SKIP_ASIDE="${
 BROWSER_FLAG="--no-browser"; [ "$WITH_BROWSER" -eq 1 ] && BROWSER_FLAG=""
 HEAD_SHA=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)
 SETUP_STATE="$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null || echo "$ROOT/.git")/gstack-capy-install.state"
-SETUP_RECORD="head=$HEAD_SHA hosts=claude,codex model=gpt-6-astra browser=$WITH_BROWSER"
+SETUP_RECORD="head=$HEAD_SHA hosts=claude,codex model=gpt-6.2-astra browser=$WITH_BROWSER"
 if [ -n "$FOR" ]; then set -- --for "$FOR"; else set -- --require "$REQUIRE"; fi
 [ "$WITH_BROWSER" -eq 1 ] && [ -z "$FOR" ] && set -- --require "$REQUIRE,browse-bundle,browser"
 certify() { OUT=$(cd "$ORIG_PWD" && GSTACK_EPHEMERAL="${GSTACK_EPHEMERAL:-1}" "$ROOT/bin/gstack-doctor" --check "$@" ${PROJECT:+--project "$PROJECT"} ${MIN_REVISION:+--min-revision "$MIN_REVISION"} 2>&1); RC=$?; }
@@ -477,7 +477,7 @@ fi
 if [ "$CHECK_ONLY" -eq 0 ] && [ "$SKIPPED" -eq 0 ] && [ "$PROFILE" -eq 0 ]; then
   T1=$(now)
   ./setup --host claude --no-prefix $BROWSER_FLAG </dev/null || setup_failed "./setup --host claude failed (exit $?)"
-  ./setup --host codex --model gpt-6-astra $BROWSER_FLAG </dev/null || setup_failed "./setup --host codex failed (exit $?)"
+  ./setup --host codex --model gpt-6.2-astra $BROWSER_FLAG </dev/null || setup_failed "./setup --host codex failed (exit $?)"
   echo "gstack ready (claude, codex)"
   T2=$(now)
   [ -n "$HEAD_SHA" ] && printf '%s\n' "$SETUP_RECORD" > "$SETUP_STATE" 2>/dev/null

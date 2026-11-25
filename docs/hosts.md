@@ -183,13 +183,13 @@ digest's first line shows its gstack version; re-copy it after upgrading.
 
 For Codex, setup reads the top-level `model` from
 `${CODEX_HOME:-~/.codex}/config.toml` and generates the matching behavioral
-profile, falling back to `gpt-6-astra` when no usable model is configured.
-The current OpenAI tiers are `gpt-6-astra` (frontier), `gpt-6.1-sol` (smart, the
-default eval tier) and `gpt-6-luna` (lowest cost); `gpt-6.1-sol`
-and `gpt-6-luna` get the generic GPT profile. Only `gpt-5.6-sol` receives the
+profile, falling back to `gpt-6.2-astra` when no usable model is configured.
+The current OpenAI tiers are `gpt-6.2-astra` (frontier), `gpt-6.2-sol` (smart, the
+default eval tier) and `gpt-6-luna` (lowest cost). Every GPT-6 Astra release gets
+the Astra profile; `gpt-6.2-sol` and `gpt-6-luna` get the generic GPT profile. Only `gpt-5.6-sol` receives the
 bounded-scope instructions that finish the requested lake without expanding into
 adjacent cleanup or speculative hardening, because that patch was measured on 5.6
-Sol; extending it to `gpt-6.1-sol` waits for its own scope eval. The Sol profile is
+Sol; extending it to `gpt-6.2-sol` waits for its own scope eval. The Sol profile is
 exact-match only: dated snapshots and other 5.6 variants get the generic GPT
 profile, and setup warns on near-misses like `gpt-5.6-sol-2026-08-01`. Override detection with `./setup --host codex --model <id>` — the
 override applies to that run only; set `model` in your Codex `config.toml` to
@@ -205,8 +205,8 @@ its startup prompt or in `/hooks`: see
 [Codex hooks](skill-routing-and-contracts.md#codex).
 
 **Plan-review and implementation tiers.** Plan workflows use an independent
-`frontier` reviewer: Fable 5.1 from Codex, or GPT-6 Astra from Claude Code.
-Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.1 Sol.
+`frontier` reviewer: Fable 5.2 from Codex, or GPT-6.2 Astra from Claude Code.
+Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.2 Sol.
 Choose a different tier, pin either provider's model, or use `host` mode to
 preserve native model settings. The read-only `gstack-models` command explains
 the effective choices; changing these settings does not require regenerating
@@ -219,7 +219,7 @@ models. See [model policy: setup, overrides and freshness](model-policy.md).
 order: a model you name for that request, then `GSTACK_CODEX_MODEL`, then
 `model` in your Codex `config.toml` (for native `codex review`, `review_model`
 first; a custom `CODEX_HOME` is honored), and only then gstack's default,
-`gpt-6-astra`. Before spending anything, it prints the choice and where it came
+`gpt-6.2-astra`. Before spending anything, it prints the choice and where it came
 from, for example `CODEX_MODEL: gpt-5.6-terra (exec; source: ~/.codex/config.toml model)`.
 If your choice is invalid or your account cannot use it, gstack stops with a
 repair message and reports the outside review as unavailable. It never silently

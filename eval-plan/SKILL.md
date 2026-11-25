@@ -243,8 +243,8 @@ gets its own pilot attempts; naming one identity twice is `EVAL_ARM_DUPLICATE`.
 
 Models under test are frontier models (`claude-opus-5-5`, `gpt-6.2-sol`, at most one named
 low-cost primary); a Haiku or Sonnet arm only with a stated tier question
-(docs/TESTING_INTERNALS.md#frontier-models-under-test). Judges: `gpt-6-astra` or
-`gpt-6.2-astra` for Claude arms, `claude-opus-5-5` for GPT arms. No arm, judge, reader or
+(docs/TESTING_INTERNALS.md#frontier-models-under-test). Judges: `gpt-6.2-astra`
+for Claude arms, `claude-opus-5-5` for GPT arms. No arm, judge, reader or
 simulator may be gpt-4o, a model `lib/pricing.ts` marks `superseded_by`, or an unpriced
 older generation of a priced family such as `claude-opus-4-5` (R116): `prereg
 --check` prints `MODEL_GENERATION: refused <model> role=<role> replacement=<model>` and

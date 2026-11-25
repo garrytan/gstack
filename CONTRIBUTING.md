@@ -166,11 +166,11 @@ never touches a symlinked or non-gstack directory.
 
 ## Testing & evals
 
-Codex evals and the GPT benchmark adapter default to `gpt-6-astra`:
+Codex evals and the GPT benchmark adapter default to `gpt-6.2-astra`:
 explicit model > `GSTACK_CODEX_MODEL` > default. The Claude model under test
-(capture) defaults to `claude-opus-5-5` and the judge to `claude-fable-5-1`,
-resolved through `lib/eval-model.ts`. The judge stays put when the model under
-test moves, because its calibration fixtures are keyed to it:
+(capture) defaults to `claude-opus-5-5` and the judge to `claude-fable-5-2`,
+resolved through `lib/eval-model.ts`. Both are the newest model of their family
+(`lib/model-families.ts`), and the judge stays apart from the model under test:
 
 - Claude session, PTY, and Agent SDK eval runners and the Claude benchmark adapter: explicit model > `EVALS_MODEL` > `GSTACK_EVAL_MODEL_CAPTURE` > `GSTACK_EVAL_MODEL` > default.
 - Shared judge calls (including benchmark quality scoring): explicit model > `GSTACK_EVAL_MODEL_JUDGE` > `GSTACK_EVAL_MODEL` > default. `EVALS_MODEL` applies to capture runners, not judges.
@@ -556,7 +556,7 @@ agent produced, inside their own paid cases (for example
 E2E files). Facts that several skills must state the same way are checked for free
 instead, for example `test/review-bot-history-facts.test.ts`.
 
-The judge model defaults to `claude-fable-5-1`; override it per run with
+The judge model defaults to `claude-fable-5-2`; override it per run with
 `GSTACK_EVAL_MODEL_JUDGE` (resolved through `lib/eval-model.ts`, using the override
 order above). Each scored dimension is a panel of 3 samples of the same prompt, drawn
 concurrently; each dimension's panel median (at least 2 of 3 samples) must meet that

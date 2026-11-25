@@ -119,7 +119,7 @@ ROWS
 _dc_check_host() {
   local id="$1" fix="cd $SRC && ./setup --host $1"
   [ "$1" = claude ] && fix="$fix --no-prefix"
-  [ "$1" = codex ] && fix="$fix --model <model id, e.g. gpt-6-astra>"
+  [ "$1" = codex ] && fix="$fix --model <model id, e.g. gpt-6.2-astra>"
   _dc_host_status "$id"
   case "$_dc_hs_result" in
     current) _dc_row PASS "$id" "$_dc_hs_scope current ($_dc_hs_ver) at $_dc_hs_dest" ;;
@@ -129,7 +129,7 @@ _dc_check_host() {
 }
 
 _dc_check_patch() {
-  local file="" model fix="cd $SRC && ./setup --host codex --model <model id, e.g. gpt-6-astra>"
+  local file="" model fix="cd $SRC && ./setup --host codex --model <model id, e.g. gpt-6.2-astra>"
   _dc_host_status codex
   if [ "$_dc_hs_result" = none ]; then
     _dc_fail_or_skip patch "Codex skills are not installed, so the Codex render carries no behavioral patch" "$fix" COMPONENT_MISSING "not needed; Codex skills not installed"

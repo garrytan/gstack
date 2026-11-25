@@ -125,7 +125,7 @@ describe('generated outside-review dispatch', () => {
       expect(await stdout).toContain('OUTSIDE_STATUS: completed provider=claude-code host=codex');
       expect(fs.existsSync(paid)).toBe(true);
       expect(stderr.match(/NOTICE: gstack/g)).toHaveLength(1);
-      expect(stderr).toContain('CLAUDE_MODEL: plan-review via anthropic: claude-fable-5-1');
+      expect(stderr).toContain('CLAUDE_MODEL: plan-review via anthropic: claude-fable-5-2');
       expect(stderr).toContain('provider diagnostic retained');
     } finally {
       reader.releaseLock();
@@ -245,7 +245,7 @@ describe('generated outside-review dispatch', () => {
     expect(capture().args).toContain('--json');
     // exec carries the exec-kind selection, no review_model, and no skill catalog (#2914, #2847).
     expect(capture().args.some((arg: string) => arg.startsWith('review_model='))).toBe(false);
-    expect(capture().args).toContain('model="gpt-6-astra"');
+    expect(capture().args).toContain('model="gpt-6.2-astra"');
     expect(capture().args).toContain('skills.include_instructions=false');
     expect(capture().prompt).toBe(PROMPT_TEXT);
     // Completion is distinct from approval; the caller retains the P1 fail gate.
@@ -388,7 +388,7 @@ describe('generated outside-review dispatch', () => {
     const probe = path.join(BIN, 'gstack-codex-probe');
     fs.writeFileSync(probe, `#!/usr/bin/env bash
 case "$1" in
-  select-model) printf 'CODEX_SEL: gpt-6-astra\\nCODEX_SEL_KIND: exec\\nCODEX_SANDBOX: read-only\\n' ;;
+  select-model) printf 'CODEX_SEL: gpt-6.2-astra\\nCODEX_SEL_KIND: exec\\nCODEX_SANDBOX: read-only\\n' ;;
   check-sandbox|show-first-use-notice) ;;
   run-with-timeout) echo 'Partial finding'; exit 124 ;;
   log-event|log-hang) printf '%s %s\\n' "$2" "$3" >> "$FAKE_EVENTS" ;;
