@@ -92,10 +92,10 @@ describe("diagram render gate", () => {
       }
       expect(fs.existsSync(outputPdf)).toBe(true);
 
-      // 0. Print-resolution downscale fired on the 4200px noise photo — this
+      // 0. Print-resolution downscale fired on the 4800px noise photo (above 2 × the 7in swiss content width × 300dpi) — this
       //    is the only live coverage of __downscaleRaster AND the served-dir
       //    payload transport (the data URI is far too big for argv).
-      expect(stderr).toMatch(/downscaled huge-noise\.png 4200px → \d+px/);
+      expect(stderr).toMatch(/downscaled huge-noise\.png 4800px → \d+px/);
 
       const pdftotext = resolvePopplerTool("pdftotext")!;
       const text = execFileSync(pdftotext, [outputPdf, "-"], { encoding: "utf8", timeout: CHILD_TIMEOUT_MS });

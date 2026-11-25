@@ -196,9 +196,13 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 # make-pdf: publication-quality PDFs from markdown
 
-Turn `.md` files into PDFs that look like Faber & Faber essays: 1in margins,
-left-aligned body, Helvetica throughout, curly quotes and em dashes, optional
-cover page and clickable TOC, diagonal DRAFT watermark when you need it.
+Turn `.md` files into finished PDFs. The default look, `swiss`, is a bold Swiss
+layout: section headings in white on black bars, a red title, small red
+sub-headings in a narrow left field beside the text, a black cover block, and a
+text column of about 70 characters a line. `--style plain` gives the quiet look
+(1in margins, 12pt body, Faber & Faber essay style). Both are left-aligned,
+Helvetica throughout, with curly quotes and em dashes, an optional cover page
+and clickable TOC, and a diagonal DRAFT watermark when you need it.
 Copy-paste from the PDF produces clean words, never "S a i l i n g".
 
 On Linux, install `fonts-liberation` for correct rendering — Helvetica and Arial
@@ -343,8 +347,13 @@ promoted page is vertically centered. When the heuristic guesses wrong,
 ## Common flags
 
 ```
+Look:
+  --style swiss|plain        swiss (default): black heading bars, red accents,
+                             a left field for sub-headings. plain: the quiet look.
+
 Page layout:
-  --margins <dim>            1in (default) | 72pt | 2.54cm | 25mm
+  --margins <dim>            swiss default 0.7in 0.75in 0.85in 0.75in; plain
+                             default 1in | 72pt | 2.54cm | 25mm (sets all four)
   --page-size letter|a4|legal
 
 Structure:
@@ -403,6 +412,8 @@ before running.
   (understand you're giving the markdown file permission to fetch from its
   image URLs).
 - Generated PDF too tall/wide → `--page-size a4` or `--margins 0.75in`.
+- Someone wants the old, quiet look (or a document full of wide tables reads
+  better without the left field) → `--style plain`.
 
 ## Output contract
 

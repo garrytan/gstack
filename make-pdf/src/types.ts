@@ -5,6 +5,8 @@
  */
 
 export type PageSize = "letter" | "a4" | "legal" | "tabloid";
+export type { Style } from "./style-swiss";
+import type { Style } from "./style-swiss";
 export type FontMode = "sans"; // v1: Helvetica only. Future: "serif" | "custom".
 
 /**
@@ -22,6 +24,9 @@ export interface GenerateOptions {
   //   html — single self-contained file, zero network references
   //   docx — content-fidelity Word document (diagrams embedded as PNG)
   to?: OutputFormat;
+
+  // Look: "swiss" (default, bold Swiss-poster layout) | "plain" (the look before it)
+  style?: Style;
 
   // Page layout
   margins?: string;               // "1in" | "72pt" | "25mm" | "2.54cm"
@@ -70,6 +75,7 @@ export interface PreviewOptions {
   quiet?: boolean;
   verbose?: boolean;
   // Same render flags as generate so preview matches output
+  style?: Style;
   cover?: boolean;
   toc?: boolean;
   watermark?: string;

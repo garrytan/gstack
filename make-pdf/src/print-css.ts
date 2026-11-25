@@ -34,6 +34,15 @@
  * single source of truth (DRY) and every stack stays in sync.
  */
 
+import {
+  DEFAULT_STYLE,
+  SWISS_MARGIN_SHORTHAND,
+  SWISS_MARGINS,
+  swissRules,
+  swissScreenCss,
+  type Style,
+} from "./style-swiss";
+
 // Metric-compatible sans stack: Helvetica (macOS), Liberation Sans (Linux,
 // ships via fonts-liberation), Arial (Windows). Shared by every text surface.
 const SANS_STACK = `Helvetica, "Liberation Sans", Arial`;
@@ -42,7 +51,12 @@ const CJK_STACK = `"PingFang SC", "Heiti SC", "Noto Sans CJK SC", "Source Han Sa
 // Color-emoji families: Apple (macOS), Segoe (Windows), Noto (Linux).
 const EMOJI_FAMILIES = `"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"`;
 
+export { DEFAULT_STYLE, STYLES, type Style } from "./style-swiss";
+
 export interface PrintCssOptions {
+  // Look: "swiss" (default) or "plain" (the look before GSTA-849, byte for byte).
+  style?: Style;
+
   // Document structure
   cover?: boolean;
   toc?: boolean;
@@ -58,7 +72,7 @@ export interface PrintCssOptions {
   // Page size (in CSS `@page size:` terms)
   pageSize?: "letter" | "a4" | "legal" | "tabloid";
 
-  // Margins (default 1in)
+  // Margins (default: 1in plain, 0.7in 0.75in 0.85in 0.75in swiss)
   margins?: string;
 
   // Whether to render "N of M" page numbers in the @page @bottom-center rule.
@@ -71,8 +85,9 @@ export interface PrintCssOptions {
  * Produce a CSS block (no <style> wrapper) for inline injection.
  */
 export function printCss(opts: PrintCssOptions = {}): string {
+  const style = opts.style ?? DEFAULT_STYLE;
   const size = opts.pageSize ?? "letter";
-  const margin = opts.margins ?? "1in";
+  const margin = opts.margins ?? (style === "swiss" ? SWISS_MARGIN_SHORTHAND : "1in");
   const hasWatermark = typeof opts.watermark === "string" && opts.watermark.length > 0;
 
   return [
@@ -91,7 +106,30 @@ export function printCss(opts: PrintCssOptions = {}): string {
     footnoteRules(),
     hasWatermark ? watermarkRules() : "",
     breakAvoidRules(),
+    style === "swiss" ? swissRules({ cover: opts.cover, toc: opts.toc }) : "",
   ].filter(Boolean).join("\n\n");
+}
+
+type MarginOptions = {
+  margins?: string; marginTop?: string; marginRight?: string;
+  marginBottom?: string; marginLeft?: string;
+};
+
+/**
+ * Fill in the style's default margins. Explicit --margins sets all four
+ * sides and --margin-<side> overrides one, under either style. plain returns
+ * the options untouched, so every plain code path still sees exactly what
+ * the user passed (and falls back to 1in where it always did).
+ */
+export function resolveMargins<T extends MarginOptions>(opts: T, style: Style): T {
+  if (style !== "swiss") return opts;
+  return {
+    ...opts,
+    marginTop: opts.marginTop ?? opts.margins ?? SWISS_MARGINS.top,
+    marginRight: opts.marginRight ?? opts.margins ?? SWISS_MARGINS.right,
+    marginBottom: opts.marginBottom ?? opts.margins ?? SWISS_MARGINS.bottom,
+    marginLeft: opts.marginLeft ?? opts.margins ?? SWISS_MARGINS.left,
+  };
 }
 
 function pageRules(size: string, margin: string, opts: PrintCssOptions): string {
@@ -156,8 +194,8 @@ function pageRules(size: string, margin: string, opts: PrintCssOptions): string 
  * (centered measure, padding, no print-only chapter breaks forcing scroll
  * gaps). Print output is unaffected — media-scoped.
  */
-export function screenCss(): string {
-  return [
+export function screenCss(style: Style = DEFAULT_STYLE): string {
+  const plain = [
     `@media screen {`,
     // ~42em at 12pt ≈ 70-75 characters per line — the readable ceiling.
     `  body { max-width: 42em; margin: 0 auto; padding: 2.5em 1.5em; }`,
@@ -168,6 +206,7 @@ export function screenCss(): string {
     `  .toc li .toc-page, .toc li .toc-dots { display: none; }`,
     `}`,
   ].join("\n");
+  return style === "swiss" ? `${plain}\n${swissScreenCss()}` : plain;
 }
 
 function rootTypography(): string {

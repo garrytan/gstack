@@ -576,7 +576,7 @@ describe("render() — removing script keeps the page's structure", () => {
 
 describe("printCss", () => {
   test("emits 1in margins by default", () => {
-    const css = printCss();
+    const css = printCss({ style: "plain" });
     expect(css).toContain("margin: 1in");
   });
 
@@ -588,7 +588,7 @@ describe("printCss", () => {
   test("per-side margins reach the CSS @page rule (preferCSSPageSize parity)", () => {
     // Under a landscape promotion Chromium honors the CSS margins, not the
     // CDP per-side options — render() must compose them into the shorthand.
-    const r = render({ markdown: "# T", marginLeft: "0.5in", marginRight: "0.5in" });
+    const r = render({ markdown: "# T", marginLeft: "0.5in", marginRight: "0.5in", style: "plain" });
     expect(r.printCss).toContain("margin: 1in 0.5in 1in 0.5in");
   });
 
@@ -664,7 +664,7 @@ describe("printCss", () => {
   });
 
   test("typography floor: body 12pt, poster cover, readable TOC", () => {
-    const css = printCss({ cover: true, toc: true });
+    const css = printCss({ cover: true, toc: true, style: "plain" });
     expect(css).toContain("font-size: 12pt"); // body
     expect(css).toMatch(/\.cover h1\.cover-title\s*\{[^}]*font-size:\s*56pt/);
     expect(css).toMatch(/\.cover \.cover-meta\s*\{[^}]*font-size:\s*13pt/);

@@ -13,8 +13,10 @@
 
 import { marked } from "marked";
 import { smartypants } from "./smartypants";
-import { printCss, type PrintCssOptions } from "./print-css";
+import { DEFAULT_STYLE, printCss, resolveMargins, type PrintCssOptions, type Style } from "./print-css";
+import { swissCoverTitle, swissFieldHeadingLines } from "./style-swiss";
 import { applyImageDirectives } from "./image-policy";
+import { contentHeightInches, contentWidthInches } from "./diagram-prepass";
 
 export interface RenderOptions {
   markdown: string;
@@ -31,6 +33,9 @@ export interface RenderOptions {
   watermark?: string;
   noChapterBreaks?: boolean;
   confidential?: boolean;         // default: true
+
+  // Look: "swiss" (default) or "plain".
+  style?: Style;
 
   // Page layout
   pageSize?: "letter" | "a4" | "legal" | "tabloid";
@@ -95,7 +100,10 @@ export function render(opts: RenderOptions): RenderResult {
   // numbering is always off in orchestrator). If the caller supplied a custom
   // footerTemplate, suppress CSS page numbers too so their footer wins.
   const showPageNumbers = opts.pageNumbers !== false && !opts.footerTemplate;
+  const style = opts.style ?? DEFAULT_STYLE;
+  const pageBox = resolveMargins(opts, style);
   const cssOptions: PrintCssOptions = {
+    style,
     cover: opts.cover,
     toc: opts.toc,
     noChapterBreaks: opts.noChapterBreaks,
@@ -105,7 +113,7 @@ export function render(opts: RenderOptions): RenderResult {
     pageSize: opts.pageSize,
     // Compose per-side margins into the CSS shorthand so @page stays the
     // single source of truth even under preferCSSPageSize.
-    margins: composeMargins(opts),
+    margins: composeMargins(pageBox),
     pageNumbers: showPageNumbers,
   };
   const css = printCss(cssOptions);
@@ -117,6 +125,8 @@ export function render(opts: RenderOptions): RenderResult {
         subtitle: opts.subtitle,
         author: derivedAuthor,
         date: derivedDate,
+        style,
+        box: { contentWIn: contentWidthInches(pageBox), contentHIn: contentHeightInches(pageBox) },
       })
     : "";
 
@@ -128,10 +138,12 @@ export function render(opts: RenderOptions): RenderResult {
 
   const tocBlock = opts.toc ? buildTocBlock(anchored.entries) : "";
 
+  const laidOutHtml = style === "swiss" ? keepFieldHeadingsWithText(anchoredHtml) : anchoredHtml;
+
   // Wrap body in .chapter sections at H1 boundaries if chapter breaks are on.
   const chapterHtml = opts.noChapterBreaks
-    ? `<section class="chapter">${anchoredHtml}</section>`
-    : wrapChaptersByH1(anchoredHtml);
+    ? `<section class="chapter">${laidOutHtml}</section>`
+    : wrapChaptersByH1(laidOutHtml);
 
   const watermarkBlock = opts.watermark
     ? `<div class="watermark">${escapeHtml(opts.watermark)}</div>`
@@ -401,19 +413,87 @@ function sanitizePass(html: string): string {
 
 // ─── Cover / TOC / Chapter helpers ────────────────────────────────────
 
+/**
+ * swiss sets an h3 in the left field beside the text that follows it. A float
+ * does not move with that text: when orphans push a paragraph to the next
+ * page, a floated sub-heading stays behind at the page foot. So the h3 and the
+ * paragraph, list or quote right after it go in <div class="swiss-keep">,
+ * where the CSS pins the h3 to the wrapper's top and the wrapper starts where
+ * the text does. min-height keeps a sub-heading longer than its text clear of
+ * the next block. (Code, tables, figures and image-only paragraphs need no
+ * wrapper: the CSS keeps the h3 in normal flow above them.) Only top-level
+ * blocks are paired: an h3 inside raw HTML, a quote or a list item is not in
+ * the field, and the CSS that positions the wrapper applies only at the top.
+ */
+export function keepFieldHeadingsWithText(html: string): string {
+  const blocks = topLevelBlocks(html);
+  const out: string[] = [];
+  let last = 0;
+  for (let i = 0; i + 1 < blocks.length; i++) {
+    const [h3, next] = [blocks[i], blocks[i + 1]];
+    if (h3.tag !== "h3" || !/^(p|ul|ol|blockquote)$/.test(next.tag)) continue;
+    if (html.slice(h3.end, next.start).trim() !== "") continue;
+    const text = html.slice(next.start, next.end);
+    if (next.tag === "p" && /^<p\b[^>]*>[^<]*<img\b[^>]*>[^<]*<\/p>$/i.test(text)) continue;
+    const heading = html.slice(h3.start, h3.end);
+    const minPt = swissFieldHeadingLines(stripTags(heading)) * 13 + 2;
+    out.push(html.slice(last, h3.start), `<div class="swiss-keep" style="min-height: ${minPt}pt;">${html.slice(h3.start, next.end)}</div>`);
+    last = next.end;
+    i++;
+  }
+  out.push(html.slice(last));
+  return out.join("");
+}
+
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+
+/**
+ * Spans of the top-level elements in a fragment. Comments are skipped, void
+ * tags open nothing, a close tag with no matching open tag is ignored, and a
+ * close tag closes whatever it left open, so unbalanced raw HTML cannot leave
+ * the rest of the document nested.
+ */
+function topLevelBlocks(html: string): Array<{ tag: string; start: number; end: number }> {
+  const blocks: Array<{ tag: string; start: number; end: number }> = [];
+  const stack: string[] = [];
+  let start = 0;
+  const token = /<!--[\s\S]*?(?:-->|$)|<(\/?)([a-zA-Z][\w-]*)\b[^>]*>/g;
+  let m: RegExpExecArray | null;
+  while ((m = token.exec(html)) !== null) {
+    if (!m[2]) continue;
+    const tag = m[2].toLowerCase();
+    if (m[1]) {
+      const at = stack.lastIndexOf(tag);
+      if (at < 0) continue;
+      stack.length = at;
+      if (at === 0) blocks.push({ tag, start, end: token.lastIndex });
+      continue;
+    }
+    if (VOID_TAGS.has(tag) || m[0].endsWith("/>")) continue;
+    if ((tag === "li" || tag === "p") && stack[stack.length - 1] === tag) stack.pop();
+    if (stack.length === 0) start = m.index;
+    stack.push(tag);
+  }
+  return blocks;
+}
+
 function buildCoverBlock(opts: {
   title: string;
   subtitle?: string;
   author?: string;
   date: string;
+  style: Style;
+  box: { contentWIn: number; contentHIn: number };
 }): string {
   const title = escapeHtml(opts.title);
+  const size = opts.style === "swiss" ? swissCoverTitle(opts.title, opts.box) : undefined;
+  const titleStyle = size ? ` style="font-size: ${size.fontPt}pt; padding-top: ${size.padTopIn}in;"` : "";
   const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : "";
   const author = opts.author ? escapeHtml(opts.author) : "";
   const date = escapeHtml(opts.date);
   return [
     `<section class="cover">`,
-    `  <h1 class="cover-title">${title}</h1>`,
+    `  <h1 class="cover-title"${titleStyle}>${title}</h1>`,
     subtitle ? `  <p class="cover-subtitle">${subtitle}</p>` : ``,
     `  <hr class="rule">`,
     `  <div class="cover-meta">`,
