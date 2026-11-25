@@ -32,9 +32,13 @@ GSTACK_RENDER_NAMES=2
 # render only when the render's record carries names=$GSTACK_RENDER_NAMES: a
 # render made before the skill took its gstack- name, which a failed
 # regeneration keeps with its old record, still says to run the plain name the
-# host's built-in hides. Starts no process, like the helper above.
+# host's built-in hides. A per-install render (GSTACK_USER_RENDER_PER_INSTALL=1)
+# is always served: it is the only copy that names its install root, and the
+# checkout's copy would run the default install. Starts no process, like the
+# helper above.
 gstack_render_serves() {
   [ -f "$1/$2/SKILL.md" ] || return 1
+  [ "${GSTACK_USER_RENDER_PER_INSTALL:-}" != 1 ] || return 0
   case " ${GSTACK_PREFIXED_SKILLS:-} " in *" $2 "*) ;; *) return 0 ;; esac
   [ -f "$1.overlay" ] || return 1
   local _grs_line

@@ -91,6 +91,7 @@ RENDER_DIR="${GSTACK_USER_RENDER_DIR:-}"
 # recorded for it in the registry (render contract, #1882).
 if [ -z "$RENDER_DIR" ] && command -v gstack_install_render_for >/dev/null 2>&1; then
   RENDER_DIR="$(gstack_install_render_for claude "$SKILLS_DIR")"
+  [ -z "$RENDER_DIR" ] || GSTACK_USER_RENDER_PER_INSTALL=1
 fi
 RENDER_DIR="${RENDER_DIR:-$GSTACK_STATE_ROOT/render/claude}"
 

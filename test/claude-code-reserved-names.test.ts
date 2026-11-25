@@ -64,7 +64,7 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
   let install: string;
   let skills: string;
   let render: string;
-  const relink = (config = '') => {
+  const relink = (config = '', extra: Record<string, string> = {}) => {
     fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'state', 'config.yaml'), config);
     return spawnSync('bash', [path.join(install, 'bin', 'gstack-relink')], {
@@ -72,7 +72,7 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
       timeout: 60_000,
       env: {
         ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '',
-        GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '', GSTACK_USER_RENDER_DIR: render,
+        GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '', GSTACK_USER_RENDER_DIR: render, GSTACK_USER_RENDER_PER_INSTALL: '', ...extra,
       },
     });
   };
@@ -167,6 +167,13 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
       expect(fs.realpathSync(path.join(skills, 'gstack-ship', 'SKILL.md')), 'a rerun after patch-names renamed the old render').toBe(fs.realpathSync(path.join(install, 'ship', 'SKILL.md')));
     });
   }
+
+  test('a per-install render is served for /gstack-ship even from before the rename, since only it names its install root', () => {
+    renderShip('');
+    const r = relink('skill_prefix: false\n', { GSTACK_USER_RENDER_PER_INSTALL: '1' });
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.realpathSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(fs.realpathSync(path.join(render, 'ship', 'SKILL.md')));
+  });
 
   test("a render whose record carries the current names marker is served for /gstack-ship", () => {
     renderShip('names=2\n');

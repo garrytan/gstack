@@ -815,7 +815,7 @@ function cmdCarry(rest: string[], json: boolean): number {
         } catch (e) {
           return refused('RECEIPT_CARRY_REFUSED', `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}, but the scoped-review packet ${packet} cannot be written (${(e as Error).message.split('\n')[0]}); make its directory writable, then rerun carry`);
         }
-        return refused('RECEIPT_CARRY_SCOPED_REVIEW', `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /ship on ${head.slice(0, 12)}`);
+        return refused('RECEIPT_CARRY_SCOPED_REVIEW', `the base merge spliced lines into the reviewed hunks in ${contextPaths.join(', ')}: one fix-check reviewer reads ${packet}, then rerun carry with --scoped-review <record.json> ({"head":"${head}","paths":[…],"reviewer":"<model>","verdict":"clean"}); a blocking finding means /gstack-ship on ${head.slice(0, 12)}`);
       }
       if (record) {
         const review = readScopedReview(record, { head }, contextPaths);

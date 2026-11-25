@@ -1301,7 +1301,7 @@ _render_claude_install() {
   _render_install claude "$1" || return 1
   [ -n "$_INSTALL_RENDER" ] || return 0
   _CLAUDE_INSTALL_RENDER="$_INSTALL_RENDER"
-  export GSTACK_USER_RENDER_DIR="$_INSTALL_RENDER"
+  export GSTACK_USER_RENDER_DIR="$_INSTALL_RENDER" GSTACK_USER_RENDER_PER_INSTALL=1
 }
 
 _WINDOWS_COPY_NOTE_PRINTED=0

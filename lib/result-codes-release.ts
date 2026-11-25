@@ -473,7 +473,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_SCOPED_REVIEW: {
     anchor: 'receipt-carry-scoped-review',
     summary: 'the base replaced the very lines one of the branch\'s hunks replaces and the merge kept both (GST-2975), so the branch\'s own lines are not the reviewed bytes; the receipt carries only after a scoped review of those hunks',
-    fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /ship on the new head',
+    fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /gstack-ship on the new head',
   },
   RECEIPT_DOCS_AUDIT_READ: {
     anchor: 'receipt-docs-audit-read',
