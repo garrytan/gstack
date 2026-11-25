@@ -392,10 +392,10 @@ uses it to refuse a base merge under an open run
    verdict does not admit a workflow, admission and the pregate try the
    workflow's own record with the same checks, so a later install for another
    workflow on a shared machine (a /gstack-ship docs child resolving another Bun, or a
-   failed child install) never drops /gstack-ship's admission (GST-1233). After
-   that, admission tries /gstack-ship's own record with the same checks, so the
-   docs audit /gstack-ship launches still starts after a reviewer's review-voice
-   install replaced the shared verdict (CAPY-1). A new HEAD
+   failed child install) never drops /gstack-ship's admission (GST-1233). When a
+   reviewer's review-voice install wrote the shared verdict, admission then tries
+   /gstack-ship's own record with the same checks, so the docs audit
+   /gstack-ship launches still starts (CAPY-1). A new HEAD
    still invalidates both, and a failed `./setup` (`gstack: fail setup`)
    invalidates every workflow's record. `--check --for <workflow>` keeps the
    Bun that workflow's own record holds. The launch file and launch directory

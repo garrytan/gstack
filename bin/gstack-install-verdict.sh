@@ -23,8 +23,9 @@
 # GSTACK_INSTALL_VERDICT, so a reviewer's install never shadows it (GST-1161).
 # Each workflow install also writes its own record, <verdict>.for/<workflow>.json,
 # which admission tries when the shared verdict does not admit that workflow, so
-# another workflow's later install never drops it (GST-1233), then /ship's own
-# record, which covers the workflows /ship launches (CAPY-1).
+# another workflow's later install never drops it (GST-1233), then, when a
+# review-voice install wrote the shared verdict, /ship's own record, which
+# covers the workflows /ship launches (CAPY-1).
 #
 # Admission (gstack-skill-start, after SESSION_KIND): an unattended session,
 # or an explicit GSTACK_SESSION_KIND=spawned session with GSTACK_CAPY=1,
@@ -193,16 +194,19 @@ gstack_install_admission() {
     _gstack_ia_check
     # GST-1233: each install also keeps its own verdict per workflow, so when a
     # later install for another workflow replaced the shared one, this
-    # workflow's own record still admits it, else /ship's own record, which a
-    # workflow /ship launches (document-release) runs under after a reviewer's
-    # review-voice install (CAPY-1); never after a failed ./setup, which
-    # changed the checkout every record certified.
+    # workflow's own record still admits it; when an install profile (a
+    # reviewer's review-voice install) wrote the shared verdict, so does /ship's
+    # own record, which a workflow /ship launches (document-release) runs under
+    # (CAPY-1); never after a failed ./setup, which changed the checkout every
+    # record certified.
     _ia_dir="${file%.json}.for"
+    _ia_ship=""
+    gstack_doctor_install_profile "$(gstack_install_verdict_field "$file" for)" && _ia_ship="$_ia_dir/ship.json"
     case "$skill" in ''|*[!A-Za-z0-9._-]*) _ia_dir="" ;; esac
     case "$trailer" in "gstack: fail setup"*) _ia_dir="" ;; esac
     if [ -n "$detail" ] && [ -n "$_ia_dir" ]; then
       _ia_m_file=$file _ia_m_detail=$detail _ia_m_fix=$fix _ia_m_code=$code _ia_m_status=$_ia_status _ia_m_trailer=$trailer
-      for _ia_own in "$_ia_dir/$skill.json" "$_ia_dir/ship.json"; do
+      for _ia_own in "$_ia_dir/$skill.json" ${_ia_ship:+"$_ia_ship"}; do
         [ -f "$_ia_own" ] || continue
         file=$_ia_own _ia_status=ok
         _gstack_ia_check
