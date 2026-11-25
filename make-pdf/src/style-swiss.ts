@@ -47,20 +47,20 @@ export function swissRules(opts: { cover?: boolean; toc?: boolean } = {}): strin
     // wrapper's min-height (set by render.ts from the heading's length) keeps a
     // long sub-heading clear of the next block.
     `.chapter > .swiss-keep { position: relative; clear: left; margin-left: 0; max-width: none; }`,
-    `.swiss-keep > h3 { position: absolute; top: 0; left: 0; }`,
-    `.swiss-keep > :not(h3) { margin-left: var(--swiss-field); max-width: ${SWISS_COLUMN_MAX_IN}in; }`,
+    `.chapter > .swiss-keep > h3 { position: absolute; top: 0; left: 0; }`,
+    `.chapter > .swiss-keep > :not(h3) { margin-left: var(--swiss-field); max-width: ${SWISS_COLUMN_MAX_IN}in; }`,
     `.chapter > hr { clear: left; height: 0; border: 0; border-top: 0.5pt solid ${INK}; margin: 12pt 0 12pt var(--swiss-field); }`,
     `.chapter > h1 { font-size: 46pt; line-height: 46pt; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 20pt; color: ${RED}; overflow-wrap: anywhere; }`,
     `.chapter > h1 + p { font-size: 15pt; line-height: 20pt; margin-bottom: 18pt; }`,
     `.chapter > h2 { ${EXACT} background: ${INK}; color: #fff; font-size: 17pt; line-height: 20pt; font-weight: 700; letter-spacing: -0.01em; margin: 24pt 0 12pt; padding: 7pt 10pt 8pt var(--swiss-field); overflow-wrap: anywhere; }`,
     // A bar never ends a page: the block after it brings at least three of its lines along.
     `.chapter > h2 + p, .chapter > h2 + blockquote, .chapter > h2 + ul > li:first-child, .chapter > h2 + ol > li:first-child { orphans: 3; }`,
-    `.chapter > h3, .swiss-keep > h3 { float: left; clear: left; width: calc(var(--swiss-field) - 0.2in); margin: 1pt 0 0 0; break-inside: avoid; font-size: 10pt; line-height: 13pt; font-weight: 700; color: ${RED}; text-transform: none; letter-spacing: 0; overflow-wrap: anywhere; }`,
+    `.chapter > h3, .chapter > .swiss-keep > h3 { float: left; clear: left; width: calc(var(--swiss-field) - 0.2in); margin: 1pt 0 0 0; break-inside: avoid; font-size: 10pt; line-height: 13pt; font-weight: 700; color: ${RED}; text-transform: none; letter-spacing: 0; overflow-wrap: anywhere; }`,
     // Above a block that cannot split (code, a table, a figure, an image) the
     // sub-heading stays in normal flow, so break-after: avoid still keeps it
     // with that block instead of stranding it at a page foot.
     `.chapter > h3:has(+ pre), .chapter > h3:has(+ table), .chapter > h3:has(+ figure), .chapter > h3:has(+ p > img:only-child) { float: none; margin: 6pt 0 4pt 0; }`,
-    `.swiss-keep > h3 { float: none; }`,
+    `.chapter > .swiss-keep > h3 { float: none; }`,
     `p { margin: 0 0 7.5pt; }`,
     `ul, ol { padding-left: 14pt; margin: 0 0 7.5pt; }`,
     `li { margin: 0; line-height: 15pt; }`,
@@ -94,9 +94,9 @@ export function swissScreenCss(): string {
     `}`,
     `@media screen and (max-width: 48em) {`,
     `  .chapter > *, .chapter > hr, .cover .cover-subtitle, .cover .cover-meta, .cover hr.rule { margin-left: 0; max-width: none; }`,
-    `  .chapter > h3, .swiss-keep > h3 { float: none; position: static; width: auto; margin: 14pt 0 4pt; }`,
+    `  .chapter > h3, .chapter > .swiss-keep > h3 { float: none; position: static; width: auto; margin: 14pt 0 4pt; }`,
     `  .chapter > .swiss-keep { min-height: 0 !important; }`,
-    `  .swiss-keep > :not(h3) { margin-left: 0; max-width: none; }`,
+    `  .chapter > .swiss-keep > :not(h3) { margin-left: 0; max-width: none; }`,
     `  .chapter > h2, .toc h2 { padding-left: 10pt; }`,
     `  .cover h1.cover-title { font-size: 44pt !important; padding-top: 1in !important; }`,
     `}`,
@@ -112,16 +112,23 @@ export function swissFieldHeadingLines(text: string): number {
     const w = Array.from(word).reduce((s, g) => s + glyphEm(g) * 1.06, 0) * 10;
     const space = glyphEm(" ") * 10;
     if (x > 0 && x + w > widthPt) { lines++; x = 0; }
-    x += Math.min(w, widthPt) + space;
+    if (w > widthPt) {
+      lines += Math.ceil(w / widthPt) - 1;
+      x = w % widthPt;
+    } else {
+      x += w;
+    }
+    x += space;
   }
   return lines;
 }
 
 const WIDE_CHAR = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]|[\u{1F000}-\u{1FAFF}]/u;
 const COVER_SIZES_PT = [96, 84, 72, 60, 48];
-const COVER_TEXT_WIDTH_PT = 446;
-const COVER_TEXT_MAX_HEIGHT_PT = 374;
 const COVER_BLOCK_IN = 5.97;
+const COVER_BELOW_BLOCK_IN = 3.48;
+const COVER_BLOCK_MIN_IN = 1.5;
+const SWISS_LETTER_BOX = { contentWIn: 7, contentHIn: 9.45 };
 
 /** Estimated width of one glyph in ems of bold Helvetica with the cover's tight tracking. */
 function glyphEm(ch: string): number {
@@ -134,7 +141,7 @@ function glyphEm(ch: string): number {
 }
 
 /** Lines a title takes at a size, or Infinity when one unbreakable word is wider than the block. */
-function coverLines(title: string, sizePt: number): number {
+function coverLines(title: string, sizePt: number, widthPt: number): number {
   let lines = 1;
   let x = 0;
   for (const word of title.trim().split(/\s+/)) {
@@ -143,15 +150,15 @@ function coverLines(title: string, sizePt: number): number {
     if (wide) {
       for (const g of glyphs) {
         const w = glyphEm(g) * sizePt;
-        if (x + w > COVER_TEXT_WIDTH_PT) { lines++; x = 0; }
+        if (x + w > widthPt) { lines++; x = 0; }
         x += w;
       }
       x += glyphEm(" ") * sizePt;
       continue;
     }
     const w = glyphs.reduce((s, g) => s + glyphEm(g), 0) * sizePt;
-    if (w > COVER_TEXT_WIDTH_PT) return Infinity;
-    if (x > 0 && x + w > COVER_TEXT_WIDTH_PT) { lines++; x = 0; }
+    if (w > widthPt) return Infinity;
+    if (x > 0 && x + w > widthPt) { lines++; x = 0; }
     x += w + glyphEm(" ") * sizePt;
   }
   return lines;
@@ -159,15 +166,22 @@ function coverLines(title: string, sizePt: number): number {
 
 /**
  * Size the swiss cover title so the black block, the red bar and the meta
- * always fit on page 1: the largest size whose estimated lines fit the block,
- * and a top padding that shrinks as the title grows. The 48pt floor still
- * wraps anything longer (overflow-wrap: anywhere), it never clips.
+ * always fit on page 1 of the actual page box (paper size less margins): the
+ * largest size whose estimated lines fit the block, and a top padding that
+ * shrinks as the title grows. The 48pt floor still wraps anything longer
+ * (overflow-wrap: anywhere), it never clips. The default box is swiss Letter.
  */
-export function swissCoverTitle(title: string): { fontPt: number; padTopIn: number } {
-  const fontPt = COVER_SIZES_PT.find((s) => coverLines(title, s) * s * 0.92 <= COVER_TEXT_MAX_HEIGHT_PT)
+export function swissCoverTitle(
+  title: string,
+  box: { contentWIn: number; contentHIn: number } = SWISS_LETTER_BOX,
+): { fontPt: number; padTopIn: number } {
+  const widthPt = box.contentWIn * 72 - 58;
+  const blockIn = Math.max(COVER_BLOCK_MIN_IN, Math.min(COVER_BLOCK_IN, box.contentHIn - COVER_BELOW_BLOCK_IN));
+  const maxTextPt = blockIn * 72 - 56;
+  const fontPt = COVER_SIZES_PT.find((s) => coverLines(title, s, widthPt) * s * 0.92 <= maxTextPt)
     ?? COVER_SIZES_PT[COVER_SIZES_PT.length - 1];
-  const lines = Math.min(coverLines(title, fontPt), Math.floor(COVER_TEXT_MAX_HEIGHT_PT / (fontPt * 0.92)));
+  const lines = Math.min(coverLines(title, fontPt, widthPt), Math.max(1, Math.floor(maxTextPt / (fontPt * 0.92))));
   const textIn = (lines * fontPt * 0.92) / 72;
-  const padTopIn = Math.round(Math.min(3.2, Math.max(0.4, COVER_BLOCK_IN - textIn - 0.31)) * 100) / 100;
+  const padTopIn = Math.round(Math.min(3.2, Math.max(0.4, blockIn - textIn - 0.31)) * 100) / 100;
   return { fontPt, padTopIn };
 }

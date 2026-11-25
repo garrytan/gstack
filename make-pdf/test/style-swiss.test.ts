@@ -8,12 +8,15 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import { printCss, resolveMargins, screenCss } from "../src/print-css";
 import { keepFieldHeadingsWithText, render } from "../src/render";
 import { contentWidthInches, landscapeContentBox } from "../src/diagram-prepass";
+import { generate } from "../src/orchestrator";
 import { DEFAULT_STYLE, SWISS_FIELD_IN, SWISS_MARGIN_SHORTHAND, swissCoverTitle, swissFieldHeadingLines } from "../src/style-swiss";
 
 const GOLDEN = path.join(import.meta.dir, "fixtures", "print-css-plain");
@@ -93,7 +96,7 @@ describe("swiss is the default", () => {
     const css = screenCss();
     expect(css.startsWith(golden("screen.css"))).toBe(true);
     expect(css).toContain("@media screen and (max-width: 48em)");
-    expect(css).toMatch(/\.chapter > h3, \.swiss-keep > h3 \{ float: none; position: static;/);
+    expect(css).toMatch(/\.chapter > h3, \.chapter > \.swiss-keep > h3 \{ float: none; position: static;/);
   });
 });
 
@@ -122,6 +125,32 @@ describe("swiss field headings stay with their text", () => {
       html + '<div class="swiss-keep" style="min-height: 15pt;"><h3>Top</h3><p>body</p></div>',
     );
     expect(render({ markdown: "# Doc\n\n> ### Quoted heading\n>\n> Quoted paragraph." }).html).not.toContain('<div class="swiss-keep"');
+  });
+  test("an h3 inside raw HTML gets no wrapper, and the wrapper CSS only positions top-level wrappers", () => {
+    const md = "# Doc\n\n<div align=\"center\">\n\n### Inside div\n\nPara in div.\n\n</div>\n\n<section>\n\n### Inside section\n\nMore.\n\n</section>\n\n### Top\n\nbody";
+    const html = render({ markdown: md }).html;
+    expect(html.match(/<div class="swiss-keep"/g)?.length).toBe(1);
+    expect(html).toContain('<div class="swiss-keep" style="min-height: 15pt;"><h3>Top</h3>');
+    const css = printCss();
+    expect(css).toContain(".chapter > .swiss-keep > h3 { position: absolute;");
+    expect(css).not.toMatch(/(^|\n|, )\.swiss-keep > /);
+  });
+  test("a </p> inside an HTML comment does not end the paragraph", () => {
+    const html = "<h3>A</h3><p>x <!-- </p> --> y</p><table><tr><td>1</td></tr></table>";
+    expect(keepFieldHeadingsWithText(html)).toBe(
+      '<div class="swiss-keep" style="min-height: 15pt;"><h3>A</h3><p>x <!-- </p> --> y</p></div><table><tr><td>1</td></tr></table>',
+    );
+  });
+  test("unbalanced raw HTML does not switch off later wrappers or wrap nested ones", () => {
+    const html = "<ul><li>a<li>b</ul></div><h3>X</h3><p>t</p><blockquote><h3>Q</h3><p>q</p></blockquote>";
+    expect(keepFieldHeadingsWithText(html)).toBe(
+      '<ul><li>a<li>b</ul></div><div class="swiss-keep" style="min-height: 15pt;"><h3>X</h3><p>t</p></div><blockquote><h3>Q</h3><p>q</p></blockquote>',
+    );
+  });
+  test("one unbroken word wider than the field counts every line it wraps to", () => {
+    expect(swissFieldHeadingLines("AVeryLongIdentifierNameThatIsOneWord")).toBeGreaterThanOrEqual(2);
+    expect(swissFieldHeadingLines("x".repeat(65))).toBeGreaterThanOrEqual(3);
+    expect(swissFieldHeadingLines("Example")).toBe(1);
   });
   test("a long sub-heading reserves more lines than a short one", () => {
     expect(swissFieldHeadingLines("Example")).toBe(1);
@@ -155,8 +184,40 @@ describe("swiss cover title sizing", () => {
   test("emoji count as wide glyphs too", () => {
     expect(swissCoverTitle("🚀".repeat(30)).fontPt).toBeLessThan(96);
   });
+  test("the cover is sized for the real page box, not swiss Letter", () => {
+    const title = "Infrastructure Status for North America";
+    const small = swissCoverTitle(title, { contentWIn: 4.5, contentHIn: 7 });
+    const letter = swissCoverTitle(title);
+    expect(small.fontPt).toBeLessThan(letter.fontPt);
+    expect(small.padTopIn).toBeLessThan(letter.padTopIn);
+    expect(swissCoverTitle(title, { contentWIn: 7, contentHIn: 9.45 })).toEqual(letter);
+    const r = render({ markdown: "# T", cover: true, title, margins: "2in" });
+    expect(r.html).toContain(`style="font-size: ${small.fontPt}pt; padding-top: ${small.padTopIn}in;"`);
+  });
   test("swiss render emits the computed size inline on the cover title", () => {
     const r = render({ markdown: "# T", cover: true, title: "gstack ethos" });
     expect(r.html).toContain('<h1 class="cover-title" style="font-size: 96pt; padding-top: 3.2in;">gstack ethos</h1>');
   });
+});
+
+describe("Word output keeps the plain look", () => {
+  const unzip = Bun.which("unzip");
+  test.skipIf(!unzip)("--to docx renders the same document.xml with or without --style swiss", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "make-pdf-swiss-docx-"));
+    try {
+      const input = path.join(dir, "doc.md");
+      fs.writeFileSync(input, "# Doc\n\n### Sub\n\nBody text.\n");
+      const xml = async (style: "swiss" | "plain" | undefined, name: string) => {
+        const out = path.join(dir, `${name}.docx`);
+        await generate({ input, output: out, to: "docx", cover: true, title: "Short", date: "2026-11-25", quiet: true, style });
+        return execFileSync(unzip!, ["-p", out, "word/document.xml"], { timeout: 30_000 }).toString("utf8");
+      };
+      const plain = await xml("plain", "plain");
+      expect(await xml(undefined, "default")).toBe(plain);
+      expect(await xml("swiss", "swiss")).toBe(plain);
+      expect(plain).not.toContain('w:val="192"');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

@@ -833,6 +833,18 @@ const PAGE_HEIGHTS_IN: Record<string, number> = {
   tabloid: 17,
 };
 
+export function contentHeightInches(opts: {
+  pageSize?: string;
+  margins?: string;
+  marginTop?: string;
+  marginBottom?: string;
+}): number {
+  const pageH = PAGE_HEIGHTS_IN[opts.pageSize ?? "letter"] ?? 11;
+  const top = dimToInches(opts.marginTop ?? opts.margins, 1);
+  const bottom = dimToInches(opts.marginBottom ?? opts.margins, 1);
+  return Math.max(1, pageH - top - bottom);
+}
+
 /**
  * Content box of the rotated (landscape) named page: portrait page HEIGHT
  * becomes the landscape width; portrait WIDTH becomes the landscape height.

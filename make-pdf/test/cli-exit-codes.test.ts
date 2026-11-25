@@ -282,6 +282,19 @@ describe("cli.ts exit codes end to end (no stubs, no browser touched)", () => {
     expect(badTo.stdout).toBe("");
   });
 
+  test("--style: an unknown or missing value exits 1; the value is case-insensitive", () => {
+    const bad = runCli(["generate", inputMd, "--style", "bogus"]);
+    expect(bad.code).toBe(ExitCode.BadArgs);
+    expect(bad.stderr).toContain("$P generate: invalid --style (got 'bogus'). Expected swiss or plain, for example --style plain.");
+    const bare = runCli(["generate", inputMd, "--style"]);
+    expect(bare.code).toBe(ExitCode.BadArgs);
+    expect(bare.stderr).toContain("invalid --style (got no value)");
+    const out = path.join(tmp, "style-upper.html");
+    const upper = runCli(["generate", inputMd, out, "--to", "html", "--style", "PLAIN", "--quiet"]);
+    expect(upper.code).toBe(ExitCode.Success);
+    expect(fs.readFileSync(out, "utf8")).not.toContain("--swiss-field");
+  });
+
   test("exit 0 paths: no arguments prints usage (stderr); version prints VERSION on stdout only", () => {
     const usage = runCli([]);
     expect(usage.code).toBe(ExitCode.Success);

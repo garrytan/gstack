@@ -171,6 +171,21 @@ describe("swiss layout gate", () => {
     }
   }, 120000);
 
+  test.skipIf(!avail.ok)("the cover fits page 1 of a smaller page box (--margins 2in)", () => {
+    if (!avail.ok) return;
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "make-pdf-swiss-gate-"));
+    try {
+      const pdf = render(d, "cover-2in", ["--cover", "--title", "Infrastructure Status for North America", "--author", "Gate Author", "--date", "2026-11-25", "--margins", "2in"]);
+      const page = (p: number) => execFileSync(resolvePopplerTool("pdftotext")!, ["-f", String(p), "-l", String(p), pdf, "-"], { encoding: "utf8", timeout: CHILD_TIMEOUT_MS });
+      const one = page(1).replace(/\s+/g, " ");
+      expect(one).toContain("Gate Author");
+      expect(one).toContain("2026-11-25");
+      expect(page(2)).not.toContain("Gate Author");
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  }, 120000);
+
   test("cleanup", () => {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   });

@@ -85,7 +85,7 @@ class ProgressReporter {
  * generate — full pipeline. Returns the output PDF path on success.
  */
 export async function generate(requested: GenerateOptions): Promise<string> {
-  const style = requested.style ?? DEFAULT_STYLE;
+  const style = requested.to === "docx" ? "plain" : requested.style ?? DEFAULT_STYLE;
   const opts = resolveMargins(requested, style);
   const progress = new ProgressReporter(opts);
   const input = path.resolve(opts.input);

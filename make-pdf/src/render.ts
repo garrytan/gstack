@@ -16,6 +16,7 @@ import { smartypants } from "./smartypants";
 import { DEFAULT_STYLE, printCss, resolveMargins, type PrintCssOptions, type Style } from "./print-css";
 import { swissCoverTitle, swissFieldHeadingLines } from "./style-swiss";
 import { applyImageDirectives } from "./image-policy";
+import { contentHeightInches, contentWidthInches } from "./diagram-prepass";
 
 export interface RenderOptions {
   markdown: string;
@@ -100,6 +101,7 @@ export function render(opts: RenderOptions): RenderResult {
   // footerTemplate, suppress CSS page numbers too so their footer wins.
   const showPageNumbers = opts.pageNumbers !== false && !opts.footerTemplate;
   const style = opts.style ?? DEFAULT_STYLE;
+  const pageBox = resolveMargins(opts, style);
   const cssOptions: PrintCssOptions = {
     style,
     cover: opts.cover,
@@ -111,7 +113,7 @@ export function render(opts: RenderOptions): RenderResult {
     pageSize: opts.pageSize,
     // Compose per-side margins into the CSS shorthand so @page stays the
     // single source of truth even under preferCSSPageSize.
-    margins: composeMargins(resolveMargins(opts, style)),
+    margins: composeMargins(pageBox),
     pageNumbers: showPageNumbers,
   };
   const css = printCss(cssOptions);
@@ -124,6 +126,7 @@ export function render(opts: RenderOptions): RenderResult {
         author: derivedAuthor,
         date: derivedDate,
         style,
+        box: { contentWIn: contentWidthInches(pageBox), contentHIn: contentHeightInches(pageBox) },
       })
     : "";
 
@@ -418,49 +421,60 @@ function sanitizePass(html: string): string {
  * where the CSS pins the h3 to the wrapper's top and the wrapper starts where
  * the text does. min-height keeps a sub-heading longer than its text clear of
  * the next block. (Code, tables, figures and image-only paragraphs need no
- * wrapper: the CSS keeps the h3 in normal flow above them.) Only an h3 at the
- * top level of the body is wrapped; one inside a quote, list item, table or
- * details block is not in the field, and the CSS that positions the wrapper
- * only applies at the top level.
+ * wrapper: the CSS keeps the h3 in normal flow above them.) Only top-level
+ * blocks are paired: an h3 inside raw HTML, a quote or a list item is not in
+ * the field, and the CSS that positions the wrapper applies only at the top.
  */
 export function keepFieldHeadingsWithText(html: string): string {
+  const blocks = topLevelBlocks(html);
   const out: string[] = [];
-  const h3 = /<h3\b[^>]*>(?:(?!<\/h3>)[\s\S])*<\/h3>/g;
-  const container = /<(\/?)(blockquote|li|table|details|figure|aside)\b[^>]*>/gi;
-  let depth = 0;
-  let scanned = 0;
   let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = h3.exec(html)) !== null) {
-    container.lastIndex = scanned;
-    let c: RegExpExecArray | null;
-    while ((c = container.exec(html)) !== null && c.index < m.index) depth += c[1] ? -1 : 1;
-    scanned = m.index;
-    if (depth > 0) continue;
-    const after = html.slice(h3.lastIndex);
-    if (/^\s*<p\b[^>]*>[^<]*<img\b[^>]*>[^<]*<\/p>/i.test(after)) continue;
-    const open = after.match(/^\s*<(p|ul|ol|blockquote)\b/);
-    const end = open ? closingIndex(after, open[1]) : -1;
-    if (end < 0) continue;
-    const minPt = swissFieldHeadingLines(stripTags(m[0])) * 13 + 2;
-    out.push(html.slice(last, m.index), `<div class="swiss-keep" style="min-height: ${minPt}pt;">${m[0]}${after.slice(0, end)}</div>`);
-    last = h3.lastIndex + end;
-    h3.lastIndex = last;
+  for (let i = 0; i + 1 < blocks.length; i++) {
+    const [h3, next] = [blocks[i], blocks[i + 1]];
+    if (h3.tag !== "h3" || !/^(p|ul|ol|blockquote)$/.test(next.tag)) continue;
+    if (html.slice(h3.end, next.start).trim() !== "") continue;
+    const text = html.slice(next.start, next.end);
+    if (next.tag === "p" && /^<p\b[^>]*>[^<]*<img\b[^>]*>[^<]*<\/p>$/i.test(text)) continue;
+    const heading = html.slice(h3.start, h3.end);
+    const minPt = swissFieldHeadingLines(stripTags(heading)) * 13 + 2;
+    out.push(html.slice(last, h3.start), `<div class="swiss-keep" style="min-height: ${minPt}pt;">${html.slice(h3.start, next.end)}</div>`);
+    last = next.end;
+    i++;
   }
   out.push(html.slice(last));
   return out.join("");
 }
 
-/** Index just past the close of the first <tag> in s, counting nested same-name tags; -1 if unbalanced. */
-function closingIndex(s: string, tag: string): number {
-  const re = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
-  let depth = 0;
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+
+/**
+ * Spans of the top-level elements in a fragment. Comments are skipped, void
+ * tags open nothing, a close tag with no matching open tag is ignored, and a
+ * close tag closes whatever it left open, so unbalanced raw HTML cannot leave
+ * the rest of the document nested.
+ */
+function topLevelBlocks(html: string): Array<{ tag: string; start: number; end: number }> {
+  const blocks: Array<{ tag: string; start: number; end: number }> = [];
+  const stack: string[] = [];
+  let start = 0;
+  const token = /<!--[\s\S]*?(?:-->|$)|<(\/?)([a-zA-Z][\w-]*)\b[^>]*>/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(s)) !== null) {
-    depth += m[1] ? -1 : 1;
-    if (depth === 0) return re.lastIndex;
+  while ((m = token.exec(html)) !== null) {
+    if (!m[2]) continue;
+    const tag = m[2].toLowerCase();
+    if (m[1]) {
+      const at = stack.lastIndexOf(tag);
+      if (at < 0) continue;
+      stack.length = at;
+      if (at === 0) blocks.push({ tag, start, end: token.lastIndex });
+      continue;
+    }
+    if (VOID_TAGS.has(tag) || m[0].endsWith("/>")) continue;
+    if ((tag === "li" || tag === "p") && stack[stack.length - 1] === tag) stack.pop();
+    if (stack.length === 0) start = m.index;
+    stack.push(tag);
   }
-  return -1;
+  return blocks;
 }
 
 function buildCoverBlock(opts: {
@@ -469,9 +483,10 @@ function buildCoverBlock(opts: {
   author?: string;
   date: string;
   style: Style;
+  box: { contentWIn: number; contentHIn: number };
 }): string {
   const title = escapeHtml(opts.title);
-  const size = opts.style === "swiss" ? swissCoverTitle(opts.title) : undefined;
+  const size = opts.style === "swiss" ? swissCoverTitle(opts.title, opts.box) : undefined;
   const titleStyle = size ? ` style="font-size: ${size.fontPt}pt; padding-top: ${size.padTopIn}in;"` : "";
   const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : "";
   const author = opts.author ? escapeHtml(opts.author) : "";
