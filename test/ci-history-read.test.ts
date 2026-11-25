@@ -35,8 +35,6 @@ afterAll(() => {
 /** Workflows that keep full clones, by file name, each with its reason. */
 const FULL_CLONE_WORKFLOWS: Record<string, string> = {
   'weekly-release.yml': 'release: cuts and tags from main; off the PR and train path and not yet dispatched once blobless',
-  'cso-runtime-promote.yml': 'CSO image promotion; off the PR and train path and not yet dispatched once blobless',
-  'cso-runtime-qualification.yml': 'CSO runtime qualification; off the PR and train path and not yet dispatched once blobless',
   'evals-periodic.yml': 'periodic evals; off the PR and train path and not yet dispatched once blobless',
   'evals-marathon.yml': 'marathon evals; off the PR and train path and not yet dispatched once blobless',
   'eval-sweep.yml': 'eval sweep; off the PR and train path and not yet dispatched once blobless',
