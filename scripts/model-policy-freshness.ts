@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { collectFreshnessSources, type Fetcher } from '../lib/model-policy-freshness-sources';
-import { assessFreshness, freshnessCatalogIdentity, renderFreshnessReport, type FreshnessObservation } from '../lib/model-policy-freshness';
+import { assessFreshness, CATALOG_SOURCE_FILES, freshnessCatalogIdentity, renderFreshnessReport, type FreshnessObservation } from '../lib/model-policy-freshness';
 import { freshnessGitHub } from '../lib/model-policy-freshness-github';
 import { publishFreshness, type FreshnessGitHub } from '../lib/model-policy-freshness-publication';
 
@@ -10,7 +10,7 @@ export async function runModelPolicyFreshness(options: {
   const env = options.env ?? process.env;
   const now = options.now ?? (() => new Date().toISOString());
   const startedAt = now();
-  const catalog = freshnessCatalogIdentity(readFileSync(new URL('../lib/model-catalog.ts', import.meta.url), 'utf8'));
+  const catalog = freshnessCatalogIdentity(CATALOG_SOURCE_FILES.map(file => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')));
   const sources = await collectFreshnessSources(options.fetcher);
   const observation: FreshnessObservation = {
     catalog,

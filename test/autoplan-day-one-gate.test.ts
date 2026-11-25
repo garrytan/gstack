@@ -145,7 +145,7 @@ describe('replay: a reviewed app plan whose product challenges were hidden', () 
       ['Cut: No Android build', 'on a first version every cut is your decision, one letter each'],
       ['Cut: No shared team calendars', 'on a first version every cut is your decision, one letter each']]);
     expect(byClass(list, 'cuts')).toEqual([]);
-    expect(byClass(list, 'owner_words').map(i => [i.title, i.recommended])).toEqual([['1 of your quoted messages has no time or no line saying what this version does with it: “I want to remember what I promised people after every meeting” (missing a line (does it or choice))', 'a']]);
+    expect(byClass(list, 'owner_words').map(i => [i.title, i.recommended])).toEqual([['1 of your quoted messages has no time or no line saying what this version does with it: “I want to remember what I promised people after every meeting” (missing a line (does it, choice or ruled out))', 'a']]);
     expect(list.first_version).toBe(true);
     expect(list.owner_words).toMatchObject({ status: 'ok', quotes: [{ n: 1, verified: false }] });
   });
@@ -517,6 +517,128 @@ describe('first versions: the owner page quotes the owner and letters what it le
     expect(notes.origin!.endsWith('|finding')).toBe(true);
   });
 
+  describe("a ruled-out line beats a reviewer only when the owner's recorded replies hold his ruling (GST-3646)", () => {
+    const RULING = 'never touch my calendar, I mean it';
+    const CASE5 = CASE4 + `\n- The owner, 2026-11-12 09:00Z: "never touch my calendar" → ruled out 2026-11-12: "${RULING}"`;
+    const calendar = (voice: 'native' | 'outside', tagged = true) => row('ceo', voice, { id: `${RUN}-ceo-r2-${voice}-1`, severity: 'High', title: 'Leaving the calendar out does less than the owner asked for', changes: 'scope', resolution: 'add calendar reads', ...(tagged ? { narrows_quote: 3 } : {}) } as Row);
+    const run = (name: string, o: { said?: boolean; native?: FindingRow[]; outside?: FindingRow[]; cuts?: string }) => {
+      const state = makeRun(name, { plan: plan(CASE5, o.cuts), round2: { native: o.native ?? [], outside: o.outside ?? [] }, round1: false, ui: false });
+      if (o.said) fs.writeFileSync(path.join(state.out, 'attempts.jsonl'), JSON.stringify({ ts: '2026-11-12T09:00:12Z', owner_reply: `c3: no. ${RULING}` }) + '\n');
+      return state;
+    };
+    const calendarItems = (list: GateList) => list.items.filter(i => i.title.includes('calendar'));
+
+    test('the parser reads the ruled-out line, and only a recorded reply verifies the ruling', () => {
+      expect(parseOwnerWords(CASE5).quotes[2]!.line).toEqual({ kind: 'ruled_out', date: '2026-11-12', ruling: RULING });
+      expect(ownerContext(run('ruled-ctx', {}), []).ruled).toEqual(new Set());
+      expect(ownerContext(run('ruled-ctx-said', { said: true })).ruled).toEqual(new Set([3]));
+      expect(ownerContext(run('ruled-ctx-other', {}), ['never touch my calendar']).ruled).toEqual(new Set());
+    });
+
+    test('a ruling dated with a time parses; a short ruling, or one that only repeats the quote, never counts as recorded', () => {
+      expect(parseOwnerWords("### Owner's words\n\n- The owner, 2026-11-23 10:04Z: \"add dark mode\" → ruled out 2026-11-24 09:12Z: \"not in the first version\"").quotes[0]).toMatchObject({ text: 'add dark mode', line: { kind: 'ruled_out', date: '2026-11-24 09:12Z', ruling: 'not in the first version' } });
+      const ruledWith = (ruling: string, replies: Array<{ text: string; at?: string }>) => {
+        const state = makeRun(`ruled-floor-${ruling.replace(/\W+/g, '-')}`, { plan: plan(CASE4 + `\n- The owner, 2026-11-12 09:00Z: "never touch my calendar or my reminders" → ruled out 2026-11-12: "${ruling}"`), round2: { native: [], outside: [] }, round1: false, ui: false });
+        return ownerContext(state, replies).ruled;
+      };
+      const at = '2026-11-12T09:00:00Z';
+      expect(ruledWith('no', [{ text: 'c1: no, keep the dark mode', at }])).toEqual(new Set());
+      expect(ruledWith('never touch my calendar', [{ text: 'never touch my calendar or my reminders', at }])).toEqual(new Set());
+      expect(ruledWith('leave my calendar alone', [{ text: 'never touch my calendar or my reminders. actually leave my calendar alone', at }])).toEqual(new Set([3]));
+    });
+
+    test('a ruling is checked against the one reply its citation names; no reply, two replies or another day means he is asked', () => {
+      const ruledCiting = (cite: string, replies: Array<{ text: string; at?: string; id?: string }>) => {
+        const state = makeRun(`ruled-cite-${cite.replace(/\W+/g, '-')}-${replies.length}`, { plan: plan(CASE4 + `\n- The owner, 2026-11-12 09:00Z: "never touch my calendar" → ruled out ${cite}: "${RULING}"`), round2: { native: [], outside: [] }, round1: false, ui: false });
+        return ownerContext(state, replies).ruled;
+      };
+      const said = { text: `c3: no. ${RULING}`, at: '2026-11-12T09:00:12Z', id: 'run-g1-d3' };
+      const other = { text: 'c1: yes, build the contacts', at: '2026-11-12T16:30:00Z', id: 'run-g1-d1' };
+      expect(ruledCiting('2026-11-12', [said])).toEqual(new Set([3]));
+      expect(ruledCiting('2026-11-12', [said, other])).toEqual(new Set());
+      expect(ruledCiting('2026-11-12 09:00Z', [said, other])).toEqual(new Set([3]));
+      expect(ruledCiting('run-g1-d3', [said, other])).toEqual(new Set([3]));
+      expect(ruledCiting('run-g1-d1', [said, other])).toEqual(new Set());
+      expect(ruledCiting('2026-11-13', [said])).toEqual(new Set());
+      expect(ruledCiting('2026-11-12', [{ text: said.text }])).toEqual(new Set());
+      const copies = [{ ...said, id: 'run-g1-p1' }, { ...said, id: 'run-g1-c3' }, { text: said.text, at: '2026-11-12T09:00:12.004Z' }, { text: said.text, at: said.at, id: 'appr-1' }];
+      expect(ruledCiting('2026-11-12', copies)).toEqual(new Set([3]));
+      expect(ruledCiting('2026-11-12 09:00Z', copies)).toEqual(new Set([3]));
+      expect(ruledCiting('2026-11-12', [...copies, other])).toEqual(new Set());
+    });
+
+    test('paired findings that name different quotes each reach their own item', () => {
+      const onDoesIt = row('ceo', 'outside', { id: `${RUN}-ceo-r2-outside-1`, severity: 'High', title: 'Leaving the calendar out does less than the owner asked for', changes: 'scope', resolution: 'add calendar reads', narrows_quote: 1 } as Row);
+      const list = buildGate(run('ruled-twin-apart', { said: true, native: [calendar('native')], outside: [onDoesIt] }), 1);
+      expect(calendarItems(list).filter(i => i.item_class === 'challenge1').map(i => i.origin!.split('|')[1])).toEqual([`${RUN}-ceo-r2-native-1`]);
+      const twoWay = byClass(list, 'owner_choice').find(i => i.title.includes('two-way'))!;
+      expect(twoWay.origin!.split('|')[1]!.split('+')).toEqual(['quote:1', `${RUN}-ceo-r2-outside-1`]);
+      expect(twoWay.recommended).toBe('a');
+    });
+
+    test('keeping a recorded ruling leaves no build task for the fix it turned down; accepting the change keeps the task', () => {
+      for (const chosen of ['a', 'b'] as const) {
+        const state = run(`ruled-task-${chosen}`, { said: true, native: [calendar('native')] });
+        const item = calendarItems(buildGate(state, 1))[0]!;
+        expect(item.origin!.endsWith('|ruling')).toBe(true);
+        writeDecisions(state.out, [{ schema_version: 1, run: RUN, id: `${RUN}-g1-${item.id}`, gate_rev: 1, label: item.id.toUpperCase(), title: item.title, status: 'overridden', chosen, origin: item.origin } as any]);
+        const tasks = buildTasks(state, [calendar('native')]);
+        expect(tasks.map(t => t.findings), chosen).toEqual(chosen === 'a' ? [] : [[`${RUN}-ceo-r2-native-1`]]);
+      }
+    });
+
+    test('a recorded ruling beats a High finding: one item recommending the ruling, never a build-it choice or a proposal', () => {
+      const list = buildGate(run('ruled-said', { said: true, native: [calendar('native')] }), 1);
+      const items = calendarItems(list);
+      expect(items.map(i => [i.item_class, i.kind, i.recommended, i.options[0]!.text, i.options[0]!.changes_plan])).toEqual([['challenge1', 'auto', 'a', 'keep your ruling', false]]);
+      expect(items[0]!.why).toBe(`native says the plan does less than your words “never touch my calendar”, but you ruled it out on 2026-11-12: “${RULING}”`);
+      expect(rec(list)[items[0]!.id]).toBe('a');
+    });
+
+    test('an unrecorded ruling and the High finding are one question, side by side, recommending the ruling', () => {
+      const list = buildGate(run('ruled-unsaid', { native: [calendar('native')] }), 1);
+      const items = calendarItems(list);
+      expect(items.map(i => [i.item_class, i.kind, i.recommended])).toEqual([['owner_choice', 'approval', 'b']]);
+      const item = items[0]!;
+      expect(item.why).toBe(`the plan says you ruled it out on 2026-11-12: “${RULING}”, but no recorded reply of yours says that; a reviewer (native) says the plan narrows it: Leaving the calendar out does less than the owner asked for`);
+      expect(item.options.map(o => [o.text, o.changes_plan])).toEqual([['build it in this version (size not stated)', true], [`leave it out, as your ruling says: “${RULING}”`, false]]);
+      expect(item.recommended_basis).toBe("your ruling as the plan quotes it; it isn't in your recorded replies, so this asks you beside the High finding");
+      expect(item.origin!.split('|')[1]!.split('+')).toEqual(['quote:3', `${RUN}-ceo-r2-native-1`]);
+      expect(item.origin!.endsWith('|finding')).toBe(true);
+      expect(rec(list)[item.id]).toBe('b');
+      const page = renderOwnerPage(fs.readFileSync(path.join(TMP, 'ruled-unsaid', 'plan-active.md'), 'utf8'), list.owner_words?.quotes).join('\n');
+      expect(page).toContain(`→ you ruled it out on 2026-11-12: “${RULING}” (not found in your recorded replies: asked below)`);
+    });
+
+    test('an unrecorded ruling with no finding and no cut still costs one question; a recorded one costs none', () => {
+      expect(calendarItems(buildGate(run('ruled-quiet', {}), 1)).map(i => [i.item_class, i.recommended])).toEqual([['owner_choice', 'b']]);
+      const said = buildGate(run('ruled-quiet-said', { said: true }), 1);
+      expect(calendarItems(said)).toEqual([]);
+      expect(renderOwnerPage(fs.readFileSync(path.join(TMP, 'ruled-quiet-said', 'plan-active.md'), 'utf8'), said.owner_words?.quotes).join('\n')).toContain(`→ you ruled it out on 2026-11-12: “${RULING}”\n`);
+    });
+
+    test('a cut that follows a recorded ruling stays a cut recommending keep; an unrecorded one is asked beside the quote', () => {
+      const cuts = '- It never touches your calendar: never touch my calendar\n- No Android build\n';
+      const said = buildGate(run('ruled-cut-said', { said: true, cuts }), 1);
+      expect(calendarItems(said).map(i => [i.title, i.recommended])).toEqual([['Cut: It never touches your calendar: never touch my calendar', 'a']]);
+      const unsaid = buildGate(run('ruled-cut-unsaid', { cuts }), 1);
+      expect(calendarItems(unsaid).map(i => [i.item_class, i.recommended])).toEqual([['owner_choice', 'b']]);
+      expect(calendarItems(unsaid)[0]!.why).toContain('the plan cuts it: "It never touches your calendar: never touch my calendar"');
+    });
+
+    test.each([['recorded', true], ['unrecorded', false]] as const)('an untagged twin of a finding on a %s ruling joins its item and never becomes a take-the-change proposal', (_, said) => {
+      for (const [tagged, untagged] of [['native', 'outside'], ['outside', 'native']] as const) {
+        const rows = { [tagged]: [calendar(tagged)], [untagged]: [calendar(untagged, false)] } as { native: FindingRow[]; outside: FindingRow[] };
+        const list = buildGate(run(`ruled-twin-${said}-${tagged}`, { said, ...rows }), 1);
+        expect(byClass(list, 'proposal'), `${tagged} tagged`).toEqual([]);
+        const items = calendarItems(list);
+        expect(items.length, `${tagged} tagged`).toBe(1);
+        expect(items[0]!.origin!.split('|')[1]!.split('+').sort(), `${tagged} tagged`).toEqual(said ? [`${RUN}-ceo-r2-native-1`, `${RUN}-ceo-r2-outside-1`] : ['quote:3', `${RUN}-ceo-r2-native-1`, `${RUN}-ceo-r2-outside-1`]);
+        expect(items[0]!.options.find(o => o.key === rec(list)[items[0]!.id])!.changes_plan, `${tagged} tagged`).toBe(false);
+      }
+    });
+  });
+
   describe("the default reply never changes or overrides an owner line, whatever kind of finding touches it", () => {
     type Kind = { name: string; native: Row[]; outside?: Row[] };
     const finding = (voice: 'native' | 'outside', quote: number, severity: FindingRow['severity'] = 'High') =>
@@ -526,6 +648,7 @@ describe('first versions: the owner page quotes the owner and letters what it le
       { name: 'narrows an open choice quote (High)', native: [finding('native', 2)] },
       { name: 'narrows an open choice quote (Medium)', native: [finding('native', 2, 'Medium')] },
       { name: 'a paired finding: both on a does-it quote', native: [finding('native', 1)], outside: [finding('outside', 1)] },
+      { name: 'a paired finding: only the native names the does-it quote', native: [finding('native', 1)], outside: [{ ...finding('outside', 1), narrows_quote: undefined }] },
     ];
     test.each(KINDS.map(k => [k.name, k] as const))('%s', (_, kind) => {
       const state = makeRun(`rec-${kind.name.replace(/\W+/g, '-')}`, { plan: plan(CASE4), round2: { native: kind.native.map(r => row('ceo', 'native', r)), outside: (kind.outside ?? []).map(r => row('ceo', 'outside', r)) }, round1: false, ui: false });
@@ -533,7 +656,7 @@ describe('first versions: the owner page quotes the owner and letters what it le
       const chosen = rec(list);
       const quotes = parseOwnerWords(CASE4).quotes;
       for (const r of [...kind.native, ...(kind.outside ?? [])]) {
-        const q = quotes.find(x => x.n === r.narrows_quote)!;
+        const q = quotes.find(x => x.n === (r.narrows_quote ?? kind.native[0]!.narrows_quote))!;
         const items = list.items.filter(i => i.title.includes(r.id) || (i.item_class === 'owner_choice' && i.title.includes(q.text)));
         expect(items.length, `${r.id} reaches the gate`).toBeGreaterThan(0);
         for (const item of items) {

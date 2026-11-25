@@ -30,8 +30,11 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
 const string = (value: unknown): value is string => typeof value === 'string';
 export const isFreshnessDate = (value: unknown): value is string => string(value) && iso(value);
 
-export function freshnessCatalogIdentity(sourceText: string): CatalogIdentity {
-  return { sha256: modelCatalogSha256(), sourceSha256: sha256(sourceText), version: MODEL_CATALOG_VERSION, models: MODEL_CATALOG.map(entry => ({ provider: entry.provider, tier: entry.tier, modelId: entry.model })) };
+export const CATALOG_SOURCE_FILES = ['lib/model-catalog.ts', 'lib/model-families.ts'] as const;
+export const catalogSourceSha256 = (sources: readonly (string | Uint8Array)[]): string => sha256(sources.map(source => sha256(source)).join('\n'));
+
+export function freshnessCatalogIdentity(sources: readonly (string | Uint8Array)[]): CatalogIdentity {
+  return { sha256: modelCatalogSha256(), sourceSha256: catalogSourceSha256(sources), version: MODEL_CATALOG_VERSION, models: MODEL_CATALOG.map(entry => ({ provider: entry.provider, tier: entry.tier, modelId: entry.model })) };
 }
 
 export function validCatalog(value: unknown): value is CatalogIdentity {

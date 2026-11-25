@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import { discoverTemplates } from '../scripts/discover-skills';
 import { buildBill, contentClass, TOKEN_DIVISOR, TOKEN_DIVISORS } from './context-bill';
 import { CAPY_INSTALL_ROOT } from './doctor-components';
+import { newestModel } from './model-families';
 
 export const LEDGER_PATH = 'docs/inventory/evidence.json';
 export const DOC_PATH = 'docs/inventory.md';
@@ -54,7 +55,7 @@ export const STATUSES = ['helps', 'no-effect', 'hurts', 'untested', 'safety'] as
 export type Status = (typeof STATUSES)[number];
 export const R48_VERDICTS = ['KEEP', 'FIX-METHOD', 'CUT-CANDIDATE'] as const;
 /** R54: the frontier models under test (GPT-6.2 Sol for new plans; rows measured on 6.1 Sol keep it); a row may add at most one named low-cost primary, never Haiku or Sonnet. */
-export const FRONTIER_MODELS = ['claude-opus-5-5', 'gpt-6.2-sol', 'gpt-6.1-sol'];
+export const FRONTIER_MODELS = [newestModel('opus'), newestModel('sol'), 'gpt-6.1-sol'];
 /** Why an earlier result does not count as fair evidence yet. */
 export const PRIOR_WHY: Record<string, string> = {
   stub: 'ran on the Agent SDK stub prompt, not the claude_code preset',

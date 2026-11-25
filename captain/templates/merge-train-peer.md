@@ -31,8 +31,8 @@ rules are docs/ship-policy.md#train-gates; this file is the order to do them in.
 
 ## Lanes
 
-READY with `gstack-ship-queue ready --pr <n> --no-screen` after /ship at the pinned head.
-There is no screen and no slot call. A lane whose /ship paused on a red base (its receipt
+READY with `gstack-ship-queue ready --pr <n> --no-screen` after /gstack-ship at the pinned head.
+There is no screen and no slot call. A lane whose /gstack-ship paused on a red base (its receipt
 carries `base_red`) READYs with `--base-red --fixer <fixer PR>` once the fixer lane READYs
 with `--fixes-base-red <case,...>`; it never merges the base or waits by hand.
 

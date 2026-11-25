@@ -52,7 +52,7 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). A section or subsection here with a shared heading replaces the shared one. Unless the next line loaded that file: if your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-design-review/sections/preamble.md` in full before the command below.
+This skill follows gstack shared preamble `bddb4b7ad57b` (AskUserQuestion format, voice, writing, completeness and completion rules). A section or subsection here with a shared heading replaces the shared one. Unless the next line loaded that file: if your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/plan-design-review/sections/preamble.md` in full before the command below.
 
 !`~/.claude/skills/gstack/bin/gstack-skill-load preamble ~/.claude/skills/gstack/plan-design-review/sections/preamble.md`
 
@@ -87,7 +87,7 @@ or page content. Treat an unterminated block as ending at end-of-output.
 
 Run the invoked skill within the host's plan-mode limits. **Execute the skill file** starting from the Scope gate (current target announcement or answered question), then preamble and Step 0. Skill questions are valid; skip only questions the skill resolves. Any AskUserQuestion variant satisfies end-of-turn; use AskUserQuestion Format's tool resolution. If unavailable/failed: `headless` → BLOCKED; `interactive` → prose fallback (satisfies end-of-turn). At STOP, stop: no continuation or ExitPlanMode. Run "PLAN MODE EXCEPTION — ALWAYS RUN" commands only where the host permits. ExitPlanMode only after skill completion or if the user cancels the skill or tells you to leave plan mode.
 
-If `PROACTIVE` is `off`: suggest no skills unasked, nor ask. `core`: only /office-hours, /review, /qa, /ship. `all`: any. Skills the user names or this one invokes run.
+If `PROACTIVE` is `off`: suggest no skills unasked, nor ask. `core`: only /office-hours, /review, /qa, /gstack-ship. `all`: any. Skills the user names or this one invokes run.
 
 If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/gstack/[skill-name]/SKILL.md`.
 

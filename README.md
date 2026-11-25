@@ -15,7 +15,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 - **A whole team's judgment for one builder.** Product, design, engineering, QA, security and release reviews, each from a specialist role.
 - **A second look before you merge.** `/review` reads your diff for the kinds of bugs tests tend to miss, like race conditions, N+1 queries and broken trust boundaries.
-- **The evidence on every PR.** `/ship` puts the tests it ran, the review and their results on the pull request, so you can see what was checked before you merge.
+- **The evidence on every PR.** `/gstack-ship` puts the tests it ran, the review and their results on the pull request, so you can see what was checked before you merge.
 - **Free, open and portable.** MIT-licensed, and it runs on Claude Code and the other major coding agents.
 
 **What it doesn't do: make your agent fix more bugs.** In a November 2026 test on 100 everyday GitHub bugs and features, Claude Opus 5.5 fixed 58 with gstack installed and 61 of 99 without it (one task didn't score). So gstack gave no gain, and the test rules out a gain bigger than about 2 points on those tasks. On 60 security fixes, both fixed 29. Use gstack for the workflow, the reviews, the shipping steps and the safety guards, not for a higher fix rate. ([Results](https://github.com/garrytan/gstack-evals/blob/main/wiki/board/2026-11-19-geva-540-skill-pack-h2h-results/README.md), read with [its correction](https://github.com/garrytan/gstack-evals/blob/main/wiki/board/2026-11-20-geva-565-skill-pack-h2h-correction/README.md).)
@@ -27,7 +27,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 3. Run `/review` on any branch with changes. It reads the diff for bugs that tests tend to miss, fixes the obvious ones and asks you about the rest.
 4. Run `/qa` on your staging URL, or on an isolated local API, CLI, job or webhook. It opens a real browser, reproduces bugs and fixes them.
 
-Stop there. You'll know if this is for you. When you want the whole sprint, `/autoplan` reviews a plan end to end and `/ship` runs tests, review and the PR.
+Stop there. You'll know if this is for you. When you want the whole sprint, `/autoplan` reviews a plan end to end and `/gstack-ship` runs tests, review and the PR.
 
 ## Install — about 30 seconds
 
@@ -133,7 +133,7 @@ You:    /review
 You:    /qa https://staging.myapp.com
         [opens real browser, clicks through flows, finds and fixes a bug]
 
-You:    /ship
+You:    /gstack-ship
         Tests: 42 → 51 (+9 new). PR: github.com/you/app/pull/42
 ```
 
@@ -145,7 +145,7 @@ gstack is a process, not a collection of tools. The skills run in the order a sp
 
 **Think → Plan → Build → Review → Test → Ship → Reflect**
 
-Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-ceo-review` reads. `/plan-eng-review` writes a test plan that `/qa` picks up. `/review` records findings that `/ship` checks are resolved before the PR. Each step reads what the step before it wrote.
+Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-ceo-review` reads. `/plan-eng-review` writes a test plan that `/qa` picks up. `/review` records findings that `/gstack-ship` checks are resolved before the PR. Each step reads what the step before it wrote.
 
 | Skill | Your specialist | What they do |
 |-------|----------------|--------------|
@@ -159,7 +159,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/deslop-shared-libs` | **Shared Code Reviewer** | Find worthwhile shared-code extractions in recent work. Compares up to five opportunities and recommends the best three, with source evidence, reliability gains, and total code savings. Recommendations only. |
 | `/write-skill` | **Skill Editor** | Write a new agent skill or improve one without bloat. A five-step edit ladder (fix the tool first, add nothing the model already does, edit the line instead of appending, lowest level that reaches the agent, rule not story), `gstack-skill-bill` for size per level and growth since the last diet, a drift check that every gstack command and flag a skill names still exists, and full diets proven by a before/after/no-skill test. |
 | `/test-audit` | **Test Auditor** | Sweep existing tests for ones that cost more than they protect: source greps, duplicates, assertion-free probes, test-only exports. Every candidate carries an evidence card; report-only unless you approve a batch. |
-| `/build-check` | **Build Loop** | Run the repo's own checks (typecheck, lint, build) and the tests `/ship`'s pre-gate would pick for your change, fix what breaks, repeat until green, then hand off to `/ship`. Asks once before running repo commands; never calls a change green when no test covers it. |
+| `/build-check` | **Build Loop** | Run the repo's own checks (typecheck, lint, build) and the tests `/gstack-ship`'s pre-gate would pick for your change, fix what breaks, repeat until green, then hand off to `/gstack-ship`. Asks once before running repo commands; never calls a change green when no test covers it. |
 | `/design-review` | **Designer Who Codes** | Same audit as /plan-design-review, then fixes what it finds. Atomic commits, before/after screenshots. If you have impeccable installed, its engine runs first and every mechanical finding arrives tagged with its rule id. |
 | `/devex-review` | **DX Tester** | Live developer experience audit. Actually tests your onboarding: navigates docs, tries the getting started flow, times TTHW, triggers CLI errors the way an agent meets them (`gstack-error-capture`: no terminal, contained, redacted). Compares against `/plan-devex-review` scores — the boomerang that shows if your plan matched reality. |
 | `/design-shotgun` | **Design Explorer** | "Show me options." Generates 4-6 AI mockup variants, opens a comparison board in your browser, collects your feedback, and iterates. Taste memory learns what you like. Repeat until you love something, then hand it to `/design-html`. |
@@ -169,7 +169,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/qa-only` | **QA Reporter** | Explore and report with replayable evidence. Suggest regression cases without changing product code or tests. |
 | `/pair-agent` | **Multi-Agent Coordinator** | Share gstack's own browser with any AI agent. One command, one paste, connected. Works with OpenClaw, Hermes, Codex, Cursor, or anything that can curl. Each agent gets its own tab. Auto-launches headed mode so you watch everything. Auto-starts ngrok tunnel for remote agents. Scoped tokens, tab isolation, rate limiting, activity attribution. (Runs on the bundled browser — the fallback engine; agents driving Aside just open their own tabs.) |
 | `/cso` | **Chief Security Officer** | Security audit with an application model, supported findings, independent challenge, and explicit coverage. Static assessment remains available without catalog profiles. With matching qualified profiles, comprehensive mode adds contained runtime/scanner execution and reviewable repair candidates for Node/Bun, Python, and Rails. Qualified runtime and scanner images are published for linux/amd64 and linux/arm64. Without Docker, audits run static assessment only. Runtime-tested bundles authenticate separate external assertions. Project-test completion remains `self_reported` because target code controls the test process; `tested` is reserved for a future target-independent completion witness. |
-| `/ship` | **Release Engineer** | Sync main, run tests, explore changed behavior, audit coverage, gate integrity and docs, then verify, push and open a PR whose body opens with three plain lines ([how gstack writes PRs and commits](docs/writing-prs.md)). |
+| `/gstack-ship` | **Release Engineer** | Sync main, run tests, explore changed behavior, audit coverage, gate integrity and docs, then verify, push and open a PR whose body opens with three plain lines ([how gstack writes PRs and commits](docs/writing-prs.md)). |
 | `/land-and-deploy` | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | `/modernize` | **Stale-PR Maintainer** | Bring an aging PR onto its current base and say whether it should still exist: MODERNIZE (rebase, `git range-diff` proof, push with a lease pinned to the observed head), REWORK (the problem stands, the diff does not) or CLOSE (recommended, never done without permission). Reads the base's moved range for conflicts in meaning, not only in text. |
 | `/canary` | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures. |
@@ -184,7 +184,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/scrape` | **Data Extractor** | Pull structured data off a web page — tables, lists, prices — in your Aside browser with the page's real logged-in state. On the fallback browser, `/skillify` turns the flow into a permanent browser-skill that runs in ~200ms next time. |
 | `/setup-browser-cookies` | **Session Manager** | Copy selected cookies from Chrome, Chromium, Brave, Edge, Windows-only Opera and Opera GX, or macOS-only Comet and Arc into gstack's bundled browser. Choose your profile and domains; copying and sign-in verification are separate. Only needed on the fallback path — Aside already has your sessions. |
 | `/autoplan` | **Review Pipeline** | One command, reviewed plan. In an interactive session it runs CEO → design → DX → eng review from each skill's own method (eng always last, so the shipping gate reviews the final amended plan) with encoded decision principles, and surfaces only taste decisions for your approval. A run driven by `gstack-autoplan` (the Capy default) gives its reviewers short checklists instead of those methods: the lean run is one reviewer, `--full` one per phase ([what each run loads](docs/skills.md#what-each-run-loads)). |
-| `/spec` | **Spec Author** | Turn vague intent into a precise, executable spec in five phases (why, scope, technical with mandatory code-reading, draft, file). Outside-review quality gate before filing (Claude Code on Codex; Codex on other harnesses; blocks below 7/10), fail-closed secret redaction, dedupe against existing issues, archive to `$GSTACK_STATE_ROOT/projects/$SLUG/specs/` for team-corpus recall. `--execute` spawns `claude -p` in a fresh worktree; `/ship` auto-closes the source issue on merge. Plan-mode aware. |
+| `/spec` | **Spec Author** | Turn vague intent into a precise, executable spec in five phases (why, scope, technical with mandatory code-reading, draft, file). Outside-review quality gate before filing (Claude Code on Codex; Codex on other harnesses; blocks below 7/10), fail-closed secret redaction, dedupe against existing issues, archive to `$GSTACK_STATE_ROOT/projects/$SLUG/specs/` for team-corpus recall. `--execute` spawns `claude -p` in a fresh worktree; `/gstack-ship` auto-closes the source issue on merge. Plan-mode aware. |
 | `/learn` | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns, pitfalls, and preferences. Learnings compound across sessions so gstack gets smarter on your codebase over time. |
 | `/make-pdf` | **Publisher** | Markdown in, publication-quality document out. Mermaid and excalidraw fences render as vector diagrams, fully offline. Images scale to the page and never truncate; wide diagrams get their own landscape page. `--to html` emits one self-contained file, `--to docx` a Word doc. |
 | `/diagram` | **Diagram Maker** | English in, editable diagram out. Emits a triplet: mermaid source, `.excalidraw` you can open and edit on excalidraw.com (hand-drawn style), and rendered SVG/PNG. Zero network. Embed the source in markdown and `/make-pdf` renders it. |
@@ -237,7 +237,7 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 
 ## gstack on Capy
 
-On a [Capy](https://capy.ai) machine, `./setup` also loads gstack's crew tools: `/captain` to run many agent threads from one controller, a merge queue that lands verified pull requests, receipts that tie each merge to the head that was reviewed and tested, and spend caps for `/ship` and `/autoplan`. They live in [crew/](crew/README.md) and load only on Capy, so any other install is unchanged by them.
+On a [Capy](https://capy.ai) machine, `./setup` also loads gstack's crew tools: `/captain` to run many agent threads from one controller, a merge queue that lands verified pull requests, receipts that tie each merge to the head that was reviewed and tested, and spend caps for `/gstack-ship` and `/autoplan`. They live in [crew/](crew/README.md) and load only on Capy, so any other install is unchanged by them.
 
 ## Platform notes
 

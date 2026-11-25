@@ -22,6 +22,8 @@ export async function stopQaOnlyBrowser(directory: string, timeoutMs: number): P
   } finally { clearTimeout(timer); }
 }
 
+const TERMINAL_PUBLISHED = Symbol('terminal published during identification');
+
 async function settleOwnedBrowser(directory: string, deadlineEpochMs: number): Promise<void> {
   const started = performance.now();
   const timeoutMs = deadlineEpochMs - Date.now();
@@ -53,30 +55,50 @@ async function settleOwnedBrowser(directory: string, deadlineEpochMs: number): P
     || typeof state.instanceId !== 'string' || !state.instanceId) fail('invalid daemon identity');
   const agentRaw = fs.existsSync(agentFile) ? fs.readFileSync(agentFile, 'utf8') : undefined;
   const agent = readAgentRecord(stateDir);
+  if (agent?.pid === 0) {
+    // spawnTerminalAgent holds a pid-0 reservation for the instant between spawn and its real record.
+    await Bun.sleep(Math.min(25, remaining()));
+    throw TERMINAL_PUBLISHED;
+  }
+  const processCwd = (pid: number): string => {
+    if (process.platform === 'linux') {
+      try { return fs.realpathSync(`/proc/${pid}/cwd`); } catch { return ''; }
+    }
+    const result = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], {
+      encoding: 'utf8', timeout: Math.min(1000, remaining()),
+    });
+    return result.error || result.status !== 0 ? '' : result.stdout.split('\n').find(line => line.startsWith('n'))?.slice(1) ?? '';
+  };
   if (!agentRaw || !agent) {
-    // Qa-only-no-fix (census 41962523474) failed here once with nothing else to go on; name what was there instead.
-    const log = path.join(stateDir, 'browse-daemon.log');
-    const agentLines = fs.existsSync(log) && fs.lstatSync(log).isFile()
-      ? fs.readFileSync(log, 'utf8').split('\n').filter(line => /terminal-agent/i.test(line)).slice(-3).map(line => line.slice(0, 160)) : [];
-    fail(`terminal identity is unavailable (record ${agentRaw === undefined ? 'absent' : `unparsed, ${agentRaw.length} bytes`}; `
-      + `terminal-port ${fs.existsSync(path.join(stateDir, 'terminal-port')) ? 'present' : 'absent'}; daemon ${state.pid} `
-      + `${isProcessAlive(state.pid) ? 'alive' : 'exited'}, state written ${Math.round((Date.now() - fs.statSync(stateFile).mtimeMs) / 1000)}s ago; `
-      + `daemon log terminal-agent lines: ${agentLines.length ? agentLines.join(' | ') : 'none'})`);
+    // A headless daemon starts its terminal agent only on its first watchdog tick (60 s by default), so a record that
+    // was never written is not a lost agent. Settle without one only when no agent of this fixture is running.
+    const matches = spawnSync('pgrep', ['-f', '--', '--agent-gen='], { encoding: 'utf8', timeout: Math.min(1000, remaining()) });
+    if (matches.error || ![0, 1].includes(matches.status ?? -1)) fail('terminal agent identities are unavailable');
+    const fixtureAgents = matches.stdout.split('\n').map(Number).filter(pid => {
+      if (!Number.isSafeInteger(pid) || pid <= 1 || !/terminal-agent/.test(readPidCmdline(pid))) return false;
+      const cwd = processCwd(pid);
+      if (!cwd && isProcessAlive(pid)) fail(`terminal agent ${pid} has no readable working directory`);
+      return cwd === root;
+    });
+    const port = fs.existsSync(path.join(stateDir, 'terminal-port'));
+    if (agentRaw !== undefined || port || fixtureAgents.length) {
+      // Qa-only-no-fix (census 41962523474) failed here once with nothing else to go on; name what was there instead.
+      const log = path.join(stateDir, 'browse-daemon.log');
+      const agentLines = fs.existsSync(log) && fs.lstatSync(log).isFile()
+        ? fs.readFileSync(log, 'utf8').split('\n').filter(line => /terminal-agent/i.test(line)).slice(-3).map(line => line.slice(0, 160)) : [];
+      fail(`terminal identity is unavailable (record ${agentRaw === undefined ? 'absent' : `unparsed, ${agentRaw.length} bytes`}; `
+        + `terminal-port ${port ? 'present' : 'absent'}; running fixture agents: ${fixtureAgents.length ? fixtureAgents.join(', ') : 'none'}; `
+        + `daemon ${state.pid} ${isProcessAlive(state.pid) ? 'alive' : 'exited'}, state written ${Math.round((Date.now() - fs.statSync(stateFile).mtimeMs) / 1000)}s ago; `
+        + `daemon log terminal-agent lines: ${agentLines.length ? agentLines.join(' | ') : 'none'})`);
+    }
   }
   if (!isProcessAlive(state.pid)) fail('daemon exited before its owned processes could be identified');
   const daemonStart = readPidStartTime(state.pid);
   const command = readPidCmdline(state.pid);
   if (!daemonStart || !(typeof state.serverPath === 'string' && command.includes(state.serverPath)
     || command.includes('--server') && /browse/.test(command))) fail('daemon identity is unavailable');
-  let cwd: string;
-  if (process.platform === 'linux') cwd = fs.realpathSync(`/proc/${state.pid}/cwd`);
-  else {
-    const result = spawnSync('lsof', ['-a', '-p', String(state.pid), '-d', 'cwd', '-Fn'], {
-      encoding: 'utf8', timeout: Math.min(1000, remaining()),
-    });
-    if (result.error || result.status !== 0) fail('daemon working directory is unavailable');
-    cwd = result.stdout.split('\n').find(line => line.startsWith('n'))?.slice(1) ?? '';
-  }
+  const cwd = processCwd(state.pid);
+  if (!cwd) fail('daemon working directory is unavailable');
   if (cwd !== root) fail('daemon belongs to another fixture');
   if (agent && (agent.ownerPid !== state.pid || agent.ownerStartTime !== daemonStart
     || !isAgentRecordGone(agent) && !isOurAgent(agent, state.pid))) fail('terminal ownership is unconfirmed');
@@ -103,12 +125,17 @@ async function settleOwnedBrowser(directory: string, deadlineEpochMs: number): P
     const state = current(stateFile);
     if (state !== undefined && state !== raw) fail('daemon state was replaced');
     const terminal = current(agentFile);
-    if (terminal !== undefined && terminal !== agentRaw) fail('terminal state was replaced');
+    if (terminal === undefined || terminal === agentRaw) return;
+    // The first watchdog tick can publish the terminal while the daemon is still unsignalled: identify it from the top.
+    if (agentRaw === undefined && !signalled) throw TERMINAL_PUBLISHED;
+    fail('terminal state was replaced');
   };
+  let signalled = false;
   unchanged();
   if (readPidStartTime(state.pid) !== daemonStart || readPidCmdline(state.pid) !== command) fail('daemon identity changed before stop');
   unchanged();
   remaining();
+  signalled = true;
   try { process.kill(state.pid, 'SIGINT'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
   const settled = (pid: number, start: string) => {
@@ -149,8 +176,12 @@ async function settleOwnedBrowser(directory: string, deadlineEpochMs: number): P
 }
 
 if (import.meta.main) {
-  try { await settleOwnedBrowser(process.argv[2], Number(process.argv[3])); }
-  catch (error) {
+  try {
+    for (;;) {
+      try { await settleOwnedBrowser(process.argv[2], Number(process.argv[3])); break; }
+      catch (error) { if (error !== TERMINAL_PUBLISHED) throw error; }
+    }
+  } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }

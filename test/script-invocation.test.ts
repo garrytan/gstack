@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { bunIsolationArgs } from '../lib/bun-isolation';
+import { classifyEnvironment } from '../lib/pregate/environment';
 import {
   bashCommandInvocation, resolveWindowsBash, resolveWindowsBashCached, runBashSync, runScriptSync, scriptInvocation, wtreeFingerprint,
   type BashProbe,
@@ -92,6 +93,19 @@ describe('scriptInvocation', () => {
     expect(bashCommandInvocation('echo hi', win)).toEqual({ ok: true, cmd: WIN_GIT_BASH, argv: ['-c', 'echo hi'] });
     expect(bashCommandInvocation('echo hi', { platform: 'linux' })).toEqual({ ok: true, cmd: 'bash', argv: ['-c', 'echo hi'] });
     expect(bashCommandInvocation('echo hi', noBash).ok).toBe(false);
+  });
+
+  test('a bash -c command over the 8,186 characters Git Bash keeps is refused on Windows, never run cut off (#4773)', () => {
+    const fits = `echo ${'x'.repeat(8186 - 5)}`;
+    expect(bashCommandInvocation(fits, win)).toEqual({ ok: true, cmd: WIN_GIT_BASH, argv: ['-c', fits] });
+    const long = `${fits}y`;
+    const inv = bashCommandInvocation(long, win);
+    expect(inv.ok).toBe(false);
+    if (inv.ok) return;
+    expect(inv.error).toContain('8,187 characters');
+    expect(inv.error).toContain('8,186');
+    expect(classifyEnvironment(inv.error, null)?.kind).toBe('arg-limit');
+    expect(bashCommandInvocation(long, { platform: 'linux' })).toEqual({ ok: true, cmd: 'bash', argv: ['-c', long] });
   });
 
   test('runScriptSync and runBashSync return a spawnSync-shaped failure the callers already handle', () => {

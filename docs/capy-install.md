@@ -157,7 +157,7 @@ there is refused with the usual `--for <skill>` fix.
    workflow lease of the
    current run or a live eval run (gstack-detach's
    `~/.gstack/locks/gstack-evals.lock`, probed with `flock`, else python3 or
-   perl) defers every self-upgrade (`UPGRADE_BUSY`). So does a /ship or review
+   perl) defers every self-upgrade (`UPGRADE_BUSY`). So does a /gstack-ship or review
    run open on the state root, whatever the lease's age (GST-1677): a
    ship-budget ledger (`<state root>/ship-runs/<run>/budget.json`) with no
    `closed_at` that was written in the last 6 hours, or a review start
@@ -226,11 +226,11 @@ self-upgrade, refuses with [UPGRADE_BUSY](troubleshooting.md#upgrade-busy)
 while a lease held by a live process outside its own chain exists, naming each
 holder as `pid <p> (<age>m <command>)`. The install-mode self-upgrade also
 defers while its own chain holds a live lease under 120 minutes old. An install
-run from inside a workflow (/ship's docs step running `install.sh --for
+run from inside a workflow (/gstack-ship's docs step running `install.sh --for
 document-release`, #3571) prints `SELF_UPGRADE: skipped (a gstack run in this
 session holds a workflow lease on this installation: ... (UPGRADE_BUSY))`,
 leaves the checkout where the run started and stays ok with `behind=`. Each
-`gstack-skill-start` renews the lease and records its `SESSION_ID` as an open run; `gstack-skill-end` closes that run, and a lease whose runs are all closed is idle and blocks nothing, so a finished /ship no longer holds the upgrade back (GST-1205). Each run counts for 120 minutes from its own start, whatever other sessions renew. A lease with no recorded run (written without `--run`, or by an older gstack) counts as before. On Capy the leased pid is the machine's
+`gstack-skill-start` renews the lease and records its `SESSION_ID` as an open run; `gstack-skill-end` closes that run, and a lease whose runs are all closed is idle and blocks nothing, so a finished /gstack-ship no longer holds the upgrade back (GST-1205). Each run counts for 120 minutes from its own start, whatever other sessions renew. A lease with no recorded run (written without `--run`, or by an older gstack) counts as before. On Capy the leased pid is the machine's
 long-lived `capy-server`, so the deferral ends when the lease turns 120
 minutes old, not when the process exits. Every session on the machine runs
 under that same `capy-server`, so `bin/gstack-upgrade` run by hand also
@@ -279,7 +279,7 @@ holds the lock, or it cannot be taken at all, `touch` exits 3 without writing
 keeps the lease. `bin/gstack-lease list` shows `alive|idle|dead|stale`, and
 `GSTACK_UPGRADE_FORCE=1` overrides. `bin/gstack-lease open --run <id> [--pid <p> | --from <pid>]`
 answers for one run (exit 0 while it is open on a live holder);
-`gstack-ship-preflight` opens /ship runs on the project checkout's own lease and
+`gstack-ship-preflight` opens /gstack-ship runs on the project checkout's own lease and
 uses it to refuse a base merge under an open run
 ([troubleshooting](troubleshooting.md#ship-preflight-run-open)).
 
@@ -355,7 +355,7 @@ uses it to refuse a base merge under an open run
    whatever node the launch PATH gives, and a Node mismatch names the node it
    read and the installer command that fixes it.
 3. `./setup --host claude --no-prefix`, then `./setup --host codex --model
-   gpt-6-astra`, both with `--no-browser`. Skipped when this exact HEAD was set
+   gpt-6.2-astra`, both with `--no-browser`. Skipped when this exact HEAD was set
    up with the same hosts, model and browser flag (recorded in the git dir
    after a successful setup) and `gstack-doctor --check` passes; a warm rerun
    takes about a second. Each setup ends with its own `gstack ready (<host>)`;
@@ -374,7 +374,7 @@ uses it to refuse a base merge under an open run
    project pins one (`node_path`, `node_version`, `node_rule`), the trailer, the remote
    minimum, the launch PATH and the time. An ok run (install or `--check`) at
    the same checkout, project, HEAD and Bun as an earlier ok verdict keeps what
-   that verdict certified, so one machine stays admitted for /ship and its
+   that verdict certified, so one machine stays admitted for /gstack-ship and its
    `--for document-release` docs step (#3561): `required` becomes the union,
    pins count as planning-only only when both runs skipped them, and the
    verdict's `for` lists every workflow, comma-separated (`for=ship,document-release`;
@@ -386,8 +386,8 @@ uses it to refuse a base merge under an open run
    `<verdict>.for/<workflow>.json`, with only this run's result. When the shared
    verdict does not admit a workflow, admission and the pregate try the
    workflow's own record with the same checks, so a later install for another
-   workflow on a shared machine (a /ship docs child resolving another Bun, or a
-   failed child install) never drops /ship's admission (GST-1233). A new HEAD
+   workflow on a shared machine (a /gstack-ship docs child resolving another Bun, or a
+   failed child install) never drops /gstack-ship's admission (GST-1233). A new HEAD
    still invalidates both, and a failed `./setup` (`gstack: fail setup`)
    invalidates every workflow's record. `--check --for <workflow>` keeps the
    Bun that workflow's own record holds. The launch file and launch directory
@@ -529,7 +529,7 @@ GSTACK_LAUNCH_FILE: <verdict file without .json>.env
 0600, beside the verdict under the state root; the PATH prepend is idempotent).
 The file also appends the checkout's `bin/` directory to PATH, after everything
 already there and only once, so a shell that sourced only this file runs a bare
-`gstack-ship-budget` (GSTA-167: a /ship child got `command not found`, exit 127).
+`gstack-ship-budget` (GSTA-167: a /gstack-ship child got `command not found`, exit 127).
 Then it appends `crew/bin/` the same way, so the crew commands that live there
 (`gstack-release-gate`, `gstack-coauthor-trailers`; see crew/README.md) keep
 their bare names on Capy. Nothing outside this launch file puts `crew/bin/` on
@@ -557,7 +557,7 @@ verdict and its own launch file do not change, and any failure prints
 `. <that file>` at the start of a shell applies them without ever printing them,
 which is the only way to hand them to a child agent: pass the path, never the
 values. None of the assignments is a secret, but during GSTA-96's unattended
-/ship a docs-audit child re-typed them as `export $(...)`; the substitution came
+/gstack-ship a docs-audit child re-typed them as `export $(...)`; the substitution came
 back empty, the bare `export` printed the whole environment, and three API key
 values landed in its tool output. Never `export $(...)`, `env`, `printenv`, a
 bare `set` or a bare `export` in a tool fence (`test/launch-env-echo-ratchet.test.ts`
@@ -634,7 +634,7 @@ prints `CAPY: on` and a `capy-asks` block: decisions go through Capy (a crew
 thread asks its Captain, otherwise the person), plan approvals are rendered
 with `gstack-owner-brief render --captain`, answers are recorded with
 `gstack-approvals` (mirrored to the Captain's drive `approvals/` directory when the
-Captain created one, so the crew can read every lane's record), and /ship's PR body opens
+Captain created one, so the crew can read every lane's record), and /gstack-ship's PR body opens
 with before/after images (`gstack-pr-shots`), Why, Blast radius and Approvals. Every autoplan gate
 prints its cost (`GATE_SPEND:`, `GATE_REC_COST:`; `autoplan/DRIVER.md` says how to relay
 them). The guide is

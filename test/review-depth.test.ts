@@ -161,7 +161,7 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
     expect(table).toContain('| the stop after a fix-check (granted before GST-3562) that was the run\'s only one, with the owner\'s recorded grant (`--grant <approval id>`) | one more scoped fix-check, after Step 11 on gate class, until a later release removes it; a grant after a round-2 full pass buys nothing, because the read-only full review replaces it |');
     const rule3 = doc.slice(doc.indexOf('3. **Two rounds is the cap**'), doc.indexOf('<a id="transitions"></a>')).replace(/\s+/g, ' ');
     expect(rule3).toContain("The cap limits fix rounds, not Step 11's voices");
-    expect(rule3).toContain('/ship plans no fix-check (GST-3562 A)');
+    expect(rule3).toContain('/gstack-ship plans no fix-check (GST-3562 A)');
     expect(rule3).toContain('Owner grants of a fix-check');
     expect(rule3).toContain('are deprecated');
   });

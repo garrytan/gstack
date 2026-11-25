@@ -124,8 +124,9 @@ gstack-approvals import --autoplan <run dir> --by <name>
 
 A later gate that asks nothing new is answered for you with the words you recorded (`CARRIED:`, then `APPROVED:`);
 the brief says "Nothing pending. Carried forward", so import and build without a second ask. `CARRY_CHECK:` means
-one reviewer from another model family reads the unreviewed delta first (`gstack-autoplan check`). Anything
-else prints `CARRY: no (<why>)` and goes to the person as today (`docs/unattended.md#carry-forward`).
+one reviewer from another model family reads the unreviewed delta first (`gstack-autoplan check`). `UNREVIEWED:`
+means a revise at the round cap only took recommendations the person approved, so the run finished with no gate;
+rule on that note with `gstack-autoplan rule` when you accept it. Anything else prints `CARRY: no (<why>)` and goes to the person as today (`docs/unattended.md#carry-forward`).
 
 If the person answers in words ("split it into two PRs"), map the words to tokens, answer, and confirm in one
 line what you recorded ("Recorded: split into two PRs; everything else as recommended"). A named option ("B2")
@@ -156,10 +157,10 @@ Every PR you send READY on, and the READY report itself, has:
 4. **Approvals.** `gstack-approvals render`.
 5. **Evidence.** Checks green at the head, gate or train results, flaky cases, and an `Unverified:` line:
    each claim you did not check yourself and why, or `none`; `Failed or skipped:` and `Also changed:` lines too.
-   A controller asks for a missing one of the three, never refuses it. You write this item; /ship does not.
+   A controller asks for a missing one of the three, never refuses it. You write this item; /gstack-ship does not.
 
 The READY report attaches the key image (Capy message attachment), so the Captain can show it inline.
-/ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
+/gstack-ship does items 1-4 when `GSTACK_CAPY=1` (its `capy-pr` section). Outside Capy, the PR body is unchanged.
 
 **Who watches CI.** You own your PR's checks and review until READY: hold its watch yourself and fix what
 turns red (one rerun for a flake), so a check never wakes your Captain. A Captain whose PRs bring many check,
@@ -168,9 +169,9 @@ every wake more than about five minutes after its last call rewrites its whole c
 warm price. The merge lane reports to the Captain only a landing, a decision or a blocker
 (`crew/docs/captain.md` in the gstack checkout, Roles).
 
-A token cap in a brief goes to /ship as `--token-cap <n>`. Run /ship in your own thread, never in a subagent, and
+A token cap in a brief goes to /gstack-ship as `--token-cap <n>`. Run /gstack-ship in your own thread, never in a subagent, and
 take every reading (start, notes, close) from your own jam id's `tools.thread.get`, which counts its reviewers
-too; a rerun at the same head is a new /ship run with a new run id. When /ship stops on the cap (`STOP:
+too; a rerun at the same head is a new /gstack-ship run with a new run id. When /gstack-ship stops on the cap (`STOP:
 reason=budget_exhausted`, `status=incomplete`), the lane reports the BUDGET and RECOVER lines and asks the
 owner; it never raises the cap itself. The owner's answer runs the RECOVER line with
 `--approved-by <who> --words "<their words>"`, and `gstack-approvals add` records the same words.

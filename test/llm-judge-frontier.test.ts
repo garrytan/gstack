@@ -27,19 +27,19 @@ describe('frontier Claude judge compatibility', () => {
       { type: 'thinking', thinking: '', signature: 'fixture' },
       { type: 'text', text: '{"score":4}' },
     ] } as never);
-    expect(await callJudge('score this', 'claude-fable-5-1')).toEqual({ score: 4 });
+    expect(await callJudge('score this', 'claude-fable-5-2')).toEqual({ score: 4 });
     expect(create.mock.calls[0][0].max_tokens).toBe(8192);
     expect(diagnostics).not.toHaveBeenCalled();
   });
 
   test('an explicit provider refusal retains typed public evidence without parsing a score or retrying', async () => {
-    create.mockResolvedValue({ id: 'msg_synthetic', _request_id: 'req_synthetic', model: 'claude-fable-5-1',
+    create.mockResolvedValue({ id: 'msg_synthetic', _request_id: 'req_synthetic', model: 'claude-fable-5-2',
       stop_reason: 'refusal', content: [], usage: { input_tokens: 3886, output_tokens: 0 } } as never);
     let failure: unknown;
-    try { await callJudge('Synthetic test prompt', 'claude-fable-5-1'); } catch (error) { failure = error; }
+    try { await callJudge('Synthetic test prompt', 'claude-fable-5-2'); } catch (error) { failure = error; }
     expect(failure).toBeInstanceOf(JudgeRefusalError);
     expect((failure as JudgeRefusalError).refusal).toEqual({ stop_reason: 'refusal', response_id: 'msg_synthetic',
-      request_id: 'req_synthetic', model: 'claude-fable-5-1', input_tokens: 3886, output_tokens: 0, text_blocks: 0 });
+      request_id: 'req_synthetic', model: 'claude-fable-5-2', input_tokens: 3886, output_tokens: 0, text_blocks: 0 });
     expect(create).toHaveBeenCalledTimes(1);
     expect(JSON.parse(diagnostics.mock.calls[0][0]).stopReason).toBe('refusal');
   });
@@ -105,7 +105,7 @@ describe('frontier Claude judge compatibility', () => {
       stop_reason: 'max_tokens',
       content: [{ type: 'text', text: '{"score":4}' }],
     } as never);
-    await expect(callJudge('score this', 'claude-fable-5-1', { max_tokens: 1024 }))
+    await expect(callJudge('score this', 'claude-fable-5-2', { max_tokens: 1024 }))
       .rejects.toThrow('Judge response truncated at max_tokens=1024');
     expect(diagnostics).toHaveBeenCalledTimes(1);
     expect(JSON.parse(diagnostics.mock.calls[0][0])).toMatchObject({ stopReason: 'max_tokens', textBlocks: ['{"score":4}'] });
@@ -114,7 +114,7 @@ describe('frontier Claude judge compatibility', () => {
   test('retains public truncation evidence without accepting a score or exposing private blocks', async () => {
     const text = '{"clarity":4,"completeness":4,"actionability":4,"reasoning":"Partial response"}';
     create.mockResolvedValue({
-      id: 'msg_truncated', _request_id: 'req_truncated', model: 'claude-fable-5-1', stop_reason: 'max_tokens',
+      id: 'msg_truncated', _request_id: 'req_truncated', model: 'claude-fable-5-2', stop_reason: 'max_tokens',
       content: [
         { type: 'thinking', thinking: 'PRIVATE_THINKING', signature: 'PRIVATE_SIGNATURE' },
         { type: 'text', text },
@@ -122,16 +122,16 @@ describe('frontier Claude judge compatibility', () => {
       ],
       usage: { input_tokens: 1000, output_tokens: 8192, thinking: 'PRIVATE_USAGE' },
     } as never);
-    await expect(callJudge('score the complete workflow', 'claude-fable-5-1'))
+    await expect(callJudge('score the complete workflow', 'claude-fable-5-2'))
       .rejects.toThrow('Judge response truncated at max_tokens=8192');
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0][0].max_tokens).toBe(8192);
     expect(diagnostics).toHaveBeenCalledTimes(1);
     expect(JSON.parse(diagnostics.mock.calls[0][0])).toEqual({
       type: 'llm-judge-response-parse-error', responseId: 'msg_truncated', requestId: 'req_truncated',
-      model: 'claude-fable-5-1', stopReason: 'max_tokens',
+      model: 'claude-fable-5-2', stopReason: 'max_tokens',
       usage: { input_tokens: 1000, output_tokens: 8192, cache_creation_input_tokens: null, cache_read_input_tokens: null },
-      textBlocks: [text], error: { name: 'Error', message: 'Judge response truncated at max_tokens=8192 (model=claude-fable-5-1)' },
+      textBlocks: [text], error: { name: 'Error', message: 'Judge response truncated at max_tokens=8192 (model=claude-fable-5-2)' },
     });
     expect(diagnostics.mock.calls[0][0]).not.toContain('PRIVATE_');
   });
@@ -144,7 +144,7 @@ describe('frontier Claude judge compatibility', () => {
 
   test('rejects responses without JSON text', async () => {
     create.mockResolvedValue({ content: [{ type: 'thinking', thinking: '', signature: 'fixture' }] } as never);
-    await expect(callJudge('score this', 'claude-fable-5-1')).rejects.toThrow('Judge returned non-JSON');
+    await expect(callJudge('score this', 'claude-fable-5-2')).rejects.toThrow('Judge returned non-JSON');
   });
 
   test('structured JSON is opt-in and preserves request options and quoted values', async () => {
@@ -156,11 +156,11 @@ describe('frontier Claude judge compatibility', () => {
       { type: 'thinking', thinking: 'PRIVATE_THINKING', signature: 'PRIVATE_SIGNATURE' },
       { type: 'text', text: '  ' + JSON.stringify(answer) + '\n' },
     ] } as never);
-    expect(await callJudge('classify the supplied evidence', 'claude-fable-5-1', {
+    expect(await callJudge('classify the supplied evidence', 'claude-fable-5-2', {
       signal: controller.signal, max_tokens: 16_384, jsonSchema,
     })).toEqual(answer);
     expect(create.mock.calls).toEqual([[{
-      model: 'claude-fable-5-1', max_tokens: 16_384,
+      model: 'claude-fable-5-2', max_tokens: 16_384,
       output_config: { format: { type: 'json_schema', schema: jsonSchema } },
       messages: [{ role: 'user', content: 'classify the supplied evidence' }],
     }, { signal: controller.signal }]]);
@@ -172,13 +172,13 @@ describe('frontier Claude judge compatibility', () => {
     for (const text of ['Summary: {"score":4}', '```json\n{"score":4}\n```', '{"score":4} trailing prose', '{"score":']) {
       create.mockClear(); diagnostics.mockClear();
       create.mockResolvedValue({ stop_reason: 'end_turn', content: [{ type: 'text', text }] } as never);
-      await expect(callJudge('score this', 'claude-fable-5-1', { jsonSchema })).rejects.toBeInstanceOf(SyntaxError);
+      await expect(callJudge('score this', 'claude-fable-5-2', { jsonSchema })).rejects.toBeInstanceOf(SyntaxError);
       expect(create).toHaveBeenCalledTimes(1);
       expect(JSON.parse(diagnostics.mock.calls[0][0]).textBlocks).toEqual([text]);
     }
     create.mockClear(); diagnostics.mockClear();
     create.mockResolvedValue({ content: [{ type: 'text', text: 'Summary: {"score":4} done.' }] } as never);
-    expect(await callJudge('score this', 'claude-fable-5-1')).toEqual({ score: 4 });
+    expect(await callJudge('score this', 'claude-fable-5-2')).toEqual({ score: 4 });
     expect(create.mock.calls[0][0]).not.toHaveProperty('output_config');
     expect(diagnostics).not.toHaveBeenCalled();
   });
@@ -188,7 +188,7 @@ describe('frontier Claude judge compatibility', () => {
     for (const stop_reason of ['refusal', 'max_tokens', 'stop_sequence', 'tool_use', null]) {
       create.mockClear(); diagnostics.mockClear();
       create.mockResolvedValue({ stop_reason, content: [{ type: 'text', text: '{"score":4}' }] } as never);
-      await expect(callJudge('score this', 'claude-fable-5-1', { max_tokens: 16_384, jsonSchema }))
+      await expect(callJudge('score this', 'claude-fable-5-2', { max_tokens: 16_384, jsonSchema }))
         .rejects.toThrow(stop_reason === 'max_tokens' ? 'truncated at max_tokens=16384'
           : stop_reason === 'refusal' ? 'Judge provider refused the evaluation; no automated score' : 'Structured judge did not complete');
       expect(create).toHaveBeenCalledTimes(1);

@@ -273,7 +273,7 @@ function repair(ctx: QueueContext, policy: ShipPolicy, j: LandJournal | null, fi
   const root = ctx.repoRoot;
   if (!j || j.phase !== 'drift' || !j.drift_main || !j.base_sha) return fail([], { code: 'QUEUE_NOT_READY', message: `#${j?.pr ?? '?'} has no drift record; --repair runs only after QUEUE_LAND_DRIFT` }, run);
   const lines = [`REPAIR: #${j.pr} landed on ${j.drift_main.slice(0, 12)} beside a merge outside land`];
-  if (j.repair_pr) return { ok: true, run, lines: [...lines, `REPAIR_PR: #${j.repair_pr} (already open)`, `NEXT: run /ship on #${j.repair_pr}, then gstack-ship-queue land --pr ${j.repair_pr}`] };
+  if (j.repair_pr) return { ok: true, run, lines: [...lines, `REPAIR_PR: #${j.repair_pr} (already open)`, `NEXT: run /gstack-ship on #${j.repair_pr}, then gstack-ship-queue land --pr ${j.repair_pr}`] };
   const dir = policy.changelog_fragments?.dir?.replace(/\/+$/, '');
   if (!dir) return fail(lines, { code: 'QUEUE_NOT_READY', message: 'changelog_fragments is off: write the [Unreleased] entry for the outside merge by hand and land it' }, run);
   git(root, ['fetch', '-q', 'origin', ctx.base]);
@@ -312,7 +312,7 @@ function repair(ctx: QueueContext, policy: ShipPolicy, j: LandJournal | null, fi
     j.repair_pr = n; writeJsonAtomic(file, j);
     const held = readLock(root);
     if (held.state === 'held' && !held.lock.train && held.lock.pr === j.pr && held.lock.phase === 'drift') writeLock(root, held.sha, { ...held.lock, repair_pr: n });
-    return { ok: true, run, lines: [...lines, `REPAIR_PR: #${n} ${branch} ${pushed}`, `NEXT: run /ship on #${n}, then gstack-ship-queue land --pr ${n} (it takes over #${j.pr}'s drift lock and releases it)`] };
+    return { ok: true, run, lines: [...lines, `REPAIR_PR: #${n} ${branch} ${pushed}`, `NEXT: run /gstack-ship on #${n}, then gstack-ship-queue land --pr ${n} (it takes over #${j.pr}'s drift lock and releases it)`] };
   } finally {
     git(root, ['worktree', 'remove', '--force', wt]);
     fs.rmSync(wt, { recursive: true, force: true });
@@ -347,7 +347,7 @@ export function land(ctx: QueueContext, o: LandOptions): StepOutput {
   if (!git(root, ['fetch', '-q', 'origin', ctx.base]).ok) return fail(lines, { code: 'QUEUE_BASE_UNFETCHED', message: `cannot fetch origin/${ctx.base}; land checks the receipt against the current base, never a ref it did not refresh`, fix: `fix the fetch (git fetch origin ${ctx.base}), then rerun land` }, run);
   const receipt = bindShippedReceipt(root, `origin/${ctx.base}`, info.body ?? '', o.pr, [pin], mergedResume);
   lines.push(receipt.line, ...(receipt.depthLine ? [receipt.depthLine] : []), ...(receipt.targetedLine ? [receipt.targetedLine] : []));
-  if (!receipt.ok) return fail(lines, { code: receipt.code, message: receipt.message, fix: 'run /ship at the pinned head first' }, run);
+  if (!receipt.ok) return fail(lines, { code: receipt.code, message: receipt.message, fix: 'run /gstack-ship at the pinned head first' }, run);
   if (!policy.changelog_fragments) return fail(lines, { code: 'QUEUE_NOT_READY', message: 'the base policy has changelog_fragments off; land merges only under the key, where ready records the READY receipt it checks' }, run);
   const keys = repoIdentity(root).keys;
   if (!loadReady(keys, o.pr, pin)) rebuildFromNotes(root, ctx.remote ?? 'origin');

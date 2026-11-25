@@ -295,8 +295,12 @@ describe('Office Hours real session runner with fake processes', () => {
         expect(captured.output).toBe('captured output');
         expect(captured.costEstimate.estimatedCost).toBe(0.12);
         expect(captured.duration).toBeLessThan(5_000);
+        // The runner waits for the provider's exit; the group SIGKILL reaches the backgrounded child at the same time,
+        // but nothing orders its teardown before that exit, so a loaded runner can still list it for a moment.
         for (const file of ['parent.pid', 'child.pid']) {
-          expect(running(Number(fs.readFileSync(path.join(dir, file), 'utf8')))).toBe(false);
+          const pid = Number(fs.readFileSync(path.join(dir, file), 'utf8'));
+          for (const until = performance.now() + 2_000; running(pid) && performance.now() < until;) await Bun.sleep(20);
+          expect(running(pid)).toBe(false);
         }
       } finally { clearTimeout(timer); }
     });

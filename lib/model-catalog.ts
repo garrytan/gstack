@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { newestModel } from './model-families';
 
 export type ModelProvider = 'anthropic' | 'openai';
 export type ModelTier = 'frontier' | 'smart';
@@ -22,10 +23,10 @@ const ANTHROPIC_SOURCE = 'https://platform.claude.com/docs/en/models/overview';
 const OPENAI_SOURCE = 'https://developers.openai.com/api/docs/models';
 
 export const MODEL_CATALOG: readonly ModelCatalogEntry[] = Object.freeze([
-  { provider: 'anthropic', tier: 'frontier', model: 'claude-fable-5-1', sourceUrl: ANTHROPIC_SOURCE, verifiedAt: '2026-10-07' },
-  { provider: 'openai', tier: 'frontier', model: 'gpt-6-astra', sourceUrl: OPENAI_SOURCE, verifiedAt: '2026-10-07' },
-  { provider: 'anthropic', tier: 'smart', model: 'claude-opus-5-5', sourceUrl: ANTHROPIC_SOURCE, verifiedAt: '2026-10-07' },
-  { provider: 'openai', tier: 'smart', model: 'gpt-6.1-sol', sourceUrl: OPENAI_SOURCE, verifiedAt: '2026-10-07' },
+  { provider: 'anthropic', tier: 'frontier', model: newestModel('fable'), sourceUrl: ANTHROPIC_SOURCE, verifiedAt: '2026-11-24' },
+  { provider: 'openai', tier: 'frontier', model: newestModel('astra'), sourceUrl: OPENAI_SOURCE, verifiedAt: '2026-11-24' },
+  { provider: 'anthropic', tier: 'smart', model: newestModel('opus'), sourceUrl: ANTHROPIC_SOURCE, verifiedAt: '2026-11-24' },
+  { provider: 'openai', tier: 'smart', model: newestModel('sol'), sourceUrl: OPENAI_SOURCE, verifiedAt: '2026-11-24' },
 ].map(entry => Object.freeze(entry as ModelCatalogEntry)));
 
 export function catalogEntry(provider: ModelProvider, tier: ModelTier): ModelCatalogEntry {

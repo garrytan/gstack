@@ -28,6 +28,14 @@ export const RETIRED_SKILLS = ['investigate', 'verify'];
 export const RENAMED_SKILLS: Readonly<Record<string, string>> = { verify: 'build-check' };
 
 /**
+ * Skills that install as gstack-<folder> in both prefix modes, because a host
+ * keeps the plain name for a built-in: Claude Code's own /ship hides a user
+ * skill named ship (#4775). The folder and the internal id stay ship. Same
+ * list as GSTACK_PREFIXED_SKILLS in bin/gstack-install-registry.sh.
+ */
+export const PREFIXED_SKILLS = ['ship'];
+
+/**
  * Review skills /autoplan reads as a phase methodology from its own directory
  * on external hosts: each renders a second time beside gstack-autoplan/SKILL.md
  * as <name>.md, so /autoplan's phase does not depend on the standalone skill

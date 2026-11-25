@@ -1,6 +1,6 @@
 # gstack + Capy: the software factory
 
-gstack is a set of engineering skills: plan reviews, `/ship`, `/review`, `/qa`,
+gstack is a set of engineering skills: plan reviews, `/gstack-ship`, `/review`, `/qa`,
 evals. Capy runs agents in the cloud. It gives each thread its own machine, and it
 adds Captains that direct a crew of threads, a shared Drive, and automations. Put together, one
 person runs a team of agent engineers across several repositories, and the work
@@ -73,7 +73,7 @@ flowchart LR
   C -->|brief| L2[Lane: build]
   C -->|brief| L3[Lane: fix wave]
   L1 -->|plain-English plan + rec| C
-  L2 -->|/ship receipt, READY at head| C
+  L2 -->|/gstack-ship receipt, READY at head| C
   L3 -->|READY| C
   C -->|train: one gate, up to 5 PRs| T[(Gate)]
   T -->|green| M[(main)]
@@ -97,7 +97,7 @@ morning, and the lanes built them in parallel. Reviews catch the expensive
 mistakes before code exists. One plan learned that 12 tasks were too few to
 prove anything, and another that its adapter needed a translator nobody had planned.
 
-**`/ship` before READY, merge on green.** A lane runs `/ship` at its final
+**`/gstack-ship` before READY, merge on green.** A lane runs `/gstack-ship` at its final
 pushed head. That runs the tests, a review sized to the diff, a cross-model
 voice where it matters, and writes a receipt bound to that head. The lane sends
 one unstamped READY and stops. The Captain batches READY PRs into a train,
@@ -172,7 +172,7 @@ did it go on by default.
 5. **Don't merge main every time it moves.** Each merge recreates the
    CHANGELOG conflict and voids the receipt. Merge once, at your slot.
 6. **Size review to the diff.** A docs PR doesn't need a red team. Full-depth
-   review on small diffs is how `/ship` once cost about 50M tokens per
+   review on small diffs is how `/gstack-ship` once cost about 50M tokens per
    PR that needed the full test gate.
 7. **Keep threads small.** A long-lived parent context reached 1.36B tokens.
    Hand long steps to fresh children and read the token counter instead of
@@ -230,4 +230,4 @@ did it go on by default.
     of the 1,874 PRs and were created during the window, so it is volume, not a
     speedup. Capy threads were already writing most gstack PRs before the window
     (57 of the 65), so this measures the step to Captains, merge trains and
-    `/ship` before READY, not Capy against no agents. Measured 2026-10-29.
+    `/gstack-ship` before READY, not Capy against no agents. Measured 2026-10-29.

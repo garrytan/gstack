@@ -85,7 +85,7 @@ Failing on <current branch>; pre-existing.
 ~~~
 
 **Last modified by:** <author>
-**Noticed by:** gstack /ship on <date>
+**Noticed by:** gstack /gstack-ship on <date>
 \`\`\`
 
 Then post with your platform from Step 0 (\`github\` or \`gitlab\`). Substitute the two printed names, and an assignee only when it is a valid login for that platform (GitHub: letters, digits and single hyphens, at most 39 characters); otherwise drop the assignee flag and name the person in the body.

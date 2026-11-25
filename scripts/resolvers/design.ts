@@ -8,6 +8,7 @@ import { CODEX_SUBAGENT_CALL } from '../../hosts/codex';
 import { OVERUSED_FONTS_DISPLAY, BANNED_FONTS, FONTS_BODY_UI_OK, FONTS_MONO_OK, FONTS_VERIFIED_FREE, HANDOFF_COMMANDS, selectCatalog, catalogEntries, renderCatalog, detectorSlopEntries, judgmentTellEntries } from '../../lib/design-catalog';
 import { SENTINEL, DETECT_EXIT_ECHO, DETECT_LIMITS } from '../../lib/design-detect-contract';
 import { DOM_DUMP_FILE } from '../../lib/dom-dump-script';
+import { asideReplBin } from './aside';
 
 export function generateDesignReviewLite(ctx: TemplateContext): string {
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
@@ -127,17 +128,16 @@ The most uniquely designer-like output. Form a gut reaction before analyzing any
 1. Open the target URL in Aside and take a full-page desktop screenshot, in one script:
 
 \`\`\`bash
-aside repl '
+${asideReplBin(ctx)} --out "$REPORT_DIR/screenshots" '
 const pg = await openTab("<url>");
-await pg.screenshot({ path: "first-impression.jpg", type: "jpeg", quality: 60, fullPage: true });
+saveArtifact("first-impression.jpg", await pg.screenshot({ type: "jpeg", quality: 60, fullPage: true }));
 console.log("URL=" + pg.url());
-console.log("ASIDE_DIR=" + pwd);
 await closeTab(pg);
 console.log("GSTACK_STEP_OK");
 '
 \`\`\`
 
-2. \`cp "<ASIDE_DIR>/first-impression.jpg" "$REPORT_DIR/screenshots/"\` and Read it. Check the \`URL=\` line against Auth Detection (Phase 3) before you critique a login wall by mistake.
+2. Read the \`SAVED=\` file. Check the \`URL=\` line against Auth Detection (Phase 3) before you critique a login wall by mistake.
 3. Write the **First Impression** using this structured critique format:
    - "The site communicates **[what]**." (what it says at a glance — competence? playfulness? confusion?)
    - "I notice **[observation]**." (what stands out, positive or negative — be specific)
@@ -184,7 +184,7 @@ After extraction, offer: *"Want me to save this as your DESIGN.md? I can lock in
 For each page in scope, two Aside scripts. First the read: console hook, interactive snapshot, annotated screenshot, load-time errors, navigation timing:
 
 \`\`\`bash
-aside repl '
+${asideReplBin(ctx)} --out "$REPORT_DIR/screenshots" '
 const HOOK = \`(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()\`;
 const pg = await openTab("about:blank");
 await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
@@ -192,11 +192,10 @@ await pg.goto("<url>");
 const s = await snapshot(pg, { interactive: true });
 console.log(s.tree);
 const a = await annotatedScreenshot(pg);
-await fs.writeFile(path.join(pwd, "{page}-annotated.png"), Buffer.from(a.base64Image, "base64"));
+saveArtifact("{page}-annotated.png", Buffer.from(a.base64Image, "base64"));
 console.log("URL=" + pg.url());
 console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
 console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
-console.log("ASIDE_DIR=" + pwd);
 await closeTab(pg);
 console.log("GSTACK_STEP_OK");
 '
@@ -205,31 +204,31 @@ console.log("GSTACK_STEP_OK");
 Then the responsive captures (mobile 375, tablet 768, desktop 1440):
 
 \`\`\`bash
-aside repl '
+${asideReplBin(ctx)} --out "$REPORT_DIR/screenshots" '
 const pg = await openTab("<url>");
 for (const [name, width, height] of [["mobile", 375, 812], ["tablet", 768, 1024], ["desktop", 1440, 900]]) {
   await pg._sendToTarget("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: width < 1024 });
   await sleep(300);
-  await pg.screenshot({ path: \`{page}-\${name}.jpg\`, type: "jpeg", quality: 60, fullPage: true });
+  saveArtifact(\`{page}-\${name}.jpg\`, await pg.screenshot({ type: "jpeg", quality: 60, fullPage: true }));
 }
 await pg._sendToTarget("Emulation.clearDeviceMetricsOverride", {});
-console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK");
+await closeTab(pg); console.log("GSTACK_STEP_OK");
 '
 \`\`\`
 
-After each script, \`cp\` its files out of the \`ASIDE_DIR\` it printed into \`$REPORT_DIR/screenshots/\` (each script gets its own directory) and Read them.
+After each script, Read every \`SAVED=\` file it printed.
 
 ### DOM dump (DOM mode only: Setup printed \`${SENTINEL.READY}\` and the target is a URL)
 
 Rule 4 forbids reading source, so the detector reads the rendered page. One shared script, \`${toShellPath(ctx.paths.skillRoot)}/${DOM_DUMP_FILE}\` (an arrow function the page runs), serves both engines: it clones the document, inlines linked stylesheets as \`<style data-gstack-dom-css>\`, strips scripts, templates, noscript blocks, inline event handlers, input values, long attributes, and URL query strings, and notes what it cannot capture (shadow DOM, constructed and runtime-injected styles). Aside, third script per page. The script stays single-quoted like every other Aside script, so the URL and the page slug are never inside a double-quoted bash string; only the function text is spliced in from the file through a closed-quote segment, and \`pg.evaluate\` receives the function and runs it in the page. \`{page}\` is the screenshot slug (letters, digits, hyphens); paste \`<url>\` with any \`'\` percent-encoded as \`%27\` (a bare single quote would end the script), and never paste a URL you have not read:
 
 \`\`\`bash
-_DUMP=$(cat "${toShellPath(ctx.paths.skillRoot)}/${DOM_DUMP_FILE}")
-aside repl '
+_TMP=$(mktemp -d "\${TMPDIR:-/tmp}/gstack-dom.XXXXXX"); _DUMP=$(cat "${toShellPath(ctx.paths.skillRoot)}/${DOM_DUMP_FILE}")
+${asideReplBin(ctx)} --out "$_TMP" '
 const pg = await openTab("<url>");
 const html = await pg.evaluate('"$_DUMP"');
-await fs.writeFile(path.join(pwd, "{page}.dom.html"), html);
-console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK");
+saveArtifact("{page}.dom.html", html);
+await closeTab(pg); console.log("GSTACK_STEP_OK");
 '
 \`\`\`
 
@@ -243,7 +242,7 @@ $B js '('"$_DUMP"')()' --out "$_TMP/{page}.dom.html" --raw && echo "DUMP=$_TMP/{
 Persist it into this run's directory, size-capped and redaction-checked: a HIGH finding, or a redaction tool that fails to run, skips the page, not the review; MEDIUM findings (emails, PII shapes on an authenticated page) persist owner-only (mode 600) and are deleted with the rest after Phase 9 (\`--keep-dom\`, a design-review flag, keeps them; an interrupted run's dumps stay owner-only under their run id until you delete them). Each bash block is a fresh shell: restate the report directory and run id from Setup literally.
 
 \`\`\`bash
-_D="<ASIDE_DIR or $_TMP>/{page}.dom.html"; _REPORT="<REPORT_DIR from Setup>"; _RUN="<RUN_ID from Setup>"
+_D="<SAVED= or DUMP= path>"; _REPORT="<REPORT_DIR from Setup>"; _RUN="<RUN_ID from Setup>"
 if [ ! -s "$_D" ]; then echo "${SENTINEL.DOM_DUMP_MISSING}: {page} (the dump script wrote nothing)"
 elif [ "$(wc -c < "$_D")" -gt ${DETECT_LIMITS.domDumpBytes} ]; then echo "${SENTINEL.DOM_DUMP_TOO_LARGE}: {page} $(wc -c < "$_D")"; rm "$_D"
 elif ${toShellPath(ctx.paths.binDir)}/gstack-redact --from-file "$_D" --max-bytes ${DETECT_LIMITS.domDumpBytes} >/dev/null 2>&1; _RC=$?; [ "$_RC" -ne 0 ] && [ "$_RC" -ne 2 ]; then echo "${SENTINEL.DOM_DUMP_REDACTION_BLOCKED}: {page} redact-exit=$_RC"; rm "$_D"
@@ -391,21 +390,20 @@ Polish-level tells, note but do not grade: ${polishTells.map(e => (e.impeccableI
 Walk 2-3 key user flows and evaluate the *feel*, not just the function. One flow per Aside script — open, act, diff, evidence:
 
 \`\`\`bash
-aside repl '
+${asideReplBin(ctx)} --out "$REPORT_DIR/screenshots" '
 const HOOK = \`(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); })()\`;
 const pg = await openTab("about:blank");
 await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
 await pg.goto("<url>");
 await snapshot(pg, { interactive: true });                            // baseline for .diff; refs like [ref=e3] name every control
-await pg.screenshot({ path: "flow-<name>-step-1.jpg", type: "jpeg", quality: 60 });
+saveArtifact("flow-<name>-step-1.jpg", await pg.screenshot({ type: "jpeg", quality: 60 }));
 await pg.locator("e3").click();                                        // perform the action — or pg.getByRole("button", { name: "Sign Up" })
 await sleep(500);                                                      // or: await pg.waitForSelector("<selector>"); await pg.waitForURL(/dashboard/)
 const s = await snapshot(pg);
 console.log("DIFF_START"); console.log(s.diff); console.log("DIFF_END");   // what changed since the baseline
 console.log("URL=" + pg.url());
 console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
-await pg.screenshot({ path: "flow-<name>-result.jpg", type: "jpeg", quality: 60 });
-console.log("ASIDE_DIR=" + pwd);
+saveArtifact("flow-<name>-result.jpg", await pg.screenshot({ type: "jpeg", quality: 60 }));
 await closeTab(pg);
 console.log("GSTACK_STEP_OK");
 '
@@ -529,7 +527,7 @@ Phrase findings as "I notice..." (observation), "I wonder..." (question), "What 
 7. **Tricky UIs:** when the snapshot tree misses a control you can see (clickable divs, canvas buttons), Read the annotated screenshot and drive by CSS selector or \`pg.getByText(...)\`.
 8. **Document incrementally,** each finding as you find it.
 9. **Depth over breadth:** 5-10 well-documented findings beat 20 vague ones.
-10. **Show screenshots to the user.** After every script that saves a screenshot, annotated screenshot, or responsive set, \`cp\` the files out of the printed \`ASIDE_DIR\` into \`$REPORT_DIR/screenshots/\` and use the Read tool on each copied file so the user can see them inline. For the responsive set (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.`;
+10. **Show screenshots to the user.** After every script that saves a screenshot, annotated screenshot, or responsive set, use the Read tool on each \`SAVED=\` file so the user can see them inline. For the responsive set (3 files), Read all three. This is critical — without it, screenshots are invisible to the user.`;
 }
 
 export function generateDesignSketch(ctx: TemplateContext): string {

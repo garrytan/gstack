@@ -54,7 +54,7 @@ Host and system plan-mode restrictions and the user's current scope take precede
 
 If the user invokes a skill in plan mode, run its workflow within the host's plan-mode limits. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; any AskUserQuestion the skill fires is the workflow operating within plan mode, not a violation of it — and a skill whose instructions resolve a question themselves (e.g. a plan-mode auto-select) may legitimately not ask it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" run only where the host permits them. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
-If `PROACTIVE` is `off`: suggest no skills unasked, nor ask. `core`: only /office-hours, /review, /qa, /ship. `all`: any. Skills the user names or this one invokes run.
+If `PROACTIVE` is `off`: suggest no skills unasked, nor ask. `core`: only /office-hours, /review, /qa, /gstack-ship. `all`: any. Skills the user names or this one invokes run.
 
 If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/gstack/[skill-name]/SKILL.md`.
 
@@ -74,7 +74,7 @@ exactly as instructed.
 
 The following nudges are tuned for the claude model family. They are
 **subordinate** to skill workflow, STOP points, AskUserQuestion gates, plan-mode
-safety, and /ship review gates. If a nudge below conflicts with skill instructions,
+safety, and /gstack-ship review gates. If a nudge below conflicts with skill instructions,
 the skill wins. Treat these as preferences, not rules.
 
 **Todo-list discipline.** When working through a multi-step plan, mark each task
@@ -154,7 +154,7 @@ claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No co
 
 ## Plan Status Footer
 
-Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/gstack-ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 # /runaway-stopper: detect, stop, prevent
 
@@ -224,7 +224,7 @@ cold starts (after the 5-minute cache lapsed) and empty wakes cost; `scan --wake
 | `RUNAWAY_INPUT:`, `FETCH_FAILED:` | That thread wasn't read: fetch it again and rerun; never count it as OK. |
 
 No `RUNAWAY:` or `SWEEP:` line means the scan failed, never that the crew is clean. `DEFER:` holds a rotation, and
-a stop of a /ship reader mid-run, or of a subagent that holds one (the run's own cap stops it); stopping any other
+a stop of a /gstack-ship reader mid-run, or of a subagent that holds one (the run's own cap stops it); stopping any other
 subagent goes ahead.
 
 ## 2. Stop a subagent
@@ -254,8 +254,8 @@ Put the lines that apply into every brief you write:
   message to a parent or Captain: send a READY, a decision you need, a blocker or the final report.
 - **Compact returns.** A program returns only the lines the next step needs; big output goes to a file under
   ~/.capy/work and you read the part you need.
-- **/ship runs in the PR's own thread.** The thread follows `ship/DRIVER.md` itself and starts only the reviewers as
-  subagents; it never starts a subagent to run /ship. Raising a brief's `--token-cap` needs the owner's words.
+- **/gstack-ship runs in the PR's own thread.** The thread follows `ship/DRIVER.md` itself and starts only the reviewers as
+  subagents; it never starts a subagent to run /gstack-ship. Raising a brief's `--token-cap` needs the owner's words.
 - **Two review rounds.** Reader and review rounds stop at 2 per PR (R51), and every reader's title names the PR
   (`#<n>`) so the scan can count them.
 - **Rotate standing roles** at 250M own tokens or 3 days. An automation gets a fresh thread per run that archives

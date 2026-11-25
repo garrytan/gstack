@@ -130,6 +130,8 @@ gstack_claude_render_action() {
 }
 
 _GSTACK_RENDER_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# GSTACK_RENDER_NAMES, which the render record carries (gstack_render_serves).
+[ ! -f "$_GSTACK_RENDER_BIN/gstack-skill-name.sh" ] || . "$_GSTACK_RENDER_BIN/gstack-skill-name.sh"
 
 # gstack_claude_render_plain SOURCE_DIR RENDER_DIR — render the pinned overlay
 # without brain blocks into a temp dir, apply the saved skill_prefix to its
@@ -188,8 +190,8 @@ gstack_claude_render_settle() {
     rm -f "$record"
   else
     {
-      printf 'overlay=%s\nsource=%s\nmodel=%s\nversion=%s\ngbrain=%s\nrender=%s\n' \
-        "$served" "$_GSTACK_OVERLAY_SOURCE" "$_GSTACK_OVERLAY_ID" "${version:-unknown}" "$gbrain" "$render_kind"
+      printf 'overlay=%s\nsource=%s\nmodel=%s\nversion=%s\ngbrain=%s\nrender=%s\nnames=%s\n' \
+        "$served" "$_GSTACK_OVERLAY_SOURCE" "$_GSTACK_OVERLAY_ID" "${version:-unknown}" "$gbrain" "$render_kind" "${GSTACK_RENDER_NAMES:-}"
       [ "$render_kind" != user ] || [ -z "${_PLAN_MODE_ARG:-}" ] || printf 'plan_mode=off\n'
       [ "$render_kind" != user ] || [ -z "${_LOADOUT_ARG:-}" ] || printf 'loadout=%s\n' "${_LOADOUT_ARG#--loadout=}"
     } > "$record.tmp.$$" && mv "$record.tmp.$$" "$record"

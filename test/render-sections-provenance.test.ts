@@ -46,8 +46,10 @@ function fixture() {
   put(path.join(install, 'ship/checklist.md'), 'checkout checklist\n');
   put(path.join(render, 'ship/SKILL.md'), '---\nname: ship\ndescription: t\n---\n# ship rendered');
   put(path.join(render, 'ship/sections/adversarial.md'), `body\n${SAVE_BLOCK}\n`);
+  // A render record from a gstack that names ship gstack-ship: an older render is never served for it (#4775).
+  put(`${render}.overlay`, 'overlay=claude\nversion=1.0.0.0\nrender=user\nnames=2\n');
   fs.mkdirSync(skills, { recursive: true });
-  return { install, render, skills, dst: path.join(skills, 'ship') };
+  return { install, render, skills, dst: path.join(skills, 'gstack-ship') };
 }
 
 function runSetupHelper(src: string, dst: string, render?: string) {

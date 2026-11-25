@@ -14,7 +14,7 @@ ${ctx.host === 'claude' ? `- If the caller directory is \`review\`, Read \`../qa
 - If neither layout applies, report an unresolved QA installation as a setup blocker; do not guess another path.` : `- Read \`../gstack-qa/sections/${id}.md\` in full.`}
 Use this host's installation, never the product tree. ${QA_ASSET_BLOCKER}`;
     }
-    return `From the installed /${ctx.skillName} SKILL.md's directory, Read \`../${sibling}/sections/${id}.md\` in full.${ctx.host === 'claude' ? ` If the caller directory is prefixed \`gstack-${ctx.skillName}\`, use \`../gstack-qa/sections/${id}.md\` instead.` : ''} Use this host's installation, never the product tree. ${QA_ASSET_BLOCKER}`;
+    return `From the installed /${ctx.skillName} SKILL.md's directory, Read \`../${sibling}/sections/${id}.md\` in full.${ctx.host === 'claude' ? ` If the caller directory is prefixed \`gstack-${ctx.skillName}\`, use \`../gstack-qa/sections/${id}.md\` instead when that file exists.` : ''} Use this host's installation, never the product tree. ${QA_ASSET_BLOCKER}`;
   }
   return `Read ${sectionPath(ctx, 'qa', id)} in full. Find qa/gstack-qa beside this host's installed caller skill. ${QA_ASSET_BLOCKER} No product-directory or cross-host substitutes.`;
 };
@@ -47,7 +47,7 @@ export function generateQAExploratory(ctx: TemplateContext): string {
   const reportOnly = ctx.skillName === 'qa-only';
   return `# Shared exploratory QA
 
-The **caller** (/qa, /qa-only, /review or /ship) owns decisions, tests, fixes and publication. Discovery writes only reports/evidence
+The **caller** (/qa, /qa-only, /review or /gstack-ship) owns decisions, tests, fixes and publication. Discovery writes only reports/evidence
 and owned fixture state; no workflows, framework installs or publication.
 
 ${reportOnly ? `## 0. Preparation gate
@@ -69,7 +69,7 @@ full contents. If either required Read is missing, complete it now before Charte
 ${reportOnly ? 'Reuse resolved REPORT_DIR; otherwise own a fresh \`.gstack/qa-reports\` subdirectory.' : 'Reuse resolved REPORT_DIR; otherwise use the \`reportDir\` \`EVIDENCE_TOOL report-dir\` prints.'}
 Write a **charter** per behavior: contract, risk, entrypoint, isolation, exit condition, source, commands and inputs. Save charters as Markdown in the report.
 
-${reportOnly ? '' : `For /review and /ship, no plan/server is required.
+${reportOnly ? '' : `For /review and /gstack-ship, no plan/server is required.
 Stop after 5 minutes or 12 probes, whichever comes first (SECONDS=300 across surfaces).
 Explicit plan checks and revalidation remain required beyond this smoke budget.`}
 For /qa and /qa-only:
@@ -148,10 +148,10 @@ Never freeze buggy output, weaken tests or delete valid red tests.`}
 
 Use the surface report template; link each checkpoint. Separate browser scores, functional outcomes and proposed/executed tests.
 Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits: ["checkpoint 001"]} (limits: non-empty string array, not an object; browser-only: evidence []); before Markdown \`bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json\` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change \`superseded\`; it closes when the same command reran on current inputs.${reportOnly ? '' : ' After a fix, every earlier capture is superseded, even from a client that prints no snapshot: rerun each one your verdict relies on, or report it as an open remainder.'} Disclose withheld/incomplete evidence.
-Evidence is invocation-local${reportOnly ? '.' : '; /ship reruns once per invocation.'}
+Evidence is invocation-local${reportOnly ? '.' : '; /gstack-ship reruns once per invocation.'}
 Missing prerequisites/expectations/observations, timeouts and refusal never pass.
 Pass requires all required current-input contracts to pass with no required remainder.
-${reportOnly ? 'Report blocked, inconclusive and not-run coverage without claiming success.' : `Required failure leaves /review incomplete and /ship blocked unless the user explicitly accepts that named risk; noninteractive runs return blocked. Only nonbehavioral diffs may be not applicable (give a reason); prompts/templates are behavioral.`}`;
+${reportOnly ? 'Report blocked, inconclusive and not-run coverage without claiming success.' : `Required failure leaves /review incomplete and /gstack-ship blocked unless the user explicitly accepts that named risk; noninteractive runs return blocked. Only nonbehavioral diffs may be not applicable (give a reason); prompts/templates are behavioral.`}`;
 }
 
 export function generateQAFunctional(_ctx: TemplateContext): string {
@@ -174,7 +174,7 @@ For /qa and /qa-only, within the selected scope:
   Preserve the prior report; report fixed, still failing and new findings separately.
   Missing safe replay inputs block affected probes, never count as passes.
 
-Mixed runs apply each surface's mode separately. /review and /ship retain their caller's
+Mixed runs apply each surface's mode separately. /review and /gstack-ship retain their caller's
 bounded smoke and explicit plan checks, not Full exploration.
 
 ## Contract map

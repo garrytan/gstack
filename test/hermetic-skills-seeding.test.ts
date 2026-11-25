@@ -165,7 +165,7 @@ describe('hermeticSkillsConfigDir', () => {
     // ship/ is a carved skill with a sections/ dir — the registered entry
     // must expose it or runtime "Read sections/<name>.md" 404s.
     expect(fs.existsSync(path.join(ROOT, 'ship', 'sections'))).toBe(true);
-    const link = path.join(skillsDir, 'ship', 'sections');
+    const link = path.join(skillsDir, 'gstack-ship', 'sections');
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
     expect(fs.statSync(link).isDirectory()).toBe(true);
   });

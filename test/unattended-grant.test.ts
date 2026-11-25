@@ -25,7 +25,7 @@ describe('the unattended grant and the /ship handoff pointer to it', () => {
     expect(`docs/unattended.md#${slug(heading)}`).toBe(POINTER);
     expect(read('ship/sections/handoff.md.tmpl')).toContain(`What an\nunattended run may do is ${POINTER}.`);
     expect(read('ship/sections/handoff.md')).toContain(POINTER);
-    expect(grant).toContain('`/ship`\'s handoff section (`ship/sections/handoff.md`) points here');
+    expect(grant).toContain('`/gstack-ship`\'s handoff section (`ship/sections/handoff.md`) points here');
   });
 
   test('the grant names each rule once: merge never, a pinned-lease force-push on its own branch, named test methods, own-eyes proof', () => {

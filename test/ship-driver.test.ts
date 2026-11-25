@@ -287,7 +287,7 @@ describe('shape', () => {
   test('at most 12 KB, no harness vocabulary, and every bin it names exists', () => {
     expect(Buffer.byteLength(doc)).toBeLessThanOrEqual(12 * 1024);
     for (const term of ['AskUserQuestion', 'Agent tool', 'PreToolUse', 'SessionStart', '~/.claude', 'run_in_background']) expect(doc).not.toContain(term);
-    const named = [...new Set([...doc.matchAll(/\bgstack-[a-z0-9-]+/g)].map(m => m[0]))];
+    const named = [...new Set([...doc.matchAll(/(?<!\/)\bgstack-[a-z0-9-]+/g)].map(m => m[0]))];
     expect(named.filter(n => !fs.existsSync(path.join(ROOT, 'bin', n)))).toEqual([]);
     expect(invoked).toEqual(expect.arrayContaining(['gstack-ship-preflight', 'gstack-ship-release', 'gstack-ship-budget', 'gstack-review-plan', 'gstack-ship-receipt', 'gstack-ship-queue']));
   });

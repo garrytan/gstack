@@ -272,7 +272,7 @@ export async function verifyTrain(ctx: QueueContext, o: { pr: string; train: str
   const info = prInfo(ctx, o.pr);
   if ('error' in info) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: info.error }, lines, `${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
   const shipped = bindReceipt(info.body, o.pr, [t.slots[i]!.head, head]);
-  if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, [...lines, shipped.line], `#${o.pr}'s lane runs /ship and READYs again; then ${Q} train build --prs <pins>`, run);
+  if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, [...lines, shipped.line], `#${o.pr}'s lane runs /gstack-ship and READYs again; then ${Q} train build --prs <pins>`, run);
   if (!headRef) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `#${o.pr}'s current head was not read (${o.noFetch ? '--no-fetch' : 'the head fetch failed'}), and the pin it falls back to is unstamped by design, so the stamp cannot be proved` }, lines, `${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);
   const stamp = stampProof(env, head, main);
   if ('rule' in stamp) return outRefused({ code: 'QUEUE_TRAIN_UNSTAMPED', message: `#${o.pr}'s head ${head.slice(0, 12)} is not stamped above main: ${stamp.rule}: ${stamp.detail}` }, lines, `#${o.pr}'s lane runs gstack-restamp --next on its head, commits what restamp staged, pushes, then ${Q} verify --pr ${o.pr} --train ${t.nonce}`, run);

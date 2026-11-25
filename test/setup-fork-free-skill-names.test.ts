@@ -100,12 +100,13 @@ describe.skipIf(process.platform === 'win32')('setup name reads start no process
       payload(dir);
       const off = spawnSync('bash', [path.join(ROOT, 'bin/gstack-patch-names'), dir, '0'], { encoding: 'utf8', env: s.env, timeout: 30_000 });
       expect(off.status, off.stderr).toBe(0);
-      expect(off.stdout).toBe('');
-      expect(s.calls()).toEqual([]);
+      expect(off.stdout, 'only ship, always prefixed since #4775, is renamed in short-name mode').toBe('  patched name: field in 1 skills\n');
+      expect(fs.readFileSync(path.join(dir, 'ship', 'SKILL.md'), 'utf8')).toContain('name: gstack-ship');
+      expect(s.calls()).toEqual(['sed']);
 
       const on = spawnSync('bash', [path.join(ROOT, 'bin/gstack-patch-names'), dir, '1'], { encoding: 'utf8', env: s.env, timeout: 30_000 });
       expect(on.status, on.stderr).toBe(0);
-      expect(on.stdout).toContain(`patched name: field in ${SKILLS.length} skills`);
+      expect(on.stdout).toContain(`patched name: field in ${SKILLS.length - 1} skills`);
       for (const name of SKILLS) expect(fs.readFileSync(path.join(dir, name, 'SKILL.md'), 'utf8')).toContain(`name: gstack-${name === 'office-hours' ? 'oh' : name}`);
       expect(fs.readFileSync(path.join(dir, 'zz-nameless', 'SKILL.md'), 'utf8')).not.toContain('name:');
       expect(s.calls()).toEqual(Array(SKILLS.length).fill('sed'));

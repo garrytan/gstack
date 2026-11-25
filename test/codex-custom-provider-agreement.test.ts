@@ -79,20 +79,20 @@ function both(configToml: string) {
 
 describe('role-ready and the codex-cli runner agree on a custom provider (GST-3089)', () => {
   test('config.toml names the frontier catalog model: both accept it and run it', () => {
-    const r = both(CUSTOM('gpt-6-astra'));
-    expect({ status: r.ready.status, model: r.ready.model }).toEqual({ status: 0, model: 'gpt-6-astra' });
-    expect(r.ready.calls.filter(c => c.probe).map(c => c.model)).toEqual(['model="gpt-6-astra"']);
-    expect(r.voice.meta).toMatchObject({ runner: 'codex-cli', model: 'gpt-6-astra' });
+    const r = both(CUSTOM('gpt-6.2-astra'));
+    expect({ status: r.ready.status, model: r.ready.model }).toEqual({ status: 0, model: 'gpt-6.2-astra' });
+    expect(r.ready.calls.filter(c => c.probe).map(c => c.model)).toEqual(['model="gpt-6.2-astra"']);
+    expect(r.voice.meta).toMatchObject({ runner: 'codex-cli', model: 'gpt-6.2-astra' });
     expect(r.voice.meta.reason).not.toBe('model_unselected');
-    expect(r.voice.calls.filter(c => !c.probe).map(c => c.model)).toEqual(['model="gpt-6-astra"']);
+    expect(r.voice.calls.filter(c => !c.probe).map(c => c.model)).toEqual(['model="gpt-6.2-astra"']);
   });
 
   test('config.toml names a non-frontier model: both refuse with the same reason code and send nothing', () => {
-    const r = both(CUSTOM('gpt-6.1-sol'));
+    const r = both(CUSTOM('gpt-6.2-sol'));
     expect(r.ready.status).toBe(1);
     expect(r.ready.model).toBeNull();
     expect(r.ready.policy).toBe('custom_provider_model_not_tier');
-    expect(r.ready.stderr).toContain("'gpt-6.1-sol'");
+    expect(r.ready.stderr).toContain("'gpt-6.2-sol'");
     expect(r.ready.calls).toEqual([]);
     expect(r.voice.meta).toMatchObject({ status: 'unavailable', reason: 'model_unselected' });
     expect(r.voice.policy).toBe(r.ready.policy);
@@ -110,11 +110,11 @@ describe('role-ready and the codex-cli runner agree on a custom provider (GST-30
   });
 
   test('the tier decides which catalog ID counts: plan_review_tier smart accepts the smart ID from config.toml', () => {
-    const f = fixture(CUSTOM('gpt-6.1-sol'));
+    const f = fixture(CUSTOM('gpt-6.2-sol'));
     fs.writeFileSync(path.join(f.dir, 'state', 'config.yaml'), 'plan_review_tier: smart\n');
     const r = spawnSync(PROBE, ['select-model', 'exec', '--role', 'plan-review'], { env: f.env, encoding: 'utf8', timeout: 30_000 });
     expect(r.status).toBe(0);
-    expect(r.stdout.split('\n')[0]).toBe('CODEX_SEL: gpt-6.1-sol');
+    expect(r.stdout.split('\n')[0]).toBe('CODEX_SEL: gpt-6.2-sol');
     expect(r.stderr).toContain('tier: smart; source: ');
     for (const bad of [['select-model', 'exec', '--role'], ['select-model', 'exec', '--role', 'implementation'], ['select-model', 'exec', '--cwd', f.repo]]) {
       const u = spawnSync(PROBE, bad, { env: f.env, encoding: 'utf8', timeout: 30_000 });
@@ -123,9 +123,9 @@ describe('role-ready and the codex-cli runner agree on a custom provider (GST-30
   });
 
   test('negative control: the stock OpenAI provider keeps the catalog frontier model in both, whatever config.toml names', () => {
-    const r = both('model = "gpt-6.1-sol"\n');
-    expect({ status: r.ready.status, model: r.ready.model }).toEqual({ status: 0, model: 'gpt-6-astra' });
-    expect(r.voice.meta).toMatchObject({ model: 'gpt-6-astra' });
-    expect(r.voice.calls.filter(c => !c.probe).map(c => c.model)).toEqual(['model="gpt-6-astra"']);
+    const r = both('model = "gpt-6.2-sol"\n');
+    expect({ status: r.ready.status, model: r.ready.model }).toEqual({ status: 0, model: 'gpt-6.2-astra' });
+    expect(r.voice.meta).toMatchObject({ model: 'gpt-6.2-astra' });
+    expect(r.voice.calls.filter(c => !c.probe).map(c => c.model)).toEqual(['model="gpt-6.2-astra"']);
   });
 });

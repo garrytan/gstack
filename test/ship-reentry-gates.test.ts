@@ -37,7 +37,7 @@ test('an unverified item answered not done enters the existing decision before c
   expect(exits).toMatch(/any N: stop and report that item as NOT DONE/i);
   expectMentions(exits, [['only', 'required', 'verified']], 'exits');
   expect(exits).toMatch(/no second deferral choice/i);
-  expect(exits).not.toContain('re-running /ship');
+  expect(exits).not.toMatch(/re-running \/(gstack-)?ship\b/);
   expect(gate).toMatch(/per-item confirmation/i);
 });
 

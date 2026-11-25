@@ -26,7 +26,8 @@ import { FILES, RunError, journal as journalRow, now, readDecisions, voiceRows, 
 import { applyCapChoices, pendingDeltas, releaseUndispatched, roundCap, roundOf } from './autoplan-budget';
 import { evaluateCarry, gateEvidence, voidPendingCheck } from './autoplan-carry';
 import { buildEli5, capyRelayLine } from './captain-brief';
-import { FINDING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
+import { FINDING_ORIGIN, RULING_ORIGIN, openEarlier, previousReview, reviewRows, settledIds } from './autoplan-confirm';
+import { lineText } from './autoplan-owner-text';
 import { blockingProposal, confirmDirectionItem, dayOneItems, directionIsOwners, gateOwnerWords, heaviestChanges, narrowedQuoteOf, ownerContext, ownerQuoteOf, proposalItem, type ChallengeRow, type NewItem } from './autoplan-gate-items';
 import { phaseClose } from './autoplan-timing';
 import { agentWords, ANSWERED_BY_RE, applyReply, autoDefault, decisionId, decisionRows, keepDirection, legacyRecHash, parseReply, pendingHint, recHash, replyShape, validateGateList, type GateChoice, type GateItem, type GateList, type GateOption, type ParsedReply } from './gate-list';
@@ -123,7 +124,7 @@ export function closeDeferred(state: RunState, phase: Phase, o: { reason: string
   return { lines, blockers };
 }
 
-/** The round-cap items: one per deferred phase, one per deferred blocker, one per capped plan delta. */
+/** The round-cap items: one per deferred phase, one per deferred blocker, one per revise that changed the plan after capped phases (not one per phase). */
 function capItems(state: RunState, next: { d: () => string; uc: () => string }): GateItem[] {
   const items: GateItem[] = [];
   const push = (item: GateItem, ids: string) => items.push({ ...item, origin: ['cap', ids, optionHash(item.options)].join('|') });
@@ -146,11 +147,16 @@ function capItems(state: RunState, next: { d: () => string; uc: () => string }):
         options: [{ key: 'a', text: 'carry it into the build as a blocking task (you accept the risk)', changes_plan: false }, reopen(phase)] }, id);
     }
   }
-  for (const delta of pendingDeltas(state)) {
-    push({ id: next.uc(), title: `plan changed after ${delta.phase} cap: unreviewed delta (+${delta.added} -${delta.removed} lines, ${delta.old_plan_sha256.slice(0, 12)} -> ${delta.new_plan_sha256.slice(0, 12)})`,
-      kind: 'approval', recommended: 'a', recommended_basis: 'the run budget; the delta is reviewed during the build', phase: delta.phase, cap: { phase: delta.phase, kind: 'delta', ref: String(delta.k) }, item_class: 'cap_delta',
-      why: `revise v${delta.k} changed the plan after ${delta.phase} used round ${delta.round} of ${delta.cap}, so ${delta.phase} never reviewed it`,
-      options: [{ key: 'a', text: 'accept the unreviewed delta into the approved plan', changes_plan: false }, reopen(delta.phase)] }, `delta-${delta.k}`);
+  const byRevise = new Map<number, ReturnType<typeof pendingDeltas>>();
+  for (const d of pendingDeltas(state)) byRevise.set(d.k, [...(byRevise.get(d.k) ?? []), d]);
+  for (const [k, deltas] of byRevise) {
+    const delta = deltas[0]!;
+    const phases = deltas.map(d => d.phase).join(' and ');
+    push({ id: next.uc(), title: `plan changed after the ${phases} cap: unreviewed delta (+${delta.added} -${delta.removed} lines, ${delta.old_plan_sha256.slice(0, 12)} -> ${delta.new_plan_sha256.slice(0, 12)})`,
+      kind: 'approval', recommended: 'a', recommended_basis: 'the run budget; the delta is reviewed during the build', phase: delta.phase, cap: { phase: delta.phase, kind: 'delta', ref: String(k), phases: deltas.map(d => d.phase) }, item_class: 'cap_delta',
+      why: `revise v${k} changed the plan after ${deltas.map(d => `${d.phase} used round ${d.round} of ${d.cap}`).join(' and ')}, so no phase reviewed it`,
+      options: [{ key: 'a', text: 'accept the unreviewed delta into the approved plan', changes_plan: false },
+        { key: 'b', text: `reopen ${phases} for one more round (an owner budget raise${deltas.every(d => d.phase === 'eng') ? '' : '; Eng reruns last'})`, changes_plan: false }] }, `delta-${k}`);
   }
   return items;
 }
@@ -252,9 +258,19 @@ export function buildGate(state: RunState, gateRev: number): GateList {
     const twinOf = (id: string) => twins.get(id) ?? [...twins].find(([, out]) => out === id)?.[0];
     for (const f of [...native, ...outside, ...carried] as ChallengeRow[]) {
       if (challenged.has(f.id) || f.settled_by) continue;
-      if (narrowedQuoteOf(owner, f)) { challenged.add(f.id); narrowed.push(f); continue; }
+      const twin = twinOf(f.id) ? byId.get(twinOf(f.id)!) as ChallengeRow | undefined : undefined;
+      const narrows = narrowedQuoteOf(owner, f) ?? narrowedQuoteOf(owner, twin);
+      if (narrows) {
+        const rows = [f, ...(twin && !twin.settled_by && !challenged.has(twin.id) && (!twin.narrows_quote || twin.narrows_quote === narrows.n) ? [twin] : [])];
+        rows.forEach(r => challenged.add(r.id));
+        if (!(narrows.line?.kind === 'ruled_out' && owner.ruled.has(narrows.n))) { narrowed.push(...rows.map(r => ({ ...r, narrows_quote: narrows.n }))); continue; }
+        const ids = rows.map(r => r.id);
+        push({ id: `d${++d}`, title: `${f.title} [${ids.join(' + ')}]`, kind: 'auto', recommended: 'a', phase, item_class: 'challenge1', ...(heaviestChanges(rows) ? { changes: heaviestChanges(rows) } : {}),
+          why: `${rows.map(r => r.voice).join(' + ')} say${rows.length > 1 ? '' : 's'} the plan does less than your words “${narrows.text}”, but ${lineText({ ...narrows, ruling_verified: true })}`,
+          cost: `b reopens ${phase}${phase === 'eng' ? '' : ' and eng'}`, options: [KEEP('keep your ruling'), { key: 'b', text: 'accept the change', changes_plan: true }] }, ids.join('+'), RULING_ORIGIN);
+        continue;
+      }
       if (quoted && (f.changes || f.user_challenge) && !ownerQuoteOf(owner, f)) {
-        const twin = twinOf(f.id) ? byId.get(twinOf(f.id)!) as ChallengeRow | undefined : undefined;
         propose(twin && !twin.settled_by && !ownerQuoteOf(owner, twin) && !narrowedQuoteOf(owner, twin) ? [f, twin] : [f], carried.includes(f));
         continue;
       }

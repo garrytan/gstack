@@ -722,7 +722,7 @@ Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none; 
 Example: Value: protects=refundPayment rejects an empty reason; fails_when=the reason guard is removed or inverted; why_new=billing.test.ts covers processPayment only; seam=none; no_claim=provider acceptance (mocked provider; unit only)
 Rejected (covered_elsewhere): "checkout renders"; checkout.e2e.ts:15 covers it, so extend that test.
 
-Weak tests (★ smoke/existence/trivial, gate-failing or unrated) never count as coverage. X = paths with a ★★/★★★ test / total paths (value-weighted; the gate uses X); Y = paths with any test / total paths. /ship computes them; here every proposed test needs a card.
+Weak tests (★ smoke/existence/trivial, gate-failing or unrated) never count as coverage. X = paths with a ★★/★★★ test / total paths (value-weighted; the gate uses X); Y = paths with any test / total paths. /gstack-ship computes them; here every proposed test needs a card.
 
 Retention bar: keep a test that independently enforces a public API, protocol, config, migration, storage, security, platform, default, prompt-byte, generated-output (golden), package, release or architecture contract; static or slow is no reason to delete.
 
@@ -1473,11 +1473,11 @@ In finish step 5, offer applicable routes from the published dashboard:
   interactions in the diagram/findings).
 - **B) Run /plan-ceo-review:** optionally, an unreviewed significant product change
   (new user-facing features, changed direction or substantial scope expansion).
-- **C) Ready to implement — run /ship when done**
+- **C) Ready to implement — run /gstack-ship when done**
 
 Flag stale CEO/design reviews from contradictory assumptions or significant commit
 drift. If no further review is needed or `skip_eng_review: true`, state
-"All relevant reviews complete. Run /ship when ready."
+"All relevant reviews complete. Run /gstack-ship when ready."
 
 AskUserQuestion with only the applicable options. This is **navigation only**:
 copy the working plan's task prerequisites, dependencies and execution order

@@ -133,7 +133,7 @@ describe('wave build', () => {
     const nonce = nonceOf(r.out);
     expect(nonce).toMatch(/^ship-[0-9a-f]{12}$/);
     expect(line(r.out, 'PUSHED:')).toContain(`wave/${nonce}`);
-    expect(line(r.out, 'NEXT:')).toContain('run /ship on it, then gstack-ship-queue ready --pr <wave pr>');
+    expect(line(r.out, 'NEXT:')).toContain('run /gstack-ship on it, then gstack-ship-queue ready --pr <wave pr>');
     const tip = fx.repo.git('ls-remote', 'origin', `refs/heads/wave/${nonce}`).split(/\s/)[0]!;
     fx.repo.git('fetch', '-q', 'origin', `refs/heads/wave/${nonce}`);
     const seconds = fx.repo.git('rev-list', '--first-parent', '--parents', `origin/main..${tip}`).split('\n').map(l => l.split(' ')[2]).reverse();

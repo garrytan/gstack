@@ -64,7 +64,7 @@ If the user passed `--baseline`, capture the current state BEFORE deploying.
 For each page (either from `--pages` or the homepage):
 
 ```bash
-aside repl '
+~/.claude/skills/gstack/bin/gstack-aside-repl --out .gstack/canary-reports/baselines '
 const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()`;
 const pg = await openTab("about:blank");
 await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
@@ -72,14 +72,13 @@ await pg.goto("<page-url>");
 console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
 console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
 console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
-await pg.screenshot({ path: "<page-name>.jpg", type: "jpeg", quality: 60, fullPage: true });
-console.log("ASIDE_DIR=" + pwd);
+saveArtifact("<page-name>.jpg", await pg.screenshot({ type: "jpeg", quality: 60, fullPage: true }));
 await closeTab(pg);
 console.log("GSTACK_STEP_OK");
 '
 ```
 
-Then copy the screenshot out of the printed session directory: `cp "<ASIDE_DIR>/<page-name>.jpg" .gstack/canary-reports/baselines/<page-name>.jpg`
+The `SAVED=` line is the baseline screenshot's path.
 
 Collect for each page: screenshot path, console error count (`CONSOLE_ERRORS=`), load time (`loadEventEnd` in `NAV=`), and the text snapshot between `TEXT_START` / `TEXT_END`.
 Also run Phase 3's read-only link check for each monitored page and retain the URLs whose `LINK` status is 404. Repeat the same check each monitoring round; other HEAD failures are unknown, not broken links. Compare console messages by identity, not just count, and retain the text snapshot for evidence when a page's content disappears.
@@ -134,7 +133,7 @@ If no `baseline.json` exists, take a quick snapshot now as a reference point.
 
 For each page to monitor:
 
-Run the Phase 2 read script for each page with the screenshot saved as `pre-<page-name>.jpg`, then `cp "<ASIDE_DIR>/pre-<page-name>.jpg" .gstack/canary-reports/screenshots/`.
+Run the Phase 2 read script for each page with the screenshot saved as `pre-<page-name>.jpg` and `--out .gstack/canary-reports/screenshots`.
 
 Save the same manifest schema as Phase 2 to `.gstack/canary-reports/pre-monitor.json`, with the screenshots' actual paths. This is a monitoring-start reference, not evidence of pre-deploy health. Use it when no baseline exists; never overwrite an existing baseline during monitoring.
 
@@ -144,7 +143,7 @@ Monitor for the specified duration. Every 60 seconds, check each page. Nothing p
 Record the start and deadline. After each full round, wait `max(0, 60 - elapsed-round-seconds)` seconds using the host's wait tool or `sleep`. If a round exceeds 60 seconds, start the next immediately and report the actual cadence; never overlap rounds. Stop at the deadline after the current round.
 
 ```bash
-aside repl '
+~/.claude/skills/gstack/bin/gstack-aside-repl --out .gstack/canary-reports/screenshots '
 const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); window.addEventListener("unhandledrejection", e => window.__gstackErrs.push("unhandledrejection: " + (e.reason && e.reason.message || e.reason))); })()`;
 const pg = await openTab("about:blank");
 await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
@@ -152,14 +151,12 @@ await pg.goto("<page-url>");
 console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
 console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
 console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
-await pg.screenshot({ path: "<page-name>-<check-number>.jpg", type: "jpeg", quality: 60, fullPage: true });
-console.log("ASIDE_DIR=" + pwd);
+saveArtifact("<page-name>-<check-number>.jpg", await pg.screenshot({ type: "jpeg", quality: 60, fullPage: true }));
 await closeTab(pg);
 console.log("GSTACK_STEP_OK");
 '
 ```
 
-Then `cp "<ASIDE_DIR>/<page-name>-<check-number>.jpg" .gstack/canary-reports/screenshots/`.
 
 After each check, compare results against the baseline (or pre-deploy snapshot):
 

@@ -45,16 +45,14 @@ const NONE: Reply = { err: "no checks reported on the 'feature' branch", code: 1
 const NONE_REQUIRED: Reply = { err: "no required checks reported on the 'feature' branch", code: 1 };
 const head = (sha: string): Reply => ({ out: `${sha}\n`, code: 0 });
 
-/** The two fenced blocks in Step 4 that run `gh pr merge`, keyed by mode. */
-function mergeBlocks(): Record<'auto' | 'direct', string> {
+/** The one fenced block in Step 4 that runs `gh pr merge` (#4770: auto-merge is gone). */
+function mergeBlocks(): Record<'direct', string> {
   const blocks = [...source('sections/merge-and-deploy.md.tmpl').matchAll(/```bash\n([\s\S]*?)\n```/g)]
     .map(match => match[1])
     .filter(block => /\bgh pr merge /.test(block));
-  expect(blocks).toHaveLength(2);
-  const auto = blocks.find(block => block.includes('--auto'));
-  const direct = blocks.find(block => !block.includes('--auto'));
-  expect(auto && direct).toBeTruthy();
-  return { auto: auto!, direct: direct! };
+  expect(blocks).toHaveLength(1);
+  expect(blocks[0]).not.toContain('--auto');
+  return { direct: blocks[0] };
 }
 
 let dir: string;
@@ -68,7 +66,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 interface Journey {
   heads?: Reply[]; required: Reply | Reply[]; all: Reply | Reply[]; api?: Reply;
-  mode: 'auto' | 'direct'; noCiApprovedHead?: string; override?: string;
+  mode: 'direct'; noCiApprovedHead?: string; override?: string;
 }
 function runJourney(j: Journey) {
   const replies: Record<string, Reply | Reply[] | undefined> = { head: j.heads ?? [head(HEAD)], required: j.required, all: j.all, api: j.api ?? { err: 'HTTP 404', code: 1 } };
@@ -118,7 +116,7 @@ describe('merge blocks never merge without a PASS for the pinned head', () => {
     ['override approved for another head', { required: checks(['ci', 'pass']), all: checks(['ci', 'pass'], ['lint', 'fail']), override: `--override-head ${OTHER} --exclude lint` }],
     ['override naming a required check', { required: checks(['ci', 'fail']), all: checks(['ci', 'fail']), override: `--override-head ${HEAD} --exclude ci` }],
   ];
-  for (const mode of ['auto', 'direct'] as const) {
+  for (const mode of ['direct'] as const) {
     for (const [name, journey] of blocked) {
       test(`${mode}: ${name} → zero merges`, () => {
         const result = runJourney({ ...journey, mode });
@@ -131,13 +129,14 @@ describe('merge blocks never merge without a PASS for the pinned head', () => {
 });
 
 describe('positive controls: the same blocks do merge when the gate passes', () => {
-  for (const mode of ['auto', 'direct'] as const) {
+  for (const mode of ['direct'] as const) {
     test(`${mode}: all green → exactly one merge pinned to the head`, () => {
       const result = runJourney({ mode, required: checks(['ci', 'pass']), all: checks(['ci', 'pass'], ['docs', 'skipping']) });
       expect(result.status).toBe(0);
       expect(result.merges).toHaveLength(1);
       expect(result.merges[0]).toContain(`--match-head-commit ${HEAD}`);
-      expect(result.merges[0].includes('--auto')).toBe(mode === 'auto');
+      expect(result.merges[0]).not.toContain('--auto');
+      expect(result.merges[0]).not.toContain('--delete-branch');
     });
 
     test(`${mode}: explicit per-head override of named non-required checks → one merge`, () => {
@@ -175,7 +174,7 @@ describe('template wiring', () => {
     expect(step2).toContain('never on the exit code');
   });
 
-  test('both merge commands, including the direct fallback, run only after the gate', () => {
+  test('the one merge command runs only after the gate', () => {
     for (const block of Object.values(mergeBlocks())) {
       const gate = block.indexOf('bin/gstack-ci-gate');
       expect(gate).toBeGreaterThanOrEqual(0);
@@ -196,7 +195,7 @@ describe('template wiring', () => {
 
   test('generated skill files carry the helper calls', () => {
     expect(source('SKILL.md')).toContain('bin/gstack-ci-gate --repo "$REPO" --pr "$PR_NUMBER" --expect-head "$PR_HEAD"');
-    expect(source('sections/merge-and-deploy.md').match(/bin\/gstack-ci-gate /g)).toHaveLength(2);
+    expect(source('sections/merge-and-deploy.md').match(/bin\/gstack-ci-gate /g)).toHaveLength(1);
     expect(source('sections/readiness-gate.md')).toContain('CI (head <sha7>)');
   });
 });

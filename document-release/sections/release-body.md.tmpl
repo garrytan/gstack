@@ -88,7 +88,7 @@ notices until after the release.
 **Rules:**
 1. Read the entire CHANGELOG.md first. Understand what is already there.
 2. Only modify wording within existing entries. Never delete, reorder, or replace entries.
-3. Never regenerate a CHANGELOG entry from scratch. The entry was written by `/ship` from the
+3. Never regenerate a CHANGELOG entry from scratch. The entry was written by `/gstack-ship` from the
    actual diff and commit history. It is the source of truth. You are polishing prose, not
    rewriting history.
 4. If an entry looks wrong or incomplete, use AskUserQuestion — do NOT silently fix it.
@@ -133,7 +133,7 @@ STOP. A partial audit or unresolved required correction is `blocked`, never `cur
 
 ## Step 7: TODOS.md Cleanup
 
-This is a second pass that complements `/ship`'s Step 14. Read `review/TODOS-format.md` (if
+This is a second pass that complements `/gstack-ship`'s Step 14. Read `review/TODOS-format.md` (if
 available) for the canonical TODO item format.
 
 If TODOS.md does not exist, skip this step.
@@ -156,7 +156,7 @@ If TODOS.md does not exist, skip this step.
 
 **Ask before changing VERSION** — the version number is the user's release decision.
 
-1. **Read the version source** (the same signal `/ship` uses):
+1. **Read the version source** (the same signal `/gstack-ship` uses):
    ```bash
    bun --no-env-file --config=/dev/null run ~/.claude/skills/gstack/bin/gstack-version-bump classify --base <base>
    ```
@@ -364,7 +364,7 @@ rmdir "<run-dir>"
 
 **PR/MR title sync (idempotent, always-on):**
 
-PR titles must start with `v<VERSION>` whenever the project has a version source — same rule as `/ship`. If Step 8 bumped VERSION after `/ship` had already created the PR, the title is now stale. This sub-step fixes it.
+PR titles must start with `v<VERSION>` whenever the project has a version source — same rule as `/gstack-ship`. If Step 8 bumped VERSION after `/gstack-ship` had already created the PR, the title is now stale. This sub-step fixes it.
 
 Run this entire block in one shell, substituting `github` or `gitlab` for `<platform>` from Step 0 and the base branch for `<base>`. No variables cross tool calls. No version source (NO_VERSION) or no PR/MR skips title sync; an update failure warns and continues.
 
@@ -408,7 +408,7 @@ Where status is one of:
 - Current — no changes needed
 - Voice polished — wording adjusted
 - Not bumped — user chose to skip
-- Already bumped — version was set by /ship
+- Already bumped — version was set by /gstack-ship
 - Skipped — file does not exist
 
 If the coverage map from Step 1.5 identified any gaps, append:

@@ -14,13 +14,13 @@ Claude Code                           Aside (the user's browser, macOS 15+)
   bash: aside repl '<script>'   ───→   fresh sandboxed session
                                          • openTab(url) in the user's real profile
                                          • snapshot / click / fill / evaluate / screenshot
-                                         • artifacts under the session dir (pwd)
+                                         • artifacts as base64 lines on stdout
                                          • tabs close when the script ends
   stdout: evidence lines +       ←───   exit code is always 0; truth is the
           GSTACK_STEP_OK sentinel       sentinel (or a `[error` line)
 ```
 
-One flow per script. Nothing persists between calls, so a skill re-navigates from the URL for each step, prints labelled evidence lines, and copies artifacts out of the session directory in bash. The full contract — detect-never-install, own tabs only, look-freely-act-with-consent, credentials never pass through the agent, everything a page returns is untrusted — lives in `scripts/resolvers/aside.ts` and renders into every browser skill as `{{ASIDE_SETUP}}`; `test/aside-driver.test.ts` pins its sentences. [BROWSER.md](BROWSER.md) is the reader's version.
+One flow per script. Nothing persists between calls, so a skill re-navigates from the URL for each step, prints labelled evidence lines, and saves artifacts through `bin/gstack-aside-repl`, which decodes them from stdout (the session directory is deleted when the script ends). The full contract — detect-never-install, own tabs only, look-freely-act-with-consent, credentials never pass through the agent, everything a page returns is untrusted — lives in `scripts/resolvers/aside.ts` and renders into every browser skill as `{{ASIDE_SETUP}}`; `test/aside-driver.test.ts` pins its sentences. [BROWSER.md](BROWSER.md) is the reader's version.
 
 Web research in the planning and review skills goes through the same door first: `aside exec "<question>"` in the user's browser (`{{ASIDE_RESEARCH}}`), one read-only request per question, the answer treated as untrusted content, every call routed through the `_aside_exec` wrapper (`{{ASIDE_EXEC_PRELUDE}}`) that writes an egress receipt before the prompt leaves the machine (fail-open: only a missing egress library lets the call run unreceipted). Without Aside it uses the host's WebSearch tool when there is one, and otherwise says "Search unavailable" once and carries on.
 
@@ -107,7 +107,7 @@ The build writes `git rev-parse HEAD` to `browse/dist/.version`. On each CLI inv
 
 1. **Aside refuses `file://` URLs**, so the HTML's directory is served with `Bun.serve()` on `127.0.0.1` at an ephemeral port for the duration of one render and opened with `goto(url, { waitUntil: "load" })` — the default "interactive" readiness never fires for the 9MB diagram bundle. The URL carries a per-render secret as its first path segment (another local process gets 404 for everything), containment is checked on the real path of every request (a symlink escaping the directory is 403, malformed encoding is 400), and directories are never listed.
 2. **One `aside repl` process runs one generated script**: open, wait (`--wait-selector` / `--wait-expr`), run the steps in order (`--pdf`, `--screenshot`, `--eval … --out`), close the tab. Nothing persists between CLI calls, so a render is always a single script.
-3. **Artifacts are written inside Aside's sandbox** (the per-run session directory is the only writable place), the script prints `ASIDE_DIR=<pwd>`, and the wrapper copies them out.
+3. **Artifacts come back over stdout** as base64 `ARTIFACT` lines and the wrapper writes them to disk: the per-run session directory is the only writable place, and a one-shot `aside repl` deletes it when the script ends (#4784).
 4. **PDFs go through raw CDP `Page.printToPDF`** via `page._sendToTarget`, so header/footer templates, tagged PDF, and the document outline keep working — `page.pdf()` exposes only the Playwright subset.
 5. **Sized screenshots use CDP `Emulation.setDeviceMetricsOverride`.** There is no `setViewportSize`.
 6. **The CLI exit code is 0 even when the script throws.** Truth is the `GSTACK_RENDER_OK` sentinel on stdout; a `[error` line is failure.
@@ -346,10 +346,10 @@ Templates contain the workflows, tips, and examples that require human judgment.
 | `{{QA_SCOPE}}, {{QA_EXPLORATORY}}, {{QA_FUNCTIONAL}}, {{QA_RESOURCE}}, {{QA_METHOD_READS}}, {{QA_REVIEW}}` | `resolvers/qa.ts` | Surface selection, checkpointed native/exploratory QA, direct conditional method reads, installed-asset references and bounded review/ship callers |
 | `{{DESIGN_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared design audit methodology for /plan-design-review and /design-review |
 | `{{SHARED_LIBS_RUBRIC}}` | `resolvers/shared-libs.ts` | Shared-code criteria for /deslop-shared-libs, /plan-eng-review, and /review: verified callers, existing helpers, compatibility, tests, and total savings |
-| `{{REVIEW_DASHBOARD}}` | `gen-skill-docs.ts` | Review Readiness Dashboard for /ship pre-flight |
-| `{{TEST_VALUE_BAR:<mode>}}` | `resolvers/test-value.ts` | Shared test value bar (authoring gate, value card, X/Y coverage, red-first proof, low-value catalog) for /qa and /qa-only (`qa`) and /test-audit (`audit`); /plan-eng-review and /ship embed it through the coverage audit |
+| `{{REVIEW_DASHBOARD}}` | `gen-skill-docs.ts` | Review Readiness Dashboard for /gstack-ship pre-flight |
+| `{{TEST_VALUE_BAR:<mode>}}` | `resolvers/test-value.ts` | Shared test value bar (authoring gate, value card, X/Y coverage, red-first proof, low-value catalog) for /qa and /qa-only (`qa`) and /test-audit (`audit`); /plan-eng-review and /gstack-ship embed it through the coverage audit |
 | `{{TEST_VALUE_MESSAGE:<key>}}` | `resolvers/test-value.ts` | One degraded-mode message (problem, consequence, fix, docs anchor) from the shared constants |
-| `{{TEST_BOOTSTRAP}}` | `resolvers/testing.ts` | Test framework detection, bootstrap, CI/CD setup for /ship and /design-review |
+| `{{TEST_BOOTSTRAP}}` | `resolvers/testing.ts` | Test framework detection, bootstrap, CI/CD setup for /gstack-ship and /design-review |
 | `{{CODEX_PLAN_REVIEW}}` | `resolvers/outside-voice-steps.ts` | Optional outside plan review for /plan-ceo-review and /plan-eng-review: Claude Code on Codex, Codex on other supported harnesses, with the caller's native subagent fallback |
 | `{{DESIGN_SETUP}}` | `resolvers/design.ts` | Discovery pattern for `$D` design binary, mirrors `{{BROWSE_SETUP}}` |
 | `{{DESIGN_DETECTOR}}` | `resolvers/design.ts` | Probe block + sentinel reading for the user-installed impeccable engine (`bin/gstack-design-detect.ts`); `:phase0` renders design-review's mechanical scan, `:gate` design-html's bounded slop gate |
@@ -368,7 +368,7 @@ Templates contain the workflows, tips, and examples that require human judgment.
 
 This is structurally sound — if a command exists in code, it appears in docs. If it doesn't exist, it can't appear.
 
-The generator also owns two files that are not skill docs: `review/design-checklist.md` is rendered from `lib/design-catalog.ts` (through `scripts/resolvers/design-checklist.ts`), and `lib/dom-dump.js` is written from `lib/dom-dump-script.ts`. The checklist `/review` and `/ship` read and the DOM dump `/design-review` runs therefore cannot drift from the catalog and the script the templates describe; `test/design-checklist-sync.test.ts` pins both.
+The generator also owns two files that are not skill docs: `review/design-checklist.md` is rendered from `lib/design-catalog.ts` (through `scripts/resolvers/design-checklist.ts`), and `lib/dom-dump.js` is written from `lib/dom-dump-script.ts`. The checklist `/review` and `/gstack-ship` read and the DOM dump `/design-review` runs therefore cannot drift from the catalog and the script the templates describe; `test/design-checklist-sync.test.ts` pins both.
 
 The internal async `runGeneration()` driver inventories skills, Claude sections
 and, on every supported host, the sections of the skills carved on every host
@@ -420,7 +420,7 @@ See [eval defaults and overrides](CONTRIBUTING.md#testing--evals).
 |------|------|------|-------|
 | 1 — Static validation | Parse every `$B` command in SKILL.md and validate it against the registry; pin the Aside contract sentences and the render wrapper's option mapping | Free | <2s |
 | 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, check for errors | ~$3.85 | ~20min |
-| 3 — LLM-as-judge | `claude-fable-5-1` by default scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
+| 3 — LLM-as-judge | `claude-fable-5-2` by default scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
 Tier 1 runs on every `bun run test`. Tiers 2+3 are gated behind `EVALS=1`. The idea is: catch 95% of issues for free, use LLMs only for judgment calls.
 
@@ -528,7 +528,7 @@ See [eval defaults and overrides](CONTRIBUTING.md#testing--evals).
 |------|------|------|-------|
 | 1 — Static validation | Parse `$B` commands against the registry, Aside contract pins, render-wrapper pins, observability unit tests | Free | <5s |
 | 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, scan for errors | ~$3.85 | ~20min |
-| 3 — LLM-as-judge | `claude-fable-5-1` by default scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
+| 3 — LLM-as-judge | `claude-fable-5-2` by default scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
 Tier 1 runs on every `bun run test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.
 

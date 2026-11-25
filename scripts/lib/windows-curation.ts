@@ -529,6 +529,10 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'drives bin/gstack-ship-release, gstack-approvals, gstack-review-log, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-ruled-notes.test.ts; windows-latest fails every case at the first bin spawn (windows-free-shard 3, run 42593329215)',
   },
   {
+    file: 'test/ship-finish-edit-ruling.test.ts',
+    reason: 'drives bin/gstack-ship-release, gstack-approvals, gstack-docs-candidate and gstack-wtree (shebangs) through test/helpers/ship-bin-fixture.ts like test/ship-finish-ruled-notes.test.ts, whose every case fails on windows-latest at the first bin spawn',
+  },
+  {
     file: 'test/review-pass-program.test.ts',
     reason: 'split from test/review-pass.test.ts, which Windows never ran (its POSIX mode-bit check): runs bin/gstack-review-dispatch (a shebang) and bash git fixtures through test/helpers/review-pass-harness.ts',
   },

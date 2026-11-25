@@ -263,6 +263,25 @@ describe('caller native-event observer controls', () => {
       expect(validateCallerEvidence(observed)).toEqual([]);
     });
 
+  // Gate census 45216872389 paid-slice-9-a1: after full and unchanged HANDOFF.md Reads, the completed:true records came
+  // first and a Read {offset: 1} with no limit followed, which the runtime answered file_unchanged. Offset 1 with no
+  // limit reads the whole file, so the captured order passes; any other range stays a partial read and is flagged.
+  test.each(capturedHandoffOrder.passingAttempts.map(attempt => [attempt.source, attempt] as const))
+    ('captured offset-1 handoff re-read after the completion record is a full read: %s', (_, attempt) => {
+      const observed = evidence();
+      const base = observed.result.transcript;
+      const lastRead = (events: any[]) => events.findLast(event => event.message.content[0].name === 'Read').message.content[0];
+      observed.result.transcript = [...base, ...structuredClone(attempt.events)];
+      expect(lastRead(observed.result.transcript as any[]).input).toEqual({ file_path: '/fixture-root/product/HANDOFF.md', offset: 1 });
+      expect(validateCallerEvidence(observed)).toEqual([]);
+      for (const partial of [{ offset: 2 }, { offset: 1, limit: 1 }, { offset: '1' }, { limit: 2000 }]) {
+        const events = structuredClone(attempt.events) as any[];
+        lastRead(events).input = { file_path: '/fixture-root/product/HANDOFF.md', ...partial };
+        observed.result.transcript = [...base, ...events];
+        expect(validateCallerEvidence(observed)).toEqual(['review completion preceded handoff freshness decision']);
+      }
+    });
+
   test('captured gate-census-5 review record: bun-wrapped helper and receipt status are outside the interface', () => {
     // ci-36629958451-1-gate-census-5 review-exploratory-small-cli, native events 68 and 70 (fixture paths shortened).
     const record = (status: string) => `/runtime/bin/gstack-review-log '{"skill":"review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","commit":"'"$(git rev-parse --short HEAD)"'","branch":"caller-change","status":"${status}","completed":false,"converged":false,"critical":1,"informational":0,"findings":[{"path":"scale.ts","line":3,"category":"functional-contract","severity":"CRITICAL","fingerprint":"scale.ts:3:functional-contract","action":"ask-pending"}]}' --finish d45404cf-ba19-4bc6-a505-9801e9322f54`;
@@ -845,7 +864,7 @@ describe('generated actual parent paths', () => {
     expect(body).toMatch(new RegExp(`never reset ${n.deadline}\\W+bypass ${n.guard}`, 'i'));
     expect(body).toMatch(/plan checks and revalidation remain required beyond this smoke budget/i);
     expect(body).toContain('leaves /review incomplete');
-    expect(body).toMatch(/\/ship blocked unless the user explicitly accepts that named risk/i);
+    expect(body).toMatch(/\/gstack-ship blocked unless the user explicitly accepts that named risk/i);
   });
 
   test('excerpt extraction fails loudly instead of producing an empty passing fixture', () => {

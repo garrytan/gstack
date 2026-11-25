@@ -1,0 +1,4 @@
+{
+  "bytes": 182,
+  "why": "GST-3654: /ship installs as /gstack-ship (#4775); every mention of the command grows by 7 bytes"
+}

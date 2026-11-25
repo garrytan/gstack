@@ -519,14 +519,14 @@ describe('evals-periodic.yml census arms: Monday two-arm census, monthly Fable/A
   const census = wf.jobs['gate-census']!;
   const report = wf.jobs.report!;
 
-  test('each arm is one host and model: the capture default and gpt-6.1-sol weekly, claude-fable-5-1 and gpt-6-astra monthly', () => {
+  test('each arm is one host and model: the capture default and gpt-6.2-sol weekly, claude-fable-5-2 and gpt-6.2-astra monthly', () => {
     expect(WEEKLY_CENSUS_ARMS).toEqual(['claude-opus', 'codex-sol']);
     expect(MONTHLY_CENSUS_ARMS).toEqual(['claude-fable', 'codex-astra']);
     // claude-opus pins no model: the Claude runners' capture default (lib/eval-model.ts) applies.
     expect(censusArmEnv('claude-opus')).toEqual({ EVALS_HOST: 'claude' });
-    expect(censusArmEnv('codex-sol')).toEqual({ EVALS_HOST: 'codex', GSTACK_CODEX_MODEL: 'gpt-6.1-sol' });
-    expect(censusArmEnv('claude-fable')).toEqual({ EVALS_HOST: 'claude', EVALS_MODEL: 'claude-fable-5-1' });
-    expect(censusArmEnv('codex-astra')).toEqual({ EVALS_HOST: 'codex', GSTACK_CODEX_MODEL: 'gpt-6-astra' });
+    expect(censusArmEnv('codex-sol')).toEqual({ EVALS_HOST: 'codex', GSTACK_CODEX_MODEL: 'gpt-6.2-sol' });
+    expect(censusArmEnv('claude-fable')).toEqual({ EVALS_HOST: 'claude', EVALS_MODEL: 'claude-fable-5-2' });
+    expect(censusArmEnv('codex-astra')).toEqual({ EVALS_HOST: 'codex', GSTACK_CODEX_MODEL: 'gpt-6.2-astra' });
     expect(() => censusArmEnv('codex-luna')).toThrow('unknown census arm');
     // The report files slice artifacts by arm suffix: no arm id may end another one.
     const ids = Object.keys(CENSUS_ARMS);
@@ -568,7 +568,7 @@ describe('evals-periodic.yml census arms: Monday two-arm census, monthly Fable/A
     };
     expect(cli(['--select'], { SCHEDULE: MONTHLY_CENSUS_SCHEDULE })).toBe('arms=["claude-fable","codex-astra"]\nperiodic_lane=false\n');
     expect(cli(['--select'], { CENSUS_ARMS: 'codex-sol', INCLUDE_GATE_CENSUS: 'true' })).toBe('arms=["codex-sol"]\nperiodic_lane=false\n');
-    expect(cli(['--env', 'codex-sol'], {})).toBe('EVALS_HOST=codex\nGSTACK_CODEX_MODEL=gpt-6.1-sol\n');
+    expect(cli(['--env', 'codex-sol'], {})).toBe('EVALS_HOST=codex\nGSTACK_CODEX_MODEL=gpt-6.2-sol\n');
   });
 
   test('census artifacts and reconciliation are per arm', () => {

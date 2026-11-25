@@ -73,7 +73,7 @@ export function pickPlanReviewQuestion(question: NativeQuestion): number {
   const offersFollowUp = labels.some(run);
   const manual = (label: string) => /^Skip\s*[,:;.—–-]\s*(?:I(?:['’]ll| will)\s+)?handle (?:reviews|next steps) manually$/i.test(label)
     || (offersFollowUp && (/^(?:Skip|Handle manually)$/i.test(label) || /^Skip\s*[,:;.—–-]\s*handle manually$/i.test(label) || /^Skip, manual next steps$/i.test(label)));
-  const future = (label: string) => /^Ready to implement(?:\s*[—–-]\s*run \/ship when done)?$/i.test(label)
+  const future = (label: string) => /^Ready to implement(?:\s*[—–-]\s*run \/(?:gstack-)?ship when done)?$/i.test(label)
     || /^Ready to implement[,;] (?:run )?\/devex-review after shipping$/i.test(label)
     || (offersFollowUp && (/^Implement, then \/devex-review$/i.test(label)
       || /^Implement now, \/devex-review after$/i.test(label)));

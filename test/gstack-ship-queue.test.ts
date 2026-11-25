@@ -276,7 +276,7 @@ describe('ready', () => {
     const unshipped = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], shim(head, green, 'no receipt'));
     expect(unshipped.status).toBe(EXIT.refused);
     expect(unshipped.out).toContain('SHIP_RECEIPT: none in the PR body');
-    expect(unshipped.err).toMatch(/PR #1's body carries no ship receipt; fix: run \/ship on the branch .*\(QUEUE_RECEIPT_MISSING\)/);
+    expect(unshipped.err).toMatch(/PR #1's body carries no ship receipt; fix: run \/gstack-ship on the branch .*\(QUEUE_RECEIPT_MISSING\)/);
     const broken = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], shim(head, green, '```gstack-ship-receipt\n{"schema_version":1}\n```\n'));
     expect(broken.status).toBe(EXIT.refused);
     expect(broken.out).toContain('SHIP_RECEIPT: invalid in the PR body');

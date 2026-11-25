@@ -403,7 +403,7 @@ the plan as first written. First match: any `pending` id = approve nothing (bare
 Read `sections/unattended.md` and settle the gate by its gate rule instead.
 
 **Option handling:**
-- A: mark APPROVED, run `~/.claude/skills/gstack/bin/gstack-owner-brief close --out "$_AP" --plan <ACTIVE_PLAN>`, write review logs, suggest /ship
+- A: mark APPROVED, run `~/.claude/skills/gstack/bin/gstack-owner-brief close --out "$_AP" --plan <ACTIVE_PLAN>`, write review logs, suggest /gstack-ship
 - B: apply each chosen change, rerun as in D before re-presenting the gate; same 3-cycle cap as D.
 - B2: apply each accepted User Challenge (rejected ones keep the user's direction), re-run Eng, re-present the gate.
 - C: answer freeform, re-present the gate
@@ -423,7 +423,7 @@ resumes the existing one and its checkpoint.
 
 ## Completion: Write Review Logs
 
-On approval, log each completed review for /ship's dashboard, substituting
+On approval, log each completed review for /gstack-ship's dashboard, substituting
 TIMESTAMP, STATUS ("clean" or "issues_open") and N.
 
 ```bash

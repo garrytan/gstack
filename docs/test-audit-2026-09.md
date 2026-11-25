@@ -412,7 +412,7 @@ release docs sweep); tests 383 (+9,375/−44,379); test helpers 47 (+786/−12,7
   `review-start-evidence` (13.3 s, `lib/review-evidence`), `office-hours-review`, `plan-tune`,
   `ship-version-sync`, `ship-template-redaction`, `ship-test-detection-markers`, `spec-quality-gate-secret-sink`:
   test production modules/bins. Keep.
-- `ship-review-loop.test.ts` test 1 (no `**STOP** … run /ship again` across rendered hosts) is a real #2391
+- `ship-review-loop.test.ts` test 1 (no `**STOP** … run /gstack-ship again` across rendered hosts) is a real #2391
   regression guard; tests 2–3 are exact-sentence pins ("stay in this invocation and loop") and could be
   loosened, but prose here is the skill's instruction, so not a deletion candidate.
 - `ship-apple-gate.test.ts`: ordering assertion (Apple adapter before branch gate) is behavior in prose. Keep.

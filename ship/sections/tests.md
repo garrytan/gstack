@@ -365,7 +365,7 @@ Failing on <current branch>; pre-existing.
 ~~~
 
 **Last modified by:** <author>
-**Noticed by:** gstack /ship on <date>
+**Noticed by:** gstack /gstack-ship on <date>
 ```
 
 Then post with your platform from Step 0 (`github` or `gitlab`). Substitute the two printed names, and an assignee only when it is a valid login for that platform (GitHub: letters, digits and single hyphens, at most 39 characters); otherwise drop the assignee flag and name the person in the body.
@@ -410,10 +410,10 @@ as written.
 
 **Resume a red-base pause.** A parent waits with `gstack-base-red wait --pause
 <file>` (a background operation; `BASE_GREEN:` once a new base head passes the
-cases), then runs `/ship --resume <record>`: if HEAD is still the paused head,
+cases), then runs `/gstack-ship --resume <record>`: if HEAD is still the paused head,
 rerun this Step 5 on HEAD merged with the new base in a scratch worktree (never a
 pushed base merge); all green rewrites the receipt without `--base-red` and runs
-Step 22. Any failure is triaged here as new; a moved HEAD starts /ship fresh.
+Step 22. Any failure is triaged here as new; a moved HEAD starts /gstack-ship fresh.
 
 **After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, skipped, or base-red and paused), continue to Step 6.
 

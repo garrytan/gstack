@@ -69,7 +69,7 @@ and every outside review run as a command, one subcommand per check.
 
 Model order: a model the user names for this request, `GSTACK_CODEX_MODEL`, Codex
 `config.toml` `model` (`review_model` first for `codex review`; honors `$CODEX_HOME`),
-then `gpt-6-astra`. Each call prints `CODEX_MODEL: <model> (<kind>; source: ...)` first.
+then `{{NEWEST_MODEL:astra}}`. Each call prints `CODEX_MODEL: <model> (<kind>; source: ...)` first.
 For a named model, add `--model '<model>'` to every `select-model`, `probe-model` and
 `role-ready` call, including the probe below. An invalid or unavailable choice stops
 with a repair message, never the default; a named model also wins over a role.
@@ -262,7 +262,7 @@ fast, no extra cost. Unlike the legacy `--enable`-based spelling (deprecated by
 codex >=0.144), the `-c` form explicitly overrides any top-level
 `web_search` setting in `~/.codex/config.toml`.
 
-If the user specifies a model (e.g., `/codex review -m gpt-6.1-sol` or
+If the user specifies a model (e.g., `/codex review -m {{NEWEST_MODEL:sol}}` or
 `/codex challenge --model gpt-daybreak-blue-latest`), translate it to the same config
 form and replace the default model flag with `-c "model=\"<model>\""`.
 
@@ -311,7 +311,7 @@ If token count is not available, display: `Tokens: unknown`
   2. Fix that source and relay its HINT/Repair lines. With `--role plan-review`,
      tier pins outrank native settings; native `model`/`review_model` applies
      only in `host` mode. Without a role, request, `GSTACK_CODEX_MODEL`, then
-     native settings choose the model, falling back to `gpt-6-astra`.
+     native settings choose the model, falling back to `{{NEWEST_MODEL:astra}}`.
   3. If Codex printed `[notice.model_migrations]`, use that replacement for
      no-role calls. For a role, offer an explicit override; do not silently substitute.
   Never present this as a model stall or a PASS — it is a fail-closed gate result.

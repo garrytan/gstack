@@ -168,7 +168,7 @@ export async function generateLlmsTxt(opts: GenerateOptions = {}): Promise<Gener
   lines.push("> gstack is Garry's Stack: AI coding skills + a fast headless browser binary + a design CLI. This file indexes every capability so agents can discover and invoke them without crawling individual SKILL.md files.");
   lines.push('');
   lines.push('Conventions:');
-  lines.push('- Skills are invoked by name (e.g. `/ship`, `/plan-ceo-review`).');
+  lines.push('- Skills are invoked by name (e.g. `/gstack-ship`, `/plan-ceo-review`).');
   lines.push('- Browse commands run as `browse <command> [args]` (or `$B` shorthand).');
   lines.push('- Design commands run as `design <command> [args]` (or `$D`).');
   lines.push('- Project-specific config lives in `CLAUDE.md`. Always read it first.');

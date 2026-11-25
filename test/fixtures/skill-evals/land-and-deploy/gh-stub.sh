@@ -15,7 +15,7 @@ jq -cn '$ARGS.positional' --args -- "$@" >> "$D/.gh-log" 2>/dev/null || printf '
 cmd="${1:-} ${2:-}"
 [ $# -ge 2 ] && shift 2 || shift $#
 case "$cmd" in api\ *) apipath=${cmd#api }; cmd=api ;; esac
-fields= expr= target= required= auto= delbranch= matchhead= nameonly= logfailed=
+fields= expr= target= required= auto= delbranch= matchhead= nameonly= logfailed= basef=
 while [ $# -gt 0 ]; do
   a=$1; shift
   case "$a" in
@@ -33,7 +33,8 @@ while [ $# -gt 0 ]; do
     --log-failed) logfailed=1 ;;
     -f|-F|--field|--raw-field) shift ;;
     --repo=*|--branch=*|--limit=*|--state=*|--method=*|--workflow=*) ;;
-    -R|--repo|-b|--branch|-L|--limit|-s|--state|-X|--method|-H|--head|-B|--base|-t|--title|-w|--workflow) shift ;;
+    -B|--base) basef=${1:-}; shift ;;
+    -R|--repo|-b|--branch|-L|--limit|-s|--state|-X|--method|-H|--head|-t|--title|-w|--workflow) shift ;;
     -*) ;;
     *) [ -z "$target" ] && target=$a ;;
   esac
@@ -73,7 +74,7 @@ case "$cmd" in
     if [ -n "$fields" ] || [ -n "$expr" ]; then out "$(cat "$PR")"; else jq -r '"\(.title) #\(.number)\n\(.state)\n\n\(.body)\n\n\(.url)"' "$PR"; fi
     ;;
   "pr list")
-    if [ -f "$PR" ] && jq -e '.state == "OPEN"' "$PR" >/dev/null; then out "[$(cat "$PR")]"; else out '[]'; fi
+    if [ -f "$PR" ] && jq -e --arg b "$basef" '.state == "OPEN" and ($b == "" or .baseRefName == $b)' "$PR" >/dev/null; then out "[$(cat "$PR")]"; else out '[]'; fi
     ;;
   "pr diff")
     b=$(jq -r .baseRefOid "$PR"); h=$(jq -r .headRefOid "$PR")
@@ -129,7 +130,7 @@ case "$cmd" in
   api)
     case "$apipath" in
       graphql)
-        out "$(jq -c '{data: {repository: {pullRequest: {number, state, headRefOid, baseRefName, mergedAt: (.mergedAt // null), mergeCommit: (.mergeCommit // null), autoMergeRequest: null, mergeQueueEntry: null, mergeable, title, url}}}}' "$PR")" ;;
+        out "$(jq -c '{data: {repository: {pullRequest: {number, state, headRefOid, baseRefName, mergedAt: (.mergedAt // null), mergeCommit: (.mergeCommit // null), autoMergeRequest: null, mergeQueueEntry: null, isMergeQueueEnabled: false, mergeable, title, url}}}}' "$PR")" ;;
       repos/example/app)
         out '{"full_name":"example/app","default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"delete_branch_on_merge":false}' ;;
       repos/example/app/contents/.github/workflows*)

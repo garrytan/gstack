@@ -129,7 +129,7 @@ export function recordGateDisposition(cwd: string, loc: StoreLocation, row: Appr
   if (!gateDispositions([signed], loc.branch).length) return { code: 'APPROVAL_RECORD_INVALID', message: 'the row would not count as a gate disposition (gstack-approvals dispositions would not list it: a 40-hex --head and one-line fields are required), so it would close nothing; nothing was written' };
   const held = withGateLock(cwd, () => {
     const open = openShipRunsOn(cwd, loc.branch);
-    if (open.length) return { code: 'APPROVAL_RECORD_INVALID' as const, message: `/ship run ${open.map(o => o.text).join('; /ship run ')} (branch ${loc.branch}): a gate disposition is the owner's, never the lane's own runner's; record it from the owner's session once no /ship run is open on the branch (${open.map(o => o.detail).filter(Boolean).join('; ')})` };
+    if (open.length) return { code: 'APPROVAL_RECORD_INVALID' as const, message: `/gstack-ship run ${open.map(o => o.text).join('; /gstack-ship run ')} (branch ${loc.branch}): a gate disposition is the owner's, never the lane's own runner's; record it from the owner's session once no /gstack-ship run is open on the branch (${open.map(o => o.detail).filter(Boolean).join('; ')})` };
     return appendRows(loc, [signed]);
   });
   return held;
@@ -144,7 +144,7 @@ export type GateAcceptanceCode = Extract<ResultCodeName, 'QUEUE_GATE_DISPOSITION
  */
 export function gateAcceptance(o: { cwd: string; branch: string; pin: string; body: string; receipt?: ShipReceipt; accepted?: readonly string[]; env?: Env; noted?: readonly ApprovalRow[] }):
   { lines: string[]; applied: GateDisposition[]; noteRows?: ApprovalRow[]; failure?: { code: GateAcceptanceCode; message: string; fix: string } } {
-  const fix = 'the lander reads each GATE_DISPOSITION line and reruns with --accept-gate-disposition <approval id> for each one it accepts; a receipt or body that differs from the store is rewritten by /ship at the pin (docs/troubleshooting.md#queue-gate-disposition)';
+  const fix = 'the lander reads each GATE_DISPOSITION line and reruns with --accept-gate-disposition <approval id> for each one it accepts; a receipt or body that differs from the store is rewritten by /gstack-ship at the pin (docs/troubleshooting.md#queue-gate-disposition)';
   let got: ReturnType<typeof appliedGateDispositions>;
   try { got = appliedGateDispositions(o.cwd, o); }
   catch (e: any) { return { lines: [], applied: [], failure: { code: 'QUEUE_GATE_DISPOSITION', message: `the gate dispositions for ${o.branch} at the pin cannot be derived (${e.message}); an unreadable store or a git error refuses, never reads as none`, fix } }; }

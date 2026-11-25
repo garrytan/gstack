@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { branchKey, captainApprovalsDir } from './approval-record';
 import { readVersionedSlugCache, sanitizeSlug } from './bin-context';
-import { cutDrops, cutQuote, isFirstVersion, parseCuts, parseDayOne, parseOwnerWords, quoteGaps, quoteWhen, wordKey, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
+import { cutDrops, cutQuote, isFirstVersion, parseCuts, parseDayOne, parseOwnerWords, quoteGaps, quoteWhen, wordKey, type CheckedQuote, type DayOneTable, type OwnerQuote, type OwnerWordsSection } from './autoplan-owner-text';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { readDecisions, readJournal, type RunState } from './autoplan-state';
 import { resolveStateRoot } from './state-root';
@@ -29,8 +29,9 @@ import type { FindingRow } from './headless-artifacts';
 
 export type ChallengeRow = FindingRow & { user_challenge?: boolean; changes?: string; settled_by?: string; owner_quote?: number; narrows_quote?: number; resolves?: string };
 export type NewItem = Omit<GateItem, 'id'> & { idKind: 'd' | 'uc'; key: string };
-export interface GateOwnerWords { status: OwnerWordsSection['status']; quotes: Array<OwnerQuote & { verified: boolean }>; reason?: string; fix?: string }
-export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>; dayOne: DayOneTable; cuts: string[]; app: boolean; lean: boolean; firstVersion: boolean }
+export interface GateOwnerWords { status: OwnerWordsSection['status']; quotes: Array<CheckedQuote & { verified: boolean }>; reason?: string; fix?: string }
+/** `verified`: quotes whose words are in a recorded owner reply; `ruled`: ruled-out lines whose ruling is (GST-3646). */
+export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>; ruled: Set<number>; dayOne: DayOneTable; cuts: string[]; app: boolean; lean: boolean; firstVersion: boolean }
 
 /**
  * The owner's words in this repository's approvals record for the branch checked out at `cwd` (lib/approval-record.ts
@@ -40,7 +41,10 @@ export interface OwnerContext { words: OwnerWordsSection; verified: Set<number>;
  * writes the cache, and building a gate must not write outside the run). No known slug reads no record, so a quote stays
  * unverified rather than matching another repository's branch of the same name.
  */
-export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): string[] {
+/** One recorded owner reply: its words, and when available its time and record id, which a ruled-out line cites. */
+export interface OwnerReply { text: string; at?: string; id?: string }
+
+export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): OwnerReply[] {
   const head = spawnSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { cwd, encoding: 'utf8', timeout: 10_000 });
   const branch = head.status === 0 ? head.stdout.trim() : '';
   if (!branch) return [];
@@ -51,37 +55,53 @@ export function ledgerWords(cwd: string, env: NodeJS.ProcessEnv = process.env): 
   const name = `${branchKey(branch)}.jsonl`;
   const files = [path.join(stateRoot, 'projects', slug, 'approvals', name),
     ...[env.GSTACK_APPROVALS_DIR, captainApprovalsDir(env)].flatMap(root => (root ? [path.join(root, slug, name)] : []))];
-  const words: string[] = [];
+  const words: OwnerReply[] = [];
   for (const file of files) {
     let text: string;
     try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
     for (const line of text.split('\n')) {
-      try { const row = JSON.parse(line); if (typeof row?.words === 'string' && !row.words_by) words.push(row.words); } catch { /* a torn line */ }
+      try { const row = JSON.parse(line); if (typeof row?.words === 'string' && !row.words_by) words.push({ text: row.words, at: row.recorded_at, id: row.id }); } catch { /* a torn line */ }
     }
   }
   return words;
 }
 
 /** Every owner reply this run recorded, plus the owner's words in the approvals records for the plan's branch. */
-export function recordedOwnerWords(state: RunState, env: NodeJS.ProcessEnv = process.env): string[] {
-  const out: string[] = [];
-  for (const r of readJournal(state.out)) if (typeof r.owner_reply === 'string') out.push(r.owner_reply);
-  for (const d of readDecisions(state.out)) if (typeof d.owner_reply === 'string') out.push(d.owner_reply);
+export function recordedOwnerWords(state: RunState, env: NodeJS.ProcessEnv = process.env): OwnerReply[] {
+  const out: OwnerReply[] = [];
+  for (const r of readJournal(state.out)) if (typeof r.owner_reply === 'string') out.push({ text: r.owner_reply, at: r.ts });
+  for (const d of readDecisions(state.out)) if (typeof d.owner_reply === 'string') out.push({ text: d.owner_reply, at: d.answered_at, id: d.id });
   return [...out, ...ledgerWords(path.dirname(state.plan_input ?? state.plan_source), env)];
 }
 
-export function ownerContext(state: RunState, recorded: string[] = recordedOwnerWords(state)): OwnerContext {
+/** The replies a ruled-out line's citation names: a record id, or a time (`YYYY-MM-DD` or `YYYY-MM-DD HH:MMZ`) its timestamp starts with. One reply is stored on every row it answered, so copies of the same words count once. */
+export function citedReplies(cite: string, replies: OwnerReply[]): OwnerReply[] {
+  const m = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2})Z?)?$/.exec(cite.trim());
+  const stamp = m ? `${m[1]}${m[2] ? `T${m[2]}` : ''}` : undefined;
+  const cited = replies.filter(r => r.id === cite.trim() || (!!stamp && !!r.at && r.at.startsWith(stamp)));
+  return [...new Map(cited.map(r => [r.text.trim(), r])).values()];
+}
+
+export function ownerContext(state: RunState, recorded: Array<string | OwnerReply> = recordedOwnerWords(state)): OwnerContext {
   let text = '';
   try { text = fs.readFileSync(state.active_plan, 'utf8'); } catch { /* no plan text: nothing is quoted */ }
   const words = parseOwnerWords(text);
-  const keys = recorded.map(wordKey);
+  const replies = recorded.map(r => (typeof r === 'string' ? { text: r } : r));
+  const keys = replies.map(r => wordKey(r.text));
   const verified = new Set(words.quotes.filter(q => keys.some(k => k.includes(wordKey(q.text)))).map(q => q.n));
-  return { words, verified, dayOne: parseDayOne(text), cuts: parseCuts(text), app: !!state.scope?.ui, lean: !!state.lean,
+  const ruledBy = (q: OwnerQuote) => {
+    if (q.line?.kind !== 'ruled_out') return false;
+    const key = wordKey(q.line.ruling);
+    const cited = citedReplies(q.line.date, replies);
+    return key.trim().split(/\s+/).length >= 3 && !wordKey(q.text).includes(key) && cited.length === 1 && wordKey(cited[0]!.text).includes(key);
+  };
+  const ruled = new Set(words.quotes.filter(ruledBy).map(q => q.n));
+  return { words, verified, ruled, dayOne: parseDayOne(text), cuts: parseCuts(text), app: !!state.scope?.ui, lean: !!state.lean,
     firstVersion: isFirstVersion(text, !!state.scope?.first_version) };
 }
 
 export function gateOwnerWords(ctx: OwnerContext): GateOwnerWords {
-  return { status: ctx.words.status, quotes: ctx.words.quotes.map(q => ({ ...q, verified: ctx.verified.has(q.n) })),
+  return { status: ctx.words.status, quotes: ctx.words.quotes.map(q => ({ ...q, verified: ctx.verified.has(q.n), ...(q.line?.kind === 'ruled_out' ? { ruling_verified: ctx.ruled.has(q.n) } : {}) })),
     ...(ctx.words.reason ? { reason: ctx.words.reason, fix: ctx.words.fix } : {}) };
 }
 
@@ -156,14 +176,14 @@ export function dayOneItems(ctx: OwnerContext, narrowed: ChallengeRow[] = []): N
     items.push({ idKind: 'uc', key: 'owner-words', kind: 'approval', recommended: 'a', item_class: 'owner_words', changes: 'scope', cost: `a ${reopen}`,
       title: 'This is a first version, but the plan quotes none of your messages that ask for it',
       why: 'a first version is checked against your own words for the job, not against the plan: each quoted message, with its time, gets a line saying what this version does with it',
-      options: [{ key: 'a', text: "add it: an ### Owner's words section quoting each message that states the job, with its time and a line each (does it or choice), then revise", changes_plan: true },
+      options: [{ key: 'a', text: "add it: an ### Owner's words section quoting each message that states the job, with its time and a line each (does it, choice or ruled out), then revise", changes_plan: true },
         { key: 'b', text: 'approve without it', changes_plan: false }] });
   }
   const gaps = ctx.firstVersion ? ctx.words.quotes.filter(q => quoteGaps(q).length) : [];
   if (gaps.length) {
     items.push({ idKind: 'uc', key: `owner-lines:${gaps.map(q => q.n).join(',')}`, kind: 'approval', recommended: 'a', item_class: 'owner_words', changes: 'scope', cost: `a ${reopen}`,
       title: `${gaps.length} of your quoted messages ${gaps.length === 1 ? 'has' : 'have'} no time or no line saying what this version does with ${gaps.length === 1 ? 'it' : 'them'}: ${gaps.map(q => `“${q.text}” (missing ${quoteGaps(q).join(' and ')})`).join('; ')}`,
-      why: 'on a first version every quote says when it was said and whether this version does it or leaves it as a lettered choice',
+      why: 'on a first version every quote says when it was said and whether this version does it, leaves it as a lettered choice, or follows your own ruling against it',
       options: [{ key: 'a', text: 'add the time and the line to each, then revise', changes_plan: true }, { key: 'b', text: 'approve without them', changes_plan: false }] });
   }
   if (ctx.app && ctx.dayOne.status !== 'ok') {
@@ -181,20 +201,23 @@ export function dayOneItems(ctx: OwnerContext, narrowed: ChallengeRow[] = []): N
   const left = new Map<number, string[]>();
   const note = (q: OwnerQuote, why: string) => left.set(q.n, [...(left.get(q.n) ?? []), why]);
   for (const q of ctx.words.quotes) if (q.line?.kind === 'choice') note(q, "the plan's line for it says this version doesn't do it yet");
-  const quoteCuts = ctx.cuts.filter(c => cutQuote(c, ctx.words.quotes));
-  for (const cut of quoteCuts) note(cutQuote(cut, ctx.words.quotes)!, `the plan cuts it: "${cut}"`);
-  for (const f of narrowed) { const q = ctx.words.quotes.find(x => x.n === f.narrows_quote); if (q) note(q, `a reviewer (${f.voice}) says the plan narrows it: ${f.title}`); }
+  for (const q of ctx.words.quotes) if (q.line?.kind === 'ruled_out' && !ctx.ruled.has(q.n)) note(q, `the plan says you ruled it out on ${q.line.date}: “${q.line.ruling}”, but no recorded reply of yours says that`);
+  const open = ctx.words.quotes.filter(q => !(q.line?.kind === 'ruled_out' && ctx.ruled.has(q.n)));
+  const quoteCuts = ctx.cuts.filter(c => cutQuote(c, open));
+  for (const cut of quoteCuts) note(cutQuote(cut, open)!, `the plan cuts it: "${cut}"`);
+  for (const f of narrowed) { const q = open.find(x => x.n === f.narrows_quote); if (q) note(q, `a reviewer (${f.voice}) says the plan narrows it: ${f.title}`); }
   for (const q of ctx.words.quotes.filter(x => left.has(x.n))) {
     const choice = q.line?.kind === 'choice' ? q.line : undefined;
+    const ruling = q.line?.kind === 'ruled_out' ? q.line : undefined;
     const blocking = narrowed.find(f => f.narrows_quote === q.n && (f.severity === 'Critical' || f.severity === 'High'));
     const leave = blocking ? undefined : choice?.leave_out;
     const size = choice?.size ? `about ${choice.size}` : 'size not stated';
-    items.push({ idKind: 'uc', key: `quote:${q.n}`, kind: 'approval', recommended: leave ? 'b' : 'a', item_class: 'owner_choice', changes: 'scope',
-      recommended_basis: blocking ? `your own words asked for it, and a ${blocking.severity} finding says the plan falls short of them` : leave ? `the plan's reason to leave it out: ${leave}` : 'your own words asked for it, and only your words are direction',
+    items.push({ idKind: 'uc', key: `quote:${q.n}`, kind: 'approval', recommended: leave || ruling ? 'b' : 'a', item_class: 'owner_choice', changes: 'scope',
+      recommended_basis: ruling ? `your ruling as the plan quotes it; it isn't in your recorded replies, so this asks you${blocking ? ` beside the ${blocking.severity} finding` : ''}` : blocking ? `your own words asked for it, and a ${blocking.severity} finding says the plan falls short of them` : leave ? `the plan's reason to leave it out: ${leave}` : 'your own words asked for it, and only your words are direction',
       cost: `a adds ${size} to this version and ${reopen}`,
       title: `Your words${quoteWhen(q) ? ` (${quoteWhen(q)})` : ''}: “${q.text}”, which this version doesn't fully do`,
       why: left.get(q.n)!.join('; '),
-      options: [{ key: 'a', text: `build it in this version (${size})`, changes_plan: true }, { key: 'b', text: `leave it out for now${leave ? `: ${leave}` : ''}`, changes_plan: false }] });
+      options: [{ key: 'a', text: `build it in this version (${size})`, changes_plan: true }, { key: 'b', text: ruling ? `leave it out, as your ruling says: “${ruling.ruling}”` : `leave it out for now${leave ? `: ${leave}` : ''}`, changes_plan: false }] });
   }
   const rest = ctx.cuts.filter(c => !quoteCuts.includes(c));
   const rowTargets = ctx.dayOne.rows.flatMap(r => [r.action, r.feature]).filter(Boolean);

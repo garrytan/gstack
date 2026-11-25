@@ -288,7 +288,7 @@ describe('GSTA-135: registered skills get used', () => {
     const router = fs.readFileSync(r.router!, 'utf8');
     for (const s of HYBRID_SKILLS) expect(router, s).not.toContain('- **' + s + '**:');
     expect(router.split('\n').filter(l => l.startsWith('- **')).length).toBe(r.skills - HYBRID_SKILLS.length);
-    expect(readLedger(r.ledger)!.meta.names.split(',').sort()).toEqual(['gstack', ...HYBRID_SKILLS].sort());
+    expect(readLedger(r.ledger)!.meta.names.split(',').sort()).toEqual(['gstack', ...HYBRID_SKILLS.map(s => s === 'ship' ? 'gstack-ship' : s)].sort());
     const base = { checkout: ROOT, stateRoot: path.join(d, 'state'), env, home: path.join(d, 'home'), version: VERSION };
     expect(refresh(base).map(x => x.status)).toEqual(['unchanged']);
     for (const mode of ['all', 'router', 'hybrid'] as const) {

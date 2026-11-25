@@ -7,10 +7,12 @@
  * (docs/TESTING_INTERNALS.md#result-checks) hold back a model judge's numbers
  * until its hand labels pass, a zero from a counter never shown to find a
  * planted case, and a failures column with no answer-only reading beside it.
+ * Labels a third model made (R126) count only with its anchor answers passing,
+ * and the results then say the judge was checked against that model, not people.
  * Reads text only; executes nothing.
  */
 import { armIdentities, checkPrereg } from './eval-plan';
-import { checkJudgeLabels, modelGenerationProblems, type JudgeLabelCheck } from './eval-plan-checks';
+import { checkJudgeLabels, modelGenerationProblems, thirdModelLine, type JudgeLabelCheck } from './eval-plan-checks';
 import type { ResultCodeName } from './result-codes';
 
 export interface ResultsIssue { code: ResultCodeName; message: string }
@@ -41,7 +43,7 @@ export function resultTables(text: string): ResultTable[] {
   return tables;
 }
 
-export function checkResults(preregText: string, resultsText: string, labelsText: string | null = null): ResultsCheck {
+export function checkResults(preregText: string, resultsText: string, labelsText: string | null = null, anchorsText: string | null = null): ResultsCheck {
   const prereg = checkPrereg(preregText);
   const issues: ResultsIssue[] = [];
   const tables = resultTables(resultsText);
@@ -67,9 +69,11 @@ export function checkResults(preregText: string, resultsText: string, labelsText
       for (const e of errors) issues.push({ code: 'PREREG_INCOMPLETE', message: `## ${section}: ${e}` });
     }
     if (prereg.scoring.judge && prereg.scoring.judge.toLowerCase() !== 'none') {
-      judge = labelsText === null ? null : checkJudgeLabels(prereg.scoring, labelsText, arms);
+      judge = labelsText === null ? null : checkJudgeLabels(prereg.scoring, labelsText, arms, anchorsText);
       if (!judge) issues.push({ code: 'EVAL_JUDGE_UNCHECKED', message: `the preregistration names judge ${prereg.scoring.judge}; pass --labels <hand labels.jsonl>` });
       else if (!judge.ok) issues.push({ code: 'EVAL_JUDGE_UNCHECKED', message: judge.problems.join('; ') });
+      const labeller = prereg.scoring.labeller?.model;
+      if (labeller && !resultsText.toLowerCase().includes(thirdModelLine(labeller).toLowerCase())) issues.push({ code: 'EVAL_REPORT_THIRD_MODEL_UNNAMED', message: `the judge's labels came from ${labeller}; the results say "${thirdModelLine(labeller)}"` });
     }
     const planted = new Set((prereg.diagnostics?.expected ?? []).filter(e => e.count >= 1).map(e => e.name.toLowerCase()));
     for (const t of tables) {

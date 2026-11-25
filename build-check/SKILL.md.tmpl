@@ -3,10 +3,10 @@ name: build-check
 preamble-tier: 1
 version: 0.1.0
 description: |
-  Use when coding: run the checks and tests /ship picks until green.
-  Build loop: run the repo's checks and the tests /ship would pick, fix, repeat.
+  Use when coding: run the checks and tests /gstack-ship picks until green.
+  Build loop: run the repo's checks and the tests /gstack-ship would pick, fix, repeat.
   Never green when no test covers a change. Fits "check my work", "run the
-  checks", "make it green", or after each change before /ship. (gstack)
+  checks", "make it green", or after each change before /gstack-ship. (gstack)
 triggers:
   - run the checks
   - make the tests pass
@@ -44,8 +44,8 @@ the user and ask whether to fix it first or commit anyway.
 
 # /build-check — build, check, fix, repeat
 
-Use this while building, before /ship. It runs checks and fixes code. It never
-reviews, bumps a version, pushes, or opens a PR: that is /ship. A changelog entry
+Use this while building, before /gstack-ship. It runs checks and fixes code. It never
+reviews, bumps a version, pushes, or opens a PR: that is /gstack-ship. A changelog entry
 the repo expects with a change is part of the change.
 
 ## 1. See what will run
@@ -83,7 +83,7 @@ and a log path. Exit 0 is green; only `PASS` is green.
 - `UNMAPPED`: no test covers a touched file. Add a test that does, or map it in
   `.gstack/pregate.json`. `ZERO_RUN`: the selected tests ran nothing; fix the
   selector or the test file. `TOO_BROAD`: the change selects over 300 test
-  files; leave them to /ship's pregate and say so.
+  files; leave them to /gstack-ship's pregate and say so.
 - `ENV` or `TIMEOUT` (exit 2): a missing tool, service, secret or network.
   Report it with the log line; do not fix the environment or work around it.
   A `FAIL` whose own error says a service, secret or env var is missing is
@@ -106,5 +106,5 @@ C="{{RUNTIME_ROOT}}/bin/gstack-checks"; "$C" status
 
 `status` reruns nothing. Only `READY_FOR_SHIP tree=<tree> ... not_covered=<lanes>`
 (exit 0) means green at this exact tree. Print that line, name any
-`not_covered` lanes (platform tests /ship's pregate owns), and stop with
-"ready for /ship". `NOT_READY` means run again; never claim green from it.
+`not_covered` lanes (platform tests /gstack-ship's pregate owns), and stop with
+"ready for /gstack-ship". `NOT_READY` means run again; never claim green from it.

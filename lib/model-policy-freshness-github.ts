@@ -1,4 +1,5 @@
-import { readBoundedResponse, sha256, type Fetcher } from './model-policy-freshness-sources';
+import { readBoundedResponse, type Fetcher } from './model-policy-freshness-sources';
+import { CATALOG_SOURCE_FILES, catalogSourceSha256 } from './model-policy-freshness';
 import { FRESHNESS_ISSUE_AUTHOR, type FreshnessGitHub, type TrackingIssue } from './model-policy-freshness-publication';
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -26,11 +27,17 @@ export function freshnessGitHub(repository: string, token: string, fetcher: Fetc
     async defaultCatalog(signal) {
       const repo = await request('', signal);
       if (!object(repo) || typeof repo.default_branch !== 'string' || !repo.default_branch) throw new Error('github-default-branch-unavailable');
-      const file = await request(`/contents/lib/model-catalog.ts?ref=${encodeURIComponent(repo.default_branch)}`, signal);
-      if (!object(file) || file.encoding !== 'base64' || typeof file.content !== 'string' || typeof file.size !== 'number' || file.size <= 0 || file.size > 2 * 1024 * 1024 || !/^[A-Za-z0-9+/=\n\r]+$/.test(file.content)) throw new Error('github-default-catalog-unavailable');
-      const bytes = Buffer.from(file.content, 'base64');
-      if (bytes.length !== file.size) throw new Error('github-default-catalog-size-mismatch');
-      return { defaultBranch: repo.default_branch, sourceSha256: sha256(bytes) };
+      const commit = await request(`/commits/${encodeURIComponent(repo.default_branch)}`, signal);
+      if (!object(commit) || typeof commit.sha !== 'string' || !/^[0-9a-f]{40}$/.test(commit.sha)) throw new Error('github-default-commit-unavailable');
+      const sources: Uint8Array[] = [];
+      for (const source of CATALOG_SOURCE_FILES) {
+        const file = await request(`/contents/${source}?ref=${commit.sha}`, signal);
+        if (!object(file) || file.encoding !== 'base64' || typeof file.content !== 'string' || typeof file.size !== 'number' || file.size <= 0 || file.size > 2 * 1024 * 1024 || !/^[A-Za-z0-9+/=\n\r]+$/.test(file.content)) throw new Error('github-default-catalog-unavailable');
+        const bytes = Buffer.from(file.content, 'base64');
+        if (bytes.length !== file.size) throw new Error('github-default-catalog-size-mismatch');
+        sources.push(bytes);
+      }
+      return { defaultBranch: repo.default_branch, sourceSha256: catalogSourceSha256(sources) };
     },
     async listIssues(signal) {
       const issues: TrackingIssue[] = [];

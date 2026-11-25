@@ -14,10 +14,10 @@ gstack works exactly as it does without it.
 - **A merge queue.** `gstack-ship-queue` lands verified pull requests alone or
   in trains, checks the exact head before it merges, and stamps the version
   only at release time.
-- **Receipts.** `/ship` leaves a receipt for the head it checked, so the
+- **Receipts.** `/gstack-ship` leaves a receipt for the head it checked, so the
   controller can tell that a pull request was reviewed and tested at the commit
   it merges.
-- **Budgets.** `/ship` and `/autoplan` meter their own spend against the cap a
+- **Budgets.** `/gstack-ship` and `/autoplan` meter their own spend against the cap a
   brief sets, and stop or hand off before they cross it
   ([docs/ship-budget.md](../docs/ship-budget.md)).
 
@@ -49,7 +49,7 @@ CI runs `crew/test/` with the rest of the free suite.
 | `docs/` | the manuals: [running a Captain crew](docs/captain.md) and [the recommended harness](docs/recommended-harness.md) |
 
 The crew tooling moves here in stages. Code that no public skill calls comes
-first; the steps `/ship`, `/review` and `/autoplan` take only for crews move
+first; the steps `/gstack-ship`, `/review` and `/autoplan` take only for crews move
 after they call it through one switch. Some crew tools stay outside `crew/` for
 now because public code still calls them: `/captain`'s own folder (the skill
 generator reads top-level folders), `gstack-ship-queue`, receipts, the

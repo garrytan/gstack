@@ -13,6 +13,7 @@ import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { FRONTIER_MODELS } from './model-families';
 import { modelsMain } from './model-policy-cli';
 import { isConfigUnavailable, loadConfigFromBase } from './pregate/config';
 import { EXCLUDED_BILLING_CATEGORIES, estimateCostUsd, hasPricing, PRICING, pricingRow } from './pricing';
@@ -57,7 +58,7 @@ export function preregTemplate(title = 'Eval preregistration'): string {
 <!-- Required with \`stack: loaded\`: \`arms:\` one \`<model>#no-gstack\` Arms line per model; \`inputs:\` the same rows and fixture; \`prompt:\` the task only (no SKILL.md, preamble, hooks or installed skills); \`panel:\` the same E2E kind, trials and judge; \`report:\` its row beside the variants; \`masking:\` how the run agent is kept from gstack (an empty directory bind-mounted over ~/.capy/drive/user-garry-tan and ~/.capy/drive/org-gstack-gbrain before it starts, or a container that sees no Capy drive); \`install:\` no gstack at ~/.local/share/gstack or ~/.claude/skills; \`audit:\` the per-arm drive-read audit (an arm that read a gstack skill file is contaminated and gets zero credit). -->
 
 ## Scoring
-<!-- \`judge: none\` when a rule scores every metric; otherwise \`judge: <model>\` from another model family than every arm, \`labels: <n>\` hand-labelled outputs it is checked against (at least 100, or 40 for a plan frozen before 2026-11-22; never held-out rows) and \`agreement: <kappa bar>\` (at least 0.6), \`per-arm: yes\` (agreement read on each arm's outputs, not pooled) and \`effort: <the reasoning effort set in the judge's start>\`; GPT-6 Astra or GPT-6.2 Astra judges Claude arms, Claude Opus 5.5 judges GPT arms. With two or more arms: \`paired: yes\`, \`interval: 95%\` and \`mdd: <the smallest difference this run can detect>\`. -->
+<!-- \`judge: none\` when a rule scores every metric; otherwise \`judge: <model>\` from another model family than every arm, \`labels: <n>\` hand-labelled outputs it is checked against (at least 100, or 40 for a plan frozen before 2026-11-22; never held-out rows) and \`agreement: <kappa bar>\` (at least 0.6), \`per-arm: yes\` (agreement read on each arm's outputs, not pooled) and \`effort: <the reasoning effort set in the judge's start>\`; GPT-6 Astra or GPT-6.2 Astra judges Claude arms, Claude Opus 5.5 judges GPT arms. \`labels-by:\` is people when absent (or \`construction\`, \`rule\`); only a judge that grades code may name a third-family model there (R126: \`labels-by: google/gemini-4-neon\`, \`label-kind: code\`, \`blind: yes\`, \`anchors: <n frozen known-answer anchors>\`, \`anchor-pass: <k right before its labels count>\`, \`anchors-digest: <gstack-eval-plan anchors --hash of the frozen anchors>\`), and the results then say "judge checked against <model>, a third model, not against people". With two or more arms: \`paired: yes\`, \`interval: 95%\` and \`mdd: <the smallest difference this run can detect>\`. -->
 
 ## Models
 <!-- Optional: every other model the run starts, as \`reader: <model>\` and \`simulator: <model>\` lines. R116 refuses gpt-4o, any model lib/pricing.ts marks \`superseded_by\` and an unpriced older generation of a priced family in every role, arms and the judge included, and names the replacement. \`vendor-default: <model> <system>\` keeps a competitor system's built-in model when that system (an arm) is tested as its vendor ships it; the check records it and the results must name it. -->
@@ -357,8 +358,6 @@ export interface DryRunResult {
 }
 export interface DryRunOptions { input: string; arms: string[]; fields?: string[]; outputBudget?: number; retryPrompt?: string; maxRows?: number; cap?: number; modelRules?: ModelRulesCheck; tierQuestion?: string; prereg?: PlanModels }
 
-/** Today's frontier models under test (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test); a small-tier plan is re-costed on these. */
-export const FRONTIER_MODELS = ['claude-opus-5-5', 'gpt-6.2-sol'] as const;
 export const isSmallTierModel = (model: string) => /(^|[-/])(haiku|sonnet)(-|$)/i.test(model);
 
 /** Four bytes per token, the estimator every gstack admission uses. */

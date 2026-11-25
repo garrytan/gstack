@@ -83,12 +83,12 @@ flow: the same block, no slots.
 
 The rules file is the lanes' contract, and it is pointers plus parameters: each rule is
 one line that names its home in gstack (`crew/docs/captain.md`, the ship-policy, pregate and
-testing docs, the /ship and /review skills, the repository's own AGENTS.md), so no crew
+testing docs, the /gstack-ship and /review skills, the repository's own AGENTS.md), so no crew
 carries its own copy of how to do things. The rules: session-start install check,
 validation discipline, untrusted external diffs, file ownership, pre-approved spend, the
 READY contract, reports, one routing path (everything through the controller), no merging
 base into a READY branch, the CHANGELOG entry under `[Unreleased]`, the flaky rule,
-approvals, /ship before READY, review convergence, and plan before build. Every rule that rests on the
+approvals, /gstack-ship before READY, review convergence, and plan before build. Every rule that rests on the
 owner's words carries the date and the words. A rule that exists only in a crew's file is
 a gap in gstack: write it there, then point at it.
 
@@ -113,7 +113,7 @@ and adds the lines the tool cannot know. Validate every field before the pin goe
 | `ci` | every `REQUIRED_CHECKS` name green at the pin, with counts (`passed=… failed=0 pending=0`) | a pending or failed required check, or a run on another head |
 | `PREGATE` | `pass` for the pin's tree, remote lanes cleared with that head's own CI runs | `incomplete`, or a pass for another tree |
 | `gate` | the paid evidence the lane offers: its own focused cases (named, with results), or the screen it asks for | "ran the cheap tier" offered as merge evidence |
-| `SHIP_RECEIPT` | `pr=<n> head=<pin's first 12>` written by /ship at the pin | `none`, `invalid`, or a receipt head that is not the pin |
+| `SHIP_RECEIPT` | `pr=<n> head=<pin's first 12>` written by /gstack-ship at the pin | `none`, `invalid`, or a receipt head that is not the pin |
 | `screen` | `--no-screen` with the focused cases that passed, or `--screen` with the reason | no choice, or `--no-screen` with no cases named |
 | `READY_RECEIPT` | the receipt path the tool wrote (local and on the notes ref) | missing |
 | flaky cases | each one already in the ledger, with both runs | a rerun that is not logged, or a second failure called a flake |
@@ -126,7 +126,7 @@ Optional lines a crew's rules file may require: the gate run id and tree hash of
 lane's own gate, the issue the PR closes, and the key before/after image.
 
 After READY the head is frozen. A push drops the PR from any train and needs a new READY
-at the new head, /ship rerun included. The one exception is the stamp push below.
+at the new head, /gstack-ship rerun included. The one exception is the stamp push below.
 
 ## Merge trains
 
@@ -357,7 +357,7 @@ it was right? Its rule change ships as a gstack PR.
 
 Serial slots are slow, so PRs in one area travel together. When more
 than `WAVE_TRIGGER` (6) PRs are READY, run `gstack-ship-queue wave plan` for area groups
-of 3 to 6, each with an integrator who runs `wave build`, /ship once and READY on the wave
+of 3 to 6, each with an integrator who runs `wave build`, /gstack-ship once and READY on the wave
 PR: one slot, one version. Constituent heads freeze, `--drop` sends a changed one back to
 its owner, and `wave settle` closes the rest after the merge (docs/ship-policy.md#wave-prs).
 Credit every contributor (`Contributed by @handle`, `Co-authored-by`), and never merge a

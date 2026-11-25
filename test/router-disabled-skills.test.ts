@@ -31,7 +31,7 @@ describe('C8: disabled skills leave the rendered router', () => {
       expect(text).not.toMatch(/→ invoke `\/cso`/);
       expect(text).toContain('careful mode → invoke `/guard`');
       expect(text).toContain('→ invoke `/gstack-upgrade`');
-      expect(text).toContain('→ invoke `/ship`');
+      expect(text).toContain('→ invoke `/gstack-ship`');
     });
 
     test(`${host}: no disabled skills renders the canonical router byte for byte`, async () => {

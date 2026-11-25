@@ -114,9 +114,12 @@ import { skillCensus } from './helpers/skill-census';
  *           growth, not a new skill: in GSTA-558's trials Opus 5.5 skipped
  *           /review on "review my changes" (0 of 3, 3 of 3 with the full
  *           text) and loaded no planning skill on "plan this feature" (0 of 9).
- * New ceiling: 2,290 token-equivalents (9,160 bytes), leaving 0 bytes.
+ * GST-3654 (2026-11-24, Garry "Do it" on B1): /ship is listed as /gstack-ship,
+ *           because Claude Code keeps the name ship for its own built-in
+ *           (#4775); measured 2,292 (9,165 bytes), was 2,290.
+ * New ceiling: 2,292 token-equivalents (9,165 bytes), leaving 0 bytes.
  */
-const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 2_290;
+const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 2_292;
 
 // Largest today: design-consultation at 229 bytes. A description that needs
 // more than 260 bytes is a body paragraph, not a catalog entry.

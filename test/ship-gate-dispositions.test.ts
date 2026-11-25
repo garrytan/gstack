@@ -117,7 +117,7 @@ describe('a recorded owner disposition closes an unattended gate finding (GST-24
     const { f, head } = firstPass();
     const marker = openRun(f);
     const inRun = gate(f, GATE, head);
-    expect([inRun.status, inRun.stderr]).toEqual([EXIT.usage, expect.stringContaining('/ship run ship-906-3a27393 is open on this checkout')]);
+    expect([inRun.status, inRun.stderr]).toEqual([EXIT.usage, expect.stringContaining('/gstack-ship run ship-906-3a27393 is open on this checkout')]);
     fs.rmSync(marker);
     for (const words of ['', '   ']) {
       const empty = gate(f, GATE, head, { words });
@@ -233,7 +233,7 @@ describe('a disposition the lane makes for itself is refused or ignored (GST-249
     const fromSib = () => spawnSync(path.join(BIN, 'gstack-approvals'), ['gate', '--branch', 'feat', '--finding', GATE, '--gate-id', GATE_ID, '--head', head, '--reason', REASON, '--words', WORDS, '--by', BY],
       { cwd: sib, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GSTACK_STATE_ROOT: f.state, GSTACK_HOME: f.state, GSTACK_APPROVALS_MIRROR: '0', GIT_CONFIG_GLOBAL: path.join(f.root, 'gitconfig') } });
     const refused = fromSib();
-    expect([refused.status, refused.stderr]).toEqual([EXIT.usage, expect.stringContaining(`/ship run ship-906-3a27393 is open in the worktree ${f.work} (branch feat)`)]);
+    expect([refused.status, refused.stderr]).toEqual([EXIT.usage, expect.stringContaining(`/gstack-ship run ship-906-3a27393 is open in the worktree ${f.work} (branch feat)`)]);
     expect(read(f).review_freshness.status).toBe('UNVERIFIED');
     fs.rmSync(marker);
     const recorded = fromSib();

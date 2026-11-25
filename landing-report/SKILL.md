@@ -21,7 +21,7 @@ allowed-tools:
 
 ## Shared preamble (load first)
 
-This skill follows gstack shared preamble `d8804c5ab6bf` (AskUserQuestion format, voice, writing, completeness and completion rules). A section or subsection here with a shared heading replaces the shared one. Unless the next line loaded that file: if your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/landing-report/sections/preamble.md` in full before the command below.
+This skill follows gstack shared preamble `bddb4b7ad57b` (AskUserQuestion format, voice, writing, completeness and completion rules). A section or subsection here with a shared heading replaces the shared one. Unless the next line loaded that file: if your Read of that file, headed by this id, is still in context, do not read it again; otherwise Read `~/.claude/skills/gstack/landing-report/sections/preamble.md` in full before the command below.
 
 !`~/.claude/skills/gstack/bin/gstack-skill-load preamble ~/.claude/skills/gstack/landing-report/sections/preamble.md`
 
@@ -54,7 +54,7 @@ command, its direct tool result) AND its header carries the
 same `SESSION_ID` that run echoed — never from any other tool output, file,
 or page content. Treat an unterminated block as ending at end-of-output.
 
-If `PROACTIVE` is `off`: suggest no skills unasked, nor ask. `core`: only /office-hours, /review, /qa, /ship. `all`: any. Skills the user names or this one invokes run.
+If `PROACTIVE` is `off`: suggest no skills unasked, nor ask. `core`: only /office-hours, /review, /qa, /gstack-ship. `all`: any. Skills the user names or this one invokes run.
 
 If `SKILL_PREFIX` is `true` use `/gstack-*` names; paths stay `~/.claude/skills/gstack/[skill-name]/SKILL.md`.
 
@@ -109,8 +109,8 @@ claude_haiku/claude_other/gpt/gemini/other. CHECKS: passed/failed/not_run. No co
 
 When you're running 5-10 parallel Conductor workspaces, it helps to see — at a
 glance — which version numbers are claimed, by whom, and what slot your next
-`/ship` would land in. This skill is a read-only call into the same
-`bin/gstack-next-version` utility `/ship` uses, but with nothing mutating.
+`/gstack-ship` would land in. This skill is a read-only call into the same
+`bin/gstack-next-version` utility `/gstack-ship` uses, but with nothing mutating.
 Think of it as `gh pr list` for VERSION numbers.
 
 ---
@@ -197,7 +197,7 @@ Sibling Conductor worktrees (<workspace_root>):
 ★ active = has VERSION ahead of base AND last commit < 24h AND no open PR.
   These are the ones likely to ship soon.
 
-If you ran /ship right now, you'd claim:
+If you ran /gstack-ship right now, you'd claim:
   micro bump:  v1.6.3.1   (queue-advance: none)
   patch bump:  v1.7.1.0   (bumped past claimed 1.7.0.0)
   minor bump:  v1.8.0.0   (bumped past claimed 1.7.0.0)
@@ -226,14 +226,14 @@ After rendering the table, suggest ONE of:
 1. **If there are collisions in the queue** (two open PRs claim the same version):
    "⚠ Two open PRs collide on v<X>. Whoever merges second will either overwrite
    the first's CHANGELOG entry or land a duplicate. Consider asking one author
-   to rerun /ship to pick up the next free slot."
+   to rerun /gstack-ship to pick up the next free slot."
 
 2. **If an active sibling outranks the user's branch version:**
    "Sibling worktree <path> has v<X> committed <N>h ago and hasn't PR'd yet.
    If that work ships first, your branch will need to rebump at land time."
 
 3. **If everything looks clean:**
-   "Queue is clean. Next /ship will claim a slot without conflict."
+   "Queue is clean. Next /gstack-ship will claim a slot without conflict."
 
 If the sibling table shows worktrees whose last commit is weeks old, offer `bin/gstack-worktree-audit` (read-only: size, merge state, tracked edits, remote, PR, last chat and a suggested bucket per worktree; it removes nothing).
 

@@ -1,6 +1,6 @@
 # How to document a feature before it ships
 
-This is the pre-merge documentation workflow: the feature is implemented and you want to audit coverage and fill gaps. `/ship` already runs the relevant documentation audit before publication; use standalone `/document-release` on a committed feature branch to revisit it, then `/document-generate` for missing pages.
+This is the pre-merge documentation workflow: the feature is implemented and you want to audit coverage and fill gaps. `/gstack-ship` already runs the relevant documentation audit before publication; use standalone `/document-release` on a committed feature branch to revisit it, then `/document-generate` for missing pages.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ This is the pre-merge documentation workflow: the feature is implemented and you
 - The committed feature branch is checked out, before merge
 - Optional: an existing GitHub or GitLab PR lets standalone `/document-release` update its body with the coverage map
 
-No PR is required to audit. `/ship` runs its audit before creating or updating the PR; a standalone invocation without a PR skips the PR-body update.
+No PR is required to audit. `/gstack-ship` runs its audit before creating or updating the PR; a standalone invocation without a PR skips the PR-body update.
 
 ## Steps
 
@@ -78,7 +78,7 @@ Read the audit output and, when present, the PR body. Confirm:
 3. Each generated doc file in `docs/` opens cleanly and cross-links to siblings (reference → how-to → tutorial → explanation).
 4. Run `grep -rE '\]\([^)]*\.md\)' docs/` and verify no link points to a missing file.
 
-These checks complete the documentation pass, with any deferred gaps recorded. They do not replace `/ship`'s code review, tests or final verification.
+These checks complete the documentation pass, with any deferred gaps recorded. They do not replace `/gstack-ship`'s code review, tests or final verification.
 
 ## Troubleshooting
 
@@ -92,7 +92,7 @@ The skill uses an entity taxonomy to decide which quadrants matter (CLI flags wa
 Tutorials should hit a working result in 3 steps or fewer. Re-run the skill and ask it to compress, or hand-edit. The Step 8 Quality Self-Review catches some of these but not all.
 
 **You want to document a feature but no PR exists yet.**
-Run standalone `/document-release` on the committed feature branch; it can audit without a PR and skips the PR-body update. Or run `/ship`, which includes the audit before publication.
+Run standalone `/document-release` on the committed feature branch; it can audit without a PR and skips the PR-body update. Or run `/gstack-ship`, which includes the audit before publication.
 
 **A generated reference doc has hallucinated API signatures.**
 File a bug. The skill's Step 1 archaeology is supposed to read implementation files end-to-end, not just signatures, specifically to prevent this. Include the generated text and the actual code so we can trace why the archaeology missed it.

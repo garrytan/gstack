@@ -103,7 +103,7 @@ own agent gstack's skills; ACP spawns Claude Code with the full install.
 OpenClaw spawns Claude Code sessions via ACP, so every gstack skill just works
 when Claude Code has gstack installed. Paste this to your OpenClaw agent:
 
-> Install gstack: run `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` to install gstack for Claude Code. Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use gstack skills. Include these examples — security audit: "Load gstack. Run /cso", code review: "Load gstack. Run /review", QA test a URL: "Load gstack. Run /qa https://...", build a feature end-to-end: "Load gstack. Run /autoplan, implement the plan, then run /ship", plan before building: "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
+> Install gstack: run `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` to install gstack for Claude Code. Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use gstack skills. Include these examples — security audit: "Load gstack. Run /cso", code review: "Load gstack. Run /review", QA test a URL: "Load gstack. Run /qa https://...", build a feature end-to-end: "Load gstack. Run /autoplan, implement the plan, then run /gstack-ship", plan before building: "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
 
 **After setup, just talk to your OpenClaw agent naturally:**
 
@@ -111,7 +111,7 @@ when Claude Code has gstack installed. Paste this to your OpenClaw agent:
 |---------|-------------|
 | "Fix the typo in README" | Simple — Claude Code session, no gstack needed |
 | "Run a security audit on this repo" | Spawns Claude Code with `Run /cso` |
-| "Build me a notifications feature" | Spawns Claude Code with /autoplan → implement → /ship |
+| "Build me a notifications feature" | Spawns Claude Code with /autoplan → implement → /gstack-ship |
 | "Help me plan the v2 API redesign" | Spawns Claude Code with /office-hours → /autoplan, saves plan |
 
 See [docs/OPENCLAW.md](OPENCLAW.md) for advanced dispatch routing and
@@ -183,13 +183,13 @@ digest's first line shows its gstack version; re-copy it after upgrading.
 
 For Codex, setup reads the top-level `model` from
 `${CODEX_HOME:-~/.codex}/config.toml` and generates the matching behavioral
-profile, falling back to `gpt-6-astra` when no usable model is configured.
-The current OpenAI tiers are `gpt-6-astra` (frontier), `gpt-6.1-sol` (smart, the
-default eval tier) and `gpt-6-luna` (lowest cost); `gpt-6.1-sol`
-and `gpt-6-luna` get the generic GPT profile. Only `gpt-5.6-sol` receives the
+profile, falling back to `gpt-6.2-astra` when no usable model is configured.
+The current OpenAI tiers are `gpt-6.2-astra` (frontier), `gpt-6.2-sol` (smart, the
+default eval tier) and `gpt-6-luna` (lowest cost). Every GPT-6 Astra release gets
+the Astra profile; `gpt-6.2-sol` and `gpt-6-luna` get the generic GPT profile. Only `gpt-5.6-sol` receives the
 bounded-scope instructions that finish the requested lake without expanding into
 adjacent cleanup or speculative hardening, because that patch was measured on 5.6
-Sol; extending it to `gpt-6.1-sol` waits for its own scope eval. The Sol profile is
+Sol; extending it to `gpt-6.2-sol` waits for its own scope eval. The Sol profile is
 exact-match only: dated snapshots and other 5.6 variants get the generic GPT
 profile, and setup warns on near-misses like `gpt-5.6-sol-2026-08-01`. Override detection with `./setup --host codex --model <id>` — the
 override applies to that run only; set `model` in your Codex `config.toml` to
@@ -205,8 +205,8 @@ its startup prompt or in `/hooks`: see
 [Codex hooks](skill-routing-and-contracts.md#codex).
 
 **Plan-review and implementation tiers.** Plan workflows use an independent
-`frontier` reviewer: Fable 5.1 from Codex, or GPT-6 Astra from Claude Code.
-Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.1 Sol.
+`frontier` reviewer: Fable 5.2 from Codex, or GPT-6.2 Astra from Claude Code.
+Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.2 Sol.
 Choose a different tier, pin either provider's model, or use `host` mode to
 preserve native model settings. The read-only `gstack-models` command explains
 the effective choices; changing these settings does not require regenerating
@@ -219,7 +219,7 @@ models. See [model policy: setup, overrides and freshness](model-policy.md).
 order: a model you name for that request, then `GSTACK_CODEX_MODEL`, then
 `model` in your Codex `config.toml` (for native `codex review`, `review_model`
 first; a custom `CODEX_HOME` is honored), and only then gstack's default,
-`gpt-6-astra`. Before spending anything, it prints the choice and where it came
+`gpt-6.2-astra`. Before spending anything, it prints the choice and where it came
 from, for example `CODEX_MODEL: gpt-5.6-terra (exec; source: ~/.codex/config.toml model)`.
 If your choice is invalid or your account cannot use it, gstack stops with a
 repair message and reports the outside review as unavailable. It never silently
@@ -233,13 +233,13 @@ resumed consultations. See [eval defaults and overrides](../CONTRIBUTING.md#test
 for capture, judge, and benchmark model selection.
 
 **Subagents on Codex.** Codex has no Agent tool, so the Codex skills start every
-audit and reviewer subagent (/ship's coverage, plan and docs audits, the native
+audit and reviewer subagent (/gstack-ship's coverage, plan and docs audits, the native
 review voices) with Codex's `spawn_agent` and wait on `wait_agent` until it reports
 a final status. Turn multi-agent on first: `multi_agent = true` under `[features]`
 in `~/.codex/config.toml`. Without it the dispatch fails and the step takes its
 documented failure path. Codex has no read-only Plan subagent type, so when the
 plan reviews' outside voice is unavailable they report it unavailable instead of
-starting a native fallback. /ship's review record still only counts a reviewer
+starting a native fallback. /gstack-ship's review record still only counts a reviewer
 whose brief gstack itself sent: a reviewer started some other way has no recorded
 send, so `gstack-review-dispatch verify` reports its brief `NOT_SENT` and prints
 `VERIFY: dirty` (exit 1) rather than trusting it.

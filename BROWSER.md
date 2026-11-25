@@ -2,7 +2,7 @@
 
 gstack's browser surface in one document. Every skill that opens a web page —
 `/browse`, `/qa`, `/qa-only`, `/design-review`, `/canary`, `/benchmark`,
-`/scrape`, `/devex-review`, and the third-party web actions inside `/ship`,
+`/scrape`, `/devex-review`, and the third-party web actions inside `/gstack-ship`,
 `/spec`, `/land-and-deploy`, `/setup-deploy`, and `/office-hours` — drives the
 [Aside](https://aside.com) AI browser first (macOS 15+). It is your real
 browser: real cookies, real logged-in accounts, your actual tabs. The agent
@@ -63,11 +63,15 @@ the resolver ever disagree, the resolver wins. The contract in one screen:
    exit code is always 0, so every script ends with
    `console.log("GSTACK_STEP_OK")` and a missing sentinel (or a line starting
    with `[error`) is failure.
-8. **Artifacts leave through the session directory.** Relative `screenshot`/`pdf`
-   paths land in Aside's per-run directory; the script prints
-   `ASIDE_DIR=<pwd>` and bash copies files into the report directory. Never
-   print image data — stdout truncates.
-9. **Show the user.** Copied screenshots are opened with the Read tool so they
+8. **Artifacts leave through stdout.** A one-shot `aside repl` deletes its
+   session directory when the script ends, and its sandbox refuses every path
+   outside that directory, so a file saved there is gone before bash can copy
+   it (#4784). A script that saves files runs through
+   `bin/gstack-aside-repl --out <dir>`, which gives it
+   `saveArtifact(name, bytes)`: each call prints the bytes as one base64 line
+   behind a per-run marker, and the wrapper writes them to `<dir>/<name>` and
+   prints `SAVED=<path>` in their place. Never print image data yourself.
+9. **Show the user.** Saved screenshots are opened with the Read tool so they
    appear inline. JPEG quality 60 keeps them small.
 10. **Deterministic first.** `aside repl` for anything expressible as steps;
     `aside exec "<task>"` (Aside's own agent) only for open-ended, read-only
@@ -81,7 +85,7 @@ What exists inside `aside repl` (Aside CLI 1.26, verified by running it):
 screenshot/pdf/waitForSelector/waitForURL/waitForLoadState/reload/goBack/content`,
 raw CDP via `pg._sendToTarget(method, params)`, locators with
 `click/fill/check/selectOption/press/hover/textContent/innerText/isVisible/
-count/screenshot/waitFor`, and the globals `fs` (promises, session dir only),
+count/screenshot/waitFor`, `saveArtifact` (added by `gstack-aside-repl`), and the globals `fs` (promises, session dir only),
 `path`, `Buffer`, `pwd`, `fetch` (user's cookies), `sleep`. Nothing else: no
 `process`, `require`, `import`, no viewport setter (use CDP
 `Emulation.setDeviceMetricsOverride`), no console event hook (install one
@@ -98,7 +102,7 @@ through CDP before `goto`, as the cookbook does), and no `file://` navigation.
 | `/benchmark` | Navigation and resource timings read from the page's own `performance` entries on a real load. |
 | `/scrape` | Prototype the extraction with `aside repl`, hand back the table, list, or prices as structured data. Read-only. |
 | `/devex-review` | Walk the real onboarding flow and time it, carrying the cookbook inline. |
-| `/ship`, `/spec`, `/land-and-deploy`, `/setup-deploy`, `/office-hours` | Third-party web actions (vendor dashboards, API keys, webhooks) offered as an Aside drive across your real sessions, with the one-question consent gate for anything mutating. |
+| `/gstack-ship`, `/spec`, `/land-and-deploy`, `/setup-deploy`, `/office-hours` | Third-party web actions (vendor dashboards, API keys, webhooks) offered as an Aside drive across your real sessions, with the one-question consent gate for anything mutating. |
 | `/plan-ceo-review`, `/plan-eng-review`, `/plan-devex-review`, `/design-consultation`, `/review`, `/cso`, `/office-hours` | Web research runs through `aside exec` in your real browser (`{{ASIDE_RESEARCH}}`), one read-only request per question, answers treated as untrusted content. No Aside → the same queries go to the host's WebSearch tool; no WebSearch either → "Search unavailable" once and the skill proceeds on in-distribution knowledge. |
 
 ### Local-HTML rendering
@@ -146,8 +150,9 @@ containment is checked on the real path of every request (a symlink that
 escapes the directory is 403, malformed encoding is 400) and directories are
 never listed. One `aside repl` script does the whole job
 (open, wait, run the steps in order, close the tab) because nothing persists
-between CLI calls. Artifacts are written inside Aside's sandbox (the per-run
-session directory is the only writable place) and copied out afterwards. PDFs
+between CLI calls. Artifacts come back over stdout as base64 `ARTIFACT` lines,
+because the per-run session directory (the only writable place) is deleted
+when the script ends. PDFs
 go through raw CDP `Page.printToPDF` so header/footer templates, tagged PDF,
 and the document outline keep working; sized screenshots use CDP
 `Emulation.setDeviceMetricsOverride`. The CLI exit code is 0 even when the
@@ -222,7 +227,7 @@ What changes when the fallback is active:
 | You watch the tabs the agent opens in Aside | `/open-gstack-browser` (or `$B connect`) shows the headed GStack Browser with the side panel |
 | Sign-in wall: sign in inside Aside, say "done" | `$B handoff` opens a visible Chrome at the same page; `$B resume` continues |
 | One `aside repl` script per flow, fresh session each time | Persistent daemon: cookies, tabs, and localStorage carry over between `$B` calls |
-| Evidence lines from the cookbook (`CONSOLE_ERRORS=`, `DIFF_START…DIFF_END`, `ASIDE_DIR=`, `GSTACK_STEP_OK`) | `$B` prints raw output; the skill labels it with the same evidence lines (`URL=`, `CONSOLE_ERRORS=`, `DIFF_START`/`DIFF_END`) so the report reads identically. No `ASIDE_DIR` copy step — `$B screenshot <path>` is already on disk |
+| Evidence lines from the cookbook (`CONSOLE_ERRORS=`, `DIFF_START…DIFF_END`, `SAVED=`, `GSTACK_STEP_OK`) | `$B` prints raw output; the skill labels it with the same evidence lines (`URL=`, `CONSOLE_ERRORS=`, `DIFF_START`/`DIFF_END`) so the report reads identically. No `gstack-aside-repl` wrapper — `$B screenshot <path>` is already on disk |
 | Durable per-site automation belongs to Aside's own skills | `/scrape` → `/skillify` codifies a flow into a browser-skill; domain-skills keep per-site notes |
 | Other agents open their own Aside tabs | `/pair-agent` shares the daemon over a scoped tunnel |
 | Aside keeps the browsing history | The daemon logs to `.gstack/*.log` and writes egress receipts for tunnel starts |
@@ -931,7 +936,7 @@ of killing it. `browse profiles` lists the profiles; `browse profiles prune
 ### Aside and third-party drives (v1.72.0.0+)
 
 For third-party website moments (registering an API key, configuring a vendor
-dashboard), the workflow skills (`/ship`, `/spec`, `/office-hours`,
+dashboard), the workflow skills (`/gstack-ship`, `/spec`, `/office-hours`,
 `/land-and-deploy`, `/setup-deploy`) recommend the Aside AI browser when it's
 installed — it acts across your real logged-in sessions — with `$B` headed
 mode + handoff as the universal fallback. Consent is per-task and explicit;
@@ -1740,6 +1745,11 @@ pure overhead:
 - **Unnecessary abstraction** — Claude already has a Bash tool. A CLI that
   prints to stdout is the simplest possible interface.
 
+These are cost, speed and reliability reasons, not accuracy. Connecting more
+MCP tools doesn't make agents pick the wrong tool, up to about 300 tools with
+Claude Code's tool search on; see
+[Do you need to cut back on MCP servers?](USING_GBRAIN_WITH_GSTACK.md#do-you-need-to-cut-back-on-mcp-servers).
+
 gstack skips all of this. Compiled binary. Plain text in, plain text out.
 No protocol. No schema. No connection management.
 
@@ -1880,7 +1890,7 @@ skillify/SKILL.md.tmpl           # /skillify gstack skill — codify last /scrap
 ## QA surfaces and setup
 
 QA uses this browser path only for selected browser surfaces. `/qa-only`, `/review`
-and `/ship` discovery never install the fallback browser or invoke cookie import;
+and `/gstack-ship` discovery never install the fallback browser or invoke cookie import;
 unavailable browser access blocks the affected probes. Standalone `/qa` may run
 setup or cookie import only after explicit approval.
 

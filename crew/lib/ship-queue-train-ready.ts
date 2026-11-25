@@ -133,7 +133,7 @@ function screenMerge(env: TrainEnv, o: ReadyOptions, head: string, baseSha: stri
   const m = mergeCommit(ctx.repoRoot, baseSha, head, env.policy.policy, `screen #${o.pr}: merge ${head.slice(0, 12)} onto ${ctx.base} ${baseSha.slice(0, 12)}`);
   if ('conflicts' in m) {
     return outRefused({ code: 'QUEUE_SCREEN_STALE_REF', message: `#${o.pr} conflicts with ${ctx.base}@${baseSha.slice(0, 12)} beyond the CHANGELOG and the stamp files (${m.conflicts.join(', ')}); GitHub's merge ref lags too (${lag})` }, [],
-      `resolve the conflict with ${ctx.base}, push, run /ship, then ${Q} ready --pr ${o.pr} --screen`, 'none');
+      `resolve the conflict with ${ctx.base}, push, run /gstack-ship, then ${Q} ready --pr ${o.pr} --screen`, 'none');
   }
   const branch = screenBranch(o.pr, head);
   const line = `SCREEN_MERGE: scratch merge ${m.commit.slice(0, 12)} of #${o.pr}@${head.slice(0, 12)} onto ${ctx.base}@${baseSha.slice(0, 12)} (${lag})`;
@@ -163,7 +163,7 @@ async function dispatchScreen(env: TrainEnv, o: ReadyOptions, slug: string | nul
     recordVerdict(choice, prior);
     const lines = verdictLines(o.pr, existing.databaseId, prior);
     if (prior.kind === 'red') return outRefused({ code: 'QUEUE_SCREEN_RED', message: `the screen of #${o.pr} at merge ${mergeSha.slice(0, 12)} (run ${existing.databaseId}) is RED on ${prior.red.join(', ') || 'its gate binding'}; a red screen is not re-dispatched at the same merge SHA` },
-      lines, `repair, push a new head, run /ship, then ${Q} ready --pr ${o.pr} --screen`, 'none');
+      lines, `repair, push a new head, run /gstack-ship, then ${Q} ready --pr ${o.pr} --screen`, 'none');
     if (prior.kind !== 'not-run' && prior.kind !== 'incomplete') {
       return { choice, lines: [...lines, `SCREEN_DISPATCH: following run ${existing.databaseId} (same merge SHA, base and policy; no duplicate)`] };
     }
@@ -211,13 +211,13 @@ function conditionalReady(env: TrainEnv, o: ReadyOptions, lines: string[]): Trai
   if ('error' in info) return outRefused({ code: 'QUEUE_PROOF_MISSING', message: info.error }, lines, 'none', 'none');
   if (info.headRefOid !== head) return outRefused({ code: 'QUEUE_NOT_READY', message: `HEAD ${head.slice(0, 12)} is not PR #${o.pr}'s pushed head ${info.headRefOid.slice(0, 12)}` }, lines, 'push, then ready again', 'none');
   const red = extractReceipt(info.body).receipt?.base_red;
-  const again = `gstack-base-red classify on the current base, /ship, then ${Q} ready --pr ${o.pr} --no-screen --base-red --fixer ${o.baseRed!.fixer}`;
+  const again = `gstack-base-red classify on the current base, /gstack-ship, then ${Q} ready --pr ${o.pr} --no-screen --base-red --fixer ${o.baseRed!.fixer}`;
   if (!red) return outRefused({ code: 'SHIP_BASE_RED_FIXER', message: `#${o.pr}'s receipt carries no base_red condition; ready --base-red is only for a paused /ship` }, lines, `${Q} ready --pr ${o.pr} --no-screen`, 'none');
   if (red.base !== baseSha) return outRefused({ code: 'SHIP_BASE_RED_FIXER', message: `the condition was classified at ${red.base.slice(0, 12)} and ${ctx.base} is now ${baseSha.slice(0, 12)}; a base move reclassifies, never trusts` }, lines, again, 'none');
   if (!(Date.parse(red.expires_at) >= Date.parse(nowIso()))) return outRefused({ code: 'BASE_RED_PAUSE_EXPIRED', message: `the condition expired at ${red.expires_at}` }, lines, again, 'none');
   const shipped = bindTrainReceipt(ctx.repoRoot, `refs/remotes/${env.remote}/${ctx.base}`, info.body, o.pr, [head], true);
   lines.push(shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : []));
-  if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, lines, `run /ship on ${head.slice(0, 12)}, then ready again`, 'none');
+  if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, lines, `run /gstack-ship on ${head.slice(0, 12)}, then ready again`, 'none');
   const plan = trainPlan(env, info.body, baseSha, head, lines);
   if (plan.failure) return outRefused(plan.failure, lines, plan.failure.fix, 'none');
   const now = nowIso();
@@ -246,7 +246,7 @@ export async function trainReady(ctx: QueueContext, o: ReadyOptions): Promise<Tr
     ciLines.push(...d.lines);
     if ('failure' in d) {
       const again = `${Q} ready --pr ${o.pr} ${o.screen === 'screen' ? '--screen' : '--no-screen'} --dispatch-ci ${o.dispatchCi.workflows.join(',')} --timeout ${o.dispatchCi.timeoutSec}`;
-      return (d.failure.code === 'QUEUE_TRAIN_PENDING' ? outPending : outRefused)(d.failure, ciLines, d.failure.code === 'QUEUE_TRAIN_PENDING' ? again : `read the run, repair, push, run /ship, then ${again}`, 'none');
+      return (d.failure.code === 'QUEUE_TRAIN_PENDING' ? outPending : outRefused)(d.failure, ciLines, d.failure.code === 'QUEUE_TRAIN_PENDING' ? again : `read the run, repair, push, run /gstack-ship, then ${again}`, 'none');
     }
   }
   const base = ready(ctx, o);
@@ -275,7 +275,7 @@ export async function trainReady(ctx: QueueContext, o: ReadyOptions): Promise<Tr
     // The fix follows the crew template (captain/templates/CREW.md rule 14): a lane merges the base into a READY PR only on
     // the controller's word, so the refusal is reported and the merge waits for that word.
     return outRefused({ code: 'QUEUE_TRAIN_CONFLICT', message: `#${o.pr} conflicts with ${ctx.base}@${baseSha.slice(0, 12)} beyond the CHANGELOG and the stamp files (${overlap.conflicts.join(', ')}); the train would stop at this PR` },
-      lines, `report the conflict to the controller; on its word merge ${ctx.base} into the pin (never rebase), resolve, push, run /ship, then ${Q} ready --pr ${o.pr} --screen|--no-screen`, 'none');
+      lines, `report the conflict to the controller; on its word merge ${ctx.base} into the pin (never rebase), resolve, push, run /gstack-ship, then ${Q} ready --pr ${o.pr} --screen|--no-screen`, 'none');
   }
   if (!loadReady(env.repo.keys, o.pr, head)) rebuildFromNotes(ctx.repoRoot, env.remote);
   const prior = loadReady(env.repo.keys, o.pr, head);
@@ -286,7 +286,7 @@ export async function trainReady(ctx: QueueContext, o: ReadyOptions): Promise<Tr
     if (recordVerdict(prior.screen, read) && !o.dryRun) { prior.updated_at = nowIso(); persist(ctx.repoRoot, [prior], { remote: env.remote }); }
     if (read.kind === 'red') {
       return outRefused({ code: 'QUEUE_SCREEN_RED', message: `the screen recorded for ${head.slice(0, 12)} (run ${prior.screen.run}) is RED on ${read.red.join(', ') || 'its gate binding'}; this head is not READY under any screen choice` },
-        lines, `repair, push a new head, run /ship, then ${Q} ready --pr ${o.pr} --screen`, readyPath(env.repo.key, o.pr, head));
+        lines, `repair, push a new head, run /gstack-ship, then ${Q} ready --pr ${o.pr} --screen`, readyPath(env.repo.key, o.pr, head));
     }
   }
   const rec = sel.recommend ?? 'no-screen';
@@ -342,7 +342,7 @@ export function verifyScreen(ctx: QueueContext, o: { pr: string }): TrainOut {
   switch (read.kind) {
     case 'green': return outOk(lines, `${Q} train build --prs ${o.pr}@${head},...`, run);
     case 'pending': return outPending({ code: 'QUEUE_TRAIN_PENDING', message: `the screen run ${receipt.screen.run} has not finished (${read.detail})` }, lines, again, run);
-    case 'red': return { ...outRefused({ code: 'QUEUE_SCREEN_RED', message: `the screen of #${o.pr} at ${head.slice(0, 12)} (run ${receipt.screen.run}) is RED on ${read.red.join(', ') || 'its gate binding'}` }, lines, `repair, push a new head, run /ship, then ${Q} ready --pr ${o.pr} --screen`, run), exit: EXIT.fail };
+    case 'red': return { ...outRefused({ code: 'QUEUE_SCREEN_RED', message: `the screen of #${o.pr} at ${head.slice(0, 12)} (run ${receipt.screen.run}) is RED on ${read.red.join(', ') || 'its gate binding'}` }, lines, `repair, push a new head, run /gstack-ship, then ${Q} ready --pr ${o.pr} --screen`, run), exit: EXIT.fail };
     case 'not-run': return outRefused({ code: 'QUEUE_SCREEN_NOT_RUN', message: `the screen of #${o.pr} (run ${receipt.screen.run}) concluded success with no slice: ${read.detail}; it is not a screen, and this head is not screened` }, lines, `${Q} ready --pr ${o.pr} --screen (dispatches a fresh screen)`, run);
     default: return outRefused({ code: 'QUEUE_PROOF_MISSING', message: `the screen of #${o.pr} (run ${receipt.screen.run}) has no verdict to read: ${read.detail}` }, lines, read.kind === 'incomplete' ? `${Q} ready --pr ${o.pr} --screen (dispatches a fresh screen)` : again, run);
   }

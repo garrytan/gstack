@@ -89,7 +89,7 @@ in [docs/test-value-bar.md](docs/test-value-bar.md) ("Prompt-byte contract",
 `expectTokens`, `expectAbsent`, `expectOrdered`, `expectMentions`) for
 template/SKILL.md checks: tokens and order exactly, safety rules as
 case-insensitive keyword co-occurrence in one sentence.
-Projects tune `/ship`'s coverage gate with optional CLAUDE.md `## Test Coverage`
+Projects tune `/gstack-ship`'s coverage gate with optional CLAUDE.md `## Test Coverage`
 keys, all absent by default: `Minimum:`, `Target:`, `Generation cap:` (default 5),
 `Base control:` (`auto` or `off`), `Base control budget:` (seconds, default 90) and
 `Star rating:` (`auto` or `off`).
@@ -147,7 +147,7 @@ a skill's own bash.
 
 **Size budgets:** generated SKILL.md files warn above 160KB (~40K tokens);
 `test/catalog-budget.test.ts` caps the always-loaded skill catalog at
-`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (2,290 today; each new skill ratchets it); and
+`CATALOG_BUDGET_TOKEN_EQUIVALENTS` (2,292 today; each new skill ratchets it); and
 `test/context-budget-ratchet.test.ts` pins per-skill token ceilings against
 `test/fixtures/context-budget.json` (for legitimate growth or a landed
 reduction, re-run `bun test/helpers/capture-context-budget.ts` and commit the
@@ -364,7 +364,7 @@ PR, push the branch to `garrytan/gstack` and re-target the PR from there:
 **Choose versions autonomously; default to PATCH.** Garry delegates release
 version decisions to the agent. Do not ask him to choose or approve a version,
 including when an already-approved version collides with another PR. This policy
-overrides generic version-approval prompts in `/ship` and `/document-release`.
+overrides generic version-approval prompts in `/gstack-ship` and `/document-release`.
 
 Prefer **PATCH (X.Y.Z+1.0)** for ordinary releases, including fixes, additions,
 refactors, test infrastructure and coordinated multi-file work. Diff size alone
@@ -382,7 +382,7 @@ the merge train; autonomous version decisions do not authorize merging,
 deploying or skipping required validation.
 
 **The CHANGELOG entry is a branch fragment.** Each shipping branch writes one
-entry at `/ship` time as `changelog.d/<branch-slug>.md` (entry text only, no
+entry at `/gstack-ship` time as `changelog.d/<branch-slug>.md` (entry text only, no
 `## [x]` heading) that describes what THIS branch adds versus main, for users,
 with no branch-internal versions or development narrative. A branch never edits
 VERSION, package.json or a released CHANGELOG.md section: the merge stamp folds
@@ -434,7 +434,7 @@ that may be ready to promote to TODOs or implement.
 
 ## E2E eval failure blame protocol
 
-When an E2E eval fails during `/ship` or any other workflow, **never claim "not
+When an E2E eval fails during `/gstack-ship` or any other workflow, **never claim "not
 related to our changes" without proving it.** These systems have invisible couplings —
 a preamble text change affects agent behavior, a new helper changes timing, a
 regenerated SKILL.md shifts prompt context.
@@ -553,7 +553,7 @@ Key routing rules:
 - QA/testing site behavior → invoke /qa or /qa-only
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
-- Ship/deploy/PR → invoke /ship (merge + deploy: the user types /land-and-deploy)
+- Ship/deploy/PR → invoke /gstack-ship (merge + deploy: the user types /land-and-deploy)
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 

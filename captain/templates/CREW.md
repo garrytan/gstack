@@ -36,7 +36,7 @@ Homes are paths in the gstack checkout the lane checked at session start.
 | 5 spend | <date> | "<words>" | <what: gates, screens, bisects, backstop, focused cases; cap> |
 | 16 flaky reruns | <date> | "<words>" | one rerun of the failed case at the same tree |
 | 21 approvals | <date> | "<words>" | the three shapes |
-| 22 /ship before READY | <date> | "<words>" | every READY, re-READYs included |
+| 22 /gstack-ship before READY | <date> | "<words>" | every READY, re-READYs included |
 | 23 blocking floor | <date> | "<words>" | what blocks another review pass |
 | 24 plan before build | <date> | "<words>" | a sized /autoplan first, the owner's word before the build |
 
@@ -93,8 +93,8 @@ Homes are paths in the gstack checkout the lane checked at session start.
 
 14. **Don't merge `BASE` into a READY PR.** Only on the controller's word after a real-code
     train conflict (merge, never rebase, free suite, READY again) or as part of the stamp
-    commit. A merge whose product diff is unchanged carries the /ship receipt; a rebase
-    onto a new tree costs a full /ship. Home: `crew/docs/captain.md` (Merge trains),
+    commit. A merge whose product diff is unchanged carries the /gstack-ship receipt; a rebase
+    onto a new tree costs a full /gstack-ship. Home: `crew/docs/captain.md` (Merge trains),
     `docs/ship-policy.md` (Run a merge train, Carrying a receipt).
 
 15. **CHANGELOG entry under `## [Unreleased]` before READY;** version files stay at
@@ -115,7 +115,7 @@ Homes are paths in the gstack checkout the lane checked at session start.
     (Contributions from outside the crew).
 
 19. **CHANGELOG-only conflicts** are the train's, not yours (folded into 14). Home:
-    `docs/ship-policy.md` (/ship before READY: the stamp keeps the pin's receipt).
+    `docs/ship-policy.md` (/gstack-ship before READY: the stamp keeps the pin's receipt).
 
 20. **READYs from before `CONTRACT_DATE`** need a fresh `ready` receipt. Home:
     `crew/docs/captain.md` (The READY contract).
@@ -124,14 +124,14 @@ Homes are paths in the gstack checkout the lane checked at session start.
     captioned before/after images on every READY PR. Home: `crew/docs/captain.md` (Approvals),
     `capy/skill/gstack/captain.md`.
 
-22. **/ship before every READY,** re-READYs included; the block carries
+22. **/gstack-ship before every READY,** re-READYs included; the block carries
     `SHIP_RECEIPT: pr=<n> head=<your pin>`; stamp commits hold only tool output. Home:
-    `docs/ship-policy.md` (/ship before READY), `crew/docs/captain.md` (The lane's /ship
+    `docs/ship-policy.md` (/gstack-ship before READY), `crew/docs/captain.md` (The lane's /gstack-ship
     sequence).
 
-23. **Review loops converge.** gstack's review convergence policy in the /ship and /review
+23. **Review loops converge.** gstack's review convergence policy in the /gstack-ship and /review
     skills, scope knob `REVIEW_SCOPE`; record the pass count in your READY. Home: the
-    `/ship` and `/review` skills.
+    `/gstack-ship` and `/review` skills.
 
 24. **Plan before build.** If you build something, a `/autoplan` run on your brief, sized
     to the work, is your first act after the session-start check; send `CONTROLLER` the plan and its gate in plain

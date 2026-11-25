@@ -87,7 +87,7 @@ describe('ship source controller', () => {
     const distribution = compact(entry.slice(entry.indexOf('## Step 2:'), entry.indexOf('## Step 3:')));
     expect(distribution).toContain('**New artifact without a pipeline');
     expect(distribution).toContain('AskUserQuestion');
-    expect(distribution).toMatch(/do not publish a release during `\/ship`/i);
+    expect(distribution).toMatch(/do not publish a release during `\/gstack-ship`/i);
   });
 
   test('queue qualification exhaustively distinguishes online, git fallback and unusable output', () => {
@@ -229,7 +229,7 @@ describe('ship source controller', () => {
     expect(end).toBeLessThan(entry.indexOf('{{BASE_BRANCH_DETECT}}'));
     expect(entry.match(/### Ship control flow/g)).toHaveLength(1);
     const text = compact(controller);
-    expect(text).toMatch(/the \*\*parent\*\* running \/ship, own advancement/i);
+    expect(text).toMatch(/the \*\*parent\*\* running \/gstack-ship, own advancement/i);
     expectMentions(text, [['stop', 'askuserquestion', 'repairs']], 'text');
     expectMentions(text, [['never', 'unlisted', 'range']], 'text');
     expectMentions(text, [['does not', 'ending', 'range']], 'text');

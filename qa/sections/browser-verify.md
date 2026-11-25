@@ -12,7 +12,7 @@ Keep the error hook, snapshot, console output and `GSTACK_STEP_OK` check. Run ea
 in one script from the affected URL; tabs do not survive the script.
 
 Use fresh screenshot names, with `issue-NNN-after.jpg` for the result (add a suffix if it exists).
-Copy them from the printed `ASIDE_DIR` to `$REPORT_DIR/screenshots/`, then Read the copied screenshot.
+Read each `SAVED=` screenshot.
 Compare the snapshot tree, `DIFF` and `CONSOLE_ERRORS=` with the before evidence.
 
 On fallback, apply browser-setup's `$B` mapping to the same checks.

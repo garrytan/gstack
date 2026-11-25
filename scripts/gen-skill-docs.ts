@@ -9,7 +9,7 @@
  * Used by skill:check and CI freshness checks.
  */
 
-import { discoverTemplates, discoverSectionTemplates, includesSkill, AUTOPLAN_SIBLING_METHODOLOGIES } from './discover-skills';
+import { discoverTemplates, discoverSectionTemplates, includesSkill, AUTOPLAN_SIBLING_METHODOLOGIES, PREFIXED_SKILLS } from './discover-skills';
 import { externalSkillName, extractNameAndDescription } from './external-skill-names';
 export { extractNameAndDescription } from './external-skill-names';
 import { generateLlmsTxt } from './gen-llms-txt';
@@ -132,7 +132,7 @@ function parseGenerationArgs(args: string[]): GenerationOptions {
   const modelValue = value('--model');
   const model = modelValue === undefined ? null : resolveModel(modelValue);
   if (modelValue !== undefined && !model) {
-    throw new Error(`Unknown model: ${modelValue}. Use ${ALL_MODEL_NAMES.join(', ')}, or a family variant (e.g., claude-opus-4-7, gpt-5.4-mini, o3).`);
+    throw new Error(`Unknown model: ${modelValue}. Use ${ALL_MODEL_NAMES.join(', ')}, or a family variant (e.g., claude-opus-5-5, gpt-6.2-astra, o3).`);
   }
   const catalogMode = value('--catalog-mode') ?? 'trim';
   if (catalogMode !== 'trim' && catalogMode !== 'full') {
@@ -732,7 +732,8 @@ function buildContext(
   skillNameOverride?: string,
 ): TemplateContext {
   const { name: extractedName } = extractNameAndDescription(tmplContent);
-  const skillName = skillNameOverride || extractedName || path.basename(path.dirname(tmplPath));
+  const dirName = path.basename(path.dirname(tmplPath));
+  const skillName = PREFIXED_SKILLS.includes(dirName) ? dirName : skillNameOverride || extractedName || dirName;
   const benefitsMatch = tmplContent.match(/^benefits-from:\s*\[([^\]]*)\]/m);
   const benefitsFrom = benefitsMatch
     ? benefitsMatch[1].split(',').map(s => s.trim()).filter(Boolean)

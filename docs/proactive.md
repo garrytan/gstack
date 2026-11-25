@@ -6,7 +6,7 @@ its slash command. The `proactive` config key says how far that goes.
 
 | Value | What auto-invokes | Who it is for |
 |-------|-------------------|---------------|
-| `core` (default) | `/office-hours`, `/review`, `/qa` and `/ship` only. Every other skill waits for you to type it, unless a skill you ran hands off to it (`/office-hours` offering the next review). | Most people, and anyone running gstack beside another skill pack: the four core skills are the ones users praise, and the others no longer compete with another pack's niche skills. |
+| `core` (default) | `/office-hours`, `/review`, `/qa` and `/gstack-ship` only. Every other skill waits for you to type it, unless a skill you ran hands off to it (`/office-hours` offering the next review). | Most people, and anyone running gstack beside another skill pack: the four core skills are the ones users praise, and the others no longer compete with another pack's niche skills. |
 | `all` | Any skill whose purpose matches your request. | You use gstack on its own and want the whole sprint suggested. |
 | `off` | Nothing. gstack never suggests or auto-invokes a skill, not even by asking "want me to run /X?". | You type every command yourself. |
 
@@ -25,7 +25,7 @@ gstack-config set proactive core     # back to the default
 ```
 
 A skill you name is always invoked, whatever the setting, and so is a skill that
-a running skill invokes itself (`/ship` dispatching `/document-release`). The
+a running skill invokes itself (`/gstack-ship` dispatching `/document-release`). The
 setting governs unasked suggestions, and an in-skill *offer* to run another skill
 is one: under `off`, `/office-hours` recommends the next review in one line
 instead of offering to launch it, and the one-time first-run
@@ -39,7 +39,7 @@ CLAUDE.md: its prompt-routing hook names the matching skill instead
 ([skill-routing-and-contracts.md](skill-routing-and-contracts.md)). If an older
 gstack added that section, gstack never edits it, so it stays as you left it
 whatever this setting says. Trim it to match (the core four are /office-hours,
-/review, /qa and /ship), or delete it.
+/review, /qa and /gstack-ship), or delete it.
 
 Skill descriptions cannot change with the setting, so they are written for the
 `core` default. Only the four core skills say "Proactively suggest ..." in the

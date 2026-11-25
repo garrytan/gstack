@@ -123,7 +123,7 @@ checklists). Alias skills (`_gstack-command`, `connect-chrome`) install as
 rewritten copies, never symlinks — editing a symlinked alias would corrupt the
 generated source. This ensures Claude discovers them as top-level skills, not nested
 under `gstack/`. Names depend on your prefix setting (`~/.gstack/config.yaml`).
-Short names (`/review`, `/ship`) are the default. Run `./setup --prefix` if you
+Short names (`/review`, `/gstack-ship`) are the default. Run `./setup --prefix` if you
 prefer namespaced names (`/gstack-review`, `/gstack-ship`).
 
 ## Day-to-day workflow
@@ -166,11 +166,11 @@ never touches a symlinked or non-gstack directory.
 
 ## Testing & evals
 
-Codex evals and the GPT benchmark adapter default to `gpt-6-astra`:
+Codex evals and the GPT benchmark adapter default to `gpt-6.2-astra`:
 explicit model > `GSTACK_CODEX_MODEL` > default. The Claude model under test
-(capture) defaults to `claude-opus-5-5` and the judge to `claude-fable-5-1`,
-resolved through `lib/eval-model.ts`. The judge stays put when the model under
-test moves, because its calibration fixtures are keyed to it:
+(capture) defaults to `claude-opus-5-5` and the judge to `claude-fable-5-2`,
+resolved through `lib/eval-model.ts`. Both are the newest model of their family
+(`lib/model-families.ts`), and the judge stays apart from the model under test:
 
 - Claude session, PTY, and Agent SDK eval runners and the Claude benchmark adapter: explicit model > `EVALS_MODEL` > `GSTACK_EVAL_MODEL_CAPTURE` > `GSTACK_EVAL_MODEL` > default.
 - Shared judge calls (including benchmark quality scoring): explicit model > `GSTACK_EVAL_MODEL_JUDGE` > `GSTACK_EVAL_MODEL` > default. `EVALS_MODEL` applies to capture runners, not judges.
@@ -556,7 +556,7 @@ agent produced, inside their own paid cases (for example
 E2E files). Facts that several skills must state the same way are checked for free
 instead, for example `test/review-bot-history-facts.test.ts`.
 
-The judge model defaults to `claude-fable-5-1`; override it per run with
+The judge model defaults to `claude-fable-5-2`; override it per run with
 `GSTACK_EVAL_MODEL_JUDGE` (resolved through `lib/eval-model.ts`, using the override
 order above). Each scored dimension is a panel of 3 samples of the same prompt, drawn
 concurrently; each dimension's panel median (at least 2 of 3 samples) must meet that
@@ -829,7 +829,7 @@ When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It d
 ## Things to know
 
 - **SKILL.md files are generated.** Edit the `.tmpl` template, not the `.md`. Run `bun run gen:skill-docs` to regenerate. The same run generates `review/design-checklist.md` from `lib/design-catalog.ts` and `lib/dom-dump.js` from `lib/dom-dump-script.ts`: edit those sources, never the generated files (`test/design-checklist-sync.test.ts` fails on drift). Tier 2+ skills also get a generated `sections/preamble.md`, the shared preamble rendered by `scripts/resolvers/preamble-hoist.ts`: change the preamble resolvers, never that file.
-- **TODOS.md is the unified backlog.** Organized by skill/component with P0-P4 priorities. `/ship` auto-detects completed items. All planning/review/retro skills read it for context.
+- **TODOS.md is the unified backlog.** Organized by skill/component with P0-P4 priorities. `/gstack-ship` auto-detects completed items. All planning/review/retro skills read it for context.
 - **Browse, make-pdf, design, and `lib/` source changes need a rebuild.** If you touch `browse/src/*.ts`, `make-pdf/src/*.ts`, `design/src/*.ts`, or anything under `lib/` (the canonical `claude-bin.ts`, `error-handling.ts`, and `aside-render.ts` the binaries embed, plus `design-catalog.ts`, whose `MOCKUP_NEVER_NAMES` the design binary's mockup prompt embeds; `browse/src` re-exports the first three), run `bun run build`. `./setup` makes the same call on its own: it rebuilds when any of the three binaries is missing or when those sources, `package.json`, or `bun.lock` are newer than the browse binary (`test/setup-needs-build.test.ts` pins the decision).
 - **Dev mode shadows your global install.** Project-local skills take priority over `~/.claude/skills/gstack`. `bin/dev-teardown` restores the global one.
 - **Conductor workspaces are independent.** Each workspace is its own git worktree. `bin/dev-setup` runs automatically via `conductor.json`.
@@ -888,7 +888,7 @@ to `gstack/...`, so they'll resolve to the global install automatically.
 If you installed gstack with one prefix setting and want to switch:
 
 ```bash
-cd .claude/skills/gstack && ./setup --no-prefix   # switch to /qa, /ship
+cd .claude/skills/gstack && ./setup --no-prefix   # switch to /qa, /gstack-ship
 cd .claude/skills/gstack && ./setup --prefix       # switch to /gstack-qa, /gstack-ship
 ```
 
@@ -1080,7 +1080,7 @@ names any word it refuses; editing the title reruns it. The full rule is in
 When you're happy with your skill edits:
 
 ```bash
-/ship
+/gstack-ship
 ```
 
 This runs tests, reviews the diff, triages the comments of every review bot you configured (Greptile's with 2-tier escalation), manages TODOS.md, bumps the version, and opens a PR. See `ship/SKILL.md` for the full workflow.

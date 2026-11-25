@@ -102,7 +102,7 @@ describe('gstack-capy-install', () => {
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(f.calls().filter(l => l.startsWith('setup '))).toEqual([
       'setup --host claude --no-prefix --no-browser',
-      'setup --host codex --model gpt-6-astra --no-browser',
+      'setup --host codex --model gpt-6.2-astra --no-browser',
     ]);
     expect(f.calls().filter(l => l.startsWith('env '))).toEqual(Array(2).fill('env GSTACK_SKIP_PLAYWRIGHT= GSTACK_SKIP_FONTS= bun=1.4.2'));
     expect(f.calls().some(l => l.startsWith('browser-ensure'))).toBe(false);
@@ -132,7 +132,7 @@ describe('gstack-capy-install', () => {
     const f = fixture();
     const r = run(f, ['--for', 'qa', '--with-browser']);
     expect(r.status, r.stdout + r.stderr).toBe(0);
-    expect(f.calls().filter(l => l.startsWith('setup '))).toEqual(['setup --host claude --no-prefix', 'setup --host codex --model gpt-6-astra']);
+    expect(f.calls().filter(l => l.startsWith('setup '))).toEqual(['setup --host claude --no-prefix', 'setup --host codex --model gpt-6.2-astra']);
     expect(f.calls().filter(l => l.startsWith('browser-ensure'))).toEqual(['browser-ensure ']);
     expect(f.calls().filter(l => l.startsWith('doctor '))).toEqual(['doctor --check --for qa GSTACK_EPHEMERAL=1']);
     expect(r.stdout).toMatch(/browser bootstrap: \d+s/);

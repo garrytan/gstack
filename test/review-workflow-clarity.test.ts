@@ -296,7 +296,7 @@ test('review finalization ownership: required native completion and optional out
   const step = skill.slice(skill.indexOf('### 2. Fill the record'));
   const flat = step.replace(/\s+/g, ' ');
   expectMentions(flat, [['not', 'inconclusive', 'required']], 'flat');
-  expect(flat).toMatch(/`\/ship` named-risk acceptance cannot complete `\/review`/i);
+  expect(flat).toMatch(/`\/gstack-ship` named-risk acceptance cannot complete `\/review`/i);
   expectMentions(flat, [['cannot', 'substitute', 'native']], 'flat');
   expect(flat).toMatch(/structured-review gate still applies/i);
   expect(flat).toContain('zero counts and `completed:false`');
