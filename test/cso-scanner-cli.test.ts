@@ -9,8 +9,8 @@ const launcher = resolve(import.meta.dir, '../bin/gstack-cso-launcher');
 let root = '', repo = '', state = '', sarif = '';
 const env = () => ({ HOME: root, GSTACK_HOME: state, PATH: '/usr/bin:/bin' });
 function command(args: string[], extra: Record<string, string> = {}) { return spawnSync(launcher, args, { cwd: repo, env: { ...env(), ...extra }, encoding: 'utf8', timeout: 30000 }); }
-function start() {
-  const r = command(['start', '--repo', repo, '--offline']); expect(r.status).toBe(0);
+function start(...extra: string[]) {
+  const r = command(['start', '--repo', repo, '--offline', ...extra]); expect(r.status).toBe(0);
   const report = JSON.parse(r.stdout), dir = join(state, 'security/cso', report.repoId, report.runId);
   return { runId: report.runId as string, dir, report: () => JSON.parse(fs.readFileSync(join(dir, 'report.json'), 'utf8')), artifacts: () => fs.existsSync(join(dir, 'scanner-outcomes')) ? fs.readdirSync(join(dir, 'scanner-outcomes')) : [] };
 }
@@ -55,7 +55,7 @@ describe('compiled scanner evidence persistence', () => {
     const r = command(['submit', run.runId, file]); expect(r.status).not.toBe(0); expect(r.stderr).toContain('helper-owned'); expect(fs.readFileSync(join(run.dir, 'report.json'), 'utf8')).toBe(reportBefore);
   });
   test('finished reports reject scanner execution and SARIF persistence without changing artifacts', () => {
-    const run = start(); expect(command(['finish', run.runId]).status).toBe(0); const before = fs.readFileSync(join(run.dir, 'report.json'), 'utf8');
+    const run = start('--budget', '120'); expect(command(['finish', run.runId]).status).toBe(0); const before = fs.readFileSync(join(run.dir, 'report.json'), 'utf8');
     for (const args of [['scan', run.runId, 'gitleaks'], ['import-sarif', run.runId, sarif]]) { const r = command(args); expect(r.status).not.toBe(0); expect(r.stderr).toContain('running audit'); }
     expect(run.artifacts()).toEqual([]); expect(fs.readFileSync(join(run.dir, 'report.json'), 'utf8')).toBe(before);
   });

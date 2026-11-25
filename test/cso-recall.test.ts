@@ -71,7 +71,7 @@ describe('/cso recall (gstack-evals#443)', () => {
 
   test('the skill names a command that lists the whole inventory from real inspect output', () => {
     const { repo, files } = library('inventory');
-    const start = cso(repo, ['start', '--repo', repo, '--offline']);
+    const start = cso(repo, ['start', '--repo', repo, '--offline', '--budget', '120']);
     expect(start.status).toBe(0);
     const run = json(start.stdout).runId as string;
     const inspect = cso(repo, ['inspect', run]);
@@ -99,7 +99,7 @@ describe('/cso recall (gstack-evals#443)', () => {
     git(repo, 'init', '-q');
     git(repo, 'add', '-A');
     git(repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
-    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline', '--budget', '120']).stdout).runId as string;
     expect(skill()).toContain("gstack-cso search <run> '<regex>'");
     const found = cso(repo, ['search', run, 'eval\\(']);
     expect(found.status).toBe(0);
@@ -130,7 +130,7 @@ describe('/cso recall (gstack-evals#443)', () => {
     git(repo, 'init', '-q');
     git(repo, 'add', '-A');
     git(repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
-    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline', '--budget', '120']).stdout).runId as string;
     let started = Date.now();
     const quadratic = cso(repo, ['search', run, '.*password']);
     expect(quadratic.status).toBe(0);
@@ -154,7 +154,7 @@ describe('/cso recall (gstack-evals#443)', () => {
 
   test('a daily run saves supported findings and low-confidence hypotheses, and report.md lists them in separate sections', () => {
     const { repo } = library('report');
-    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline', '--budget', '120']).stdout).runId as string;
     const finding = (evidence: string, confidence: string, title: string, rootCause: string) => ({
       title, rootCause,
       location: { path: 'src/zz-format/parse.js', line: 1, symbol: 'parse' }, advisoryIds: [], severity: 'high', confidence,
@@ -207,7 +207,7 @@ describe('/cso reports its full finding list (gstack-evals#447)', () => {
 
   test('a daily run keeps all fifteen findings of one long submission and report.md lists every one', () => {
     const { repo } = library('long-list');
-    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline', '--budget', '120']).stdout).runId as string;
     const findings = Array.from({ length: 15 }, (_, i) => ({
       title: `Finding ${String(i).padStart(2, '0')} in parse`, rootCause: `parse defect number ${i}`,
       location: { path: 'src/zz-format/parse.js', line: 1, symbol: 'parse' }, advisoryIds: [], severity: i < 5 ? 'high' : 'low',
@@ -228,5 +228,49 @@ describe('/cso reports its full finding list (gstack-evals#447)', () => {
     expect(saved.map((f) => f.title).sort()).toEqual(findings.map((f) => f.title).sort());
     const report = fs.readFileSync(findReport(state, run, 'report.md'), 'utf8');
     for (const f of findings) expect(report).toContain(f.title);
+  });
+});
+
+describe('/cso finish waits for every selected phase while time remains (GST-3659)', () => {
+  test('finish is refused with more than 120 seconds left and a selected phase uncovered, naming the phases and the time', () => {
+    const { repo } = library('finish-early');
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline']).stdout).runId as string;
+    const early = cso(repo, ['finish', run]);
+    expect(early.status).not.toBe(0);
+    expect(early.stderr).toMatch(/\d+ seconds remain and these selected phases are still uncovered: application-model, attack-surface, secrets/);
+    expect(early.stderr).toContain('finish is allowed once every selected phase is covered or at 120 seconds or less');
+    expect(json(cso(repo, ['inspect', run]).stdout).report.status).toBe('running');
+  });
+
+  test('finish is allowed at 120 seconds or less even with phases uncovered', () => {
+    const { repo } = library('finish-late');
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline', '--budget', '120']).stdout).runId as string;
+    const late = cso(repo, ['finish', run]);
+    expect(late.status).toBe(0);
+    expect(json(late.stdout).status).toBe('finished');
+  });
+
+  test('finish is allowed with time left once every selected phase is covered', () => {
+    const { repo } = library('finish-covered');
+    const run = json(cso(repo, ['start', '--repo', repo, '--offline', '--scope', 'auth']).stdout).runId as string;
+    const inspected = json(cso(repo, ['inspect', run]).stdout);
+    expect(inspected.remainingSeconds).toBeGreaterThan(120);
+    const selected = ['application-model', 'attack-surface', 'auth'];
+    const coverage = (inspected.report.coverage as Array<{ domain: string; scope: string }>)
+      .filter((c) => selected.includes(c.domain))
+      .map((c) => ({ domain: c.domain, scope: c.scope, status: 'assessed', method: 'source review', gaps: [], exclusions: [], evidence: ['src/zz-format/parse.js read in full'] }));
+    expect(coverage.map((c) => c.domain).sort()).toEqual(selected);
+    const dir = fs.mkdtempSync(path.join(root, 'submission-'));
+    const partial = path.join(dir, 'partial.json'), whole = path.join(dir, 'whole.json');
+    fs.writeFileSync(partial, JSON.stringify({ coverage: coverage.slice(0, 2) }));
+    fs.writeFileSync(whole, JSON.stringify({ coverage }));
+    expect(cso(repo, ['submit', run, partial]).status).toBe(0);
+    const still = cso(repo, ['finish', run]);
+    expect(still.status).not.toBe(0);
+    expect(still.stderr).toMatch(/still uncovered: auth\./);
+    expect(cso(repo, ['submit', run, whole]).status).toBe(0);
+    const done = cso(repo, ['finish', run]);
+    expect(done.status).toBe(0);
+    expect(json(done.stdout).status).toBe('finished');
   });
 });

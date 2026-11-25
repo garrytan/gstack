@@ -1547,6 +1547,15 @@ function finish(args: string[]) {
         );
       report.gaps.push(`A refused submission was never resubmitted: ${message}`);
     }
+    const left = remainingSeconds(report.deadline),
+      uncovered = planned(report.policy.scope)
+        .map((c) => c.domain)
+        .filter((d) => report.coverage.find((c) => c.domain === d)?.status === 'not_assessed');
+    if (report.status === 'running' && !report.parent && left !== undefined && left > 120 && uncovered.length)
+      throw new CsoError(
+        'PREREQUISITE',
+        `${left} seconds remain and these selected phases are still uncovered: ${uncovered.join(', ')}. Keep auditing and submit their coverage; finish is allowed once every selected phase is covered or at 120 seconds or less.`,
+      );
     reclaimDeadAttemptScratch(dir);
     for (const c of report.coverage)
       if (

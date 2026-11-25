@@ -314,7 +314,7 @@ describe('#2894 truthful completion in the report the user receives',()=>{
       fs.writeFileSync(path.join(repo,'app.js'),'console.log("fixture")\n');
       for(const args of [['add','app.js'],['commit','-qm','fixture']])expect(spawnSync('git',args,{cwd:repo,timeout:10_000}).status).toBe(0);
       const dependencies={runtimeCatalog:RUNTIME_CATALOG,catalogImageSession:async()=>{throw new Error('unused');},watchdogPath:()=>'/unused'} as any;
-      const started=await dispatchCsoCommand('start',['--repo',repo,'--offline'],dependencies) as any;
+      const started=await dispatchCsoCommand('start',['--repo',repo,'--offline','--budget','120'],dependencies) as any;
       await dispatchCsoCommand('finish',[started.runId],dependencies);
       const markdown=fs.readFileSync(path.join(base,'state','security','cso',started.repoId,started.runId,'report.md'),'utf8');
       expect(markdown).toStartWith('not assessed — ');

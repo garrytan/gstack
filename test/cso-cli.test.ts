@@ -84,7 +84,7 @@ describe('compiled CSO command workflow',()=>{
   test('a refused submit keeps the audit open: finish refuses until a corrected submit lands, and closes over it only after the audit deadline',()=>{
     const reportOf=(run:any)=>path.join(state,'security','cso',run.repoId,run.runId,'report.json'),coverage={domain:'auth',scope:'src/users.ts',status:'not_assessed',method:'source review',gaps:['tenant checks not traced'],evidence:[]},bad=path.join(root,'refused-submit.json'),good=path.join(root,'corrected-submit.json');
     fs.writeFileSync(bad,JSON.stringify({coverage:[{...coverage,exclusions:'none'}]}));fs.writeFileSync(good,JSON.stringify({coverage:[{...coverage,exclusions:[]}]}));
-    const started=command(['start','--repo',repo,'--scope','auth','--offline','--budget','600']);expect(started.status).toBe(0);const run=JSON.parse(started.stdout);
+    const started=command(['start','--repo',repo,'--scope','auth','--offline','--budget','120']);expect(started.status).toBe(0);const run=JSON.parse(started.stdout);
     const refused=command(['submit',run.runId,bad]);expect(refused.status).not.toBe(0);expect(refused.stderr).toContain('exclusions must be an array');
     const blocked=command(['finish',run.runId]);expect(blocked.status).not.toBe(0);expect(blocked.stderr).toContain('last submit was refused');expect(blocked.stderr).toContain('exclusions must be an array');expect(JSON.parse(fs.readFileSync(reportOf(run),'utf8')).status).toBe('running');
     const inspected=command(['inspect',run.runId]);expect(inspected.status).toBe(0);const remaining=JSON.parse(inspected.stdout).remainingSeconds;expect(Number.isSafeInteger(remaining)).toBe(true);expect(remaining).toBeGreaterThan(0);expect(remaining).toBeLessThanOrEqual(run.remainingSeconds);
@@ -173,7 +173,7 @@ test('native public reports conceal the source root while private snapshots reta
   const sourceFiles = git('ls-files', '-z').split('\0').filter(Boolean);
   const sourceHashes = () => Object.fromEntries(sourceFiles.map(file => [file, sha256(fs.readFileSync(path.join(repo, file)))]));
   const before = sourceHashes(), maskedRoot = '<REDACTED-internal.user_path>';
-  const started = command(['start', '--repo', repo, '--scope', 'auth', '--offline', '--base', 'HEAD']);
+  const started = command(['start', '--repo', repo, '--scope', 'auth', '--offline', '--base', 'HEAD', '--budget', '120']);
   expect(started.status).toBe(0);
   expect(started.stdout).not.toContain(canonicalRepo);
   expect(started.stdout).not.toContain(CREDENTIAL_CANARY);
