@@ -25,10 +25,15 @@ for skill_dir in "$GSTACK_DIR"/*/; do
     case "$cur" in gstack-*) continue ;; esac
     new="gstack-$cur"
   else
-    case "$cur" in gstack-*) ;; *) continue ;; esac
-    [ "$dir_name" = "$cur" ] && continue  # inherently prefixed (gstack-upgrade)
-    case " ${GSTACK_PREFIXED_SKILLS:-} " in *" $dir_name "*) continue ;; esac  # always prefixed (ship, #4775)
-    new="${cur#gstack-}"
+    case " ${GSTACK_PREFIXED_SKILLS:-} " in
+      *" $dir_name "*)  # always prefixed (ship, #4775), even from an older render
+        case "$cur" in gstack-*) continue ;; esac
+        new="gstack-$cur" ;;
+      *)
+        case "$cur" in gstack-*) ;; *) continue ;; esac
+        [ "$dir_name" = "$cur" ] && continue  # inherently prefixed (gstack-upgrade)
+        new="${cur#gstack-}" ;;
+    esac
   fi
   tmp="$(mktemp "${skill_dir}/SKILL.md.XXXXXX")"
   sed "1,/^---$/s/^name:[[:space:]]*${cur}/name: ${new}/" "$skill_dir/SKILL.md" > "$tmp" && mv "$tmp" "$skill_dir/SKILL.md"

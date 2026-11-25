@@ -108,6 +108,25 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
     });
   }
 
+  test("a file the user added to gstack's old ship entry survives the short-name upgrade", () => {
+    fs.mkdirSync(path.join(skills, 'ship'));
+    fs.symlinkSync(path.join(install, 'ship', 'SKILL.md'), path.join(skills, 'ship', 'SKILL.md'));
+    fs.writeFileSync(path.join(skills, 'ship', '.gstack-owned'), install + '\n');
+    fs.writeFileSync(path.join(skills, 'ship', 'notes.md'), 'mine\n');
+    const r = relink('skill_prefix: false\n');
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(skills, 'ship', 'notes.md'), 'utf8')).toBe('mine\n');
+    expect(fs.lstatSync(path.join(skills, 'ship', 'SKILL.md'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(gone('gstack-ship')).toBe(false);
+  });
+
+  test('an older render still named ship is served as gstack-ship in short-name mode', () => {
+    fs.writeFileSync(path.join(install, 'ship', 'SKILL.md'), '---\nname: ship\ndescription: test\n---\n# ship\n');
+    const r = relink('skill_prefix: false\n');
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(skills, 'gstack-ship', 'SKILL.md'), 'utf8')).toContain('name: gstack-ship');
+  });
+
   test("a user's own ship skill is left alone", () => {
     fs.mkdirSync(path.join(skills, 'ship'));
     const own = '---\nname: ship\ndescription: mine\n---\nmy own release script\n';

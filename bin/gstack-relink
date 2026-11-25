@@ -428,8 +428,11 @@ for skill_dir in "$INSTALL_DIR"/*/; do
       gstack-*) link_name="$skill" ;;
       *)        link_name="gstack-$skill" ;;
     esac
-    # Remove old flat entry if it exists (and isn't the same as the new link)
-    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill"
+    # Remove old flat entry if it exists (and isn't the same as the new link).
+    # An always-prefixed skill's migration runs on every short-name upgrade,
+    # so it removes only what is ours and keeps any file the user added.
+    _old_mode=whole; [ "$PREFIX" = "true" ] || _old_mode=files
+    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill" "$_old_mode"
   else
     link_name="$skill"
     # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
