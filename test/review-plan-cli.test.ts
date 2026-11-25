@@ -476,3 +476,31 @@ describe('gstack-review-plan: the full round 2 on a small fix range (GSTA-152 D6
     expect(run(r, [...pass2, '--range-base', rangeBase, '--depth-floor', 'full']).stdout).toMatch(/^NEXT: full \(a blocking finding was fixed and the diff is at full depth/m);
   });
 });
+
+// Value: protects=the stop after an edit that followed the read-only final review names the exact command that records the
+//   owner's ship-with-the-note ruling, with the edited paths and the stop head (GST-3775, GBRA-795); fails_when=the stop
+//   says "ship with it as a ruled note" and names no command finish reads; seam=bin/gstack-review-plan --post-review
+describe('gstack-review-plan --post-review stop names the edit ruling (GST-3775)', () => {
+  test('a fix after the read-only final review prints gstack-approvals rule --finding edit:<path> at the stop head', () => {
+    const r = repo({ 'src/a.ts': 'export const a = 1;\n', 'src/gone.ts': 'export const g = 0;\n' });
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const passHead = git('rev-parse', 'HEAD');
+    fs.rmSync(path.join(r.dir, 'src/gone.ts'));
+    const odd = "src/q'$(id)`;x|y.ts";
+    fs.appendFileSync(path.join(r.dir, 'src/a.ts'), 'export const b = 2;\n'); fs.writeFileSync(path.join(r.dir, 'src/a b.ts'), 'export const c = 3;\n');
+    fs.writeFileSync(path.join(r.dir, odd), 'export const d = 4;\n');
+    git('add', '.'); git('commit', '-qm', 'edit after the final review');
+    const head = git('rev-parse', 'HEAD');
+    const p = run(r, ['--pass', '3', '--last', 'full', '--range-base', passHead, '--post-review']);
+    expect(p.status, p.stderr).toBe(0);
+    expect(p.stdout).toContain("a fix followed the read-only final review: the lane's Captain decides (R51)");
+    expect(p.stdout).toContain(`record that ruling once per edited path (each path shell-quoted; the owner-ref is the relay this open /ship run needs): gstack-approvals rule --finding 'edit:src/a.ts' --head ${head} --reason '<why`);
+    expect(p.stdout).toContain("'src/a b.ts' cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /ship again");
+    expect(p.stdout).toContain("; a deletion ('src/gone.ts') cannot be ruled, so it keeps the fix and runs /ship again");
+    const findings = [...p.stdout.split('\n').find(l => l.startsWith('NEXT: '))!.matchAll(/gstack-approvals rule --finding ('(?:[^']|'\\'')*') --head /g)].map(m => m[1]!);
+    expect(findings).toHaveLength(2);
+    const parsed = spawnSync('sh', ['-c', `printf '%s\\n' ${findings.join(' ')}`], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });
+    expect(parsed.stdout).toBe(`edit:src/a.ts\nedit:${odd}\n`);
+    expect(run(r, ['--pass', '3', '--last', 'full', '--range-base', passHead, '--fixed-below']).stdout).not.toContain('--finding edit:');
+  }, 30_000);
+});

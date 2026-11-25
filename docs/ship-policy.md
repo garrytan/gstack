@@ -1927,6 +1927,47 @@ base to save with the reviewed tree for finish's `--reviewed-base`.
 An own edit, a conflict resolution, an edit inside a merge, base context moved
 beside the branch's hunks or an uncommitted change reads `STALE` and says which.
 
+<a id="ruled-edits"></a>
+**Ruled edits after the final review (GST-3775).** An edit after the read-only
+final review stops finish (`behavior, tests or build inputs changed since review`),
+and `gstack-review-plan --post-review` then stops for the owner: ship the edit as
+a ruled note, or keep it and run /ship again for one more read-only full review.
+The owner's "ship it with the note" is a ruling per edited path, with `edit:<path>`
+as the finding and the stop head as the head; the stop line prints the edited
+paths and the head:
+
+```bash
+gstack-approvals rule --finding 'edit:<path>' --head <stop head> --reason '<why it ships as a note>' \
+  --by '<the owner>' --words '<their exact words>' --owner-ref <thread code>:<message id>
+```
+
+The stop line prints one such command per edited path, with each `edit:<path>`
+shell-quoted, so a path with quotes, `$`, `;` or backticks pastes as one argument.
+
+finish then routes a changed path as `RULED_EDIT: <path> (ruled at <head12> by <who>,
+approval <id>)` instead of stopping, when a ruling `edit:<path>` names HEAD or an
+ancestor of it, the path's entry in the tree finish routes (mode and bytes, untracked
+files included) equals that head's, and no commit after that head touches the path.
+Both trees must hold the path as one file under exactly the spelling finish routes:
+a path git cannot read (`git ls-tree` fails) or holds under another spelling (a
+filename that is not UTF-8 reaches finish with a replacement character), a path
+whose spelling holds a replacement character (U+FFFD) at all, since it may name
+another file than the one git changed, and a deleted path never match, so a
+ruling cannot clear them. A ruling that does not
+clear its path prints `RULED_EDIT_REFUSED: <path> (<why>; …)` and finish stops.
+A gate-class path, and a test the gate scan promotes to a behavior change, can be
+ruled like any other: the ruling is the owner's call on that exact edit. The stop
+line lists only the PR's own edits since the final review, never a path only a
+base merge moved, and names deletions apart, because a deletion cannot be ruled.
+One ruling never covers another path, and a path edited again after its ruling
+stops finish again, even when a later commit restores the ruled bytes. A path with
+whitespace cannot be ruled, so an edit there keeps the fix and runs /ship again.
+The ruling clears only the review stop: a changed file the documentation audit
+hashed still needs the stage 3 recovery finish's stop names. The ruling is an ordinary
+ruled note, so it prints as `RULED_NOTE:`, marked `(no RULED_EDIT at this head; not
+applied)` when it cleared no path, the receipt records it and the PR body lists its
+`Ruled note:` line.
+
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier
 version in its edit history, and a ruled, dispositioned, deferred or noted
