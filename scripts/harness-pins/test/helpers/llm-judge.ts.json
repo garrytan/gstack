@@ -1,1 +1,1 @@
-{"blob":"6640892961bd6b84d45f25705b452187c1374c9c","since":7,"nonBehavioral":"ARM_JUDGE_MODEL keeps main's value, claude-fable-5-1, now as a literal so the default judge's move to Fable 5.2 can't change it; the unused import is dropped"}
+{"blob":"588b533674dc433d1d91f304985c536010dd99b3","since":8}

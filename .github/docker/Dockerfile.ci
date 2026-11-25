@@ -148,15 +148,15 @@ RUN case "${TARGETARCH:-amd64}" in \
 # skillify HOME discovery on 2.1.237, guard/freeze hooks on 2.1.162).
 # Bump deliberately, via a PR that runs the PTY gate against the new TUI.
 # test/ci-image-cli-pin.test.ts fails the free suite if this pin is removed.
-# 2.1.292 is the npm latest users run (October 2026). On it the fork-subagent
-# gate is on by default in interactive sessions: the Agent schema drops
-# run_in_background and reviewers run in the background, which broke the
-# /autoplan publication guard while CI still ran 2.1.284 and never saw it.
-# Pinning the version users run is the point; the daily
+# 2.1.326 is npm's `stable` release (November 2026), the version users on
+# the stable channel run. Pinning a version users run is the point; the daily
 # autoplan-schema-canary case watches the latest release ahead of the pin.
-# (2.1.284 was the first pin to recognize the eval model claude-fable-5-1;
-# 2.1.292 keeps that profile.)
-RUN npm i -g @anthropic-ai/claude-code@2.1.292
+# 2.1.292, the pin before it, had no claude-fable-5-2 entry and priced the
+# default eval judge at the older Fable rate; 2.1.326 knows claude-fable-5-1 (the
+# arm benchmark's judge) and claude-fable-5-2 (every other judge). Since
+# 2.1.292 the fork-subagent gate is on by default in interactive sessions:
+# the Agent schema drops run_in_background and reviewers run in the background.
+RUN npm i -g @anthropic-ai/claude-code@2.1.326
 
 # Codex CLI — exact pin, same discipline as the claude pin above, so the
 # Codex eval files execute in CI instead of self-skipping. Installed OFF PATH:
@@ -165,9 +165,12 @@ RUN npm i -g @anthropic-ai/claude-code@2.1.292
 # directory on PATH only for the Codex files (scripts/lib/paid-cases.ts scopeCodexAccess).
 # The image carries no credential: the eval workflows run `codex login
 # --with-api-key` from the OPENAI_API_KEY secret in same-repo runs only
-# (codex 0.160.0 does not read OPENAI_API_KEY from the environment).
+# (codex 0.160.0 did not read OPENAI_API_KEY from the environment; the login
+# step stays for every pin).
+# 0.172.0 carries model metadata for gpt-6.2-sol and gpt-6.2-astra, which
+# 0.160.0 lacked, and meets the 0.170.0 floor gstack's Codex hooks need.
 ENV GSTACK_CI_CODEX_BIN_DIR=/opt/codex/bin
-RUN npm i -g --prefix=/opt/codex @openai/codex@0.160.0 \
+RUN npm i -g --prefix=/opt/codex @openai/codex@0.172.0 \
     && test -x /opt/codex/bin/codex \
     && ! command -v codex
 

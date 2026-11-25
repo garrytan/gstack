@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "patterns": [
     "test/helpers/agent-sdk-runner.ts",
     "test/helpers/codex-session-runner.ts",
