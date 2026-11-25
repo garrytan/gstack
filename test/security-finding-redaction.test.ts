@@ -14,7 +14,6 @@ import { gateDispositionText, type GateDisposition } from '../lib/gate-dispositi
 import { EXIT as POST_EXIT, runPost, type PostEnv } from '../lib/gstack-post';
 import { deferredRecord, renderDeferredSection } from '../lib/review-scope';
 import { ruledNoteRow, ruledNoteText, type RuledNote } from '../lib/ruled-notes';
-import { publicRoundGrant, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { REDACTED_REASON, securityFingerprints } from '../lib/security-findings';
 import { RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -183,49 +182,5 @@ describe('a red-team finding the owner ruled not security class (gstack-evals #3
     const write = f.run(path.join(BIN, 'gstack-ship-receipt'), ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body], { GSTACK_APPROVALS_MIRROR: '0' });
     expect(write.status, write.stderr).toBe(EXIT.ok);
     expect(fs.readFileSync(body, 'utf8')).toContain('"not_security": true');
-  });
-
-  // Value: protects=a fix-check grant naming a red-team finding the owner ruled not security class, or another security finding, never
-  //   puts the raw fingerprint into the receipt, so gstack-post accepts the body; fails_when=the receipt's review_round_grants copies
-  //   README.md:515:red-team as gbrain-evals#567's did; why_new=GBEV-103 had to publish #567's body with another tool; seam=gstack-ship-receipt
-  //   write with the grant and ruling in the approval store, then gstack-post's own fingerprint check; no_claim=-
-  test.skipIf(process.platform === 'win32')('a round grant\'s finding list carries the ruled public form or an opaque id, never the fingerprint (gbrain-evals#567)', () => {
-    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
-    ships.push(f);
-    fs.writeFileSync(path.join(f.root, 'stub', 'gh'), '#!/bin/sh\ncase "$*" in *visibility*) echo PUBLIC ;; *) exit 1 ;; esac\n', { mode: 0o755 });
-    const run = (bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
-    const head = f.git('rev-parse', 'HEAD').stdout.trim();
-    const ruled = run('gstack-approvals', ['rule', '--finding', 'README.md:515:red-team', '--head', head, '--reason', 'README wording about the power figure; not a security finding', '--words', 'not security', '--by', 'Fixture Owner', '--not-security']);
-    expect(ruled.status, ruled.stderr).toBe(0);
-    const grant = run('gstack-approvals', ['round-grant', '--pr', '7', '--head', head, '--kind', 'fix-check', '--stop-run', 'run1', '--findings', 'test/x.test.ts:70:functional-contract,README.md:515:red-team,src/net/retry.ts:42:security', '--reason', 'branch-caused failures', '--by', 'Fixture Captain']);
-    expect(grant.status, grant.stderr).toBe(0);
-    const body = path.join(f.root, 'body.md');
-    fs.writeFileSync(body, `## Pre-Landing Review\n\n${run('gstack-approvals', ['rulings']).stdout.trim()}\n`);
-    const write = run('gstack-ship-receipt', ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body]);
-    expect(write.status, write.stderr).toBe(EXIT.ok);
-    const text = fs.readFileSync(body, 'utf8');
-    expect(securityFingerprints(text)).toEqual([]);
-    expect(text).toContain('"README.md:515 (red-team, ruled not security class)"');
-    expect(text).toContain('"test/x.test.ts:70:functional-contract"');
-    expect(text).toMatch(/"sf-[0-9a-f]{12}"/);
-    expect(leaks(text, 'src/net/retry.ts:42', 'retry.ts')).toEqual([false, false]);
-  });
-});
-
-
-// Value: protects=a round grant whose finding list names an unruled security finding publishes neither the fingerprint nor the grant's
-//   free-text reason, which can describe the hole, while a grant whose only security finding the owner ruled not security class keeps
-//   its reason; fails_when=publicRoundGrant redacts the findings and passes the reason through; seam=publicRoundGrant, the one mapping
-//   gstack-ship-receipt write applies to review_round_grants; no_claim=the approval record's own private copy
-describe('round grants in the receipt', () => {
-  const grant = (findings: string[]): ReviewRoundGrant => ({ kind: 'fix-check', head: HEAD, pr: 7, by: 'Fixture Captain', reason: SECRET_REASON, at: '2026-11-18T00:00:00Z', approval: 'a-0123456789ab', stop_run: 'run1', findings });
-  test('an unruled security finding redacts the reason too; a ruled-not-security one and a plain grant keep it', () => {
-    const hidden = JSON.stringify(publicRoundGrant(grant([SEC, 'test/x.test.ts:70:functional-contract']), []));
-    expect(leaks(hidden, 'src/net/retry.ts', SECRET_REASON)).toEqual([false, false]);
-    expect(hidden).toContain(REDACTED_REASON);
-    expect(securityFingerprints(hidden)).toEqual([]);
-    const ruled = publicRoundGrant(grant(['README.md:515:red-team']), [{ ...note('README.md:515:red-team', 'README wording'), not_security: true }]);
-    expect(ruled).toMatchObject({ reason: SECRET_REASON, findings: ['README.md:515 (red-team, ruled not security class)'] });
-    expect(publicRoundGrant(grant(['test/x.test.ts:70:functional-contract']), [])).toEqual(grant(['test/x.test.ts:70:functional-contract']));
   });
 });

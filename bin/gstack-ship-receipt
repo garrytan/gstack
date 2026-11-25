@@ -17,9 +17,8 @@
  *   gstack-ship-receipt docs-caps [--base <ref>] [--policy <ship-policy.json>] [--json]
  *   gstack-ship-receipt history (--pr <n> [--repo <owner/repo>] | --body <file>) [--head <sha>] [--base <branch>] [--run <id>] [--json]
  *   gstack-ship-receipt stub (--pr <n> [--repo <owner/repo>] | --body <file>) --run <id> [--head <sha>] [--review-loop <json|@file>] [--void]
- *   gstack-ship-receipt stop (--pr <n> [--repo <owner/repo>] | --body <file>) --run <id> --since <REVIEW_SINCE>
+ *   gstack-ship-receipt stop [--pr <n> [--repo <owner/repo>] | --body <file>] --run <id> --since <REVIEW_SINCE>
  *   gstack-ship-receipt abandoned (--pr <n> [--repo <owner/repo>] | --body <file>) --run <id> --by <who> --reason <one line>
- *   gstack-ship-receipt claim (--pr <n> [--repo <owner/repo>] | --body <file>) --run <id> --grant <approval id>
  *
  * `write` validates against `gstack-artifact schema ship-receipt`, prints the
  * fenced block (and SHIP_RECEIPT: <identifiers> on stderr), writes it to --out,
@@ -58,7 +57,7 @@ import {
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
 import { planRecheck, recheckPacket } from '../crew/lib/ship-recheck';
-import { carryExcludeBinds, deeper, depthBelow, exceptionHead, exceptionLoopProblem, exceptionProblems, parseReviewLoopException, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptExcludeFallback, receiptReviewAtHead, receiptTargetedAtHead, reviewLoopExceptionLine, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
+import { carryExcludeBinds, deeper, depthBelow, exceptionProblems, parseReviewTargeted, plainDocsSince, platformReceiptDepth, receiptExclude, receiptExcludeFallback, receiptReviewAtHead, receiptTargetedAtHead, targetedClassesSince, writeExcludeBinds } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
@@ -67,10 +66,9 @@ import { publicRuledNote, readRuledNotes, ruledNoteText } from '../lib/ruled-not
 import { appliedGateDispositions, gateDispositionText, publicGateDisposition } from '../lib/gate-dispositions';
 import { securityFingerprints } from '../lib/security-findings';
 import { laneExceptionBodyLines } from '../lib/test-lane-exception';
-import { abandonMarker, grantedStop, grantMarker, historyLine, placeRunEntry, prReviewHistory, receiptedRun, reviewRoute, runStub, stopFrom, stopMarker } from '../lib/pr-review-history';
-import { changeRunRecord, readRunRecord } from '../lib/ship-run-record';
+import { abandonMarker, historyLine, placeRunEntry, prReviewHistory, receiptedRun, reviewRoute, runStub, stopFrom, stopMarker } from '../lib/pr-review-history';
+import { changeRunRecord } from '../lib/ship-run-record';
 import { splitAgentNotes, withAgentNotes } from '../lib/agent-notes';
-import { grantFor, grantForPr, publicRoundGrant, readReviewRoundGrants, type ReviewRoundGrant } from '../lib/review-round-grant';
 import { readMechanicalLines } from '../lib/ship-mechanical';
 import { patchId, productPatchAgainstBase, productRules, productSpec, verifiedOutputs } from '../lib/ship-receipt-patch';
 import { runCalls } from '../lib/ship-clock';
@@ -105,27 +103,22 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
                                       R51 per pull request (docs/review-policy.md#rounds-per-pull-request): sums the review rounds
                                       the receipt and its runs block record across every head and /ship run, and prints
                                       PR_REVIEW_HISTORY:, PR_REVIEW_FLAGS: (what Step 9 passes to every gstack-review-plan call) and
-                                      PR_REVIEW_ROUTE: first|final|read-only|fix-check (why); a PR body gh cannot read prints source=unavailable
-                                      with its cause and fix on stderr (exit 1), and the plan then counts as it did before. A fix-check
-                                      grant naming the newest stop record adds --round-grant <id> --stop <its head> (route fix-check; one
-                                      it can't apply prints PR_REVIEW_GRANT: not applied (why)); an extra-round grant at HEAD, or at a head
-                                      HEAD only merges --base into with the PR's own lines unchanged, adds --round-grant <id> (GST-2968)
+                                      PR_REVIEW_ROUTE: first|final|read-only (why); a PR body gh cannot read prints source=unavailable
+                                      with its cause and fix on stderr (exit 1), and the plan then counts as it did before
   stub --pr <n> | --body <file> --run <id> [--head <sha>] [--review-loop <json|@file>] [--void]
                                       Step 9: record this /ship run's rounds so far in the runs block before its receipt exists, so a
                                       run that stops still counts; the run's receipt write (same --run) replaces it; --void marks an
-                                      infrastructure failure that counts nothing. stub, stop, claim and carry with --pr edit the PR body
+                                      infrastructure failure that counts nothing. stub, stop and carry with --pr edit the PR body
                                       through gh; on Capy (GSTACK_CAPY=1) they print HOST_PUBLISH: with the body file instead (GST-3183)
-  stop --pr <n> | --body <file> --run <id> --since <REVIEW_SINCE>
+  stop [--pr <n> | --body <file>] --run <id> --since <REVIEW_SINCE>
                                       Step 9, on NEXT: stop: record the review this run stopped on (its commit and tree, from the newest
-                                      via:ship review row bound to one committed tree) as a stop record in the runs block, and print the
-                                      round-grant command that buys its fix round (STOP_RECORD:, NEXT:); the stopping row is the newest
-                                      full pass, fix-check or Step 11 voice, so the stop is the head it read (#4591); it also marks this
-                                      checkout's run record stopped at that head and tree; an unbound read prints STOP_UNBOUND (exit 3)
-                                      and records nothing (docs/troubleshooting.md#stop-unbound)
-  claim --pr <n> | --body <file> --run <id> --grant <approval id>
-                                      before the first dispatch of a run whose PR_REVIEW_FLAGS: name --round-grant: record that this run
-                                      spends the grant (GRANT_CLAIMED:), in the PR body and in this checkout's run record; a grant
-                                      another run claimed is refused (GRANT_SPENT, exit 3)
+                                      via:ship review row bound to one committed tree) as a stop record in the runs block, and print what
+                                      the lane's Captain decides (STOP_RECORD:, NEXT:); the stopping row is the newest full pass or Step 11
+                                      voice, so the stop is the head it read (#4591); it also marks this checkout's run record stopped at
+                                      that head and tree. Before a PR exists (no --pr and no --body), only the run record takes the stop
+                                      (pr=none; HARN-138), and a refused run-record write then exits 1 with no STOP_RECORD; a --pr
+                                      or --body with no value is a usage error (exit 2). An unbound read prints STOP_UNBOUND (exit 3) and records nothing
+                                      (docs/troubleshooting.md#stop-unbound)
   abandoned --pr <n> | --body <file> --run <id> --by <who> --reason <one line>
                                       gstack-ship-run abandon's PR-body half: a mark:abandoned entry in the runs block (RUN_ABANDON_MARK:)
   docs-caps [--base <ref>]            /ship Step 14.5: one DOCS_CAP: <path> <bytes>/<max> ok|over line per docs.caps entry of the
@@ -142,10 +135,7 @@ write flags: --pr --head --base --version --gated-tree --predecessor --gate <jso
   --review-loop <json|@file> ({passes, blocking_found, deferred[, noted, fixed, scope]}: gstack-review-scope summary --out)
   --docs <json|@file> ({status: updated|current|blocked, scope[, exception: {accepted_by, date, via, reason}]}: Step 14.5's outcome;
   blocked without an exception is DOCS_AUDIT_BLOCKED, and with --body the body must carry the exception line verbatim)
-  --review-loop-exception <json|@file> ({accepted_by, date, via, reason, fix_check: {head, findings[, files]}}: the owner accepted a
-  stop after a fix-check edit; needs --review-loop with fix_checks >= 1, fix_check.head an ancestor of the head, and with --body the
-  "Review-loop exception: …" line verbatim; or second_pass: {head, deferred: [<finding id>]} in place of fix_check for a stop after
-  the second full pass with a finding left open, needing passes >= 2 and deferred >= 1; else REVIEW_LOOP_EXCEPTION_INVALID). Every receipt records gstack_version and
+  Every receipt records gstack_version and
   review_depth: the depth HEAD needs, recomputed from the committed range (--head must be HEAD; a dirty checkout or an
   unreadable input records full).
   --review-exclude <digest|none> (the digest= on gstack-review-dispatch verify's REVIEW_EXCLUDE_RECORD: line, which the reviewers' briefs
@@ -309,19 +299,7 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
       return EXIT.refused;
     }
   }
-  let loopException: ReturnType<typeof parseReviewLoopException> | undefined;
-  if (flag(rest, '--review-loop-exception') !== undefined) {
-    const refuse = (why: string) => { process.stderr.write(resultLineWithDocs('gstack-ship-receipt write', 'REVIEW_LOOP_EXCEPTION_INVALID', `${why}; nothing written`) + '\n'); return EXIT.fail; };
-    try { loopException = parseReviewLoopException(jsonArg(flag(rest, '--review-loop-exception'))); } catch (e: any) { return refuse(`--review-loop-exception: ${e.message}`); }
-    if (!loopException.ok) return refuse(loopException.message);
-    let loop: unknown; try { loop = jsonArg(flag(rest, '--review-loop')); } catch {}
-    const loopProblem = exceptionLoopProblem(loopException.exception, parseReviewLoop(loop));
-    if (loopProblem) return refuse(`--review-loop-exception ${loopProblem}`);
-    const fc = exceptionHead(loopException.exception);
-    if (spawnSync('git', ['merge-base', '--is-ancestor', fc, head], { cwd: repoRoot }).status !== 0) return refuse(`${loopException.exception.fix_check ? 'fix_check' : 'second_pass'}.head ${fc.slice(0, 12)} is not ${head.slice(0, 12)} or an ancestor of it`);
-    const line = reviewLoopExceptionLine(loopException.exception);
-    if (bodyFile && !bodyText.split(/\r?\n/).some(l => l.trim() === line)) return refuse(`${bodyFile} does not carry the exception line verbatim: ${JSON.stringify(line)}`);
-  }
+  if (flag(rest, '--review-loop-exception') !== undefined) { process.stderr.write(resultLineWithDocs('gstack-ship-receipt write', 'REVIEW_LOOP_EXCEPTION_INVALID', '--review-loop-exception was removed with fix-check grants (GST-3562 part 4): an open finding at the round cap ships only as a Ruled note the lane\'s Captain records with gstack-approvals rule; nothing written') + '\n'); return EXIT.usage; }
   const leaked = securityFingerprints(bodyText);
   if (leaked.length) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} names security finding ${leaked.join(', ')}: a PR body is public, so a security finding appears only as the redacted line gstack-approvals rulings, dispositions or gstack-review-scope render prints, and its location and reason stay in the private record (docs/troubleshooting.md#security-finding-in-body); nothing written`) + '\n'); return EXIT.fail; }
   const ruledNotes = readRuledNotes(repoRoot);
@@ -395,14 +373,10 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
     const at = headSha ?? head, baseRef = `origin/${base.replace(/^origin\//, '')}`, run = flag(rest, '--run'), pr = Number(flag(rest, '--pr'));
     const blockers = (Array.isArray(loopRaw?.open) ? loopRaw.open : []).filter((b: any) => ruledOpen.includes(typeof b === 'string' ? b : b?.id));
     const rows = ruledOpen.length ? reviewRows(repoRoot) ?? [] : [];
-    const grants = ruledOpen.length ? readReviewRoundGrants(repoRoot).filter(g => g.kind === 'fix-check' && grantForPr(g, pr)) : [];
-    const live = grants.length && !receiptRuns(bodyText).length && flag(rest, '--pr') ? readBody(['--pr', flag(rest, '--pr')!, ...(flag(rest, '--repo') ? ['--repo', flag(rest, '--repo')!] : [])]) : undefined;
-    const clearing = ruledOpen.length ? await import('../lib/fix-check-clearing') : undefined;
-    const byGrant = !grants.length || !clearing ? undefined : !run ? { ids: [], why: 'write names no --run, so no run spent the grant' } : clearing.clearByGrant(repoRoot, { pr, run, head: at, baseRef, body: live?.ok ? live.body : bodyText, grants, rows, open: blockers });
+    const clearing = ruledOpen.length ? await import('../lib/review-trailer-clearing') : undefined;
     const byTrailer = clearing ? clearing.clearByTrailer(repoRoot, { head: at, baseRef, rows, open: blockers }) : [];
-    if (byGrant) process.stderr.write(`FIX_CHECK_CLEAR: ${byGrant.ids.length ? `grant=${byGrant.approval} run=${byGrant.run} closed=${byGrant.ids.join(',')}` : 'none'}${byGrant.why ? ` (${byGrant.why})` : ''}\n`);
     for (const t of byTrailer) process.stderr.write(`TRAILER_CLEAR: ${t.id} (fixed by ${t.commit.slice(0, 12)}, read clean by the full review at ${t.review.slice(0, 12)})\n`);
-    const open = ruledOpen.filter(id => !byGrant?.ids.includes(id) && !byTrailer.some(t => t.id === id));
+    const open = ruledOpen.filter(id => !byTrailer.some(t => t.id === id));
     if (open.length) { process.stderr.write(resultLineWithDocs('gstack-ship-receipt write', 'RECEIPT_BLOCKER_OPEN', `${open.join(', ')}; nothing written`) + '\n'); return EXIT.refused; }
     input = {
       schema_version: 1, pr: flag(rest, '--pr') !== undefined ? Number(flag(rest, '--pr')) : undefined, head,
@@ -416,7 +390,7 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
       review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...product,
-      gstack_version: installedGstackVersion(), review_depth: reviewDepth, review_loop_exception: loopException?.ok ? loopException.exception : undefined, review_round_grants: roundGrantsFor(repoRoot, flag(rest, '--pr'))?.map(g => publicRoundGrant(g, ruledNotes)), cleared_by_grant: byGrant?.ids.length ? { approval: byGrant.approval!, run: byGrant.run!, ids: byGrant.ids } : undefined, cleared_by_trailer: byTrailer.length ? byTrailer : undefined, ruled_notes: ruledNotes.length ? ruledNotes.map(publicRuledNote) : undefined, gate_dispositions: gateDispositions.map(publicGateDisposition), mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
+      gstack_version: installedGstackVersion(), review_depth: reviewDepth, cleared_by_trailer: byTrailer.length ? byTrailer : undefined, ruled_notes: ruledNotes.length ? ruledNotes.map(publicRuledNote) : undefined, gate_dispositions: gateDispositions.map(publicGateDisposition), mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
       design: review.frontend ? { mode: 'static', reason: 'no preview declared' } : undefined,
       base_red: pause ? receiptBaseRed(pause) : undefined,
       review_exclude: receiptExclude(review.exclude),
@@ -448,8 +422,7 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
   const block = renderReceiptBlock(receipt);
   const out = flag(rest, '--out');
   if (out) fs.writeFileSync(out, block);
-  const closed = [...(receipt.cleared_by_grant ? [`Closed by grant ${receipt.cleared_by_grant.approval}: ${receipt.cleared_by_grant.ids.join(', ')} (the granted fix-check of run ${receipt.cleared_by_grant.run} read the fix clean)`] : []),
-    ...(receipt.cleared_by_trailer ?? []).map(t => `Closed by fix ${t.commit.slice(0, 12)}: ${t.id} (a later full review at ${t.review.slice(0, 12)} read it clean)`)];
+  const closed = [...(receipt.cleared_by_trailer ?? []).map(t => `Closed by fix ${t.commit.slice(0, 12)}: ${t.id} (a later full review at ${t.review.slice(0, 12)} read it clean)`)];
   if (body) {
     let text = fs.existsSync(body) ? fs.readFileSync(body, 'utf8') : '';
     const pr = flag(rest, '--pr');
@@ -867,8 +840,7 @@ function cmdCarry(rest: string[], json: boolean): number {
     return refused('RECEIPT_CARRY_PREGATE_STALE', `the receipt records a pregate for ${receipt.head.slice(0, 12)}; run gstack-pregate at HEAD ${head.slice(0, 12)} and pass --pregate <pregate.json>`);
   }
   let depthField: Partial<ShipReceipt> = {};
-  const isAncestor = (commit: string) => !ancestor || spawnSync('git', ['merge-base', '--is-ancestor', commit, head], { cwd: repoRoot, timeout: 30_000 }).status === 0;
-  const problems = exceptionProblems(body, receipt, isAncestor);
+  const problems = exceptionProblems(body, receipt);
   if (problems.length) return refused('RECEIPT_CARRY_REFUSED', `the receipt's owner exception does not stand: ${problems.join('; ')}; run /gstack-ship on ${head.slice(0, 12)}`);
   if (receipt.review_depth || receipt.gstack_version) {
     if (!receipt.review_depth) return refused('RECEIPT_CARRY_REFUSED', `the receipt records gstack_version but no review_depth, so the queue would refuse it; run /gstack-ship on ${head.slice(0, 12)}`);
@@ -971,13 +943,6 @@ function cmdDocsCaps(rest: string[], json: boolean): number {
   return EXIT.fail;
 }
 
-/** The round grants the branch's approval record holds for this PR (the receipt's review_round_grants). */
-function roundGrantsFor(repoRoot: string | undefined, pr: string | undefined): ShipReceipt['review_round_grants'] {
-  if (!repoRoot || !pr) return undefined;
-  const grants = readReviewRoundGrants(repoRoot).filter(g => String(g.pr) === pr);
-  return grants.length ? grants : undefined;
-}
-
 /** The PR body from --body or gh, or why it cannot be read. */
 function readBody(rest: string[]): { ok: true; body: string; pr?: string } | { ok: false; why: string; fix: string } {
   const bodyFile = flag(rest, '--body');
@@ -1026,75 +991,37 @@ function cmdHistory(rest: string[], json: boolean): number {
   const repoRoot = git(['rev-parse', '--show-toplevel']);
   const head = (flag(rest, '--head') ?? (repoRoot ? git(['rev-parse', 'HEAD'], repoRoot) : undefined))?.toLowerCase();
   const h = prReviewHistory(read.body);
-  const grants = repoRoot && head && /^\d+$/.test(pr) ? readReviewRoundGrants(repoRoot) : [];
-  const answer = grants.length ? grantedStop(read.body, grants, { pr: Number(pr), head: head!, run: flag(rest, '--run'), isAncestor: ancestorIn(repoRoot!) }) : null;
-  const base = (flag(rest, '--base') ?? (repoRoot ? resolveBaseBranch(repoRoot) : 'main')).replace(/^origin\//, '');
-  const baseRef = repoRoot ? [`origin/${base}`, base].find(ref => git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], repoRoot)) : undefined;
-  const found: ReviewRoundGrant | undefined = answer?.ok ? answer.grant : grants.length ? grantFor(repoRoot!, grants, Number(pr), head!, baseRef) : undefined;
-  const claimed = found && !answer?.ok ? receiptRuns(read.body).find(r => r.mark === 'grant' && r.grant === found.approval && r.run !== flag(rest, '--run')) : undefined;
-  const grant = claimed ? undefined : found;
-  const route = answer?.ok ? { route: 'fix-check' as const, reason: `fix-check grant ${answer.grant.approval} answers the stop at ${answer.stop.head.slice(0, 12)} (run ${answer.stop.run}): one scoped fix-check of the PR's own change since it, for ${answer.grant.findings!.join(', ')}, with no new full review` } : reviewRoute(h, { grant: grant?.approval });
-  const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}${grant ? ` --round-grant ${grant.approval}` : ''}${answer?.ok ? ` --stop ${answer.stop.head}` : ''}`;
+  const route = reviewRoute(h);
+  const flagsLine = `PR_REVIEW_FLAGS: --prior-rounds ${h.rounds} --prior-full ${h.full}`;
   const used = flag(rest, '--run') ? receiptedRun(read.body, flag(rest, '--run')!) : undefined;
-  if (json) { process.stdout.write(JSON.stringify({ pr, ...h, grant: grant ?? null, stop: answer?.ok ? answer.stop : null, route, run_used: used?.head ?? null }) + '\n'); return EXIT.ok; }
-  process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n${answer && !answer.ok ? `PR_REVIEW_GRANT: not applied (${answer.why})\n` : ''}${claimed ? `PR_REVIEW_GRANT: not applied (grant ${claimed.grant} was claimed by run ${claimed.run}: a grant buys one round)\n` : ''}${used ? `PR_REVIEW_RUN_USED: run=${used.run} receipted at ${used.head.slice(0, 12)}\n` : ''}`);
+  if (json) { process.stdout.write(JSON.stringify({ pr, ...h, route, run_used: used?.head ?? null }) + '\n'); return EXIT.ok; }
+  process.stdout.write(`${historyLine(pr, h)}\n${flagsLine}\nPR_REVIEW_ROUTE: ${route.route} (${route.reason})\n${used ? `PR_REVIEW_RUN_USED: run=${used.run} receipted at ${used.head.slice(0, 12)}\n` : ''}`);
   return EXIT.ok;
 }
 
 const ancestorIn = (repoRoot: string) => (a: string, d: string) => a === d || spawnSync('git', ['merge-base', '--is-ancestor', a, d], { cwd: repoRoot, timeout: 30_000 }).status === 0;
 
-/** Step 9 on NEXT: stop (GST-2968): record the review this run stopped on, so a fix-check grant has one stop to answer. */
+/** Step 9 on NEXT: stop (GST-2968): record the review this run stopped on, in the PR body when one exists and in the run record (HARN-138: a stop before any PR records the run record only). */
 function cmdStop(rest: string[]): number {
   const run = flag(rest, '--run'), since = flag(rest, '--since');
   if (!run || !/^[\w.:-]{1,120}$/.test(run) || !since) { process.stderr.write('gstack-ship-receipt stop: --run <the /ship run id> and --since <REVIEW_SINCE> are required\n'); return EXIT.usage; }
   const repoRoot = git(['rev-parse', '--show-toplevel']);
   if (!repoRoot) { process.stderr.write('gstack-ship-receipt stop: run it inside the git checkout\n'); return EXIT.usage; }
-  const read = readBody(rest);
-  if (!read.ok) { process.stderr.write(`gstack-ship-receipt stop: ${read.why}; fix: ${read.fix}\n`); return EXIT.fail; }
+  const valueless = ['--pr', '--body'].filter(n => rest.includes(n) && (flag(rest, n) ?? '--').startsWith('--'));
+  if (valueless.length) { process.stderr.write(`gstack-ship-receipt stop: ${valueless.join(' and ')} needs a value (--pr <n>, --body <file>); leave both out only before the PR exists\n`); return EXIT.usage; }
+  const prePr = !rest.includes('--pr') && !rest.includes('--body');
+  const read = prePr ? undefined : readBody(rest);
+  if (read && !read.ok) { process.stderr.write(`gstack-ship-receipt stop: ${read.why}; fix: ${read.fix}\n`); return EXIT.fail; }
   const rows = reviewRows(repoRoot);
   if (!rows) { process.stderr.write('gstack-ship-receipt stop: gstack-review-read failed; nothing recorded\n'); return EXIT.fail; }
   const headNow = git(['rev-parse', 'HEAD'], repoRoot) ?? '';
   const found = stopFrom(rows, since, { treeOf: c => git(['rev-parse', '--verify', '--quiet', `${c}^{tree}`], repoRoot), onHead: c => ancestorIn(repoRoot)(c, headNow) });
-  if (!found.ok) { process.stderr.write(`${resultLine('gstack-ship-receipt stop', 'STOP_UNBOUND', `${found.why}; no stop record, so no fix-check grant can answer this stop`)}\n`); return EXIT.refused; }
-  const err = postBody(rest, read.pr, placeRunEntry(read.body, stopMarker({ head: found.head, tree: found.tree, run })));
+  if (!found.ok) { process.stderr.write(`${resultLine('gstack-ship-receipt stop', 'STOP_UNBOUND', `${found.why}; no stop record`)}\n`); return EXIT.refused; }
+  const err = read?.ok ? postBody(rest, read.pr, placeRunEntry(read.body, stopMarker({ head: found.head, tree: found.tree, run }))) : null;
   if (err) { process.stderr.write(`gstack-ship-receipt stop: ${err}; nothing recorded\n`); return EXIT.fail; }
-  const pr = read.pr ?? flag(rest, '--pr') ?? '<n>';
   const marked = changeRunRecord(repoRoot, 'stop', run, { stop: { head: found.head, tree: found.tree } });
-  process.stdout.write(`STOP_RECORD: run=${run} head=${found.head} tree=${found.tree}\n${marked.ok ? '' : `RUN_RECORD: not marked stopped (${marked.why})\n`}NEXT: the lane or its Captain decides: ship with the open notes listed, park, or buy this stop's fix round with gstack-approvals round-grant --pr ${pr} --head ${found.head} --kind fix-check --stop-run ${run} --findings <the open finding ids, comma-separated> --reason "<why>" --by <the lane or its Captain>, then take --round-grant and --stop from the PR_REVIEW_FLAGS: line of gstack-ship-receipt history --pr ${pr} --base <base> --run ${run} in this run, or from a new run's preflight (docs/troubleshooting.md#pr-round-cap)\n`);
-  return EXIT.ok;
-}
-
-/** Before a granted round's first dispatch: this run spends the grant, so no other run can buy the same round with it. */
-async function cmdClaim(rest: string[]): Promise<number> {
-  const run = flag(rest, '--run'), id = flag(rest, '--grant');
-  if (!run || !/^[\w.:-]{1,120}$/.test(run) || !id) { process.stderr.write('gstack-ship-receipt claim: --run <the /ship run id> and --grant <approval id> are required\n'); return EXIT.usage; }
-  const repoRoot = git(['rev-parse', '--show-toplevel']);
-  if (!repoRoot) { process.stderr.write('gstack-ship-receipt claim: run it inside the git checkout\n'); return EXIT.usage; }
-  const read = readBody(rest);
-  if (!read.ok) { process.stderr.write(`gstack-ship-receipt claim: ${read.why}; fix: ${read.fix}\n`); return EXIT.fail; }
-  const grants = readReviewRoundGrants(repoRoot), g = grants.find(x => x.approval === id);
-  if (!g) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_UNKNOWN', `no approved fix-check or round grant ${id} (a gstack-approvals round-grant row, or an owner's review_loop_grant <head> row) in this branch's approval record`)}\n`); return EXIT.refused; }
-  const other = receiptRuns(read.body).find(r => r.mark === 'grant' && r.grant === id && r.run !== run);
-  if (other) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${other.run}: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
-  const held = receiptRuns(read.body).some(r => r.mark === 'grant' && r.grant === id && r.run === run);
-  if (!held && g.kind === 'fix-check') {
-    const rows = reviewRows(repoRoot);
-    if (!rows) { process.stderr.write(`gstack-ship-receipt claim: gstack-review-read failed, so whether a fix-check already spent grant ${id} is unknown; not claimed, so do not dispatch\n`); return EXIT.fail; }
-    const { bindFixCheckRow, grantSpent } = await import('../lib/fix-check-clearing');
-    if (grantSpent(rows, g, row => bindFixCheckRow(repoRoot, row, grants, { open: true }).ok)) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `a counted fix-check already read under grant ${id} (it carries the grant, or started after the grant was recorded): a grant buys one round; the lane or its Captain records a new one (docs/troubleshooting.md#pr-round-cap)`)}\n`); return EXIT.refused; }
-  }
-  const err = postBody(rest, read.pr, placeRunEntry(read.body, grantMarker({ head: g.head, run, grant: id })));
-  if (err) { process.stderr.write(`gstack-ship-receipt claim: ${err}; not claimed, so do not dispatch\n`); return EXIT.fail; }
-  const handedOff = !flag(rest, '--body') && hostPublishes();
-  const again = handedOff ? { ok: true as const, body: placeRunEntry(read.body, grantMarker({ head: g.head, run, grant: id })) } : readBody(rest);
-  if (!again.ok) { process.stderr.write(`gstack-ship-receipt claim: ${again.why}; the claim is unconfirmed, so do not dispatch\n`); return EXIT.fail; }
-  const first = receiptRuns(again.body).find(r => r.mark === 'grant' && r.grant === id);
-  if (first?.run !== run) { process.stderr.write(`${resultLine('gstack-ship-receipt claim', 'GRANT_SPENT', `grant ${id} was claimed by run ${first?.run ?? 'another run'} while this run claimed it: a grant buys one round; the lane or its Captain records a new one`)}\n`); return EXIT.refused; }
-  const bodyPr = read.pr ?? flag(rest, '--pr');
-  const claimPr = g.pr || (bodyPr && /^[1-9]\d*$/.test(bodyPr) ? Number(bodyPr) : undefined);
-  const recorded = changeRunRecord(repoRoot, 'claim', run, { claim: { grant: id, ...(g.stop_run ? { stop_run: g.stop_run } : {}), stop_head: g.head, findings: g.findings ?? [], ...(claimPr ? { pr: claimPr } : {}) } });
-  if (!recorded.ok && readRunRecord(repoRoot).kind !== 'none') { process.stderr.write(`gstack-ship-receipt claim: the run record did not take the claim (${recorded.why}); not claimed, so do not dispatch: the PR body already holds run ${run}'s claim, so rerun claim with this same --run once the record is writable (a new run id reads GRANT_SPENT)\n`); return EXIT.fail; }
-  process.stdout.write(`GRANT_CLAIMED: grant=${id} kind=${g.kind} run=${run} head=${g.head.slice(0, 12)}\n${recorded.ok ? '' : `RUN_RECORD: claim not recorded (${recorded.why})\n`}`);
+  if (!read && !marked.ok) { process.stderr.write(`gstack-ship-receipt stop: the run record refused the stop (${marked.why}); with no PR nothing else holds it, so nothing is recorded\n`); return EXIT.fail; }
+  process.stdout.write(`STOP_RECORD: run=${run} head=${found.head} tree=${found.tree}${read ? '' : ' pr=none'}\n${marked.ok ? '' : `RUN_RECORD: not marked stopped (${marked.why})\n`}${read ? '' : `STOP_RECORD: no PR yet, so only this checkout's run record holds the stop; open the PR before the next /gstack-ship run so its rounds count (HARN-138)\n`}NEXT: the lane's Captain decides (R51): ship with the open findings listed as notes (a blocker only as a Ruled note, gstack-approvals rule), park, or keep the fix and run /gstack-ship again for one read-only full review of the final head (docs/troubleshooting.md#pr-round-cap)\n`);
   return EXIT.ok;
 }
 
@@ -1145,7 +1072,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'history') return cmdHistory(rest, json);
   if (cmd === 'stub') return cmdStub(rest);
   if (cmd === 'stop') return cmdStop(rest);
-  if (cmd === 'claim') return cmdClaim(rest);
+  if (cmd === 'claim') { process.stderr.write('gstack-ship-receipt claim: removed with round and fix-check grants (GST-3562 part 4); a PR at its round cap goes to the lane\'s Captain (docs/troubleshooting.md#pr-round-cap)\n'); return EXIT.usage; }
   if (cmd === 'abandoned') return cmdAbandoned(rest);
   process.stderr.write(`gstack-ship-receipt: unknown command ${cmd}\n${HELP}\n`);
   return EXIT.usage;

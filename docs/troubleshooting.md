@@ -2054,8 +2054,7 @@ consumed. A run that provably ended stops deferring at once
 harness it ran under has exited or the machine restarted, or its own run
 record in its checkout finished or was abandoned (the record belongs to the
 newest ledger on that checkout created before it opened). A
-stopped run keeps deferring, since it may still claim its fix-check grant and
-resume, and so does an open run on Capy's shared harness; end a run that
+stopped run keeps deferring, since it may still resume, and so does an open run on Capy's shared harness; end a run that
 stopped working with `gstack-ship-run abandon`.
 
 **Fix.** Wait for those sessions to finish (`bin/gstack-lease list` shows
@@ -2278,7 +2277,7 @@ holds an open /gstack-ship run, and for `lane-exception` a `--files` list that i
 empty or holds whitespace. `add` refuses a `ruled_note` or
 `test_lane_exception` scope ([ruled notes](ship-policy.md#ruled-notes),
 [test-lane exceptions](ship-policy.md#test-lane-exceptions)).
-`rule` and `round-grant` refuse an `--owner-ref` that is not
+`rule` refuses an `--owner-ref` that is not
 `<thread code>:<message id or timestamp>`, where the thread code looks like
 `GSTA-36` (an uppercase letter, then uppercase letters or digits, a dash and a
 number from 1), and an `--owner-ref` given without `--words` (for `rule`, also
@@ -2319,8 +2318,8 @@ before #4402, `<branch>-YYYYMMDD-HHMMSS` with a real calendar date and time;
 a phone number in
 the rest of the directory name, the same id anywhere else, and every other
 finding in the row still refuse.
-Likewise a `pii.phone.e164` finding that starts inside the `stop=` run id of a
-fix-check round grant's scope (`review_round_grant <sha> pr=<n> kind=fix-check
+Likewise a `pii.phone.e164` finding that starts inside the `stop=` run id of an
+older fix-check round grant's scope (a row recorded before GST-3562 part 4 still renders) (`review_round_grant <sha> pr=<n> kind=fix-check
 stop=507-7192673 findings=…`) is skipped (GST-3246); the same digits in the
 reason, the words or any other field still refuse.
 
@@ -3414,9 +3413,7 @@ prints where they are and runs no `gh issue create`.
 cannot reach goes to whoever owns the work. Use `pr-body` and
 `pr-title` with Capy's `tools.pr.edit`, `pr-comment` and `reply` with `tools.pr.comment`, `pr-create`
 with `tools.pr.create`. Capy has no GitHub issue tool, so an `issue-create` or an `issue-comment` on an
-issue goes to whoever owns the work. Never run the `gh` write yourself. `claim` cannot read its own
-marker back before you publish, so a second run that claims the same grant is caught by the next
-`gstack-ship-receipt history` instead (`PR_REVIEW_GRANT: not applied`).
+issue goes to whoever owns the work. Never run the `gh` write yourself.
 
 <a id="gstack-post-pr-body-merge"></a>
 ### `gstack-post pr-body` kept sections the body file did not contain
@@ -3805,7 +3802,7 @@ review that failed a Godot UID sidecar proof, so it keeps its old route,
 usually behavior ([ship-policy.md#uid-sidecar](ship-policy.md#uid-sidecar)).
 The reason names the failed proof: `needs --reviewed-base`, `could not be
 compared with the reviewed range`, `has no sibling <path> that the reviewed
-range added or modified or the review-loop exception accepted`, `has no
+range added or modified`, `has no
 sibling <path> at the current tree`, `existed at the reviewed tree or the
 current base`, `is not a regular non-executable file (mode <mode>)`, `is not
 exactly one Godot uid://<id> line`, `shares its UID with <paths>`, `could not
@@ -7353,19 +7350,15 @@ Never edit `review_depth` by hand ([review-policy.md](review-policy.md#review-de
 <a id="queue-receipt-exception-invalid"></a>
 ### `QUEUE_RECEIPT_EXCEPTION_INVALID`
 
-**Meaning.** The receipt records an owner exception (`docs.exception` or
-`review_loop_exception`) that the queue cannot accept: the record does not
-parse, a review-loop exception accepts a stop the review loop does not show (a
-`fix_check` with `review_loop.fix_checks` 0 or missing, or a `second_pass`
-with fewer than two passes or no deferred finding), its head (`fix_check.head`
-or `second_pass.head`) is neither the bound head nor an
-ancestor of it (not checked after a carry across rewritten history), or the PR
-body no longer carries the exception's line word for word
-(`Documentation exception: …` or `Review-loop exception: …`).
+**Meaning.** The receipt records a documentation exception (`docs.exception`) that
+the queue cannot accept: the record does not parse, or the PR body no longer
+carries its `Documentation exception: …` line word for word, or the receipt still
+records a review-loop exception, which GST-3562 part 4 removed: run /gstack-ship
+again for a fresh receipt.
 
 **Fix.** Restore the line in the PR body exactly as `write` printed it, or run
-/gstack-ship again and record the owner's acceptance with `--docs` or
-`--review-loop-exception` ([ship-policy.md](ship-policy.md#ship-receipt)).
+/gstack-ship again and record the owner's acceptance with `--docs`
+([ship-policy.md](ship-policy.md#ship-receipt)).
 
 <a id="queue-receipt-targeted-missing"></a>
 ### `QUEUE_RECEIPT_TARGETED_MISSING`
@@ -7774,32 +7767,17 @@ through land. See [gate dispositions](ship-policy.md#gate-dispositions).
 <a id="fix-check-open"></a>
 ### `FIX_CHECK_OPEN`
 
-**Meaning.** `gstack-ship-release finish` did not count a granted fix-check
-because it still has findings no owner has ruled on that still hold it open. The line lists
-their fingerprints and the fix-check's commit. A blocking finding the row
-records `fixed` or `auto-fixed` never holds it open and needs no ruling
-(GST-3501). A fix-check that found a new
-CRITICAL logs it `open` with `converged:false`, so `FIX_CHECK: not counted`
-reads `missing start capture or incomplete/nonconverged pass` until the
-rulings exist. A `--review-loop-exception` does not help here: it accepts
-edits made after `fix_check.head` (`REVIEW_LOOP_EXCEPTION: accepted none`
-when there are none), never the fix-check's own findings (harness-evals#361).
+**Meaning.** An older gstack's `gstack-ship-release finish` did not count a granted
+fix-check because findings no owner had ruled on still held it open. Fix-checks
+and their grants were removed in GST-3562 part 4, so finish no longer prints this.
 
-**Fix.** When the owner accepts the findings as disclosed notes, the owner
-records one ruling per listed fingerprint, outside the lane's /gstack-ship run, at
-the printed commit or any head inside the fix-check's range:
-`gstack-approvals rule --finding <fingerprint> --head <commit> --reason '<why>'
---words '<owner's exact words>' --by '<owner>'`. Then run finish again. It
-prints each `RULED_NOTE:`, and the PR body and receipt list every `Ruled
-note:` line ([ship-policy.md](ship-policy.md#ruled-notes)). A ruling at a head
-outside the range is listed as `not applied`, and a path edited after the
-fix-check still routes by the post-review rules. When the owner wants the
-findings fixed instead, fix them and run /gstack-ship again: fix-check grants are
-deprecated (GST-3562 A), so ask for none, and a PR past its two rounds whose code
-changed gets one read-only full review of its final head.
-A stopped final review or native reader row works the same way: its
-`gstack-review-read` reason lists each finding still waiting for a ruling, a
-`noted` CRITICAL included, so rule each listed fingerprint at the head it names.
+**Fix.** Run /gstack-ship again on the current head. A blocker the review leaves
+open goes to the lane's Captain, who rules it a note with `gstack-approvals rule
+--finding <fingerprint> --head <commit> --reason '<why>' --words '<owner's exact
+words>' --by '<owner>'` ([ship-policy.md](ship-policy.md#ruled-notes)) or parks the
+PR. A stopped final review or native reader row lists each finding still waiting
+for a ruling in its `gstack-review-read` reason, a `noted` CRITICAL included, so
+rule each listed fingerprint at the head it names.
 
 <a id="receipt-blocker-open"></a>
 ### `RECEIPT_BLOCKER_OPEN`
@@ -7816,28 +7794,21 @@ counted here.
 
 **Fix.** Fix the finding, commit, and run /gstack-ship again on the new head; that
 run's Step 9 row records it `fixed`. If it should ship unfixed, take the stop
-to the owner: their ruled note (`gstack-approvals rule`) closes it. Ask for no
-fix-check grant: those are deprecated (GST-3562 A). Never edit the review-log row or the loop file to
+to the owner: their ruled note (`gstack-approvals rule`) closes it. There are no
+fix-check grants (GST-3562 part 4). Never edit the review-log row or the loop file to
 drop the finding, and never write the receipt by hand
 ([ship-policy.md](ship-policy.md#ship-receipt)).
 
 <a id="review-loop-exception-invalid"></a>
 ### `REVIEW_LOOP_EXCEPTION_INVALID`
 
-**Meaning.** `gstack-ship-receipt write --review-loop-exception` refused the
-record and wrote nothing: it is not `{ accepted_by, date, via, reason }` with
-exactly one of `fix_check: { head, findings[, files] }` (a stop after a
-fix-check; deprecated with fix-check grants and removed next release) or `second_pass: { head, deferred: [<finding id>] }` (a stop after
-the second full pass left a finding open, TRUT-7), `--review-loop` is missing
-or does not show that stop (no fix-check counted, or fewer than two passes or
-no deferred finding), the head is neither the receipt head nor its ancestor, or
-the `--body` file lacks the `Review-loop exception: …` line.
+**Meaning.** `gstack-ship-receipt write --review-loop-exception` (or finish given the
+same flag) refused and wrote nothing: the review-loop exception was removed with
+fix-check grants in GST-3562 part 4.
 
-**Fix.** Record the owner's exact words and the stop they accepted (the
-fix-check, or the second full pass with the deferred finding's id),
-pass the `gstack-review-scope summary` file as `--review-loop`, put the printed
-line in the PR body, and write again
-([ship-policy.md](ship-policy.md#ship-receipt)).
+**Fix.** Drop the flag. An open finding at the round cap ships only as a Ruled
+note: the owner records it with `gstack-approvals rule`, and write lists it
+([ship-policy.md](ship-policy.md#ruled-notes)).
 
 <a id="ci-carry-tree-log-unbound"></a>
 ### `CI_CARRY_TREE_LOG_UNBOUND`
@@ -8026,57 +7997,29 @@ Captain (GST-3562 A).
 
 **Fix.** The lane's Captain decides: ship with the open notes listed, park, or
 keep the fix and run /gstack-ship again for one more read-only full review of the final
-head. Round grants are deprecated (GST-3562 A) and the next release removes them,
-so record no new one. The steps below serve only a grant recorded before
-GST-3562, which still buys the stopped review's fix round:
-
-1. Record the stop: `gstack-ship-receipt stop --pr <n> --run <the /gstack-ship run>
-   --since <REVIEW_SINCE>` (`/gstack-ship` runs it on `NEXT: stop`). It prints
-   `STOP_RECORD:` and the grant command.
-2. The lane or Captain records that grant: `gstack-approvals round-grant --pr
-   <n> --head <the stop's head> --kind fix-check --stop-run <its run> --findings
-   <the open finding ids> --reason <why> --by <lane or Captain>`.
-3. Commit the fix on top of the stop's head. A new run's `gstack-ship-preflight`
-   prints `PR_REVIEW_FLAGS:`; the same run, whose preflight already ran, gets
-   that line from `gstack-ship-receipt history --pr <n> --base <base> --run
-   <the /gstack-ship run>`. It adds `--round-grant <id> --stop <head>`, and the plan is one scoped fix-check of the PR's own change
-   since that head, with no new full review. The run claims the grant first
-   (`gstack-ship-receipt claim`).
-
-A head no review has stopped at takes an `--kind extra-round` grant instead
-(deprecated the same way):
-one full round with its fix round. Each grant is spent by the one run that
-claims it. When `PR_REVIEW_GRANT: not applied (...)` prints, the reason names
-what doesn't match (another stop or head, a stale stop, a claimed grant). This
-is not an owner ask, and gstack cannot grant itself one (`--by` naming gstack
-is refused) ([review-policy.md](review-policy.md#rounds-per-pull-request)).
+head. There are no round grants (GST-3562 part 4): the Captain rules a blocker a
+note with `gstack-approvals rule`, or the PR parks. This is not an owner ask
+([review-policy.md](review-policy.md#rounds-per-pull-request)).
 
 <a id="stop-unbound"></a>
 ### `STOP_UNBOUND`
 
 **Meaning.** `gstack-ship-receipt stop` found no review of this run that
 gstack can tie to one commit: the newest `via:ship` reading row since
-`--since` (a full pass, a fix-check or a Step 11 voice, whichever read last,
+`--since` (a full pass or a Step 11 voice, whichever read last,
 #4591) is missing, didn't finish, read a tree that moved or wasn't committed,
-or its commit isn't HEAD or under it. It recorded no stop record, so
-no fix-check grant can buy that review's fix round.
+or its commit isn't HEAD or under it. It recorded no stop record.
 
-**Fix.** The lane's Captain ships with the open notes listed, or parks. Fix-check
-grants are deprecated (GST-3562 A) and go in the next release, so record no new
-one. Before GST-3562 the Captain could rule the fix round with a grant that needs
-no stop record, and one recorded then still works for one release: `gstack-approvals
-round-grant --pr <n> --head <the reviewed head> --kind fix-check --reason <why>
---by <lane or Captain>` (add `--owner-ref` and `--words` inside an open run).
-The run then claims it, commits the fix, runs the one scoped fix-check
-`gstack-review-plan --round-grant <id> --stop <that head>` plans, and write
-closes the blockers that clean fix-check's fix list named
-([review-policy.md](review-policy.md#one-grant-path)).
+**Fix.** The lane's Captain ships with the open notes listed (a blocker only as
+a ruled note), or parks. A stop before any PR exists records the run's stop and
+prints `pr=none` (HARN-138); when the run record refuses that write (another
+run's record, a held lock), it exits 1 and prints no `STOP_RECORD:`.
 
 <a id="ship-run-abandon-refused"></a>
 ### `SHIP_RUN_ABANDON_REFUSED`
 
 **Meaning.** `gstack-ship-run abandon` left the run record as it was. Either
-the run beat (preflight, a review start or finish, stub, stop or claim) in the
+the run beat (preflight, a review start or finish, stub or stop) in the
 last 60 minutes, so it may still be working; or the record names another run,
 or already ended (finished or abandoned); or the record is unreadable and the
 `--sha256` given isn't its digest. `--by` naming gstack itself is a usage error.
@@ -8100,7 +8043,7 @@ recorded (add that entry with `gstack-ship-receipt abandoned` instead).
 
 **Meaning.** This checkout's /gstack-ship run record (the git dir's `gstack-ship-run`)
 is neither a run record nor a bare run id. Every guard reads it as an open run
-(it fails closed), so preflight, round grants, rulings without `--owner-ref`,
+(it fails closed), so preflight, rulings without `--owner-ref`,
 gate dispositions and lane exceptions stop until it is ended.
 
 **Fix.** If no /gstack-ship run is working on this checkout, run the command
@@ -8111,32 +8054,18 @@ The digest binds the abandon to the bytes you inspected.
 <a id="grant-spent"></a>
 ### `GRANT_SPENT`
 
-**Meaning.** `gstack-ship-receipt claim` found another `/gstack-ship` run's grant
-record for this round grant in the PR body's runs block, or, for a fix-check
-grant, a counted fix-check in the review log that already read under it: a row
-carrying the grant, or one carrying no grant logged after the grant was recorded
-(a row stamped with another grant was that grant's read). The second case
-catches a fix-check that ran with no claim (an owner's `review_loop_grant` row or
-a round grant planned through `gstack-review-plan --grant`). A grant buys one
-round, and a voided run's claim still spends it. Within the run that claimed it, a
-fix-check row that doesn't count (`converged:false`, partial hunks) spends
-nothing: log a correct row in the same run instead of asking for a new grant
-([review-policy.md](review-policy.md#one-grant-path)).
+**Meaning.** An older gstack's `gstack-ship-receipt claim` found the round or
+fix-check grant already spent. `claim` and grants were removed in GST-3562 part 4.
 
-**Fix.** Record no new grant: fix-check and round grants are deprecated
-(GST-3562 A). The lane's Captain decides the stop as
-[`PR_ROUND_CAP`](#pr-round-cap) says.
+**Fix.** The lane's Captain decides the stop as [`PR_ROUND_CAP`](#pr-round-cap) says.
 
 <a id="grant-unknown"></a>
 ### `GRANT_UNKNOWN`
 
-**Meaning.** `gstack-ship-receipt claim --grant <id>` found no approved
-fix-check or round grant with that id in the branch's approval record or its
-mirror: neither a `gstack-approvals round-grant` row nor an owner's
-`review_loop_grant <head>` row (both are the same grant since GST-3546).
+**Meaning.** An older gstack's `gstack-ship-receipt claim --grant <id>` found no
+approved grant with that id. `claim` and grants were removed in GST-3562 part 4.
 
-**Fix.** Pass the id `gstack-approvals round-grant` printed, from a checkout
-that sees that record ([troubleshooting](#pr-round-cap)).
+**Fix.** As for [`GRANT_SPENT`](#grant-spent).
 
 <a id="receipt-prose-mismatch"></a>
 ### `RECEIPT_PROSE_MISMATCH`

@@ -17,9 +17,7 @@ Finish the complete review and QA before applying any fix in Step 9.4.
 --base <base>`, plus `--depth-floor <d>` on every plan run when the /ship prompt
 gave `--depth-floor <d>` (it only raises), and Step 1's `PR_REVIEW_FLAGS:` on every plan run (the PR's
 earlier rounds; past two, a head whose code changed gets one read-only full review (`READ_ONLY:`, no fix round), and `PR_ROUND_CAP`
-stops for the lane, never the owner). Round grants and fix-check grants are deprecated and go in the next release: ask for and
-record none. When an older grant still puts `--round-grant <id>` there, run `gstack-ship-receipt claim --pr <n> --run <SESSION_ID> --grant <id>`
-before the first dispatch (`GRANT_SPENT` stops the run), then follow the plan's `NEXT:`. Add `--declare-risk <classes>` when the diff touches a risk
+stops for the lane, never the owner). There are no round or fix-check grants (GST-3562 part 4); follow the plan's `NEXT:`. Add `--declare-risk <classes>` when the diff touches a risk
 class the plan's `REVIEW_DEPTH:` misses (spend it reserves or binds: `money`), and give Step 16's
 receipt write the same flag; a repeat uses the plan run that picked it.
 Round 2 is always a `full` pass on the range, never a scoped one: every reader it plans is in the pass's manifest.
@@ -244,7 +242,7 @@ logged a CRITICAL, `--adversarial-ran` once Step 11's native pass ran, `--review
 `--depth-floor <d>` when given), `--range-base $PASS_HEAD` and `--pass1-depth <pass 1's REVIEW_DEPTH>`;
 its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `done` 4, `platform` 4. `voices` 4: Step 11 runs before the stop.
 Any code change after round 1 gets a full round 2; a fix in the last round gets the read-only final review (`READ_ONLY:`);
-after it the PR ships with its open notes or the lane's Captain rules. `fix-check` (3.5) comes only from a grant recorded before GST-3562.
+after it the PR ships with its open notes or the lane's Captain rules.
 Other scopes apply decisions 2–4 in order.
 
 1. **Dispatched reviewer output missing:** STOP and name each failed specialist or
@@ -260,13 +258,6 @@ Other scopes apply decisions 2–4 in order.
    past what the request needs (a helper, a guard, a case nothing takes), cut that
    growth before anything else; the repeat reviews the cut as part of the range. Tests must pass or retain approval for the same verified pre-existing
    failures and scope. Keep CYCLES and scoped approvals across this repeat; PASS increments on entry.
-3.5. **A fix-check from an older grant** (deprecated, removed next release; /ship plans none). Take a `gstack-review-log --start review-fix-check` token (`--reservation <id>` under a cap); write the
-   fix list, touched hunks (`git diff $PASS_HEAD`), callers of changed symbols and
-   test results to `.gstack/tmp/fix-check-*.txt`; dispatch one full-effort reviewer
-   on `gstack-review-plan --fix-check-prompt --fix-list <f> --hunks <f> --tests <f>
-   --callers <f>`, plus the outside voice only if the plan lists it. Log item 6's
-   row as `"skill":"review-fix-check"` with `--finish <token>`; not a pass. A
-   CRITICAL goes to decision 2; otherwise decision 4.
 4. **No edits in this pass:** Resolve the required-probe gate below. Only after it
    clears may you continue to Step 10. A pass whose only findings were deferred or
    noted applied no edits and continues here: the loop converges below the floor.

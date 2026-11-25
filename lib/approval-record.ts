@@ -196,7 +196,8 @@ const MINTED_RUN_ID = /^[A-Za-z0-9._-]{1,64}-(?:\d{14}|\d{4}(?:0[1-9]|1[0-2])(?:
 const RUN_ID_STAMP = /(?:(?<!\d)\d{1,6}-)?(?:\d{14}|\d{8}-\d{6})$/;
 
 /**
- * A fix-check round grant's scope as gstack-approvals round-grant writes it (lib/review-round-grant.ts): its stop= token is the
+ * A fix-check round grant's scope as the retired gstack-approvals round-grant wrote it (removed in GST-3562 part 4; rows
+ * recorded before still render in Approvals tables): its stop= token is the
  * /ship run id, often a PR number, a dash and a short sha (`507-7192673`), which pii.phone.e164 reads as a phone number
  * (harness-evals #507). Only a phone finding that starts inside that token of the scope field is skipped; the reason, the words
  * and every other field, a grant-shaped excerpt pasted into them included, are scanned as usual.

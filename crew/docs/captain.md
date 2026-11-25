@@ -798,8 +798,8 @@ owner pre-approved (train gates, screens, bisects, the backstop, focused paid ca
 the owner's date and words and the cap per rerun; anything over the cap is a fresh ask.
 After a PR's two review rounds (`PR_ROUND_CAP`) it ships with its open notes listed, or the controller
 rules on the blocker; a PR past the cap whose code changed gets one read-only full review of its final head,
-never an owner ask ([rounds per pull request](../../docs/review-policy.md#rounds-per-pull-request)). Round and
-fix-check grants are deprecated and go in the next release.
+never an owner ask ([rounds per pull request](../../docs/review-policy.md#rounds-per-pull-request)). There are no
+round or fix-check grants (GST-3562 part 4).
 
 **B. The plan ask** ([template](../../captain/templates/plan-ask.md)): before → after, why it
 matters, what caused this work, the big decisions, and what we need from you in the ask

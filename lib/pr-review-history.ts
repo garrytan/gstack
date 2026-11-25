@@ -11,7 +11,6 @@ import type { ShipReceipt } from './headless-artifacts';
 import { withAgentNotes, splitAgentNotes } from './agent-notes';
 import { extractReceipt, keptRuns, receiptRun, receiptRuns, RUNS_FENCE, RUNS_RE, type ReceiptRun } from './ship-receipt';
 import { FULL_PASS_CAP } from './review-depth';
-import type { ReviewRoundGrant } from './review-round-grant';
 
 export interface PrReviewHistory {
   /** /ship runs that reviewed (stubs and carries excluded). */
@@ -93,25 +92,23 @@ export const runStub = (o: { head: string; run: string; status: 'started' | 'voi
 
 /**
  * A stop record (GST-2968): the review a /ship run stopped on, written by gstack-ship-receipt stop when the plan prints NEXT: stop.
- * head is the commit that review read, tree its tree; the review row bound to it (lib/ship-stop.ts). A grant marker records
- * that a run claimed a round grant before dispatching the round it buys. Markers count no round and are never trimmed. Both carry
- * when they were recorded, so a granted fix-check orders stop, claim and row from the PR body alone (lib/fix-check-clearing.ts).
+ * head is the commit that review read, tree its tree; the review row bound to it (lib/ship-stop.ts). Markers count no round and
+ * are never trimmed; a grant marker from a run before GST-3562 part 4 (a claimed round grant) stays readable and counts nothing.
  */
 export const stopMarker = (o: { head: string; tree: string; run: string; at?: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'stop', tree: o.tree, at: o.at ?? new Date().toISOString() });
-export const grantMarker = (o: { head: string; run: string; grant: string; at?: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'grant', grant: o.grant, at: o.at ?? new Date().toISOString() });
 /** gstack-ship-run abandon's entry (GST-3260): who ended a run that stopped working, and why, at the head it was abandoned on. */
 export const abandonMarker = (o: { head: string; run: string; by: string; reason: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'abandoned', by: o.by, reason: o.reason });
 /** The newest receipt a run id already wrote, in the runs block or current: a run id names one /ship run (gstack-evals#406). */
 export const receiptedRun = (body: string, run: string) => entries(body).filter(e => e.run === run && !e.mark && !e.status).at(-1);
 
-/** The rows a /ship stop can follow: a full pass, a fix-check, or a Step 11 voice (#4591 stopped on its voices after a fix-check). */
+/** The rows a /ship stop can follow: a full pass or a Step 11 voice (#4591 stopped on its voices); a legacy fix-check row too. */
 const STOP_READERS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review']);
 
 /**
  * The stop record for the newest via:ship reading row of this run (at or after since): a full pass, a fix-check or a Step 11 voice,
  * whichever read last, so the stop binds to the head that row read (#4591). Or why none binds: the row must be complete,
  * bound to one tree from start to end (verified, or incomplete because it stopped) that is its commit's own tree, read on a clean
- * worktree, and that commit must be HEAD or an ancestor of it. A read gstack can't tie to a commit gives a grant nothing to answer.
+ * worktree, and that commit must be HEAD or an ancestor of it.
  */
 export function stopFrom(rows: readonly Record<string, any>[], since: string, o: { treeOf: (commit: string) => string | undefined; onHead: (commit: string) => boolean }): { ok: true; head: string; tree: string } | { ok: false; why: string } {
   const sinceMs = Date.parse(since);
@@ -125,44 +122,18 @@ export function stopFrom(rows: readonly Record<string, any>[], since: string, o:
   return { ok: true, head, tree: row.tree };
 }
 
-export type GrantedStop = { ok: true; grant: ReviewRoundGrant; stop: ReceiptRun } | { ok: false; why: string };
-
-/**
- * The fix-check grant that answers this PR's stop (GST-2968, GHOM-1): the newest stop record in the body, a fix-check grant naming
- * its run and head for this PR, not claimed by another run, and HEAD at or after the stop's head. A stop is stale once a later run
- * reviewed (a stub after it with a full pass, or a current receipt past its head): a grant then answers nothing.
- */
-export function grantedStop(body: string, grants: readonly ReviewRoundGrant[], o: { pr: number; head: string; run?: string; isAncestor: (a: string, d: string) => boolean }): GrantedStop | null {
-  const fixChecks = grants.filter(g => g.kind === 'fix-check' && g.pr === o.pr);
-  if (!fixChecks.length) return null;
-  const runs = receiptRuns(body);
-  const at = runs.map(r => r.mark).lastIndexOf('stop');
-  if (at < 0) return { ok: false, why: `no stop record in the PR body for grant ${fixChecks.at(-1)!.approval}; a fix-check grant answers the stop gstack-ship-receipt stop recorded` };
-  const stop = runs[at]!;
-  const current = extractReceipt(body).receipt;
-  const later = runs.slice(at + 1).find(r => !r.mark && r.run !== stop.run && (r.review_loop?.passes ?? 0) > 0);
-  if (later || (current && typeof current.head === 'string' && current.head !== stop.head && o.isAncestor(stop.head, current.head))) return { ok: false, why: `the stop at ${stop.head.slice(0, 12)} (run ${stop.run}) is stale: run ${later?.run ?? current?.run} reviewed after it` };
-  const g = [...fixChecks].reverse().find(x => x.head === stop.head && x.stop_run === stop.run);
-  if (!g) return { ok: false, why: `no fix-check grant names the newest stop (run ${stop.run} at ${stop.head.slice(0, 12)}): record one with gstack-approvals round-grant --kind fix-check --head ${stop.head} --stop-run ${stop.run}` };
-  const claimed = runs.find(r => r.mark === 'grant' && r.grant === g.approval && r.run !== o.run);
-  if (claimed) return { ok: false, why: `grant ${g.approval} was claimed by run ${claimed.run}: a grant buys one round` };
-  if (!o.isAncestor(stop.head, o.head)) return { ok: false, why: `HEAD ${o.head.slice(0, 12)} does not contain the stop's head ${stop.head.slice(0, 12)}: a head move voids grant ${g.approval}` };
-  return { ok: true, grant: g, stop };
-}
-
-export type Route = { route: 'first' | 'final' | 'read-only' | 'fix-check'; reason: string };
+export type Route = { route: 'first' | 'final' | 'read-only'; reason: string };
 
 /**
  * What review a head of the PR gets when carry can't keep its receipt (the PR's own lines changed; a head that only
  * merges in the base keeps it). Before any full round: the first review, as today. Below the cap: a fresh full review
  * of this head, the PR's last before merge. At the cap: one read-only full review of the final head, with no fix round,
- * whose blocker goes to the lane's Captain as a decision; an extra-round grant at this head buys a fix round instead.
+ * whose blocker goes to the lane's Captain as a decision.
  * A scoped re-check is advice only and never stands in (GST-2673).
  */
-export function reviewRoute(h: Pick<PrReviewHistory, 'full'>, o: { grant?: string } = {}): Route {
+export function reviewRoute(h: Pick<PrReviewHistory, 'full'>): Route {
   if (!h.full) return { route: 'first', reason: 'no full review round on this PR yet' };
   if (h.full < FULL_PASS_CAP) return { route: 'final', reason: `the PR had ${h.full} full review round${h.full === 1 ? '' : 's'}; this head gets a fresh full review, the PR's round ${h.full + 1} of ${FULL_PASS_CAP} and its last before merge (R51)` };
-  if (o.grant && h.full === FULL_PASS_CAP) return { route: 'final', reason: `the PR had ${h.full} full review rounds; round grant ${o.grant} buys one more at this head, with its fix round` };
   return { route: 'read-only', reason: `the PR had ${h.full} full review rounds; this head gets one read-only full review: no fix round, a blocker goes to the lane's Captain as a decision, and the count does not reopen (R51)` };
 }
 

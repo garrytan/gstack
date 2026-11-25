@@ -87,7 +87,7 @@ function newShip(f: Fixture, sc: Scenario): { calls: Call[]; ending: string } {
     adversarialRan ||= plan.dispatches.some(d => d.role === 'adversarial-native');
     if (plan.next.step === 'voices') continue;
     const o = outcomes[sc][Math.min(i, outcomes[sc].length - 1)] ?? {};
-    const last = plan.next.step === 'scoped' ? 'full' : plan.next.step;
+    const last = plan.next.step === 'scoped' || plan.next.step === 'fix-check' ? 'full' : plan.next.step;
     h = { fullPasses: h.fullPasses + (last === 'full' ? 1 : 0), last, ...o };
   }
   for (const a of FIXED_AUDITS) calls.push({ role: 'audit', effort: 'light', diffBytes: f.diff_bytes / 2 });

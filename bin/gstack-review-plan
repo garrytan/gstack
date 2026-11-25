@@ -2,11 +2,10 @@
 /**
  * gstack-review-plan — how much review the next /ship step dispatches (docs/review-policy.md#review-depth).
  *
- *   gstack-review-plan --base <ref> [--pass <full passes run>] [--last none|full|fix-check] [--fixed-blocking] [--fixed-below]
+ *   gstack-review-plan --base <ref> [--pass <full passes run>] [--last none|full] [--fixed-blocking] [--fixed-below]
  *                      [--blocking-open] [--touched-gate] [--critical-found] [--adversarial-ran] [--gate-tagged <n>] [--gated a,b] [--force a,b|all]
  *                      [--reviewed-numbers <fingerprint>] [--depth-floor standard|full] [--range-base <sha>] [--pass1-depth light|standard|full] [--no-tiers]
- *                      [--targeted-ran <targeted_patch_id>] [--grant <approval id>] [--fix-checks <n>] [--post-review] [--pr <n>] [--json]
- *   gstack-review-plan --fix-check-prompt --fix-list <file> --hunks <file> --tests <file> [--callers <file>]
+ *                      [--targeted-ran <targeted_patch_id>] [--post-review] [--pr <n>] [--json]
  *
  * Reads the diff against the merge base with <ref> (committed, tracked uncommitted
  * edits and untracked files, through lib/review-collect.ts collectLive), runs
@@ -24,8 +23,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from '../lib/spawn-sync';
 import { baseContainsHead } from '../lib/default-base';
-import { locate, readRecord } from '../lib/approval-record';
-import { grantForPr, readReviewRoundGrants, reviewRoundGrants } from '../lib/review-round-grant';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { resultLine } from '../lib/result-codes';
 import { gateOutcomeLine } from '../lib/gate-outcomes';
@@ -43,20 +40,16 @@ import { effectiveReaders, READERS_POLICY_DEFAULT } from '../lib/ship-policy-rea
 import { classifyDiff, diffCommand, keepCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, ROLE_EFFORT, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
 import { classList, targetedBriefSha, targetedClasses, targetedPatchId } from '../lib/review-targeted';
 import { targetedDelta } from '../lib/review-targeted-delta';
-import { docsChangeSince, ownChangeSince } from '../lib/ship-receipt-depth';
+import { ownChangeSince } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
-import { renderFixCheckPrompt } from '../scripts/resolvers/fix-check';
-import { bindFixCheckRow, countedFixCheck, grantSpent } from '../lib/fix-check-clearing';
-import { claimedFixCheckHunks, recordFixCheckHunks } from '../lib/review-evidence';
 
 const HELP = `gstack-review-plan — the review depth of the next /ship step (docs/review-policy.md#review-depth)
 
   --base <ref>              the base branch (merge base with HEAD is the diff base); required
   --pass <n>                full review passes already run in this invocation (default 0)
-  --last none|full|fix-check  the step that just finished (default none: plan pass 1)
+  --last none|full          the step that just finished (default none: plan pass 1)
   --fixed-blocking          the finished step fixed a blocking finding (raises light to standard)
-  --fixed-below             the finished step fixed findings below the floor (ignored after a fix-check: below-floor
-                            fixes never repeat review, so only --fixed-blocking or --blocking-open stops there)
+  --fixed-below             the finished step fixed findings below the floor
   --blocking-open           a blocking finding is still open in fix scope
   --touched-gate            a fix touched a gate-class path
   --critical-found          a specialist reported a CRITICAL finding (Red Team on code class; raises light to standard)
@@ -69,8 +62,7 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             refuses (exit 2): the plan dispatches it itself
   --reviewed-numbers <fp>   the numeric-claim fingerprint the outside voice already reviewed
   --depth-floor standard|full  raise the depth to at least this (never lowers it); /ship passes its prompt flag on every run
-  --range-base <sha>        the fix range's base (this pass's PASS_HEAD; with --post-review --last fix-check, the last fix-check's
-                            commit): after a fixed blocker, round 2 is a full pass on the range; below full depth, a
+  --range-base <sha>        the fix range's base (this pass's PASS_HEAD): after a fixed blocker, round 2 is a full pass on the range; below full depth, a
                             committed range of at most ${SCOPED_RANGE_LINES} runtime lines now also gets a full pass (no scoped pass) that keeps
                             the Red Team and, on a range with runtime lines, the native adversarial; anything unread plans the full pass
   --no-tiers                specialists, audits and watchers at the host's default effort too (as gstack-config review_effort_tiers off does)
@@ -80,53 +72,30 @@ const HELP = `gstack-review-plan — the review depth of the next /ship step (do
                             reader last read it: the same patch skips it; any other id, none, or uncommitted edits dispatch it again.
                             With --range-base naming the commit that read happened on, a loop that is done plans NEXT: targeted
                             (one targeted reader on HEAD, TARGETED_DELTA: names the range) when the only change since is docs the
-                            receipt cannot carry the record across (a money, security or numeric claim; GST-1598), or, with a
-                            --grant this invocation checks, any change but plain docs (the granted fix round; GST-1607)
-  --grant <approval id>     the owner's grant of one scoped fix-check after round 2, recorded with gstack-approvals add (approved,
-                            its ask or scope naming review_loop_grant and the stop head's sha, at or after --range-base and at or
-                            before HEAD; needs --range-base): the stop after a round-2 full pass with a fixed blocking finding or a
-                            gate-class edit plans that fix-check instead; a fix-check never earns another, except that with
-                            --post-review --last fix-check a new grant at a stop head after --range-base (the last fix-check's
-                            commit) plans the next link of the fix-check chain, and in the loop after a fix-check a new grant
-                            naming that fix-check's commit (--range-base) plans the next link; a grant recorded before a later
-                            logged fix-check already bought a link; any other row is refused (exit 3)
-  --fix-checks <n>          fix-checks already run in this invocation: the owner's grant adds one only after the first, in the lean
-                            loop and after a round-2 fix-check in the full loop (GEVA-223)
+                            receipt cannot carry the record across (a money, security or numeric claim; GST-1598)
   --post-review             plan the Step 9 that /ship Step 16 stage 2.1 inserted for edits after the review bound (finish's
                             behavior STOP): they plan as a fix to a gate-class path, never a note, so below the round cap
-                            it is a pass on the range (lean: a fix-check), and at the cap it stops for the owner, whose
-                            --grant adds one scoped fix-check; after a fix-check, each new grant adds one more (a chain link,
-                            --range-base at the last fix-check's commit); pass --pass, --last and --fix-checks as the loop left them.
-                            After a fix-check, edits since --range-base that are only release stamps (the base policy's stamp rule,
-                            line-exact) and docs (docsChangeSince, the receipt's classifier), with no executable, symlink or gitlink mode and no gate-scan
-                            tag in the range, are no gate-class edit: done, or targeted
-                            when a docs claim needs the targeted read on a targeted-class diff (GST-1702)
-  --pr <n>                  the PR whose platform review counts under review.platform on (default: this branch's PR); with
-                            --round-grant, the PR the grant must name
-  --prior-rounds <n>        R51 rounds earlier /ship runs on this PR already spent, fix-checks not included (printed as pr_rounds=)
+                            it is a pass on the range, and at the cap it stops for the lane's Captain; pass --pass and --last
+                            as the loop left them
+  --pr <n>                  the PR whose platform review counts under review.platform on (default: this branch's PR)
+  --prior-rounds <n>        R51 rounds earlier /ship runs on this PR already spent (printed as pr_rounds=)
   --prior-full <n>          the full rounds among them: with this run's full passes they count against the cap of 2, so pass 1
                             of a PR with 2 is one read-only full review (no fix round; a blocker is NEXT: stop (PR_ROUND_CAP)
                             for the lane's Captain to decide, never the owner).
                             Both come from the PR_REVIEW_FLAGS: line gstack-ship-preflight prints (gstack-ship-receipt history)
                             (docs/review-policy.md#rounds-per-pull-request; GST-2673)
-  --round-grant <id>        a review round grant at HEAD, recorded with gstack-approvals round-grant by the lane or its Captain:
-                            one more round for the PR at this head; any other row is refused (exit 3)
-  --stop <head>             with a fix-check --round-grant (PR_REVIEW_FLAGS:): the stop record's head that grant names; it is
-                            the fix range's base, and the plan is that stop's one scoped fix-check, never a new full review (GST-2968)
   --declare-risk <classes>  risk classes the lane declares for the diff (comma list of ${RISK_CLASSES.join(', ')}): they join
                             the detected classes and only raise the depth; RISK_DECLARED: prints both (GST-1129)
-  --fix-check-prompt        print the fix-check reviewer's prompt from --fix-list, --hunks, --tests and --callers files
 
 Mode (R65, the base policy's review key): review.panel all (default) keeps today's panel on every class. review.panel risk
 (opt-in; its one-reader shape has not passed a no-loss replay) runs lean off risk class, and review.panel off everywhere: lean runs one reader: risk class gets the merged reader on review.risk_model
 (the native adversarial brief plus the checklists, the Red Team and the targeted brief), non-risk code the single reader at the
-lane's reasoning (cross-family when it publishes numbers), docs the core read, tests one batched testing reader (R51); one fix-check after fixes, never more
+lane's reasoning (cross-family when it publishes numbers), docs the core read, tests one batched testing reader (R51); a full round 2 after fixes, never more
 than 2 rounds. review.platform on (any panel): a light diff with no numeric claims whose PR
 carries capy-ai[bot]'s review at HEAD plans NEXT: platform and a planned SKIP for every reader.
 Depth (R51, risk not size): full on gate class, a risk class (money, auth, secret, security, data, review.risk_paths) or any DEPTH_ERROR;
 standard only by --depth-floor or a raise; otherwise light. TARGETED: the money,
-gate, auth and secret classes the diff touches; any class dispatches the targeted reader at every depth. NEXT: full, scoped
-(a full pass on the range: fix-check, Red Team, native adversarial), fix-check, voices (gate class: Step 11 before any stop,
+gate, auth and secret classes the diff touches; any class dispatches the targeted reader at every depth. NEXT: full, voices (gate class: Step 11 before any stop,
 then ask again with --adversarial-ran), targeted (the targeted-only read after the loop), stop or done. A full plan
 from an error exits 0; exit 1 means no plan could be built (git could not list the diff).
 ${exitTableHelp()}`;
@@ -139,82 +108,29 @@ const git = (a: string[]) => { const r = spawnSync('git', ['-c', 'core.quotePath
 
 function main(): number {
   if (has('--help') || has('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
-  if (has('--fix-check-prompt')) {
-    const read = (n: string, required: boolean) => {
-      const f = flag(n);
-      if (!f) return required ? null : '';
-      try { return fs.readFileSync(f, 'utf8'); } catch { return null; }
-    };
-    const built = claimedFixCheckHunks(process.cwd());
-    const [fixList, given, testResults, callers] = [read('--fix-list', true), read('--hunks', !built), read('--tests', true), read('--callers', false)];
-    if (fixList === null || given === null || testResults === null || callers === null) { process.stderr.write('gstack-review-plan: --fix-check-prompt needs readable --fix-list and --tests files, and --hunks unless this run claimed a fix-check grant (gstack then builds them; --callers optional)\n'); return EXIT.usage; }
-    if (built && given && given !== built.text) process.stderr.write(`FIX_CHECK_HUNKS: built from git diff ${built.base.slice(0, 12)} HEAD (the claimed grant's head); the --hunks file differs and is not used\n`);
-    const touchedHunks = built?.text ?? given;
-    process.stdout.write(renderFixCheckPrompt({ fixList, touchedHunks, testResults, callers }));
-    recordFixCheckHunks(process.cwd(), touchedHunks, undefined, fixList);
-    return EXIT.ok;
-  }
   const base = flag('--base');
   if (!base) { process.stderr.write(`gstack-review-plan: --base <ref> is required\n${HELP}\n`); return EXIT.usage; }
   const last = (flag('--last') ?? 'none') as History['last'];
-  if (!['none', 'full', 'fix-check'].includes(last)) { process.stderr.write('gstack-review-plan: --last must be none, full or fix-check\n'); return EXIT.usage; }
+  if (!['none', 'full'].includes(last)) { process.stderr.write(`gstack-review-plan: --last must be none or full${last === 'fix-check' ? ' (fix-checks and their grants were removed in GST-3562 part 4; docs/troubleshooting.md#pr-round-cap)' : ''}\n`); return EXIT.usage; }
   const pass1Depth = (flag('--pass1-depth') ?? 'full') as Depth;
   if (!['light', 'standard', 'full'].includes(pass1Depth)) { process.stderr.write('gstack-review-plan: --pass1-depth must be light, standard or full\n'); return EXIT.usage; }
-  const fixChecks = Number(flag('--fix-checks') ?? (last === 'fix-check' ? '1' : '0'));
-  if (!Number.isInteger(fixChecks) || fixChecks < 0) { process.stderr.write('gstack-review-plan: --fix-checks needs an integer >= 0\n'); return EXIT.usage; }
   const pass = Number(flag('--pass') ?? '0');
   if (!Number.isInteger(pass) || pass < 0) { process.stderr.write('gstack-review-plan: --pass needs an integer >= 0\n'); return EXIT.usage; }
   const floor = flag('--depth-floor') as Depth | undefined;
   if (has('--depth-floor') && floor !== 'standard' && floor !== 'full') { process.stderr.write('gstack-review-plan: --depth-floor must be standard or full (a floor only raises the depth)\n'); return EXIT.usage; }
-  const grant = flag('--grant');
-  if (has('--grant') && (!grant || grant.startsWith('-'))) { process.stderr.write('gstack-review-plan: --grant needs the approval id gstack-approvals add printed\n'); return EXIT.usage; }
-  const rangeBase = flag('--range-base') ?? flag('--stop');
-  if (has('--stop') && (!flag('--stop') || flag('--stop')!.startsWith('-') || !flag('--round-grant') || (has('--range-base') && flag('--range-base') !== flag('--stop') && git(['merge-base', '--is-ancestor', flag('--stop')!, flag('--range-base')!]) === null))) { process.stderr.write('gstack-review-plan: --stop <the stop record\'s head> comes with the --round-grant <fix-check grant id> that answers it (PR_REVIEW_FLAGS:), and is the fix range\'s base: a --range-base must be that head or a commit after it (the post-review or targeted re-plan after the granted fix-check)\n'); return EXIT.usage; }
-  if (has('--range-base') && (!rangeBase || rangeBase.startsWith('-'))) { process.stderr.write('gstack-review-plan: --range-base needs the fix range\'s base commit (this pass\'s PASS_HEAD; with --post-review --last fix-check, the last fix-check\'s commit)\n'); return EXIT.usage; }
-  if (grant && !rangeBase) { process.stderr.write('gstack-review-plan: --grant needs --range-base (round 2\'s PASS_HEAD; with --post-review --last fix-check, the last fix-check\'s commit), which binds the grant to the stop it answers\n'); return EXIT.usage; }
+  const rangeBase = flag('--range-base');
+  if (has('--range-base') && (!rangeBase || rangeBase.startsWith('-'))) { process.stderr.write('gstack-review-plan: --range-base needs the fix range\'s base commit (this pass\'s PASS_HEAD)\n'); return EXIT.usage; }
   if (list('--force').includes('targeted')) { process.stderr.write('gstack-review-plan: --force targeted: the targeted reader is no specialist; the plan dispatches it whenever the diff has a targeted class, and after a finished loop for a docs claim added since its read: pass --range-base <the commit it read> --targeted-ran <the targeted_patch_id it read> (docs/review-policy.md#targeted-only-read-after-the-loop)\n'); return EXIT.usage; }
   const declared = list('--declare-risk');
   if (has('--declare-risk') && (!declared.length || declared.some(c => !(RISK_CLASSES as readonly string[]).includes(c)))) { process.stderr.write(`gstack-review-plan: --declare-risk ${flag('--declare-risk') ?? ''}: each class is one of ${RISK_CLASSES.join(', ')} (a declaration only raises the depth)\n`); return EXIT.usage; }
   const root = git(['rev-parse', '--show-toplevel'])?.trim();
   if (!root) { process.stderr.write('gstack-review-plan: run it inside a git checkout\n'); return EXIT.fail; }
   process.chdir(root);
-  let inLoopLink = false;
-  let recorded: ReturnType<typeof readReviewRoundGrants> | undefined;
-  const bindRow = (row: Record<string, any>) => bindFixCheckRow(root, row, recorded ??= readReviewRoundGrants(root), { open: true }).ok;
-  if (grant) {
-    const loc = locate({ cwd: root, env: process.env });
-    const row = ('file' in loc ? readRecord(loc).rows : []).find(r => r.id === grant && r.outcome === 'approved' && (`${r.ask} ${r.scope}`.includes('review_loop_grant') || reviewRoundGrants([r]).some(x => x.kind === 'fix-check')));
-    const named = row ? reviewRoundGrants([row]).find(x => x.kind === 'fix-check' && !x.legacy)?.head : undefined;
-    const passHead = git(['rev-parse', '--verify', '--quiet', `${rangeBase}^{commit}`])?.trim();
-    const ancestor = (a: string, d: string) => git(['merge-base', '--is-ancestor', a, d]) !== null;
-    const chained = has('--post-review') && last === 'fix-check';
-    const stopHead = row && passHead ? (named ? [named] : `${row.ask} ${row.scope}`.match(/\b[0-9a-f]{7,40}\b/g))?.map(s => git(['rev-parse', '--verify', '--quiet', `${s}^{commit}`])?.trim()).find(s => s && ancestor(passHead, s) && ancestor(s, 'HEAD') && !(chained && s === passHead)) : undefined;
-    inLoopLink = !chained && last === 'fix-check' && stopHead === passHead;
-    if (!stopHead) { process.stderr.write(`gstack-review-plan: --grant ${grant}: no approved row ${grant} naming review_loop_grant and this invocation's stop head (a commit ${chained ? `after --range-base ${rangeBase}, the last fix-check's commit, whose own grant does not carry over` : `at or after --range-base ${rangeBase}`}, at or before HEAD) in this branch's approval record (${'file' in loc ? 'gstack-approvals list' : loc.message}); record the owner's grant with gstack-approvals add --ask '... (review_loop_grant <stop head sha>)' first\n`); return EXIT.refused; }
-    const logged = inLoopLink ? runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }) : null;
-    if (logged && logged.status !== 0) { process.stderr.write(`gstack-review-plan: --grant ${grant}: gstack-review-read exited ${logged.status}, so whether a fix-check already spent this grant is unknown; no plan is safer than a fix-check the grant may not buy\n`); return EXIT.fail; }
-    if (logged && row && (logged.stdout ?? '').split('\n---CONFIG---')[0]!.split('\n').some(l => { try { const v = JSON.parse(l); return countedFixCheck(v, bindRow) && Date.parse(v.timestamp) > Date.parse(row.recorded_at); } catch { return false; } })) { process.stderr.write(`gstack-review-plan: --grant ${grant}: a fix-check was logged after this grant was recorded, so the grant already bought a link of the fix-check chain; the stop at --range-base ${rangeBase} needs a new grant recorded after the last fix-check (gstack-approvals add --ask '... (review_loop_grant ${passHead!.slice(0, 12)})')\n`); return EXIT.refused; }
-  }
+  const retired = ['--grant', '--fix-checks', '--round-grant', '--stop', '--fix-check-prompt'].filter(has);
+  if (retired.length) { process.stderr.write(`gstack-review-plan: ${retired.join(', ')}: fix-checks, round grants and owner grants were removed in GST-3562 part 4; a PR at its round cap goes to the lane's Captain (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.usage; }
   const priorRounds = Number(flag('--prior-rounds') ?? '0');
   const priorFull = Number(flag('--prior-full') ?? '0');
   if (![priorRounds, priorFull].every(n => Number.isInteger(n) && n >= 0)) { process.stderr.write('gstack-review-plan: --prior-rounds and --prior-full need integers >= 0 (PR_REVIEW_FLAGS: from gstack-ship-preflight)\n'); return EXIT.usage; }
-  const roundGrant = flag('--round-grant');
-  let grantedStop: string | undefined;
-  let grantUnspent = false;
-  if (has('--round-grant')) {
-    const at = git(['rev-parse', 'HEAD'])?.trim();
-    const loc = locate({ cwd: root, env: process.env });
-    const g = readReviewRoundGrants(root).find(x => x.approval === roundGrant);
-    const pr = flag('--pr');
-    const stop = has('--stop') ? git(['rev-parse', '--verify', '--quiet', `${flag('--stop')}^{commit}`])?.trim() : undefined;
-    if (g && (g.kind === 'fix-check') !== has('--stop')) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant}: ${g.kind === 'fix-check' ? 'a fix-check grant answers a stop record: pass the --stop <head> PR_REVIEW_FLAGS: prints with it' : 'an extra-round grant names no stop: --stop takes a fix-check grant'} (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }
-    if (g && g.kind === 'fix-check' && (stop !== g.head || (pr !== undefined && !grantForPr(g, Number(pr))))) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant}: the fix-check grant names the stop at ${g.head.slice(0, 12)} for PR #${g.pr}, not --stop ${(flag('--stop') ?? '').slice(0, 12)}${pr ? ` and PR #${pr}` : ''}; a grant buys the fix round of the one stop it names (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }
-    if (g?.kind === 'fix-check') grantedStop = g.approval;
-    const logged = g?.kind === 'fix-check' && last === 'fix-check' ? runScriptSync(path.join(path.dirname(Bun.fileURLToPath(import.meta.url)), 'gstack-review-read'), [], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }) : null;
-    grantUnspent = !!logged && logged.status === 0 && !grantSpent((logged.stdout ?? '').split('\n---CONFIG---')[0]!.split('\n').flatMap(l => { try { const v = JSON.parse(l); return v && typeof v === 'object' ? [v] : []; } catch { return []; } }), g!, bindRow);
-    const atOrBefore = !!g && !!at && (g.head === at || git(['merge-base', '--is-ancestor', g.head, at]) !== null);
-    if (!roundGrant || !g || !atOrBefore || (pr !== undefined && !grantForPr(g, Number(pr)))) { process.stderr.write(`gstack-review-plan: --round-grant ${roundGrant ?? ''}: no approved review_round_grant row ${roundGrant ?? ''} naming HEAD ${(at ?? 'unknown').slice(0, 12)} or a commit before it${pr ? ` and PR #${pr}` : ''} in this branch's approval record; record one with gstack-approvals round-grant (docs/troubleshooting.md#pr-round-cap)\n`); return EXIT.refused; }
-  }
   const collected = collectLive(root, base);
   if (collected.errors.length) {
     for (const e of collected.errors) process.stderr.write(`gstack-review-plan: git could not list the diff (${e.input}: ${e.detail}); fix: ${e.repair}; no plan is safer than a plan for an empty diff\n`);
@@ -292,18 +208,12 @@ function main(): number {
   const brief = targetedBriefSha();
   const ran = !['uncommitted', 'none'].includes(patch) && flag('--targeted-ran') === patch;
   const postReview = has('--post-review');
-  const fixCheckAt = postReview && pass > 0 && last === 'fix-check' && fixRange?.runtime_lines != null ? git(['rev-parse', '--verify', '--quiet', `${rangeBase}^{commit}`])?.trim() : undefined;
-  const afterFixCheck = fixCheckAt ? docsChangeSince(root, fixCheckAt, head, ref) : null;
-  const rawSince = fixCheckAt && own ? git(['diff', '--raw', '--no-renames', fixCheckAt, own]) : null;
-  const carried = afterFixCheck && afterFixCheck.verdict !== 'code' && rawSince !== null && !/^:\d+ (100755|120000|160000) /m.test(rawSince) && gateTagsOf(['--commit', own!]) === 0 ? afterFixCheck : null;
   const plan = planReview({
     ...collected, ...exclusionInput, ...riskPaths, declared: declared as RiskClass[], shape: { panel: review.panel, readerModel: review.reader_model, platform: review.platform, head, platformReview: platform?.ok ? platform.review : null }, scope, gateTagged, targeted: { classes: targeted.classes, ran }, numbers: scanNumbers(kept(added)), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
-    history: { priorRounds, priorFull, ...(grantedStop ? { grantedStop } : roundGrant ? { roundGrant } : {}), fullPasses: pass, last: grantUnspent ? 'none' : last, fixedBlocking: has('--fixed-blocking'), fixedBelow: (has('--fixed-below') || (postReview && pass > 0)) && last !== 'fix-check', blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || (!carried && (!!fixRange?.touched_gate || (postReview && pass > 0))), pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, granted: grant, fixChecks: has('--fix-checks') ? fixChecks : undefined, postReview, chained: inLoopLink },
+    history: { priorRounds, priorFull, fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below') || (postReview && pass > 0), blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate || (postReview && pass > 0), pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, postReview },
   });
-  if (plan.next.reason.startsWith('PR_ROUND_CAP')) plan.next.reason += `: record this stop with gstack-ship-receipt stop --pr ${flag('--pr') ?? '<n>'} --run <this /ship run> --since <REVIEW_SINCE>, which prints the fix-check round grant (gstack-approvals round-grant --kind fix-check) that buys its fix round, in this run or the next; once it is recorded, pass the --round-grant and --stop the PR_REVIEW_FLAGS: line prints: in this run from gstack-ship-receipt history --pr ${flag('--pr') ?? '<n>'} --base <base> --run <this /ship run> (its preflight already ran, and a second one is refused), in a new run from its preflight (docs/troubleshooting.md#pr-round-cap)`;
-  if (carried) plan.next.reason = `the edits after the last fix-check ${fixCheckAt!.slice(0, 12)} are ${carried.paths.length ? `${carried.verdict === 'plain' ? 'plain docs' : `docs (${carried.paths.join(', ')})`}${carried.stamps.length ? ' and release stamps' : ''}` : 'release stamps'} (docsChangeSince), no gate-class edit (GST-1702): ${plan.next.reason}`;
-  else if (postReview && pass > 0) plan.next.reason = `edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: ${plan.next.reason}`;
+  if (postReview && pass > 0) plan.next.reason = `edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: ${plan.next.reason}`;
   if (postReview && plan.next.step === 'stop') {
     const status = rangeBase ? git(['diff', '-z', '--name-status', '--no-renames', rangeBase, own ?? head])?.split('\0').filter(Boolean) : undefined;
     const pairs = status ? Array.from({ length: status.length >> 1 }, (_, i) => [status[2 * i]!, status[2 * i + 1]!] as const) : undefined;
@@ -316,10 +226,9 @@ function main(): number {
   }
   const ranArg = flag('--targeted-ran');
   const delta = plan.next.step !== 'done' || !targeted.classes.length || ran ? null
-    : carried?.verdict === 'claim' ? { state: 'dispatch' as const, range_base: fixCheckAt!, paths: [...carried.paths] }
-    : rangeBase && ranArg ? targetedDelta(root, ref, rangeBase, ranArg, !!grant) : null;
+    : rangeBase && ranArg ? targetedDelta(root, ref, rangeBase, ranArg) : null;
   if (delta?.state === 'dispatch') {
-    const why = grant ? `the owner's grant ${grant} covers the fix round that changed ${delta.paths.join(', ')}` : `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')})`;
+    const why = `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')})`;
     plan.next = { step: 'targeted', reason: `the loop is done and ${why} after the targeted read at ${delta.range_base.slice(0, 12)}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
     plan.dispatches.push({ role: 'targeted', name: 'targeted', effort: ROLE_EFFORT.targeted, exclude: active ? [...active.specs] : [], classes: [...targeted.classes], ...(active?.keep.length ? { keep: [...active.keep] } : {}) });
   } else if (delta) plan.skipped.push(`targeted-only read (${delta.reason})`);
@@ -329,7 +238,7 @@ function main(): number {
   }
   const targetedDeltaOut = delta?.state === 'dispatch' ? { range_base: delta.range_base, paths: delta.paths, classes: targeted.classes } : null;
   const selection = policySelection(active && { state: 'active', specs: active.specs, keep: active.keep, excerpt: active.excerpt }, readers);
-  plan.dispatches.forEach((d, i) => { if (d.role !== 'fix-check') plan.dispatches[i] = selectFor(d, selection); });
+  plan.dispatches.forEach((d, i) => { plan.dispatches[i] = selectFor(d, selection); });
   const gateScan = { tagged: gateTagged, head };
   if (has('--json')) {
     const { runtimeLines, stepDepth, depthReasons, ...rest } = plan;

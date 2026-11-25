@@ -9,14 +9,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt, readyTailLines } from '../lib/ship-receipt';
-import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
+import { RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 import { spawnSync } from 'node:child_process';
 import { buildRow, locate, type ApprovalRow, type StoreLocation } from '../lib/approval-record';
 import { GATE_SOURCE, gateDispositionDigest, gateDispositionRow } from '../lib/gate-dispositions';
 
 setDefaultTimeout(90_000);
 const BIN = path.dirname(RELEASE);
-const LANE = 'tests=printf " 3 pass\\n 0 fail\\nRan 3 tests across 1 file. [5.00ms]\\n"';
 const ships: ShipFx[] = [];
 afterEach(() => { while (ships.length) ships.pop()!.cleanup(); });
 
@@ -36,7 +35,6 @@ const gateRow = (extra: Record<string, unknown> = {}) => ({
     { fingerprint: 'src/x.ts:1:naming', severity: 'INFORMATIONAL', action: 'noted', blocking: false, raised_by: 'red-team' },
   ],
 });
-const NOT_CLEAN = 'FIX_CHECK: not counted (review has unresolved findings or did not finish clean)';
 
 const run = (f: ShipFx, bin: string, args: string[]) => f.run(path.join(BIN, bin), args, { GSTACK_APPROVALS_MIRROR: '0' });
 const gate = (f: ShipFx, finding: string, head: string, o: { words?: string; by?: string; reason?: string; gateId?: string } = {}) =>
@@ -142,43 +140,9 @@ describe('a recorded owner disposition closes an unattended gate finding (GST-24
   });
 });
 
-/** Round 2 stopped at passHead, the owner granted one scoped fix-check, and the fix-check logged the gate finding open. */
-function grantedFixCheck() {
-  const f = shipFixture({ 'tests/balance.test.ts': TEST_V1 }, { 'src/x.ts': 'export const x = 2;\n', 'tests/balance.test.ts': TEST_V1 });
-  ships.push(f);
-  const passHead = f.git('rev-parse', 'HEAD').stdout.trim();
-  const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
-  f.write({ 'src/x.ts': 'export const x = 3;\n', 'tests/balance.test.ts': TEST_V2 }); f.commit('raise the fed-careless gate');
-  const post = path.join(f.root, 'post.json');
-  expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
-  expect(run(f, 'gstack-approvals', ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${passHead.slice(0, 12)})`, '--words', 'one scoped fix-check', '--by', BY, '--scope', 'this /ship invocation']).status).toBe(0);
-  log(f, 'review-fix-check', { range_base: passHead, ...gateRow() });
-  const fin = () => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--lane', LANE]);
-  return { f, passHead, fixHead: f.git('rev-parse', 'HEAD').stdout.trim(), fin };
-}
-const dispositionLines = (out: string) => out.split('\n').filter(l => l.startsWith('GATE_DISPOSITION: '));
-
-// Value: protects=finish counts a fix-check whose only blocker is an owner-dispositioned gate finding and prints the disposition
-//   word for word; a ruling or an out-of-range disposition leaves it uncounted and says not applied; fails_when=finish ignores
-//   gate dispositions, honours a ruling for a gate finding, or hides a disposition; seam=finish's fixChecked route
+// Value: protects=every gate disposition is recorded in the receipt and printed word for word; fails_when=write drops it,
+//   accepts a body without it, or READY hides it; seam=gstack-ship-receipt write and readyTailLines
 describe('finish with a gate disposition (GST-2491)', () => {
-  test('a disposition at the stop head closes the fix-check\'s gate finding, and finish prints it', () => {
-    const { f, passHead, fixHead, fin } = grantedFixCheck();
-    expect(lineOf(fin().stdout, 'FIX_CHECK')).toBe(NOT_CLEAN);
-    expect(run(f, 'gstack-approvals', ['rule', '--finding', GATE, '--head', passHead, '--reason', REASON, '--words', WORDS, '--by', BY]).status).toBe(0);
-    expect(lineOf(fin().stdout, 'FIX_CHECK')).toBe(NOT_CLEAN);
-    expect(gate(f, GATE, f.git('merge-base', 'main', 'HEAD').stdout.trim()).status).toBe(0);
-    const early = fin();
-    expect(lineOf(early.stdout, 'FIX_CHECK')).toBe(NOT_CLEAN);
-    expect(dispositionLines(early.stdout)).toEqual([expect.stringMatching(/; not applied\)$/)]);
-    expect(gate(f, GATE, passHead).status).toBe(0);
-    const r = fin();
-    expect(lineOf(r.stdout, 'FIX_CHECK')).toStartWith(`FIX_CHECK: reviewed src/x.ts,tests/balance.test.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)}`);
-    expect(dispositionLines(r.stdout)).toEqual([
-      expect.stringMatching(/; not applied\)$/),
-      expect.stringMatching(new RegExp(`^GATE_DISPOSITION: ${GATE} \\[gate ${GATE_ID}\\] at ${passHead.slice(0, 12)} by Founderstar Captain \\(FOUN-1\\) at [^ ]+Z: ${REASON} — "Do it" \\(approval a-[0-9a-f]{12}\\)$`)),
-    ]);
-  });
 
   // Value: protects=nothing dispositioned is hidden (R73): the receipt records every gate disposition, write refuses a PR body
   //   without each line word for word, and READY prints it; fails_when=write drops it or accepts a body without it;

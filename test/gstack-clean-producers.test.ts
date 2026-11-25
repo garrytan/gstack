@@ -41,7 +41,6 @@ const KEPT: Record<string, string> = {
   'tree-receipt.json': 'gstack-tree-receipt output',
   'base-red.json': '/ship base-red record',
   'review-*': '/ship review loop records',
-  'fix-check-*': '/ship fix-check inputs',
   'tasks-*': 'gstack-tasks rows files (bin/gstack-tasks)',
   'qa-reports': 'caller QA report runs from gstack-qa-evidence report-dir (lib/qa-evidence.ts)',
   'autoplan': 'autoplan phase artifacts (autoplan/SKILL.md.tmpl)',

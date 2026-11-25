@@ -155,7 +155,7 @@ describe('the targeted-only read in the Capy pass program (GST-1598, GST-1607)',
     const ran = JSON.parse(plan.stdout).targeted.targeted_patch_id as string;
     sh("mkdir -p changelog.d && echo '- Each PR eval run now costs about $4.20.' > changelog.d/cost.md && git add -A && git commit -qm claim");
     const h = host(dir, env);
-    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'td1p1', planFlags: ['--gate-tagged', '0', '--pass', '1', '--last', 'fix-check', '--fixed-below', '--range-base', read, '--targeted-ran', ran] });
+    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'td1p1', planFlags: ['--gate-tagged', '0', '--pass', '2', '--last', 'full', '--range-base', read, '--targeted-ran', ran] });
     expect(res).toContain('NEXT: targeted');
     expect(h.creates.map(c => c.title)).toEqual(['ship td1p1 targeted']);
     expect(res).toContain('NEXT: judge');

@@ -14,8 +14,8 @@ const bootstrap = '#!/usr/bin/env bash\nset -euo pipefail\n' + Array.from({ leng
 const pregate = (stages: string[]) => JSON.stringify({ stages: stages.map(name => ({ name, run: `bun test ${name}` })) }, null, 2) + '\n';
 
 /**
- * The harness-evals #354 shape: the targeted reader read R, the loop stopped at the cap on S (a fix after R), the owner granted one
- * scoped fix-check naming S, and then a plain main merge brought gate-class content (an executable bootstrap script and
+ * The harness-evals #354 shape: the targeted reader read R, round 1 fixed a below-floor finding after R, and then a plain main
+ * merge brought gate-class content (an executable bootstrap script and
  * .gstack/pregate.json) next to the PR's own small change since R: a changelog fragment, a docs line and a manifest line.
  */
 function merged(own: Record<string, string>) {
@@ -36,42 +36,38 @@ function merged(own: Record<string, string>) {
   const read = commit({ 'src/billing.ts': money(25) }, 'feature');
   const plan = (args: string[]) => spawnSync(path.join(BIN, 'gstack-review-plan'), ['--base', 'main', '--gate-tagged', '0', ...args], { cwd: dir, encoding: 'utf8', timeout: 60_000, env });
   const ran = JSON.parse(plan(['--json']).stdout).targeted.targeted_patch_id as string;
-  const stop = commit({ 'src/billing.ts': money(30) }, 'round 2 fix');
-  const add = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${stop.slice(0, 12)})`, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, encoding: 'utf8', timeout: 60_000, env });
-  expect(add.status, add.stderr).toBe(0);
-  const grant = JSON.parse(add.stdout).added[0] as string;
+  commit({ 'src/billing.ts': money(30) }, 'round 1 fix');
   git('checkout', '-q', 'main');
   commit({ 'scripts/ubicloud/bootstrap.sh': bootstrap, '.gstack/pregate.json': pregate(['unit', 'e2e', 'smoke']) }, 'main: ubicloud bootstrap');
   fs.chmodSync(path.join(dir, 'scripts/ubicloud/bootstrap.sh'), 0o755); git('add', '.'); git('commit', '-qm', 'main: executable bootstrap');
   git('checkout', '-q', 'feat');
   expect(spawnSync('git', ['merge', '-q', '--no-edit', 'main'], { cwd: dir, encoding: 'utf8', timeout: 10_000 }).status).toBe(0);
   commit(own, 'own change after the merge');
-  return plan(['--pass', '2', '--last', 'fix-check', '--fix-checks', '1', '--range-base', read, '--targeted-ran', ran, '--grant', grant]);
+  return plan(['--pass', '1', '--last', 'full', '--fixed-below', '--range-base', read, '--targeted-ran', ran]);
 }
 const lineOf = (stdout: string, key: string) => stdout.split('\n').find(l => l.startsWith(`${key}: `)) ?? '';
 const small = { 'changelog.d/billing-cap.md': '- **Billing cap documented.**\n', 'docs/README.md': '# Docs\n\nIntro, with the billing cap.\n', 'manifest.json': '{\n  "name": "x",\n  "files": ["src", "docs"]\n}\n' };
 
 describe('the fix range counts only the PR\'s own change after a main merge (GST-2229, harness-evals #354)', () => {
   // Value: protects=a plain main merge since --range-base does not make gate-class content main already shipped count as the PR's
-  //   own fix range: with the owner's grant and a small own change, the plan prints the one targeted-only read;
+  //   own fix range: with a small own change, round 2 is the plain full pass, not a gate-class one;
   //   fails_when=the fix range diffs --range-base against HEAD, so main's bootstrap script and pregate.json mark it touched_gate and the
-  //   plan stops or asks for Step 11's voices (harness-evals #354: next=voices); seam=bin/gstack-review-plan's fix range;
+  //   plan reads round 2 as a gate-class fix (harness-evals #354: next=voices); seam=bin/gstack-review-plan's fix range;
   //   no_claim=what the targeted reader finds
-  test('main\'s merged gate-class files leave the fix range, and the grant gets its targeted-only read', () => {
+  test('main\'s merged gate-class files leave the fix range, and round 2 is the plain full pass', () => {
     const p = merged(small);
     expect(p.status, p.stderr).toBe(0);
     expect(Number(/^FIX_RANGE: runtime_lines=(\d+) /.exec(lineOf(p.stdout, 'FIX_RANGE'))?.[1])).toBeLessThan(10);
-    expect(lineOf(p.stdout, 'NEXT')).toStartWith('NEXT: targeted (the loop is done');
-    expect(p.stdout).toContain('DISPATCH: targeted targeted effort=full classes=money');
+    expect(lineOf(p.stdout, 'NEXT')).toStartWith('NEXT: full (below-floor fixes changed code after round 1');
+    expect(p.stdout).not.toContain('gate-class');
   });
 
   // Value: protects=hold: a gate-class edit in the PR's own change since --range-base still escalates after the same merge;
-  //   fails_when=measuring the PR's own change drops its own pregate.json edit and the plan prints the targeted-only read;
+  //   fails_when=measuring the PR's own change drops its own pregate.json edit and round 2 reads as a plain fix;
   //   seam=bin/gstack-review-plan's fix range; no_claim=none
   test('the PR\'s own pregate.json edit after the merge still marks the fix range gate class', () => {
     const p = merged({ ...small, '.gstack/pregate.json': pregate(['unit', 'e2e', 'smoke', 'billing']) });
     expect(p.status, p.stderr).toBe(0);
-    expect(lineOf(p.stdout, 'NEXT')).toMatch(/^NEXT: (stop|voices) .*the fix-check edited a gate-class path/);
-    expect(p.stdout).not.toContain('TARGETED_DELTA:');
+    expect(lineOf(p.stdout, 'NEXT')).toBe('NEXT: full (a fix touched a gate-class path: full pass on the range)');
   });
 });

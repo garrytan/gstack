@@ -7,8 +7,7 @@
  * a path as a sidecar, with no reader, only when every proof holds:
  *   - the branch adds it after review: no such path at the reviewed tree or the current base (a changed UID re-identifies
  *     the script for every uid:// reference to it);
- *   - its sibling (the path without `.uid`) is a regular file now, and one the reviewed range added or modified, or one
- *     the review-loop exception accepted;
+ *   - its sibling (the path without `.uid`) is a regular file now, and one the reviewed range added or modified;
  *   - it is a regular, non-executable file whose whole content is exactly what Godot writes for one id, and no other file
  *     in the current tree declares that uid:// as its own (a copied sidecar gives two resources one UID; a scene that
  *     references the script by it is fine);
@@ -23,8 +22,6 @@ export interface SidecarInput {
   sides?: PatchSides;
   /** Paths finish still routes as behavior; only those ending in `.uid` are candidates. */
   candidates: readonly string[];
-  /** Paths the review-loop exception accepted. */
-  accepted: readonly string[];
   /** The git glob pathspecs no reader saw: the base policy's review_exclude_paths and readers.forbid_paths. */
   excluded: readonly string[];
 }
@@ -85,7 +82,7 @@ export function uidSidecars(cwd: string, i: SidecarInput): { proven: Record<stri
     const refuse = (reason: string) => refused.push({ path: p, reason });
     const sibling = p.slice(0, -'.uid'.length);
     const reviewed = range.has(sibling) && regular(entry(cwd, s.reviewed, sibling));
-    if (!sibling || sibling.endsWith('/') || (!reviewed && !i.accepted.includes(sibling))) { refuse(`has no sibling ${sibling || '(none)'} that the reviewed range added or modified or the review-loop exception accepted`); continue; }
+    if (!sibling || sibling.endsWith('/') || !reviewed) { refuse(`has no sibling ${sibling || '(none)'} that the reviewed range added or modified`); continue; }
     if (!regular(entry(cwd, s.current, sibling))) { refuse(`has no sibling ${sibling} at the current tree`); continue; }
     if (entry(cwd, s.reviewed, p) || entry(cwd, s.currentBase, p)) { refuse('existed at the reviewed tree or the current base (a changed UID re-identifies the script)'); continue; }
     const e = entry(cwd, s.current, p);

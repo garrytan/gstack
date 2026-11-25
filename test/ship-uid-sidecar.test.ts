@@ -1,8 +1,7 @@
 /**
- * Godot 4 UID sidecars after review (GST-1604, founderstar#611) and base-declared test code. founderstar#611's owner
- * granted a fix-check, CI then forced one more scripts/ui/cutscene.gd edit (owner-accepted under the review-loop
- * exception), and lint wanted tests/cutscene_check.gd.uid: the one-line UID sidecar of a test script the PR added before
- * review, committed after the fix-check. No route took it, so a one-line random id cost another fix-check or a fresh /ship.
+ * Godot 4 UID sidecars after review (GST-1604, founderstar#611) and base-declared test code. On founderstar#611, lint
+ * wanted tests/cutscene_check.gd.uid after review: the one-line UID sidecar of a test script the PR added before review.
+ * No route took it, so a one-line random id cost another review round or a fresh /ship.
  * A sidecar finish proves from the tree now routes as sidecar=, with no reader; every other .uid keeps its old route with a
  * ROUTE_SIDECAR_REFUSED reason. GDScript tests (tests/*_check.gd) match no built-in test glob, so a base policy can declare
  * them under test_code; a head-only declaration changes nothing.
@@ -30,34 +29,22 @@ const snapshot = (f: ShipFx) => {
   expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', out, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
   return out;
 };
-const exceptionFile = (f: ShipFx, fixHead: string) => {
-  const file = path.join(f.root, 'loop-exception.json');
-  fs.writeFileSync(file, JSON.stringify({ accepted_by: 'GStack Minder (rule 23 grant)', date: '2026-11-06', via: 'GSTA-36', reason: 'the CI fix after the granted fix-check, then ship', fix_check: { head: fixHead, findings: 1 } }));
-  return file;
-};
 const behaviorStop = (p: string) => `STOP: behavior, tests or build inputs changed since review (${p}): insert 5–11.5 → 12–14 → 16 before Step 17; plan that Step 9 with gstack-review-plan --post-review, which at the round cap plans one read-only full review of the final head (stage 2.1)`;
 const UID = 'uid://cecaux1sm7mo\n';
 const SIDECAR = 'tests/cutscene_check.gd.uid';
 const CUTSCENE = (extra = '') => `extends Node\nfunc play(): return\n${extra}`;
 const CHECK = 'extends SceneTree\nfunc _init():\n\tassert(true)\n\tquit()\n';
 
-interface Shape { after?: (f: ShipFx) => void; base?: Record<string, string>; feat?: Record<string, string>; fixRange?: Record<string, string> }
-/**
- * founderstar#611: the PR edits scripts/ui/cutscene.gd and adds tests/cutscene_check.gd, and the review reads them; the
- * granted fix-check reads them and `fixRange` at fixHead; then one commit edits cutscene.gd again and adds what `after`
- * writes (the sidecar).
- */
-function founderstar611({ after = f => f.write({ [SIDECAR]: UID }), base = {}, feat = {}, fixRange }: Shape = {}) {
+interface Shape { after?: (f: ShipFx) => void; base?: Record<string, string>; feat?: Record<string, string> }
+/** founderstar#611: the PR edits scripts/ui/cutscene.gd and adds tests/cutscene_check.gd, the review reads them, then one commit adds what `after` writes (the sidecar). */
+function founderstar611({ after = f => f.write({ [SIDECAR]: UID }), base = {}, feat = {} }: Shape = {}) {
   const f = fx({ 'scripts/ui/cutscene.gd': 'extends Node\nfunc play(): pass\n', ...base }, { 'scripts/ui/cutscene.gd': CUTSCENE(), 'tests/cutscene_check.gd': CHECK, ...feat });
   const reviewed = wtree(f);
   const reviewedBase = f.git('merge-base', 'origin/main', 'HEAD').stdout.trim();
   const post = snapshot(f);
-  if (fixRange) { f.write(fixRange); f.commit('a fix inside the granted fix-check'); }
-  const fixHead = head(f);
-  f.write({ 'scripts/ui/cutscene.gd': CUTSCENE('func skip(): pass\n') });
   after(f);
-  f.commit('the CI fix after the fix-check, and the UID sidecar lint asks for');
-  const run = () => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--reviewed-base', reviewedBase, '--docs-post', post, '--lane', LANE, '--review-loop-exception', `@${exceptionFile(f, fixHead)}`]);
+  f.commit('the UID sidecar lint asks for');
+  const run = () => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--reviewed-base', reviewedBase, '--docs-post', post, '--lane', LANE]);
   return { f, run };
 }
 
@@ -71,11 +58,11 @@ describe('isGodotUidText pins what Godot 4 writes for one UID', () => {
   });
 });
 
-describe('a Godot UID sidecar added after the fix-check (GST-1604: founderstar#611)', () => {
+describe('a Godot UID sidecar added after review (GST-1604: founderstar#611)', () => {
   test('the #611 shape binds with no reader, and the receipt and the PR body list the sidecar', () => {
     const { f, run } = founderstar611({ feat: { 'scenes/cutscene_check.tscn': `[gd_scene load_steps=2 format=3 uid="uid://b4w2kq0ly8s5n"]\n\n[ext_resource type="Script" uid="${UID.trim()}" path="res://tests/cutscene_check.gd" id="1"]\n` } });
     const r = run();
-    expect(lineOf(r.stdout, 'ROUTE'), r.stdout).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=\d+ context=0 accepted=1 sidecar=1$/);
+    expect(lineOf(r.stdout, 'ROUTE'), r.stdout).toMatch(/ behavior=0 docs=0 metadata=0 tests=0 base=\d+ context=0 sidecar=1$/);
     expect(lineOf(r.stdout, 'UID_SIDECAR')).toBe(`UID_SIDECAR: ${SIDECAR} (beside tests/cutscene_check.gd)`);
     expect(r.stdout).not.toContain('scoped reader');
     expect([r.status, lineOf(r.stdout, 'EVIDENCE')]).toEqual([0, expect.stringMatching(/^EVIDENCE: FRESH label=tests /)]);
@@ -89,17 +76,10 @@ describe('a Godot UID sidecar added after the fix-check (GST-1604: founderstar#6
     expect(f.run(path.join(BIN, 'gstack-ship-receipt'), ['write', '--pr', '611', '--base', 'main', '--body', body, '--json']).stderr).not.toContain('Godot UID sidecar');
   });
 
-  test('a sidecar beside a script only the review-loop exception accepted binds too', () => {
-    const { run } = founderstar611({ fixRange: { 'scripts/ui/skip.gd': 'extends Node\n' }, after: f => f.write({ 'scripts/ui/skip.gd': 'extends Node\nfunc skip(): pass\n', 'scripts/ui/skip.gd.uid': 'uid://b4w2kq0ly8s5n\n' }) });
-    const r = run();
-    expect(lineOf(r.stdout, 'ROUTE'), r.stdout).toMatch(/ behavior=0 .* accepted=2 sidecar=1$/);
-    expect(lineOf(r.stdout, 'UID_SIDECAR')).toBe('UID_SIDECAR: scripts/ui/skip.gd.uid (beside scripts/ui/skip.gd)');
-    expect(r.status).toBe(0);
-  });
 
   test('a .uid with no reviewed sibling, a second line, a symlink, an executable or a changed UID refuses and stops as behavior', () => {
     const cases: [string, string, (f: ShipFx) => void, Record<string, string>?, Record<string, string>?][] = [
-      ['scripts/menu.gd.uid', 'has no sibling scripts/menu.gd that the reviewed range added or modified or the review-loop exception accepted', f => f.write({ 'scripts/menu.gd.uid': UID }), { 'scripts/menu.gd': 'extends Node\n' }],
+      ['scripts/menu.gd.uid', 'has no sibling scripts/menu.gd that the reviewed range added or modified', f => f.write({ 'scripts/menu.gd.uid': UID }), { 'scripts/menu.gd': 'extends Node\n' }],
       ['tests/ghost.gd.uid', 'has no sibling tests/ghost.gd', f => f.write({ 'tests/ghost.gd.uid': UID })],
       [SIDECAR, 'is not exactly one Godot uid://<id> line', f => f.write({ [SIDECAR]: UID + 'uid://b\n' })],
       [SIDECAR, 'is not a regular non-executable file (mode 120000)', f => fs.symlinkSync('cutscene_check.gd', path.join(f.work, SIDECAR))],

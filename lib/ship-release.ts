@@ -18,19 +18,12 @@ import { matchesAny } from './ship-policy';
 import { baseHolds, boundedPaths, comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type BoundedKind, type PatchSides } from './ship-patch';
 import { extractReceipt, heldBy, receiptRuns } from './ship-receipt';
 import { finishRun, readRunRecord } from './ship-run-record';
-import { bindFixCheckRow, type RowBinding } from './fix-check-clearing';
-import { locate, readRecord } from './approval-record';
 import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
-import { holdsOpen, reviewFreshness, RULABLE } from './review-evidence';
-import { isCriticalFinding, isOpenByAction } from './headless-artifacts';
-import { fingerprintPath, normalizePath } from './review-scope';
 import { forbidSpecs } from './review-fetch';
 import { readRuledNotes, ruledNoteText } from './ruled-notes';
-import { reviewRoundGrants } from './review-round-grant';
-import { dispositionedOn, gateDispositionText, gateKey, readGateDispositions } from './gate-dispositions';
-import { parseReviewLoopException, type ReviewLoopException } from './ship-receipt-depth';
+import { dispositionedOn, gateDispositionText, readGateDispositions } from './gate-dispositions';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { redactFindingSpans } from './redact-engine';
 import { resolveStateRoot } from './state-root';
@@ -51,11 +44,10 @@ export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (s
       --keep-current (or --version <current>) keeps VERSION; under bump ask a session no person answers needs --answer before a bump is written
   finish --base <base> --reviewed-tree <tree> [--reviewed-base <sha>] --docs-post <post.json> [--lane <label>=<command>]... [--build <command>]...
          [--trailer <text>] [--docs-rechecked] [--no-lanes-approved] [--context-reviewed <record.json>]
-         [--docs-requested <path>... --docs-result <the audit's result JSON>] [--review-loop-exception <json|@file>]
+         [--docs-requested <path>... --docs-result <the audit's result JSON>]
       Step 15's release commit, Step 16 stages 1-4 (your builds, the reviewed-tree route, docs freshness,
       each lane's receipt run once if stale) and the pregate on the stamped tree; --reviewed-base (the merge base
       saved with the reviewed tree, or a stack parent's head once the parent landed: REVIEWED_BASE:) routes paths only the base moved, or whose own hunks are unchanged next to moved base context, as base=, and a hunk the base merge spliced as context=;
-      --review-loop-exception (the record write takes) routes paths the branch touched at fix_check.head (narrowed to fix_check.files when listed) and changed since as accepted=
       A lane the base branch maps in .gstack/pregate.json ship_lanes_from is carried from a verified CI run at this exact
       tree, else deferred (EVIDENCE: DEFERRED): the pregate then runs its preflight stage here and its tests stage in accept
   push --branch <branch-name> [--gate-open <n>] [--gate-open-approved] [--early [--base <base>]]
@@ -211,18 +203,13 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
 
 /**
  * Step 16 stage 2's route. With --reviewed-base, a path whose branch patch is the reviewed one counts as base (lib/ship-patch.ts).
- * A code or test path a granted fix-check read counts as fix_checked (fixChecked: the newest completed clean review-fix-check
- * row, chained through earlier rows back to the reviewed tree, each under its own approved review_loop_grant): the owner's
- * granted fix-check after Step 11 is a review (GST-1130, GST-1627). A finding on a link the owner ruled a disclosed note (an
- * approved gstack-approvals rule row whose stop head lies inside that link's range_base..commit, never the row's own claim) is closed, and every ruling
- * prints as RULED_NOTE (GST-1537). An open gate finding the owner dispositioned (an approved gstack-approvals gate row at its
- * fingerprint, head in range, lib/gate-dispositions.ts) is closed the same way, and each prints as GATE_DISPOSITION (GST-2491).
- * Authored docs keep the stage 2.2 recheck.
+ * Every ruling prints as RULED_NOTE (GST-1537), and every owner gate disposition (an approved gstack-approvals gate row at its
+ * fingerprint, head in range, lib/gate-dispositions.ts) as GATE_DISPOSITION (GST-2491). Authored docs keep the stage 2.2
+ * recheck. A granted fix-check no longer counts as a review (GST-3562 part 4): an edit after the review bound is behavior.
  */
-type FixCheckException = ReviewLoopException & { fix_check: NonNullable<ReviewLoopException['fix_check']> };
-type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'mechanical' | 'accepted' | 'fix_checked' | 'fix_checked_exact' | 'sidecar', string[]>;
+type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'mechanical' | 'sidecar', string[]>;
 type ReviewedBase = { commit: string; parent: boolean };
-type RouteOpts = { docsRechecked: boolean; contextReviewed?: string; loop?: FixCheckException; audited: Record<string, string | null> | null; bookkeeping: readonly string[]; mechanical: readonly MechanicalConstant[]; testCode: readonly string[]; excluded: readonly string[]; baseRelease?: string[] };
+type RouteOpts = { docsRechecked: boolean; contextReviewed?: string; audited: Record<string, string | null> | null; bookkeeping: readonly string[]; mechanical: readonly MechanicalConstant[]; testCode: readonly string[]; excluded: readonly string[]; baseRelease?: string[] };
 
 /**
  * The --reviewed-base commit: one on the base, or a landed stack parent (GST-1399). A child reviewed against its parent
@@ -255,130 +242,14 @@ function patchBase(cwd: string, baseRef: string, commit: string, parent: string 
   return parent && fork && holds(parent, commit) && holds(fork, parent) ? parent : fork;
 }
 
-type FixLink = { row: Record<string, any>; commit: string; from: string; bound?: RowBinding };
-type BridgeOpts = { reviewed: string; baseRef: string; metadata: (p: string) => boolean; bookkeeping: readonly string[]; testCode: readonly string[] };
 
-/**
- * A range_base that follows the reviewed tree's commit by docs and release metadata alone (GST-2294, harness-evals#361: the
- * fix-check range started at the Step 14.5 docs commit). Walks range_base's first parents off the base back to the nearest commit
- * holding the reviewed tree; every commit after it, range_base included, must be a single-parent commit whose every path finish
- * routes as release metadata (route's own per-path rule, so baseRelease on a landed stack parent) or authored docs, so the paths
- * outside the fix-check's read keep the docs route and its recheck.
- * A merge, a code or test path, or no reviewed commit behind range_base returns null.
- */
-function docsBridge(cwd: string, from: string, o: BridgeOpts): { reviewedAt: string; commits: string[] } | null {
-  const log = git(cwd, ['log', '--first-parent', '--format=%H %T %P', from, '--not', o.baseRef]);
-  if (log.status !== 0) return null;
-  const docsOnly = (p: string) => o.metadata(p) || (!isTestCode(p, o.testCode) && classifyPath(p, cwd) === 'docs' && !matchesAny(o.bookkeeping, p));
-  const commits: string[] = [];
-  for (const [commit, tree, ...parents] of log.stdout.trim().split('\n').filter(Boolean).map(l => l.split(' '))) {
-    if (tree === o.reviewed) return commits.length ? { reviewedAt: commit!, commits: commits.reverse() } : null;
-    const paths = parents.length === 1 ? touchedPaths(cwd, parents[0]!, commit!) : null;
-    if (!paths || ![...paths].every(docsOnly)) return null;
-    commits.push(commit!);
-  }
-  return null;
-}
 
-/**
- * The granted fix-checks finish counts (GST-1130, GST-1627): the newest review-fix-check row and, while its range_base does
- * not hold the reviewed tree, the newest earlier row whose commit is that range_base, back to a row whose range_base holds
- * it. Every link must be a completed clean read on committed branch content with its own approved review_loop_grant, a stop
- * head inside its range_base..commit, its own commit included (the post-review flow grants each fix-check at the commit it
- * reads, GST-1676); a grant counts for one link only, assigned newest link first, so one grant naming the boundary or two
- * links' commits covers one, and the older link needs a grant of its own.
- * A range_base no earlier row ends at is a gap, and the chain does not count, unless docs and release metadata alone sit between
- * the reviewed tree's commit and it (docsBridge, GST-2294). A link before the newest may, instead of a clean
- * read, be a finished read bound to its own committed content that found issues (logged converged:false, GST-1973) when its
- * findings account for its counts and each open or blocking one names a file it read: it counts no path itself, and a path its
- * findings name counts only through a clean link after it, and a finding no later clean link's range touched refuses the chain. A path counts as fix_checked when a clean link's range touched it and it is unchanged since that link,
- * or its patch against the base is still the one the link read.
- */
-function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string; currentBase?: string; candidates: string[] }, r: Report): { counted: boolean; paths: string[]; exact: string[] } | null {
+/** The owner's rulings and gate dispositions finish prints with stage 2's route (GST-1537, GST-2491). */
+function printRulings(cwd: string, r: Report): void {
   const reviewRows: Record<string, any>[] = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
     .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review' || v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } });
-  const rows = reviewRows.filter(v => v.skill === 'review-fix-check');
-  const commitOf = (c: unknown) => typeof c === 'string' && /^[0-9a-f]{7,64}$/.test(c) ? git(cwd, ['rev-parse', '--verify', '--quiet', `${c}^{commit}`]).stdout.trim() : '';
-  const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
-  const onBranch = (c: string) => !!c && ancestor(c, 'HEAD');
-  const commits = rows.map(row => commitOf(row.commit_full));
-  const approvals = (loc => 'file' in loc ? readRecord(loc).rows : [])(locate({ cwd, env: process.env }));
-  const chain: FixLink[] = [];
-  let gap = '', bridged = '';
-  for (let i = rows.length - 1; i >= 0;) {
-    const row = rows[i]!, bound = row.fix_check_base !== undefined ? bindFixCheckRow(cwd, row, reviewRoundGrants(approvals)) : undefined;
-    const link = { row, commit: commits[i]!, from: commitOf(bound ? row.fix_check_base : row.range_base), bound };
-    chain.unshift(link);
-    if (bound?.ok || !onBranch(link.from) || git(cwd, ['rev-parse', `${link.from}^{tree}`]).stdout.trim() === o.reviewed) break;
-    i = commits.slice(0, i).lastIndexOf(link.from);
-    const bridge = i < 0 ? docsBridge(cwd, link.from, o) : null;
-    if (bridge) bridged = `FIX_CHECK_DOCS_BRIDGE: range_base ${link.from.slice(0, 12)} follows the reviewed commit ${bridge.reviewedAt.slice(0, 12)} by docs or release metadata only (${bridge.commits.map(c => c.slice(0, 12)).join(',')})`;
-    else if (i < 0) gap = `range_base ${link.from.slice(0, 12)} does not hold the reviewed tree`;
-  }
-  const inRange = (l: FixLink, c: string) => !!l.from && !!l.commit && ancestor(l.from, c) && ancestor(c, l.commit);
-  const rulings = readRuledNotes(cwd).map(n => ({ ...n, links: chain.filter(l => inRange(l, n.head)) }));
-  for (const n of rulings) if (!n.finding.startsWith('edit:')) r.add(`RULED_NOTE: ${ruledNoteText(n)}${chain.length && !n.links.length ? ' (outside this fix-check\'s range; not applied)' : ''}`);
-  const gates = readGateDispositions(cwd);
-  for (const d of gates) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).length) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
-  const gatedOn = (l: FixLink) => new Set(dispositionedOn(cwd, l.row, gates).map(d => gateKey(d.finding, d.gate_id)));
-  const grants = approvals.filter(g => g.outcome === 'approved' && (`${g.ask} ${g.scope}`.includes('review_loop_grant') || reviewRoundGrants([g]).some(x => x.kind === 'fix-check')));
-  const granted: (typeof grants[number] | undefined)[] = [];
-  const used = new Set<string>();
-  for (let k = chain.length - 1; k >= 0; k--) {
-    const l = chain[k]!;
-    const g = l.bound?.ok ? (id => grants.find(x => x.id === id && !used.has(x.id)))(l.bound.grant.approval) : grants.filter(g => !used.has(g.id))
-      .flatMap(g => { const fc = reviewRoundGrants([g]).find(x => x.kind === 'fix-check' && !x.legacy); return (fc ? (commitOf(fc.head) === l.from ? [fc.head] : []) : `${g.ask} ${g.scope}`.match(/\b[0-9a-f]{7,40}\b/g) ?? []).map(commitOf).filter(c => !!c && inRange(l, c)).map(stop => ({ g, stop })); })
-      .reduce<{ g: typeof grants[number]; stop: string } | undefined>((best, c) => (!best || ancestor(best.stop, c.stop) ? c : best), undefined)?.g;
-    if (g) used.add(g.id);
-    granted[k] = g;
-  }
-  const ruledOn = (l: FixLink) => new Set(rulings.filter(n => n.links.includes(l)).map(n => n.finding));
-  const why = (l: FixLink) => {
-    const read = l.row.wtree ?? l.row.review_binding?.end_wtree;
-    const fresh = reviewFreshness(l.row, read, ruledOn(l), gatedOn(l));
-    return l.bound && !l.bound.ok ? `the granted fix-check row: ${l.bound.why}` : fresh?.status !== 'CURRENT' ? fresh?.reason ?? 'not a review row'
-      : l.row.tree !== read || !onBranch(l.commit) ? 'the row was logged on content no branch commit holds'
-      : !onBranch(l.from) ? 'the row names no range_base commit on this branch' : '';
-  };
-  const at = (l: FixLink) => (chain.length > 1 ? `; fix-check at ${l.commit.slice(0, 12)}, link ${chain.indexOf(l) + 1} of ${chain.length}` : '');
-  const whys = new Map(chain.map(l => [l, why(l)]));
-  const clean = new Set(chain.filter(l => !whys.get(l)));
-  const flagged = (l: FixLink): string[] | null => {
-    const b = l.row.review_binding, findings: Record<string, any>[] = Array.isArray(l.row.findings) ? l.row.findings.filter((f: unknown) => !!f && typeof f === 'object') : [];
-    const paths = findings.filter(f => (f.blocking === true || isCriticalFinding(f) || isOpenByAction(f)) && !ruledOn(l).has(f.fingerprint) && !gatedOn(l).has(gateKey(f.fingerprint, f.gate_id)))
-      .map(f => typeof f.path === 'string' ? f.path : fingerprintPath(f.fingerprint)).map(p => p && normalizePath(p));
-    const bound = l.row.completed === true && l.row.scope !== 'fix-range' && (b?.state === 'incomplete' || b?.state === 'verified') && !!l.row.tree && b.start_wtree === l.row.tree && b.end_wtree === l.row.tree;
-    const accounted = Array.isArray(l.row.findings) && findings.length >= Number(l.row.issues_found ?? 0) && findings.filter(isCriticalFinding).length >= Number(l.row.critical ?? 0);
-    return bound && accounted && onBranch(l.commit) && onBranch(l.from) && paths.every(p => !!p && git(cwd, ['cat-file', '-e', `${l.commit}:${p}`]).status === 0) ? paths as string[] : null;
-  };
-  const handedOn = new Map<FixLink, string[]>(chain.slice(0, -1).filter(l => !clean.has(l)).flatMap(l => (p => p ? [[l, p] as const] : [])(flagged(l))));
-  const newestFirst = [...chain].reverse();
-  const stale = newestFirst.map(l => ({ l, w: handedOn.has(l) ? '' : whys.get(l)! })).find(x => x.w);
-  const ungranted = newestFirst.find(l => !granted[chain.indexOf(l)]);
-  const ranges = new Map(chain.filter(l => clean.has(l)).map(l => [l, touchedPaths(cwd, l.from, l.commit)]));
-  const uncovered = [...handedOn].map(([d, ps]) => ({ d, p: ps.find(p => !chain.slice(chain.indexOf(d) + 1).some(j => ranges.get(j)?.has(p))) })).find(x => x.p);
-  const notCounted = !chain.length ? '' : stale ? `${stale.w}${at(stale.l)}` : gap ? `${gap}${at(chain[0]!)}`
-    : uncovered ? `a finding on ${uncovered.p} that no later clean fix-check's range touched${at(uncovered.d)}`
-    : ungranted ? `no approved review_loop_grant names a stop head inside its range_base..commit${at(ungranted)}` : '';
-  if (notCounted) r.add(`FIX_CHECK: not counted (${notCounted})`);
-  const rulable = (l: FixLink) => (Array.isArray(l.row.findings) ? l.row.findings : []).filter((f: any) => !!f && !f.gate && RULABLE.has(f.action) && holdsOpen(f) && typeof f.fingerprint === 'string' && !ruledOn(l).has(f.fingerprint)).map((f: any) => f.fingerprint as string);
-  for (const l of notCounted ? chain : []) if (rulable(l).length) r.add(`FIX_CHECK_OPEN: ${rulable(l).join(',')} on the fix-check at ${l.commit.slice(0, 12)}: the owner rules each one a disclosed note with gstack-approvals rule --finding <fingerprint> --head ${l.commit.slice(0, 12)} --reason '<why>' --words '<owner\'s exact words>' --by '<owner>'; a review-loop exception accepts edits after a fix-check, never its findings (docs/troubleshooting.md#fix-check-open)`);
-  if (!chain.length || notCounted) return { counted: false, paths: [], exact: [] };
-  if (bridged) r.add(bridged);
-  const read: { any: (p: string) => boolean; exact: (p: string) => boolean }[] = [];
-  for (const [k, l] of chain.entries()) {
-    if (!clean.has(l)) continue;
-    const later = new Set(chain.slice(k + 1).flatMap(d => handedOn.get(d) ?? []));
-    const range = ranges.get(l), after = touchedPaths(cwd, l.commit, o.now);
-    if (!range || !after) { r.stop(`git could not diff the fix-check range ${l.from.slice(0, 12)}..${l.commit.slice(0, 12)} against the reviewed and current trees: stage 2 is blocked`); return null; }
-    const sides = { reviewedBase: patchBase(cwd, o.baseRef, l.commit, o.parent), reviewed: l.commit, currentBase: o.currentBase ?? git(cwd, ['merge-base', o.baseRef, 'HEAD']).stdout.trim(), current: o.now };
-    read.push({ any: p => !later.has(p) && range.has(p) && (!after.has(p) || (!!sides.reviewedBase && !!sides.currentBase && comparePath(cwd, sides, p) === 'same')), exact: p => !later.has(p) && range.has(p) && !after.has(p) });
-  }
-  const paths = o.candidates.filter(p => read.some(f => f.any(p))).sort();
-  const list = paths.length ? short(paths) : 'none';
-  r.add(chain.length === 1 ? `FIX_CHECK: reviewed ${list} (fix-check at ${chain[0]!.commit.slice(0, 12)}, range from ${chain[0]!.from.slice(0, 12)}, grant ${granted[0]!.id})`
-    : `FIX_CHECK: reviewed ${list} (fix-check chain of ${chain.length} from ${chain[0]!.from.slice(0, 12)}: ${chain.map((l, k) => `at ${l.commit.slice(0, 12)} grant ${granted[k]!.id}${clean.has(l) ? '' : ' (found issues)'}`).join('; ')})`);
-  return { counted: true, paths, exact: paths.filter(p => read.some(f => f.exact(p))) };
+  for (const n of readRuledNotes(cwd)) if (!n.finding.startsWith('edit:')) r.add(`RULED_NOTE: ${ruledNoteText(n)}`);
+  for (const d of readGateDispositions(cwd)) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).length) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
 }
 
 function route(cwd: string, base: string, reviewed: string, reviewedBase: ReviewedBase | undefined, release: string[], opts: RouteOpts, r: Report): Routed | null {
@@ -400,7 +271,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     touched = new Set([...a, ...b]);
     shipped = b;
   }
-  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], mechanical: [], accepted: [], fix_checked: [], fix_checked_exact: [], sidecar: [] };
+  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], mechanical: [], sidecar: [] };
   const isMetadata = (p: string) => parent && shipped.has(p) ? opts.baseRelease!.includes(p) || harnessRepin(cwd, sides!.currentBase, now, p) : release.includes(p) || harnessRepin(cwd, reviewed, now, p);
   const onlyShipped = new Set(parent ? [...shipped].filter(p => !changedSet.has(p)) : []);
   const baseSide = new Set<string>();
@@ -427,29 +298,8 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.behavior.push(...packetBody.over);
     for (const k of ['context', 'tests', 'bounded'] as const) by[k] = by[k].filter(p => !packetBody.over.includes(p));
   }
-  const fix = fixChecked(cwd, { reviewed, now, baseRef, parent, currentBase: sides?.currentBase, metadata: isMetadata, bookkeeping: opts.bookkeeping, testCode: opts.testCode, candidates: [...by.behavior, ...by.tests, ...by.context, ...by.bounded] }, r);
-  if (!fix) return null;
-  const counted = fix.counted;
-  by.fix_checked = fix.paths;
-  by.fix_checked_exact = fix.exact;
-  for (const k of ['behavior', 'tests', 'context', 'bounded'] as const) by[k] = by[k].filter(p => !by.fix_checked.includes(p));
+  printRulings(cwd, r);
   const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
-  const loop = opts.loop;
-  if (loop) {
-    const head = loop.fix_check.head;
-    const since = touchedPaths(cwd, head, now);
-    const fork = git(cwd, ['merge-base', baseRef, head]).stdout.trim();
-    const own = fork ? touchedPaths(cwd, fork, head) : null;
-    const fromParent = parent && ancestor(parent, head) ? touchedPaths(cwd, parent, head) : own;
-    const atHead = own && fromParent ? new Set([...own].filter(p => fromParent.has(p))) : null;
-    if (!since || !atHead) { r.stop(`git could not list the paths changed since fix-check ${head.slice(0, 12)} or the paths the branch touched at it against ${baseRef}: stage 2 is blocked`); return null; }
-    const listed = loop.fix_check.files;
-    const unscanned = [...by.behavior, ...by.docs].filter(p => isTestCode(p, opts.testCode));
-    const forced = new Set([...gated, ...(packetBody?.over ?? []), ...(gateEditedPaths(cwd, reviewed, now, unscanned) ?? unscanned)]);
-    by.accepted = [...by.behavior, ...by.docs].filter(p => since.has(p) && atHead.has(p) && (!listed || listed.includes(p)) && !forced.has(p)).sort();
-    by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
-    by.docs = by.docs.filter(p => !by.accepted.includes(p));
-  }
   const edits = readRuledNotes(cwd).filter(n => n.finding.startsWith('edit:'));
   const top = edits.length ? git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim() : '';
   const entry = (tree: string, p: string) => { const ls = git(cwd, ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', tree, '--', p]); const rows = ls.stdout.split('\0').filter(Boolean);
@@ -471,11 +321,10 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     if (ok) ruled.set(p, ok[0]); else if (why.length) refusedEdits.push(`${p} (${why.at(-1)![1]}; keep the edit and run /ship again, docs/ship-policy.md#ruled-edits)`);
   }
   by.behavior = by.behavior.filter(p => !ruled.has(p));
-  const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, accepted: by.accepted, excluded: opts.excluded });
+  const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, excluded: opts.excluded });
   by.sidecar = Object.keys(uid.proven).sort();
   by.behavior = by.behavior.filter(p => !by.sidecar.includes(p));
-  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${by.mechanical.length ? ` mechanical=${by.mechanical.length}` : ''}${counted ? ` fix_checked=${by.fix_checked.length}` : ''}${loop ? ` accepted=${by.accepted.length}` : ''}${by.sidecar.length ? ` sidecar=${by.sidecar.length}` : ''}`);
-  if (loop) r.add(`REVIEW_LOOP_EXCEPTION: accepted ${by.accepted.length ? short(by.accepted) : 'none'} (changed since fix-check ${loop.fix_check.head.slice(0, 12)}; accepted by ${loop.accepted_by} ${loop.date} via ${loop.via})`);
+  r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${by.mechanical.length ? ` mechanical=${by.mechanical.length}` : ''}${by.sidecar.length ? ` sidecar=${by.sidecar.length}` : ''}`);
   for (const [p, n] of ruled) r.add(`RULED_EDIT: ${p} (ruled at ${n.head.slice(0, 12)} by ${n.by}, approval ${n.approval})`);
   for (const x of refusedEdits) r.add(`RULED_EDIT_REFUSED: ${x}`);
   for (const n of edits) r.add(`RULED_NOTE: ${ruledNoteText(n)}${[...ruled.values()].includes(n) ? '' : ' (no RULED_EDIT at this head; not applied)'}`);
@@ -514,12 +363,12 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
 }
 
 /**
- * Step 16 stage 3. Test code, paths a counted fix-check read at their current bytes (stage 2's fix_checked, unchanged since that read, never by patch equivalence across a base merge; GST-3560), paths only the base or a stamp moved, a slot restamp after the audit (the CHANGELOG's heading
+ * Step 16 stage 3. Test code, paths only the base or a stamp moved, a slot restamp after the audit (the CHANGELOG's heading
  * move or re-heading after the restamp writer's own merge of the base's CHANGELOG into the audited one, the version file's
  * version, each against the audited bytes; GST-906), and --docs-requested fixes the audit's own result asked for do not
  * stale the audit (GST-391).
  */
-function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, loopAccepted: readonly string[] | undefined, fixChecked: readonly string[], parent: string | undefined, testCode: readonly string[], r: Report): boolean {
+function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, parent: string | undefined, testCode: readonly string[], r: Report): boolean {
   const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', postFile], 120_000);
   let stale: string[] | null = null;
   try { stale = JSON.parse(cmp.stdout).content_changed; } catch { stale = null; }
@@ -574,11 +423,9 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
   });
   const carried = { tests: stale.filter(p => isTestCode(p, testCode)), base: stale.filter(p => !isTestCode(p, testCode) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p))
     || (!!auditBase && !!nowBase && /^[0-9a-f]{40,64}$/.test(nowTree) && ![...record.staged, ...record.unstaged, ...record.untracked].includes(p) && comparePath(cwd, { reviewedBase: auditBase, reviewed: record.head, currentBase: nowBase, current: nowTree }, p) === 'same'))), requested: [] as string[], accepted: [] as string[], fix_checked: [] as string[] };
-  carried.accepted = stale.filter(p => loopAccepted?.includes(p) && !carried.tests.includes(p) && !carried.base.includes(p));
-  carried.fix_checked = stale.filter(p => fixChecked.includes(p) && !carried.tests.includes(p) && !carried.base.includes(p) && !carried.accepted.includes(p));
   let audit: any = null;
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
-  for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q) && !carried.accepted.includes(q) && !carried.fix_checked.includes(q))) {
+  for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q))) {
     const asked = [...(Array.isArray(audit?.blockers) ? audit.blockers : []), ...(Array.isArray(audit?.decisions) ? audit.decisions : [])].filter((s: unknown) => typeof s === 'string');
     const token = new RegExp(`(^|[\\s\`'"(\\[])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?::\\d+(?::\\d+)?)?(?=$|[\\s\`'")\\]]|[,.:;](?:$|\\s))`);
     const stat = git(cwd, ['diff', '--numstat', '--no-renames', record.head, '--', `:(literal)${p}`]).stdout.trim().split(/\s+/);
@@ -593,8 +440,8 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     carried.requested.push(p);
   }
   if (carried.requested.length && bin(cwd, 'gstack-ship-receipt', ['docs-caps', '--base', base], 60_000).status !== 0) { r.stop('a --docs-requested fix breaks a doc cap (gstack-ship-receipt docs-caps): trim the file, then rerun finish'); return false; }
-  const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p) && !carried.accepted.includes(p) && !carried.fix_checked.includes(p));
-  const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length}${loopAccepted ? ` accepted=${carried.accepted.length}` : ''}${fixChecked.length ? ` fix_checked=${carried.fix_checked.length}` : ''})`;
+  const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p));
+  const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length})`;
   const exception = record.exception ? ` (blocked; documentation exception accepted by ${record.exception.accepted_by} ${record.exception.date} via ${record.exception.via})` : '';
   r.add(`DOCS: ${left.length ? `stale (${short(left)})` : `fresh against the Step 14.5 post-audit snapshot${note}${exception}`}`);
   if (left.length) { r.stop('documentation inputs changed since the accepted audit: use stage 3 recovery (the remaining re-audit, a fix the audit\'s result asked for via --docs-requested <path> --docs-result <audit-id>-result.json, or a named risk); never refresh hashes'); return false; }
@@ -629,19 +476,7 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   const base = flag('--base')!;
   const r = new Report();
   const list = lanes(argv) as { label: string; command: string }[];
-  let loop: FixCheckException | undefined;
-  const loopArg = flag('--review-loop-exception');
-  if (loopArg !== undefined) {
-    let raw: unknown;
-    try { raw = JSON.parse(loopArg.startsWith('@') ? fs.readFileSync(path.resolve(cwd, loopArg.slice(1)), 'utf8') : loopArg); } catch (e) { return r.stop(`--review-loop-exception: ${firstLine((e as Error).message)}`); }
-    const parsed = parseReviewLoopException(raw);
-    if (!parsed.ok) return r.stop(`--review-loop-exception: ${parsed.message}`);
-    const fixCheck = parsed.exception.fix_check;
-    if (!fixCheck) return r.stop('--review-loop-exception: finish routes edits made after a fix-check; a second_pass exception accepts an open finding, not edits, so run finish without it and pass it to gstack-ship-receipt write');
-    if (Array.isArray((raw as { fix_check?: { files?: unknown } }).fix_check?.files) && !fixCheck.files) return r.stop('--review-loop-exception: fix_check.files lists no paths; omit it to accept the paths the branch touched at fix_check.head');
-    if (git(cwd, ['merge-base', '--is-ancestor', fixCheck.head, 'HEAD']).status !== 0) return r.stop(`--review-loop-exception: fix_check.head ${fixCheck.head.slice(0, 12)} is not HEAD or an ancestor of it`);
-    loop = { ...parsed.exception, fix_check: fixCheck };
-  }
+  if (flag('--review-loop-exception') !== undefined) return r.stop('--review-loop-exception was removed with fix-check grants (GST-3562 part 4): an edit after the review bound is behavior, so keep it and run /gstack-ship again, or the lane\'s Captain rules it a note (docs/ship-policy.md#ruled-edits)');
   const policy = shipPolicy(cwd, base);
   if (!commitRelease(cwd, releasePaths(policy, cwd, 'HEAD', base), flag('--trailer'), r)) return r;
   for (const cmd of all('--build')) {
@@ -662,9 +497,9 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   const reviewedBase = reviewedBaseArg === undefined ? undefined : reviewedBaseCommit(cwd, `origin/${base.replace(/^origin\//, '')}`, reviewedBaseArg, [...releasePaths(policy, cwd, flag('--reviewed-tree')!, base, true).map(p => `:(top,exclude,literal)${p}`), ...fragments], r);
   if (reviewedBase === null) return r;
   const baseRelease = reviewedBase?.parent ? releasePaths(policy, cwd, git(cwd, ['merge-base', `origin/${base.replace(/^origin\//, '')}`, 'HEAD']).stdout.trim(), base, true) : undefined;
-  const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), loop, audited, bookkeeping, mechanical, testCode: globs('test_code'), excluded: [...globs('review_exclude_paths'), ...forbidden], baseRelease }, r);
+  const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), audited, bookkeeping, mechanical, testCode: globs('test_code'), excluded: [...globs('review_exclude_paths'), ...forbidden], baseRelease }, r);
   if (!routed) return r;
-  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...routed.mechanical, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), loop ? routed.accepted : undefined, routed.fix_checked_exact, reviewedBase?.parent ? reviewedBase.commit : undefined, globs('test_code'), r)) return r;
+  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...routed.mechanical, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), reviewedBase?.parent ? reviewedBase.commit : undefined, globs('test_code'), r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
   const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;
@@ -697,7 +532,7 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
     const verdict = /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
     r.add(`PREGATE: preflight ${verdict} on the stamped tree (the tests stage runs in accept, carried from CI)`);
     if (!/^(pass|warn)/.test(verdict)) return r.stop(`pregate preflight ${verdict} on the stamped tree: fix it, then rerun finish`);
-    return r.next(`Step 16 stage 5, then Step 17's guard block and gstack-ship-release push; then gstack-ship-release accept --base ${base} ${laneArgs} carries ${deferred.join(', ')} from CI at the pushed head${loop ? '; Step 18 records the same exception with gstack-ship-receipt write --review-loop-exception' : ''}`);
+    return r.next(`Step 16 stage 5, then Step 17's guard block and gstack-ship-release push; then gstack-ship-release accept --base ${base} ${laneArgs} carries ${deferred.join(', ')} from CI at the pushed head`);
   }
   const v = bin(cwd, 'gstack-pregate', ['verify', '--base', base], 60_000);
   if (v.status === 0) r.add('PREGATE: verify ok on the stamped tree');
@@ -709,7 +544,7 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
     r.add(`PREGATE: ${verdict} (rerun on the stamped tree)`);
     if (!/^(pass|warn|requires-remote cleared)/.test(verdict)) return r.stop(`pregate ${verdict} on the stamped tree: fix it${/uncleared/.test(verdict) ? ', or gstack-pregate clear with the remote run URL' : ''}, then rerun finish`);
   }
-  return r.next(`Step 16 stage 5: paste these results and the two-line honesty inventory, then run Step 17's guard block and gstack-ship-release push${loop ? '; Step 18 records the same exception with gstack-ship-receipt write --review-loop-exception' : ''}`);
+  return r.next(`Step 16 stage 5: paste these results and the two-line honesty inventory, then run Step 17's guard block and gstack-ship-release push`);
 }
 
 /**

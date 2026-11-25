@@ -35,8 +35,8 @@ function reviewed(baseFiles: Record<string, string> = {}, branchFiles: Record<st
 const plan = (r: { dir: string; env: NodeJS.ProcessEnv }, args: string[]) => spawnSync(path.join(BIN, 'gstack-review-plan'), ['--base', 'main', '--gate-tagged', '0', ...args], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env: r.env });
 const patchOf = (r: { dir: string; env: NodeJS.ProcessEnv }) => JSON.parse(plan(r, ['--json']).stdout).targeted.targeted_patch_id as string;
 const dispatches = (stdout: string) => stdout.split('\n').filter(l => l.startsWith('DISPATCH: '));
-/** The loop finished clean: pass 1, a clean fix-check, nothing open. */
-const done = (rangeBase: string, ran: string) => ['--pass', '1', '--last', 'fix-check', '--fixed-below', '--range-base', rangeBase, '--targeted-ran', ran];
+/** The loop finished clean: a clean round 2, nothing open. */
+const done = (rangeBase: string, ran: string) => ['--pass', '2', '--last', 'full', '--range-base', rangeBase, '--targeted-ran', ran];
 
 describe('GST-1598: a post-review docs delta that trips a targeted claim gets one targeted-only reader', () => {
   // Value: protects=the #225 shape has an exit: when the loop is done and the only change since the targeted read is a docs file
@@ -49,7 +49,7 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     const r = reviewed();
     const read = r.git('rev-parse', 'HEAD');
     const readPatch = patchOf(r);
-    expect(dispatches(plan(r, ['--pass', '1', '--last', 'fix-check', '--fixed-below', '--targeted-ran', readPatch]).stdout)).toEqual([]);
+    expect(dispatches(plan(r, ['--pass', '2', '--last', 'full', '--targeted-ran', readPatch]).stdout)).toEqual([]);
     const head = r.commit({ 'changelog.d/eval-cost.md': '- Each PR eval run now costs about $4.20 instead of $11.\n' }, 'changelog');
     const p = plan(r, done(read, readPatch));
     expect(p.status, p.stderr).toBe(0);
@@ -69,23 +69,22 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     expect(bind(head)).toMatchObject({ ok: true, targeted: { classes: ['money'], status: 'done' } });
   });
 
-  // Value: protects=a code change after the loop keeps today's route (the review loop, not a targeted-only read);
-  //   fails_when=the targeted-only step admits a code delta; seam=bin/gstack-review-plan; no_claim=how finish routes it
+  // Value: protects=a code change after the loop keeps today's route (the review loop, not a targeted-only read: since GST-3562
+  //   part 4 the plan refuses until the step names its fix); fails_when=the targeted-only step admits a code delta; seam=bin/gstack-review-plan; no_claim=how finish routes it
   test('a code delta after the read keeps today\'s behavior: no targeted-only reader', () => {
     const r = reviewed();
     const read = r.git('rev-parse', 'HEAD');
     const readPatch = patchOf(r);
     r.commit({ 'src/billing.ts': MONEY_CODE.replace('25', '50'), 'changelog.d/eval-cost.md': '- Cap raised to $50.\n' }, 'code');
     const p = plan(r, done(read, readPatch));
-    expect(p.status, p.stderr).toBe(0);
-    expect(p.stdout).toContain('NEXT: done');
+    expect(p.status, p.stderr).toBe(3);
+    expect(p.stderr).toContain('review_required_no_readers');
     expect(dispatches(p.stdout)).toEqual([]);
-    expect(p.stdout).toContain('SKIP: targeted-only read (the change since range_base');
   });
 
   // Value: protects=a plain docs change still carries the record, so no reader is spent on it (GST-1195), and the range_base must be
   //   the commit the targeted reader read; fails_when=the plan dispatches on plain docs or on a range_base whose patch the passed
-  //   --targeted-ran does not name; seam=bin/gstack-review-plan; no_claim=receipt carry itself (parseReviewTargeted's tests)
+  //   --targeted-ran does not name (since GST-3562 part 4 that plan refuses until the step names its fix); seam=bin/gstack-review-plan; no_claim=receipt carry itself (parseReviewTargeted's tests)
   test('plain docs, or a range_base the targeted read did not read, dispatch nothing', () => {
     const r = reviewed();
     const read = r.git('rev-parse', 'HEAD');
@@ -96,7 +95,7 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     r.commit({ 'changelog.d/eval-cost.md': '- Each PR eval run now costs about $4.20.\n' }, 'claim');
     const wrong = plan(r, done(plainHead, readPatch));
     expect(dispatches(wrong.stdout)).toEqual([]);
-    expect(wrong.stdout).toContain('SKIP: targeted-only read (--targeted-ran');
+    expect([wrong.status, wrong.stderr.includes('review_required_no_readers')]).toEqual([3, true]);
   });
 
   // Value: protects=a main merge that only edits lines next to a reviewed branch hunk (comparePath's `context`) is no branch change,
@@ -117,20 +116,6 @@ describe('GST-1598: a post-review docs delta that trips a targeted claim gets on
     expect(p.status, p.stderr).toBe(0);
     expect(p.stdout).toContain('NEXT: targeted');
     expect(p.stdout).toContain(`TARGETED_DELTA: range_base=${read} paths=changelog.d/eval-cost.md classes=money`);
-  });
-
-  // Value: protects=a grant is not what opens this read, and a grant the approval record does not hold still refuses before any plan;
-  //   fails_when=a fabricated --grant prints a plan; seam=bin/gstack-review-plan's grant check; no_claim=who may grant
-  test('a fabricated grant refuses', () => {
-    const r = reviewed();
-    const read = r.git('rev-parse', 'HEAD');
-    const readPatch = patchOf(r);
-    const head = r.commit({ 'changelog.d/eval-cost.md': '- Each PR eval run now costs about $4.20.\n' }, 'changelog');
-    const p = plan(r, [...done(read, readPatch), '--grant', 'a-000000000000']);
-    expect([p.status, p.stdout]).toEqual([3, '']);
-    expect(p.stderr).toContain('--grant a-000000000000');
-    expect(p.stderr).toContain('review_loop_grant');
-    expect(head).toMatch(/^[0-9a-f]{40}$/);
   });
 
   // Value: protects=--force targeted no longer dispatches zero readers in silence: targeted is not a specialist, so the flag refuses and

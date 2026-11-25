@@ -227,7 +227,7 @@ findings` and the below-floor items under `## Review notes`. A pass that finds
 nothing is `NO FINDINGS` from every reviewer and a pass with no edits, which
 is the loop's exit, never a failed review ([review-policy.md](review-policy.md)).
 Three counters appear only when the run recorded them: `fix_checks` (fix-check
-rows, never passes), `dispatches` (reviewer dispatches by role) and
+rows from before GST-3562, never passes), `dispatches` (reviewer dispatches by role) and
 `est_input_tokens` (prompt plus diff bytes the dispatches read, / 4, a relative
 estimate and never a bill).
 
@@ -1119,24 +1119,15 @@ decision or action, every evidence pointer resolves and shows what the row
 claims, and a fork or abandoned approach that shaped the result but is not
 logged gets a row. The audit corrects the log, never the story: no row is
 edited or removed, an invented or wrong row stays and a new row supersedes it
-with what actually happened. On a risk-class PR (the receipt's `review_depth`
-has class `gate` or a `risk` class: security, money, auth, secrets, user
-data), a reviewer on a different model family from the one that did the work
-(a Capy subagent on another family, or the outside voice) then reads the trail
-and the transcript and flags what the owner should look at: decisions with
-weak or missing evidence, verification claimed without proof, choices that
-look risky in hindsight, gaps a skim would miss. Self-review does not stand in
-for that read. Every other PR skips it: the run's own audit is the review. The
-run's final report ends with an `Attention` section that opens with `reviewed
-by <model>` (risk class) or `self-audited` (every other PR) on its own line
-and lists each flag against its rows; `No flags` is a valid body, a missing
-opening line is not. The reader's read is a trail row with phase `trail-read`
-whose decision names the reader (`gstack-decision-trail <file> trail-read
-"openai/gpt-6.2-sol (Subagent 4)" <why> <evidence> <flags>`).
-`gstack-ship-queue ready --trail <file>` prints the opening line from that row
-for a risk-class receipt, then that row's flags (`Flags (trail row <n>): …`, or
-`No flags (trail row <n>)`), or `MISSING: cross-family trail read` when the trail
-has none, and one `TRIAL_MERGES` line per open PR that shares a file, from
+with what actually happened. The run's final report ends with an `Attention`
+section listing what the owner should look at (decisions with weak or missing
+evidence, verification claimed without proof, choices that look risky in
+hindsight); `No flags` is a valid body. The cross-family read of the trail on
+risk-class PRs (`trail-read` rows, `ready --trail`, `MISSING: cross-family trail
+read`) was retired in GST-3562 part 4: it caught one finding in 17 reads, one the
+second-model reviewer had already raised. `gstack-ship-queue ready` opens the
+Attention section with the receipt's risk class and prints one `TRIAL_MERGES`
+line per open PR that shares a file, from
 `git merge-tree` at both heads. Heads this clone lacks come down in one
 `git fetch` (then one at a time if that fails) within
 `GSTACK_TRIAL_FETCH_TIMEOUT_MS` (default 60 s); ready prints a progress line

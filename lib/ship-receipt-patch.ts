@@ -93,7 +93,7 @@ const HARNESS_PIN = /^scripts\/harness-pins\/(.+)\.json$/;
 function rederivedHarnessPin(repoRoot: string, from: string, to: string, p: string, extra: ProductRules['extra']): boolean {
   const pinned = HARNESS_PIN.exec(p)?.[1];
   if (!pinned || classifyCarryPath(pinned, extra) !== 'product') return false;
-  if (![from, to].every(ref => git(['ls-tree', ref, '--', p], repoRoot)?.startsWith('100644 blob '))) return false;
+  if (![from, to].every(ref => git(['--literal-pathspecs', 'ls-tree', ref, '--', p], repoRoot)?.startsWith('100644 blob '))) return false;
   const json = (ref: string, rel: string): any => { const r = spawnSync('git', ['show', `${ref}:${rel}`], { cwd: repoRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }); try { return r.status === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
   const [ma, mb] = [json(from, HARNESS_MANIFEST), json(to, HARNESS_MANIFEST)];
   if (!ma || !mb || ma.version !== mb.version || JSON.stringify(ma.patterns) !== JSON.stringify(mb.patterns)) return false;
@@ -143,7 +143,7 @@ export function productSpec(repoRoot: string, rules: ProductRules, from: string,
   // after a changelog-fragment conversion, or only its version moved) holds none of the branch's product: whatever else
   // differs between the two heads came from the base (GST-1210).
   // The same `ls-tree` entry (mode and object id, empty when absent) is an unchanged side; a failed read never is.
-  const entryAt = (ref: string, p: string) => git(['ls-tree', ref, '--', p], repoRoot);
+  const entryAt = (ref: string, p: string) => git(['--literal-pathspecs', 'ls-tree', ref, '--', p], repoRoot);
   const sameEntry = (a: string, b: string, p: string) => { const x = entryAt(a, p); return x !== undefined && x === entryAt(b, p); };
   const ownStampOnly = (p: string) => !!branch?.touched.has(p) && stamped(p) && branch.sides.every(([a, b]) => sameEntry(a, b, p) || classify(p, a, b) === 'metadata');
   const changed = changedRaw.split('\n').filter(Boolean).map(p => ({ path: p, class: ownStampOnly(p) ? 'metadata' as const : branch && rederivedHarnessPin(repoRoot, from, to, p, rules.extra) ? 'generated' as const : classify(p, from, to) }));
@@ -156,7 +156,7 @@ export function productSpec(repoRoot: string, rules: ProductRules, from: string,
   // `from`), a regular file with the reviewed mode at both heads (GST-980): never the whole-text version swap.
   const ownRows = demoted.filter(p => {
     const side = branch?.own(p);
-    const mode = (ref: string) => /^(100644|100755) blob /.exec(git(['ls-tree', ref, '--', p], repoRoot) ?? '')?.[1];
+    const mode = (ref: string) => /^(100644|100755) blob /.exec(git(['--literal-pathspecs', 'ls-tree', ref, '--', p], repoRoot) ?? '')?.[1];
     const before = blobAt(from, p), after = blobAt(to, p), oldVersion = version(from), newVersion = version(to);
     if (!side || before === null || after === null || !oldVersion || !newVersion || !mode(from) || mode(from) !== mode(to)) return false;
     const was = before.split('\n');
