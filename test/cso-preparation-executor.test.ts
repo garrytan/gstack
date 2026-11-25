@@ -361,6 +361,12 @@ describe('CSO constrained dependency preparation executor', () => {
     expect((error as Error).message).toContain(message);
     expect(runner.disposed).toHaveLength(1);
   });
+  test('npm preparation bounds installed manifest values it echoes in its refusal', async () => {
+    const { error } = await prepareWith(snapshot('node'), prepared => installManifest(prepared, 'node_modules/cookie', { name: 'x'.repeat(5000), version: 'y'.repeat(5000) }));
+    expect(errorCode(error)).toBe('INCOMPATIBLE_INPUT');
+    expect((error as Error).message.length).toBeLessThan(400);
+    expect((error as Error).message).toContain('the lock says cookie@1.0.0');
+  });
   test('npm preparation compares versions the way npm normalizes them', async () => {
     for (const version of ['v1.0.0', '=1.0.0', ' 1.0.0 ', '1.0.0+build.5', '01.0.0']) {
       const { error } = await prepareWith(snapshot('node'), prepared => installManifest(prepared, 'node_modules/cookie', { name: ' cookie ', version }));

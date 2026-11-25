@@ -1120,7 +1120,7 @@ export function proveNpmLockIdentities(
     if (installedName !== name || npmLockVersion(installed?.version) !== entry.version)
       fail(
         'INCOMPATIBLE_INPUT',
-        `Installed npm package ${path} does not match the lockfile: the lock says ${name}@${String(entry.version)}, the installed package.json says ${String(installed?.name)}@${String(installed?.version)}`,
+        `Installed npm package ${path} does not match the lockfile: the lock says ${name}@${String(entry.version)}, the installed package.json says ${JSON.stringify(String(installed?.name).slice(0, 80))}@${JSON.stringify(String(installed?.version).slice(0, 80))}`,
       );
   }
 }
