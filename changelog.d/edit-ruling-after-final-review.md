@@ -1,3 +1,0 @@
-### Fixed
-
-- **An owner can now let a small edit made after the final review ship as a disclosed note, and /ship honours it.** Before, an edit after the read-only final review stopped `gstack-ship-release finish` with no way to record the owner's "ship it with the note", so the run stayed stuck however the owner ruled. The owner's ruling is now one `gstack-approvals rule --finding edit:<path> --head <stop head>` per edited path; finish then accepts exactly those paths, at exactly the ruled bytes, prints a `RULED_EDIT:` line for each, and the PR body lists each ruling. The `gstack-review-plan --post-review` stop prints that command with the edited paths and the head. A path edited again after its ruling still stops.
