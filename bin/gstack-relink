@@ -330,7 +330,7 @@ _dir_only_links() {
 # links, are touched; anything else is the user's and stays.
 _serve_rendered_assets() {
   local skill="$1" target="$2" render="$RENDER_DIR" asset name t child
-  gstack_render_serves "$RENDER_DIR" "$INSTALL_DIR" "$skill" || render=""
+  gstack_render_serves "$RENDER_DIR" "$skill" || render=""
   for asset in "$INSTALL_DIR/$skill"/*; do
     [ -e "$asset" ] || continue
     name="${asset##*/}"
@@ -471,7 +471,7 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   # Create real directory with symlinked SKILL.md (absolute path)
   mkdir -p "$target"
   skill_md_src="$INSTALL_DIR/$skill/SKILL.md"
-  ! gstack_render_serves "$RENDER_DIR" "$INSTALL_DIR" "$skill" || skill_md_src="$RENDER_DIR/$skill/SKILL.md"
+  ! gstack_render_serves "$RENDER_DIR" "$skill" || skill_md_src="$RENDER_DIR/$skill/SKILL.md"
   # A real-file SKILL.md we can only WEAKLY prove ours and whose content
   # differs from what we are about to serve is moved aside, not overwritten.
   if [ -f "$target/SKILL.md" ] && [ ! -L "$target/SKILL.md" ] && ! _entry_owned_strongly "$target" \

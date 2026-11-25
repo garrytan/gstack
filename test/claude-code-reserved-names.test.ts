@@ -142,17 +142,17 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
     expect(r.stdout).not.toContain('foreign entr');
   });
 
-  const renderShip = (version: string) => {
+  const renderShip = (names: string) => {
     fs.mkdirSync(path.join(render, 'ship', 'sections'), { recursive: true });
     fs.writeFileSync(path.join(render, 'ship', 'SKILL.md'), '---\nname: ship\ndescription: test\n---\nrun /ship --resume\n');
     fs.writeFileSync(path.join(render, 'ship', 'sections', 'tests.md'), 'run /ship --continue\n');
-    fs.writeFileSync(render + '.overlay', `overlay=claude\nversion=${version}\nrender=user\n`);
+    fs.writeFileSync(render + '.overlay', `overlay=claude\nversion=2.0.0.0\nrender=user\n${names}`);
     fs.mkdirSync(path.join(install, 'ship', 'sections'), { recursive: true });
     fs.writeFileSync(path.join(install, 'ship', 'sections', 'tests.md'), 'run /gstack-ship --continue\n');
   };
   for (const prefix of ['false', 'true']) {
-    test(`skill_prefix ${prefix}: a render left from an older version is not served for /gstack-ship`, () => {
-      renderShip('1.0.0.0');
+    test(`skill_prefix ${prefix}: a render left by a gstack from before the rename is not served for /gstack-ship, even at the same VERSION`, () => {
+      renderShip('');
       fs.mkdirSync(path.join(skills, 'gstack-ship'));
       fs.symlinkSync(path.join(render, 'ship', 'SKILL.md'), path.join(skills, 'gstack-ship', 'SKILL.md'));
       fs.symlinkSync(path.join(render, 'ship', 'sections'), path.join(skills, 'gstack-ship', 'sections'));
@@ -168,8 +168,8 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
     });
   }
 
-  test("a render this version made is served for /gstack-ship", () => {
-    renderShip('2.0.0.0');
+  test("a render whose record carries the current names marker is served for /gstack-ship", () => {
+    renderShip('names=2\n');
     const r = relink('skill_prefix: false\n');
     expect(r.status, r.stderr).toBe(0);
     expect(fs.realpathSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(fs.realpathSync(path.join(render, 'ship', 'SKILL.md')));

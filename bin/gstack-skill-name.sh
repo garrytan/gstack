@@ -20,22 +20,26 @@ gstack_skill_md_name() {
   return 0
 }
 
-# gstack_render_serves RENDER_DIR INSTALL_DIR SKILL returns 0 when RENDER_DIR's
-# copy of SKILL may be served instead of the checkout's. An always-prefixed
-# skill (GSTACK_PREFIXED_SKILLS, bin/gstack-install-registry.sh) is served from
-# a render only when the render's .overlay record names this checkout's
-# VERSION: a render made before the skill took its gstack- name, which a failed
-# regeneration keeps, still says to run the plain name the host's built-in
-# hides (#4775). Starts no process, like the helper above.
+# GSTACK_RENDER_NAMES is written into a render's .overlay record as
+# names=<it> (gstack_claude_render_settle). A record without it, or with an
+# older value, comes from a gstack whose always-prefixed skills still had
+# their plain names (#4775).
+GSTACK_RENDER_NAMES=2
+
+# gstack_render_serves RENDER_DIR SKILL returns 0 when RENDER_DIR's copy of
+# SKILL may be served instead of the checkout's. An always-prefixed skill
+# (GSTACK_PREFIXED_SKILLS, bin/gstack-install-registry.sh) is served from a
+# render only when the render's record carries names=$GSTACK_RENDER_NAMES: a
+# render made before the skill took its gstack- name, which a failed
+# regeneration keeps with its old record, still says to run the plain name the
+# host's built-in hides. Starts no process, like the helper above.
 gstack_render_serves() {
-  [ -f "$1/$3/SKILL.md" ] || return 1
-  case " ${GSTACK_PREFIXED_SKILLS:-} " in *" $3 "*) ;; *) return 0 ;; esac
-  [ -f "$2/VERSION" ] && [ -f "$1.overlay" ] || return 1
-  local _grs_line _grs_have= _grs_want=
-  IFS= read -r _grs_want < "$2/VERSION" || [ -n "$_grs_want" ] || return 1
-  _grs_want=${_grs_want//[[:space:]]/}
+  [ -f "$1/$2/SKILL.md" ] || return 1
+  case " ${GSTACK_PREFIXED_SKILLS:-} " in *" $2 "*) ;; *) return 0 ;; esac
+  [ -f "$1.overlay" ] || return 1
+  local _grs_line
   while IFS= read -r _grs_line || [ -n "$_grs_line" ]; do
-    case "$_grs_line" in version=*) _grs_have=${_grs_line#version=}; break ;; esac
+    [ "${_grs_line//[[:space:]]/}" = "names=$GSTACK_RENDER_NAMES" ] && return 0
   done < "$1.overlay"
-  [ -n "$_grs_want" ] && [ "${_grs_have//[[:space:]]/}" = "$_grs_want" ]
+  return 1
 }
