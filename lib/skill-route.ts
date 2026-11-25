@@ -565,7 +565,7 @@ function reordered(seq: string[], content: string[]): boolean {
   });
 }
 const ASK_CUE = new RegExp(String.raw`\bplease\b|\b(?:can|could|would|will) (?:you|we)\b|\blet'?s\b|\b(?:i|we) (?:really )?(?:need|want|would like)\b`
-  + String.raw`|\b(?:i|we)'d like\b|^(?:(?:ok(?:ay)?|now|then|so|and|also|hey|hi|first|next),? )*(?:do|run|give|start|begin|perform|get|kick off|request)\b`);
+  + String.raw`|\b(?:i|we)'d like\b|^(?:(?:ok(?:ay)?|now|then|so|and|also|hey|hi|first|next),? )*(?:do|run|give|start|begin|perform|get|kick off|request)\b(?!n't| not\b)`);
 const THANKS = new Set(['thanks', 'thank', 'thx', 'pls', 'plz']);
 const OBJECT_WORDS = new Set(['in', 'on', 'for', 'of', 'at', 'to', 'from', 'with', 'across', 'this', 'that', 'these', 'those', 'the', 'a', 'an',
   'my', 'our', 'your', 'it', 'all', 'please', 'now', 'before', 'after']);
@@ -605,12 +605,14 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   const defect = reportSigns(prompt).defect;
   const findsOnly = (c: RouteCandidate) => !asks() && defect && c.gstack && ['review', 'qa'].includes(baseName(c.skill));
   const seq = tokens(window);
-  const mentionOnly = (c: RouteCandidate) => (nounPhrase(c.trigger) || reordered(seq, contentTokens(c.trigger))) && !asksForWork(window, c.trigger);
-  const routes = candidates.filter((c, i) => c.score >= threshold && !findsOnly(c) && !mentionOnly(c) && candidates.findIndex(o => o.skill === c.skill) === i)
+  const mentionOnly = (trigger: string) => (nounPhrase(trigger) || reordered(seq, contentTokens(trigger))) && !asksForWork(window, trigger);
+  const mentioned = candidates.filter(c => c.score >= threshold && !findsOnly(c) && mentionOnly(c.trigger));
+  const rescored = (s: InstalledSkill) => mentioned.some(c => c.skill === s.name && c.file === s.file) ? { ...s, triggers: s.triggers.filter(t => !mentionOnly(t)) } : s;
+  const asked = mentioned.length ? scorePrompt(prompt, routed.map(rescored)) : candidates;
+  const routes = asked.filter((c, i) => c.score >= threshold && !findsOnly(c) && asked.findIndex(o => o.skill === c.skill) === i)
     .slice(0, MAX_ROUTES);
   if (routes.length) return { route: routes[0], routes, candidates };
-  const mention = candidates.some(c => c.score >= threshold && !findsOnly(c) && mentionOnly(c));
-  return { route: null, reason: mention ? 'mention' : 'below-threshold', candidates };
+  return { route: null, reason: mentioned.length ? 'mention' : 'below-threshold', candidates };
 }
 
 export type HintVariant = 'name' | 'step' | 'contract';

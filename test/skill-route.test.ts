@@ -464,6 +464,8 @@ describe('installed skills beside gstack (GST-3123)', () => {
       'our team does pre-landing review on Fridays and it has been useful',
       'I left a comment in the pr review thread',
       'The code review bot posted a summary on this thread.',
+      "Don't do a code review yet.",
+      'Do not run a code review on this branch.',
     ]) expect([mention, routePrompt(mention, routed).route?.skill ?? null]).toEqual([mention, null]);
     expect(routePrompt('even mentioning code review triggers it', routed)).toMatchObject({ route: null, reason: 'mention' });
     for (const ask of [
@@ -471,6 +473,7 @@ describe('installed skills beside gstack (GST-3123)', () => {
       'can you do a code review of this?', 'Please do a pre-landing review.', 'run a code review on my branch',
       'give me a code review', 'I need a code review of this diff', 'Thanks. Now do a code review.',
       'review my changes', 'look over my diff', 'review this pr', 'check my diff before I merge',
+      'I read the code review notes. Check my diff before I merge.', 'The pr review thread is long. Look over my diff.',
     ]) expect([ask, routePrompt(ask, routed).route?.skill ?? null]).toEqual([ask, 'review']);
     const notes = other('notes', ['release notes draft']);
     expect(routePrompt('the release notes draft is in the wiki', [notes])).toMatchObject({ route: null, reason: 'mention' });
