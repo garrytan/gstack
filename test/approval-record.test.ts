@@ -643,3 +643,10 @@ describe('APPROVAL_RECORD_INVALID names the failed check and no other command (#
   });
 });
 
+// Value: protects=GST-3562 part 4 removed the round-grant and fix-check clearing modules with every caller; fails_when=either
+//   comes back as a second path that grants rounds or clears fix-checks; seam=the repository tree
+describe('the grant and fix-check modules stay removed (GST-3562 part 4)', () => {
+  test('lib/review-round-grant.ts and lib/fix-check-clearing.ts are gone', () => {
+    for (const f of ['lib/review-round-grant.ts', 'lib/fix-check-clearing.ts']) expect([f, fs.existsSync(path.join(ROOT, f))]).toEqual([f, false]);
+  });
+});
