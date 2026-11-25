@@ -5,6 +5,7 @@
  * and finish routes exactly those paths, at exactly the ruled bytes, as RULED_EDIT instead of stopping again.
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
@@ -63,7 +64,9 @@ describe('finish honours an edit ruling after the final review (GST-3775)', () =
     later.f.write({ 'test/x.test.ts': TEST_V3 }); later.f.commit('edit it again after the ruling');
     const r = finish(later.f, later.reviewed, later.post);
     expect([r.status, r.stdout]).toEqual([3, expect.stringContaining(`${STOPPED} (test/x.test.ts)`)]);
-    expect(r.stdout).not.toContain('RULED_EDIT');
+    expect(r.stdout).not.toContain('RULED_EDIT:');
+    expect(lineOf(r.stdout, 'RULED_EDIT_REFUSED')).toStartWith(`RULED_EDIT_REFUSED: test/x.test.ts (its mode or bytes differ from the ruled head ${later.stopHead.slice(0, 12)};`);
+    expect(lineOf(r.stdout, 'RULED_NOTE')).toEndWith('(no RULED_EDIT at this head; not applied)');
     later.f.write({ 'test/x.test.ts': TEST_V2 }); later.f.commit('restore the ruled bytes');
     const restored = finish(later.f, later.reviewed, later.post);
     expect([restored.status, restored.stdout]).toEqual([3, expect.stringContaining(`${STOPPED} (test/x.test.ts)`)]);
@@ -71,5 +74,22 @@ describe('finish honours an edit ruling after the final review (GST-3775)', () =
     const early = editedAfterFinalReview();
     expect(rule(early.f, 'test/x.test.ts', early.passHead).status).toBe(0);
     expect(finish(early.f, early.reviewed, early.post).stdout).toContain(`${STOPPED} (test/x.test.ts)`);
+  });
+
+  // Value: protects=finish fails closed when git cannot hold the ruled path under the spelling it routes: a filename with
+  //   invalid UTF-8 reaches finish with a replacement character, both ls-tree lookups find nothing, and that must not read as
+  //   equal bytes; fails_when=a ruling on a path neither tree holds clears the stop; seam=finish's route reading each ls-tree
+  test('a ruled path neither tree holds under its routed spelling stops finish (no file, not equal bytes)', () => {
+    const { f, reviewed, post } = editedAfterFinalReview();
+    const raw = Buffer.concat([Buffer.from(path.join(f.work, 'test') + path.sep), Buffer.from([0xff]), Buffer.from('y.test.ts')]);
+    fs.writeFileSync(raw, TEST_V1); f.commit('add a test whose name is not UTF-8');
+    const stopHead = f.git('rev-parse', 'HEAD').stdout.trim();
+    const routed = 'test/\uFFFDy.test.ts';
+    for (const p of ['test/x.test.ts', routed]) expect(rule(f, p, stopHead).status).toBe(0);
+    const r = finish(f, reviewed, post);
+    expect([r.status, r.stdout]).toEqual([3, expect.stringContaining(`${STOPPED} (${routed})`)]);
+    expect(lineOf(r.stdout, 'RULED_EDIT_REFUSED')).toBe(`RULED_EDIT_REFUSED: ${routed} (no file at ${stopHead.slice(0, 12)}: a ruling covers a file git holds under this spelling, never a deletion; keep the edit and run /ship again, docs/ship-policy.md#ruled-edits)`);
+    expect(r.stdout).toContain('RULED_EDIT: test/x.test.ts (');
+    expect(r.stdout).toMatch(new RegExp(`^RULED_NOTE: edit:test/\\uFFFDy\\.test\\.ts at .* \\(no RULED_EDIT at this head; not applied\\)$`, 'm'));
   });
 });

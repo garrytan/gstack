@@ -1941,17 +1941,26 @@ gstack-approvals rule --finding 'edit:<path>' --head <stop head> --reason '<why 
   --by '<the owner>' --words '<their exact words>' --owner-ref <thread code>:<message id>
 ```
 
+The stop line prints one such command per edited path, with each `edit:<path>`
+shell-quoted, so a path with quotes, `$`, `;` or backticks pastes as one argument.
+
 finish then routes a changed path as `RULED_EDIT: <path> (ruled at <head12> by <who>,
 approval <id>)` instead of stopping, when a ruling `edit:<path>` names HEAD or an
 ancestor of it, the path's entry in the tree finish routes (mode and bytes, untracked
 files included) equals that head's, and no commit after that head touches the path.
+Both trees must hold the path as one file under exactly the spelling finish routes:
+a path git cannot read (`git ls-tree` fails) or holds under another spelling (a
+filename that is not UTF-8 reaches finish with a replacement character), and a
+deleted path, never match, so a ruling cannot clear them. A ruling that does not
+clear its path prints `RULED_EDIT_REFUSED: <path> (<why>; …)` and finish stops.
 One ruling never covers another path, and a path edited again after its ruling
 stops finish again, even when a later commit restores the ruled bytes. A path with
 whitespace cannot be ruled, so an edit there keeps the fix and runs /ship again.
 The ruling clears only the review stop: a changed file the documentation audit
 hashed still needs the stage 3 recovery finish's stop names. The ruling is an ordinary
-ruled note, so it prints as `RULED_NOTE:` (never marked not applied), the receipt
-records it and the PR body lists its `Ruled note:` line.
+ruled note, so it prints as `RULED_NOTE:`, marked `(no RULED_EDIT at this head; not
+applied)` when it cleared no path, the receipt records it and the PR body lists its
+`Ruled note:` line.
 
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier
