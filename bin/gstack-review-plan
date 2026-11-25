@@ -42,6 +42,7 @@ import { classList, targetedBriefSha, targetedClasses, targetedPatchId } from '.
 import { targetedDelta } from '../lib/review-targeted-delta';
 import { ownChangeSince } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
+import { readRuledNotes, ruledEditLine, ruledEdits } from '../lib/ruled-notes';
 
 const HELP = `gstack-review-plan — the review depth of the next /ship step (docs/review-policy.md#review-depth)
 
@@ -186,7 +187,9 @@ function main(): number {
   const tiersSetting = runScriptSync(path.join(binDir, 'gstack-config'), ['get', 'review_effort_tiers'], { encoding: 'utf8', timeout: 15_000 });
   const auditEffort = has('--no-tiers') || (tiersSetting.stdout ?? '').trim() === 'off' ? 'host' : 'light';
   const { added, diffLines, paths, deleted, stampOnly, perPath, registry } = collected;
-  let fixRange: { base: string; runtime_lines: number | null; error?: string; touched_gate?: true } | undefined;
+  let fixRange: { base: string; runtime_lines: number | null; error?: string; touched_gate?: true; ruled?: string[] } | undefined;
+  let routed: ReturnType<typeof ruledEdits> | null = null;
+  let ruledAll = false;
   let own: string | null = null;
   if (rangeBase) {
     const unread = (error: string) => ({ base: rangeBase, runtime_lines: null, error });
@@ -198,8 +201,14 @@ function main(): number {
     else {
       const commit = collectCommit(root, resolved, own);
       const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', own]), gateTagged: gateTagsOf(['--commit', own]), ...riskPaths, ...(active ? { excluded: active.excluded } : {}) });
+      const edits = readRuledNotes(root).filter(n => n.finding.startsWith('edit:'));
+      routed = edits.length && commit.paths.length && !range.errors.length ? ruledEdits(root, commit.paths, head, edits) : null;
+      const tagsBeyond = (ruled: ReadonlyMap<string, unknown>) => { const g = runGateDiff(['--commit', own!, '--format', 'jsonl']);
+        return g.status !== 0 || (g.stdout ?? '').split('\n').slice(1).some(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return !!h.tags?.length && !ruled.has(h.path ?? ''); } catch { return false; } }); };
+      ruledAll = !!routed && routed.ruled.size === commit.paths.length && !tagsBeyond(routed.ruled);
       fixRange = range.errors.length ? unread([...range.errors.slice(0, 5).map(e => `${e.code} ${e.input}`), ...(range.errors.length > 5 ? [`+${range.errors.length - 5} more`] : [])].join('; '))
         : !commit.paths.length ? unread('the fix range is empty: commit the fix after the range base (a base merge alone is not the PR\'s own change)')
+        : ruledAll ? { base: rangeBase, runtime_lines: 0, ruled: [...routed!.ruled.keys()].sort() }
         : { base: rangeBase, runtime_lines: range.runtimeLines, ...(range.class === 'gate' ? { touched_gate: true as const } : {}) };
     }
   }
@@ -208,31 +217,35 @@ function main(): number {
   const brief = targetedBriefSha();
   const ran = !['uncommitted', 'none'].includes(patch) && flag('--targeted-ran') === patch;
   const postReview = has('--post-review');
+  const fixedPost = !ruledAll && postReview && pass > 0;
   const plan = planReview({
     ...collected, ...exclusionInput, ...riskPaths, declared: declared as RiskClass[], shape: { panel: review.panel, readerModel: review.reader_model, platform: review.platform, head, platformReview: platform?.ok ? platform.review : null }, scope, gateTagged, targeted: { classes: targeted.classes, ran }, numbers: scanNumbers(kept(added)), force, gated: list('--gated'), floor, tiers: auditEffort !== 'host',
     criticalFound: has('--critical-found'), adversarialRan: has('--adversarial-ran'), reviewedNumbers: flag('--reviewed-numbers'),
-    history: { priorRounds, priorFull, fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: has('--fixed-below') || (postReview && pass > 0), blockingOpen: has('--blocking-open'), touchedGate: has('--touched-gate') || !!fixRange?.touched_gate || (postReview && pass > 0), pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, postReview },
+    history: { priorRounds, priorFull, fullPasses: pass, last, fixedBlocking: has('--fixed-blocking'), fixedBelow: !ruledAll && (has('--fixed-below') || fixedPost), blockingOpen: has('--blocking-open'), touchedGate: !ruledAll && (has('--touched-gate') || !!fixRange?.touched_gate || fixedPost), pass1Depth, rangeRuntimeLines: fixRange?.runtime_lines, postReview },
   });
-  if (postReview && pass > 0) plan.next.reason = `edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: ${plan.next.reason}`;
+  if (ruledAll) plan.next.reason = `every edit since --range-base is ruled a note (RULED_EDIT), so the range plans as no fix (docs/ship-policy.md#ruled-edits): ${plan.next.reason}`;
+  if (fixedPost) plan.next.reason = `edits after the review bound (Step 16 stage 2.1) plan as a fix to a gate-class path, never a note: ${plan.next.reason}`;
   if (postReview && plan.next.step === 'stop') {
     const status = rangeBase ? git(['diff', '-z', '--name-status', '--no-renames', rangeBase, own ?? head])?.split('\0').filter(Boolean) : undefined;
     const pairs = status ? Array.from({ length: status.length >> 1 }, (_, i) => [status[2 * i]!, status[2 * i + 1]!] as const) : undefined;
     const edited = pairs?.filter(([s]) => s !== 'D').map(([, p]) => p), deleted = pairs?.filter(([s]) => s === 'D').map(([, p]) => p) ?? [];
     const spaced = edited?.filter(p => /\s/.test(p)) ?? [];
-    const rulable = edited?.filter(p => !spaced.includes(p));
+    const rulable = edited?.filter(p => !spaced.includes(p) && !routed?.ruled.has(p));
     const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
     const rule = (finding: string) => `gstack-approvals rule --finding ${finding} --head ${head} --reason '<why it ships as a note>' --by '<the owner>' --words '<their exact words>' --owner-ref <thread code>:<message id>`;
-    plan.next.reason += `; if the owner rules instead that the edit ships as a disclosed note, record that ruling once per edited path (each path shell-quoted; the owner-ref is the relay this open /ship run needs): ${rulable?.length ? rulable.map(p => rule(quote(`edit:${p}`))).join(' && ') : rule("'edit:<path>'")}, then rerun finish, which routes each ruled path at the ruled bytes as RULED_EDIT${spaced.length ? `; ${spaced.map(quote).join(', ')} cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /ship again` : ''}${deleted.length ? `; a deletion (${deleted.map(quote).join(', ')}) cannot be ruled, so it keeps the fix and runs /ship again` : ''}`;
+    plan.next.reason += `; if the owner rules instead that the edit ships as a disclosed note, record that ruling once per edited path (each path shell-quoted; the owner-ref is the relay this open /gstack-ship run needs): ${rulable?.length ? rulable.map(p => rule(quote(`edit:${p}`))).join(' && ') : rule("'edit:<path>'")}, then rerun finish, which routes each ruled path at the ruled bytes as RULED_EDIT${spaced.length ? `; ${spaced.map(quote).join(', ')} cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /gstack-ship again` : ''}${deleted.length ? `; a deletion (${deleted.map(quote).join(', ')}) cannot be ruled, so it keeps the fix and runs /gstack-ship again` : ''}`;
   }
   const ranArg = flag('--targeted-ran');
   const delta = plan.next.step !== 'done' || !targeted.classes.length || ran ? null
     : rangeBase && ranArg ? targetedDelta(root, ref, rangeBase, ranArg) : null;
-  if (delta?.state === 'dispatch') {
-    const why = `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')})`;
-    plan.next = { step: 'targeted', reason: `the loop is done and ${why} after the targeted read at ${delta.range_base.slice(0, 12)}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
+  const ruledRead = ruledAll && plan.next.step === 'done' && targeted.classes.length > 0 && !ran && !(delta?.state === 'skip' && delta.carried);
+  if (delta?.state === 'dispatch' || ruledRead) {
+    const why = delta?.state === 'dispatch' ? `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')}) after the targeted read at ${delta.range_base.slice(0, 12)}`
+      : 'every edit since --range-base is ruled a note, but no targeted record covers the ruled bytes';
+    plan.next = { step: 'targeted', reason: `the loop is done and ${why}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
     plan.dispatches.push({ role: 'targeted', name: 'targeted', effort: ROLE_EFFORT.targeted, exclude: active ? [...active.specs] : [], classes: [...targeted.classes], ...(active?.keep.length ? { keep: [...active.keep] } : {}) });
   } else if (delta) plan.skipped.push(`targeted-only read (${delta.reason})`);
-  if (last === 'full' && plan.next.step === 'done' && fixRange && fixRange.runtime_lines !== null && !ran && !(delta?.state === 'skip' && delta.carried) && !postReview && !['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate'].some(has)) {
+  if (last === 'full' && plan.next.step === 'done' && fixRange && !ruledAll && fixRange.runtime_lines !== null && !ran && !(delta?.state === 'skip' && delta.carried) && !postReview && !['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate'].some(has)) {
     process.stderr.write(`${gateOutcomeLine('gstack-review-plan', 'review_required_no_readers', `--pass ${pass} --last ${last} names no fix, but the PR's own change since --range-base ${fixRange.base.slice(0, 12)} has ${fixRange.runtime_lines} runtime line${fixRange.runtime_lines === 1 ? '' : 's'}`)} (review_required_no_readers)\n`);
     return EXIT.refused;
   }
@@ -253,7 +266,9 @@ function main(): number {
   out.push(`REVIEW_MODE: ${plan.mode} panel=${review.panel} reader_model=${review.reader_model} platform=${review.platform}`);
   if (declared.length) out.push(`RISK_DECLARED: classes=${plan.declared.join(',')} detected=${plan.detected.join(',') || 'none'}`);
   if (platform) out.push(platform.ok ? `PLATFORM_REVIEW: ${platform.review.id} reviewer=${platform.review.reviewer} head=${platform.review.head}` : `PLATFORM_REVIEW: none (${platform.reason})`);
-  if (fixRange) out.push(`FIX_RANGE: ${fixRange.runtime_lines === null ? `unread (${fixRange.error})` : `runtime_lines=${fixRange.runtime_lines}`} base=${fixRange.base}`);
+  if (fixRange) out.push(`FIX_RANGE: ${fixRange.runtime_lines === null ? `unread (${fixRange.error})` : `runtime_lines=${fixRange.runtime_lines}`} base=${fixRange.base}${fixRange.ruled ? ` ruled=${fixRange.ruled.length}` : ''}`);
+  for (const [p, n] of routed?.ruled ?? []) out.push(ruledEditLine(p, n));
+  for (const x of routed?.refused ?? []) out.push(`RULED_EDIT_REFUSED: ${x}`);
   if (targetedDeltaOut) out.push(`TARGETED_DELTA: range_base=${targetedDeltaOut.range_base} paths=${targetedDeltaOut.paths.join(',')} classes=${classList(targetedDeltaOut.classes)}`);
   out.push(reviewPlanLine(plan, pass + (plan.next.step === 'full' || plan.next.step === 'scoped' ? 1 : 0), priorRounds), `NEXT: ${plan.next.step} (${plan.next.reason})`);
   for (const e of plan.errors) out.push(`DEPTH_ERROR: ${e.code} input=${e.input} detail=${e.detail}; fix: ${e.repair}${e.result ? ` (${e.result})` : ''}`);

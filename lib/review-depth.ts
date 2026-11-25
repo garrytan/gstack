@@ -451,7 +451,7 @@ function prCapped(h: History, n: NextStep): NextStep {
     if (n.step === 'done') return n;
     if (h.fixedBelow && !h.fixedBlocking && !h.blockingOpen && !h.touchedGate && n.step !== 'stop') return { step: 'stop', reason: `a fix followed the read-only final review: ${CAPTAIN_DECIDES}` };
     if (!h.fixedBlocking && !h.blockingOpen && !h.touchedGate && n.step !== 'stop') return { step: 'done', reason: `read-only final review done (R51): its below-floor findings ship as notes in the PR body and receipt, with no fix round` };
-    return { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review of a PR that already had ${prior} full review rounds found a blocker; the lane's Captain decides (ship with the note, park, or keep the fix and run /ship again for one more read-only full review of the final head), not an owner ask` };
+    return { step: 'stop', reason: `PR_ROUND_CAP: the read-only final review of a PR that already had ${prior} full review rounds found a blocker; the lane's Captain decides (ship with the note, park, or keep the fix and run /gstack-ship again for one more read-only full review of the final head), not an owner ask` };
   }
   if (!prior || (n.step !== 'full' && n.step !== 'scoped')) return n;
   const used = prior + h.fullPasses;
@@ -463,7 +463,7 @@ function prCapped(h: History, n: NextStep): NextStep {
 }
 
 const READ_ONLY_REVIEW = 'read-only final review (R51): fixes changed code after the last round, so the final head gets one full review of the whole PR diff (the dispatcher stages it on the merge base) with no fix round (GST-3562 A)';
-const CAPTAIN_DECIDES = "the lane's Captain decides (R51): ship with it as a ruled note, or keep the fix and run /ship again for one read-only full review of the final head";
+const CAPTAIN_DECIDES = "the lane's Captain decides (R51): ship with it as a ruled note, or keep the fix and run /gstack-ship again for one read-only full review of the final head";
 
 /**
  * A step that applied fixes in the last allowed round (GST-3562 A, R51): the final head gets one read-only full review, unless

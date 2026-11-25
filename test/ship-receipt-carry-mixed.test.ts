@@ -66,7 +66,7 @@ function founderstar(resolvedSave = 84, baseBlock = 0) {
   return { ...x, head, sides };
 }
 
-const scopedPacket = (err: string) => /one fix-check reviewer reads (\S+), then rerun carry/.exec(err)?.[1];
+const scopedPacket = (err: string) => /one scoped reader \(not a review round\) reads (\S+), then rerun carry/.exec(err)?.[1];
 const eligible = (err: string) => /^RECHECK: advisory range_diff_lines=(\d+) range_diff_sha256=([0-9a-f]{64}) packet=(\S+);/m.exec(err);
 const recordAt = (f: ShipFx, name: string, v: object) => { const file = path.join(f.root, name); fs.writeFileSync(file, JSON.stringify(v)); return file; };
 

@@ -319,13 +319,74 @@ describe('gstack-review-plan --post-review stop names the edit ruling (GST-3775)
     const p = run(r, ['--pass', '3', '--last', 'full', '--range-base', passHead, '--post-review']);
     expect(p.status, p.stderr).toBe(0);
     expect(p.stdout).toContain("a fix followed the read-only final review: the lane's Captain decides (R51)");
-    expect(p.stdout).toContain(`record that ruling once per edited path (each path shell-quoted; the owner-ref is the relay this open /ship run needs): gstack-approvals rule --finding 'edit:src/a.ts' --head ${head} --reason '<why`);
-    expect(p.stdout).toContain("'src/a b.ts' cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /ship again");
-    expect(p.stdout).toContain("; a deletion ('src/gone.ts') cannot be ruled, so it keeps the fix and runs /ship again");
+    expect(p.stdout).toContain(`record that ruling once per edited path (each path shell-quoted; the owner-ref is the relay this open /gstack-ship run needs): gstack-approvals rule --finding 'edit:src/a.ts' --head ${head} --reason '<why`);
+    expect(p.stdout).toContain("'src/a b.ts' cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /gstack-ship again");
+    expect(p.stdout).toContain("; a deletion ('src/gone.ts') cannot be ruled, so it keeps the fix and runs /gstack-ship again");
     const findings = [...p.stdout.split('\n').find(l => l.startsWith('NEXT: '))!.matchAll(/gstack-approvals rule --finding ('(?:[^']|'\\'')*') --head /g)].map(m => m[1]!);
     expect(findings).toHaveLength(2);
     const parsed = spawnSync('sh', ['-c', `printf '%s\\n' ${findings.join(' ')}`], { cwd: r.dir, encoding: 'utf8', timeout: 10_000 });
     expect(parsed.stdout).toBe(`edit:src/a.ts\nedit:${odd}\n`);
     expect(run(r, ['--pass', '3', '--last', 'full', '--range-base', passHead, '--fixed-below']).stdout).not.toContain('--finding edit:');
   }, 30_000);
+});
+
+// Value: protects=an owner's edit:<path> ruling on an edit after the read-only final review is honoured by the plan as finish
+//   honours it, so the ruled edit ships as a note and only the targeted reader receipt write asks for, or nothing, follows;
+//   fails_when=the plan still counts the ruled range as a fix (FIX_RANGE runtime_lines>0, NEXT: stop or voices, GST-3814 on
+//   #4819), or a ruling clears a path it does not name or bytes edited after it; seam=bin/gstack-review-plan --range-base reading
+//   the approval record
+describe('gstack-review-plan honours edit rulings in the fix range (GST-3814)', () => {
+  const env = (r: { state: string }) => { const e: NodeJS.ProcessEnv = { ...process.env, GSTACK_STATE_ROOT: r.state, GSTACK_APPROVALS_MIRROR: '0' }; delete e.GSTACK_APPROVALS_DIR; return e; };
+  const plan = (r: { dir: string; state: string }, args: string[]) => spawnSync(BIN, ['--base', 'main', '--gate-tagged', '0', ...args], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env: env(r) });
+  const rule = (r: { dir: string; state: string }, file: string, head: string) => spawnSync(path.join(path.dirname(BIN), 'gstack-approvals'), ['rule', '--finding', `edit:${file}`, '--head', head, '--reason', 'the docs-audit rename after the final review ships as a disclosed note', '--words', 'ship it with the note', '--by', 'GStack Minder (GSTA-36)'], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env: env(r) });
+  const after = ['--pass', '3', '--last', 'full', '--fixed-below'];
+  function edited(files: Record<string, string>, message = 'docs audit edit after the final review') {
+    const r = repo({ 'src/a.ts': 'export const a = 1;\n', 'src/b.ts': 'export const b = 1;\n' });
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const passHead = git('rev-parse', 'HEAD');
+    for (const [p, text] of Object.entries(files)) fs.appendFileSync(path.join(r.dir, p), text);
+    git('add', '.'); git('commit', '-qm', message);
+    return { r, git, passHead, head: git('rev-parse', 'HEAD') };
+  }
+  test('every path ruled at the head: the range plans as no fix and the stop is gone', () => {
+    const { r, passHead, head } = edited({ 'src/a.ts': 'export const c = 3;\n' });
+    expect(plan(r, [...after, '--range-base', passHead]).stdout).toMatch(/^NEXT: stop \(a fix followed the read-only final review/m);
+    expect(rule(r, 'src/a.ts', head).status).toBe(0);
+    const p = plan(r, [...after, '--range-base', passHead]);
+    expect(p.status, p.stderr).toBe(0);
+    expect(p.stdout).toMatch(new RegExp(`^RULED_EDIT: src/a\\.ts \\(ruled at ${head.slice(0, 12)} by GStack Minder \\(GSTA-36\\), approval a-[0-9a-f]{12}\\)$`, 'm'));
+    expect(p.stdout).toContain(`FIX_RANGE: runtime_lines=0 base=${passHead} ruled=1`);
+    expect(p.stdout).toMatch(/^NEXT: done \(every edit since --range-base is ruled a note \(RULED_EDIT\)/m);
+    expect(p.stdout).not.toContain("Captain decides");
+    expect(JSON.parse(plan(r, [...after, '--range-base', passHead, '--json']).stdout).fix_range).toMatchObject({ runtime_lines: 0, ruled: ['src/a.ts'] });
+  }, 60_000);
+  test('every path ruled on a targeted-class diff: the one targeted reader reads HEAD, since no record covers the ruled bytes', () => {
+    const { r, passHead, head } = edited({ 'src/a.ts': 'export const c = 3;\n' });
+    expect(rule(r, 'src/a.ts', head).status).toBe(0);
+    const p = spawnSync(BIN, ['--base', 'main', '--gate-tagged', '1', ...after, '--range-base', passHead], { cwd: r.dir, encoding: 'utf8', timeout: 60_000, env: env(r) });
+    expect(p.stdout).toContain('TARGETED: classes=gate');
+    expect(p.stdout).toMatch(/^NEXT: targeted \(the loop is done and every edit since --range-base is ruled a note, but no targeted record covers the ruled bytes: one targeted reader reads HEAD/m);
+    expect(p.stdout).toMatch(/^DISPATCH: targeted targeted /m);
+  }, 60_000);
+  test('a gate finding no file ruling covers (a CI skip marker in the commit message) keeps the stop', () => {
+    const { r, passHead, head } = edited({ 'src/a.ts': 'export const c = 3;\n' }, 'docs audit edit [skip ci]');
+    expect(rule(r, 'src/a.ts', head).status).toBe(0);
+    const p = plan(r, [...after, '--range-base', passHead]);
+    expect(p.stdout).toContain('RULED_EDIT: src/a.ts');
+    expect(p.stdout).toMatch(/^NEXT: stop \(a fix followed the read-only final review/m);
+  }, 60_000);
+  test('a path with no ruling, or edited again after its ruling, still stops', () => {
+    const partial = edited({ 'src/a.ts': 'export const c = 3;\n', 'src/b.ts': 'export const d = 4;\n' });
+    expect(rule(partial.r, 'src/a.ts', partial.head).status).toBe(0);
+    const p = plan(partial.r, [...after, '--range-base', partial.passHead]);
+    expect(p.stdout).toMatch(/^NEXT: stop \(a fix followed the read-only final review/m);
+    expect(p.stdout).toContain('RULED_EDIT: src/a.ts');
+    const later = edited({ 'src/a.ts': 'export const c = 3;\n' });
+    expect(rule(later.r, 'src/a.ts', later.head).status).toBe(0);
+    fs.appendFileSync(path.join(later.r.dir, 'src/a.ts'), 'export const e = 5;\n'); later.git('commit', '-qam', 'edit it again');
+    const q = plan(later.r, [...after, '--range-base', later.passHead]);
+    expect(q.stdout).toMatch(/^NEXT: stop \(a fix followed the read-only final review/m);
+    expect(q.stdout).toContain('RULED_EDIT_REFUSED: src/a.ts (');
+    expect(q.stdout).not.toMatch(/^RULED_EDIT: /m);
+  }, 60_000);
 });

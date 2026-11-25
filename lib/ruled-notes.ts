@@ -8,6 +8,7 @@
 import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
 import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON } from './security-findings';
 import { openRun, readRunRecord } from './ship-run-record';
+import { spawnSync } from './spawn-sync';
 
 export interface RuledNote { finding: string; head: string; by: string; reason: string; at: string; approval: string; relayed?: string; not_security?: true }
 
@@ -75,3 +76,38 @@ export const ruledNoteText = (note: RuledNote) => { const n = publicRuledNote(no
  * beat_age and abandon command; none once the run finished or was abandoned (lib/ship-run-record.ts).
  */
 export const openShipRun = (cwd: string) => openRun(readRunRecord(cwd));
+
+/** Finish's and the plan's line for a ruled path: `RULED_EDIT: <path> (ruled at <head12> by <who>, approval <id>)`. */
+export const ruledEditLine = (p: string, n: RuledNote) => `RULED_EDIT: ${p} (ruled at ${n.head.slice(0, 12)} by ${n.by}, approval ${n.approval})`;
+
+/**
+ * Which of `paths` an owner's `edit:<path>` ruling clears at `now` (a commit or tree; docs/ship-policy.md#ruled-edits): the ruling
+ * names HEAD or an ancestor of it, both trees hold the path as one file under exactly this spelling with the same mode and bytes,
+ * and no first-parent commit after the ruled head touches it. finish routes the cleared paths as RULED_EDIT and gstack-review-plan
+ * leaves them out of the fix range (GST-3814), so both read a ruling the same way; `refused` names each ruled path that did not
+ * clear, with why.
+ */
+export function ruledEdits(cwd: string, paths: readonly string[], now: string, edits: readonly RuledNote[]): { ruled: Map<string, RuledNote>; refused: string[] } {
+  const git = (dir: string, args: string[]) => { const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 }); return { status: r.status, stdout: String(r.stdout ?? '') }; };
+  const ancestor = (a: string, d: string) => git(cwd, ['merge-base', '--is-ancestor', a, d]).status === 0;
+  const top = edits.length ? git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim() : '';
+  const entry = (tree: string, p: string) => { const ls = git(cwd, ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', tree, '--', p]); const rows = ls.stdout.split('\0').filter(Boolean);
+    return ls.status !== 0 || rows.length > 1 || rows.some(e => e.slice(e.indexOf('\t') + 1) !== p) ? null : rows[0] ?? ''; };
+  const untouched = (head: string, p: string) => { const log = git(top, ['--literal-pathspecs', 'log', '--first-parent', '--format=%H', `${head}..HEAD`, '--', p]); return log.status === 0 && !log.stdout.trim(); };
+  const refusal = (n: RuledNote, p: string) => {
+    if (!ancestor(n.head, 'HEAD')) return `ruled at ${n.head.slice(0, 12)}, which is not HEAD or an ancestor of it`;
+    const [at, cur] = [entry(n.head, p), entry(now, p)], where = (e: string | null) => e === at ? n.head.slice(0, 12) : 'the tree finish routes';
+    if (at === null || cur === null) return `git ls-tree could not read it at ${where(null)}`;
+    if (!at || !cur) return `no file at ${where('')}: a ruling covers a file git holds under this spelling, never a deletion`;
+    if (p.includes('\uFFFD')) return 'its spelling holds a replacement character (U+FFFD), so the file git changed may have another name';
+    if (at !== cur) return `its mode or bytes differ from the ruled head ${n.head.slice(0, 12)}`;
+    return top && untouched(n.head, p) ? '' : `a commit after ${n.head.slice(0, 12)} touches it, or git could not list them`;
+  };
+  const ruled = new Map<string, RuledNote>(), refused: string[] = [];
+  for (const p of paths) {
+    const why = edits.filter(n => n.finding === `edit:${p}`).map(n => [n, refusal(n, p)] as const);
+    const ok = why.filter(([, w]) => !w).at(-1);
+    if (ok) ruled.set(p, ok[0]); else if (why.length) refused.push(`${p} (${why.at(-1)![1]}; keep the edit and run /gstack-ship again, docs/ship-policy.md#ruled-edits)`);
+  }
+  return { ruled, refused };
+}

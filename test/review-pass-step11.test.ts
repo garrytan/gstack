@@ -28,7 +28,8 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(voices.indexOf('REVIEW_LOG_START: adversarial-review')).toBeLessThan(voices.indexOf('DISPATCHED:'));
     expect(voices).toContain('NEXT: judge the voices');
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
-    expect(Object.keys(m.log_starts ?? {}).sort()).toEqual(['pass:review', 'voices:adversarial-review']);
+    expect(voices).toMatch(/REVIEW_LOG_START: adversarial-review #2 token=\S+/);
+    expect(Object.keys(m.log_starts ?? {}).sort()).toEqual(['pass:review', 'voices:adversarial-review', 'voices:adversarial-review#2']);
   }, 240_000);
 
   // Value: protects=Step 11 on its own --out (the head moved after a fix round) renders and sends only the voices, so its ledger verifies clean; fails_when=pass renders the plan's first and specialists stages for a voices-only program, leaving BRIEF specialist-batched NOT_SENT in the ledger;

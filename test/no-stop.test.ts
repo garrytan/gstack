@@ -25,12 +25,13 @@ const TIMEOUT = diff('test/worker.test.ts', ["  test('drains', async () => { awa
 const check = (cls: string, d?: string, prior: NoStopRecord[] = []) => checkNoStop({ cls, reason: 'r', evidence: 'run 41715705702', prior, diff: d, root: ROOT });
 
 describe('lib/no-stop: what qualifies', () => {
-  test('scoped-fix-check: a docs-only or timeout-only round-2 fix qualifies once; code, skill prose or a second one stops', () => {
-    expect(check('scoped-fix-check', diff('docs/review-policy-notes.md', ['old wording'], ['new wording']))).toMatchObject({ ok: true, detail: expect.stringContaining('docs-only') });
-    expect(check('scoped-fix-check', TIMEOUT)).toMatchObject({ ok: true, detail: expect.stringContaining('timeout-only') });
-    expect(check('scoped-fix-check', diff('lib/worker.ts', ['return a;'], ['return b;']))).toMatchObject({ ok: false, reason: expect.stringContaining('neither docs-only') });
-    expect(check('scoped-fix-check', diff('ship/SKILL.md.tmpl', ['old'], ['new']))).toMatchObject({ ok: false });
-    expect(check('scoped-fix-check', TIMEOUT, [{ class: 'scoped-fix-check', reason: 'x', evidence: 'y' }])).toMatchObject({ ok: false, reason: expect.stringContaining('a second goes to the owner') });
+  // Value: protects=the retired scoped-fix-check (fix-checks and their grants, GST-3562 part 4) never records a no-stop, so a
+  //   stop after round 2 goes to the lane's Captain; fails_when=checkNoStop still accepts a docs-only or timeout-only round-2
+  //   fix as scoped-fix-check while gstack-no-stop refuses it (#4826 final review); seam=lib/no-stop checkNoStop
+  test('scoped-fix-check is retired: no diff qualifies, not even a docs-only or timeout-only one', () => {
+    for (const d of [diff('docs/review-policy-notes.md', ['old wording'], ['new wording']), TIMEOUT, diff('lib/worker.ts', ['return a;'], ['return b;'])]) {
+      expect(check('scoped-fix-check', d)).toMatchObject({ ok: false, reason: expect.stringContaining('removed with fix-check grants (GST-3562 part 4)') });
+    }
   });
 
   test('test-timeout-fix: only a raised timeout in a test file qualifies', () => {
@@ -43,7 +44,7 @@ describe('lib/no-stop: what qualifies', () => {
 
   test('review pass 1 holes: an assertion bound, a name that only contains "timeout", and a "-- " line inside a hunk are not timeout-only', () => {
     expect(check('test-timeout-fix', diff('test/perf.test.ts', ['  expect(elapsedMs).toBeLessThan(timeoutMs + 100);'], ['  expect(elapsedMs).toBeLessThan(timeoutMs + 5000);']))).toMatchObject({ ok: false });
-    expect(check('scoped-fix-check', diff('lib/retry.ts', ['const MAX_ATTEMPTS_BEFORE_TIMEOUT = 3;'], ['const MAX_ATTEMPTS_BEFORE_TIMEOUT = 30;']))).toMatchObject({ ok: false });
+    expect(check('test-timeout-fix', diff('test/retry.test.ts', ['const MAX_ATTEMPTS_BEFORE_TIMEOUT = 3;'], ['const MAX_ATTEMPTS_BEFORE_TIMEOUT = 30;']))).toMatchObject({ ok: false });
     expect(check('test-timeout-fix', diff('test/x.test.ts', ['  setDefaultTimeout(5_000);'], ['  setDefaultTimeout(30_000);']))).toMatchObject({ ok: true });
     const hidden = 'diff --git a/test/x.test.ts b/test/x.test.ts\n--- a/test/x.test.ts\n+++ b/test/x.test.ts\n@@ -1,2 +1,1 @@\n--- guard\n-  }, 5000);\n+  }, 50000);\n';
     expect(check('test-timeout-fix', hidden)).toMatchObject({ ok: false });

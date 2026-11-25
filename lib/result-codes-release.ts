@@ -190,7 +190,7 @@ export const RELEASE_RESULT_CODES = {
   SHIP_BASE_RED_FIXER: {
     anchor: 'ship-base-red-fixer',
     summary: 'ready --base-red names no fixer PR, or the receipt\'s base-red condition no longer matches the base: a conditional READY needs an owner for its condition and a current classification',
-    fix: 'pass --fixer <pr> naming the open PR whose merge fixes the cases; when the base moved, rerun gstack-base-red classify (and /ship) first',
+    fix: 'pass --fixer <pr> naming the open PR whose merge fixes the cases; when the base moved, rerun gstack-base-red classify (and /gstack-ship) first',
   },
   QUEUE_TRAIN_FROZEN: {
     anchor: 'queue-train-frozen',
@@ -443,12 +443,12 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_PRODUCT_CHANGED: {
     anchor: 'receipt-carry-product-changed',
     summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
-    fix: 'run /gstack-ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks carries as the base merge, and a hunk the base merge spliced is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped reader, no /ship)',
+    fix: 'run /gstack-ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks carries as the base merge, and a hunk the base merge spliced is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped reader, no /gstack-ship)',
   },
   STOP_UNBOUND: {
     anchor: 'stop-unbound',
     summary: 'gstack-ship-receipt stop found no review of this run bound to one committed tree, so it recorded no stop record',
-    fix: 'the lane or its Captain ships with the open notes listed or parks; a fresh /ship run gives the head its review',
+    fix: 'the lane or its Captain ships with the open notes listed or parks; a fresh /gstack-ship run gives the head its review',
   },
   GRANT_SPENT: {
     anchor: 'grant-spent',
@@ -463,7 +463,7 @@ export const RELEASE_RESULT_CODES = {
   SHIP_RUN_RECORD_UNREADABLE: {
     anchor: 'ship-run-record-unreadable',
     summary: 'this checkout\'s /ship run record (git dir gstack-ship-run) is neither a run record nor a run id, so every guard reads it as an open run',
-    fix: 'if no /ship run is working on this checkout, end it with the gstack-ship-run abandon --run unknown --sha256 <digest> command status prints, once',
+    fix: 'if no /gstack-ship run is working on this checkout, end it with the gstack-ship-run abandon --run unknown --sha256 <digest> command status prints, once',
   },
   GRANT_UNKNOWN: {
     anchor: 'grant-unknown',
@@ -473,7 +473,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_SCOPED_REVIEW: {
     anchor: 'receipt-carry-scoped-review',
     summary: 'the base replaced the very lines one of the branch\'s hunks replaces and the merge kept both (GST-2975), so the branch\'s own lines are not the reviewed bytes; the receipt carries only after a scoped review of those hunks',
-    fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /gstack-ship on the new head',
+    fix: 'dispatch one scoped reader (not a review round) on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /gstack-ship on the new head',
   },
   RECEIPT_DOCS_AUDIT_READ: {
     anchor: 'receipt-docs-audit-read',
@@ -540,7 +540,7 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_LAND_DRIFT: {
     anchor: 'queue-land-drift',
     summary: 'the base branch moved between the merge step\'s last check and the squash merge, so main\'s tree is not the stamped tree land verified',
-    fix: 'gstack-ship-queue land --pr <n> --repair opens a PR whose only change is a fragment for what the outside merge brought; /ship and land it, which releases the lock',
+    fix: 'gstack-ship-queue land --pr <n> --repair opens a PR whose only change is a fragment for what the outside merge brought; /gstack-ship and land it, which releases the lock',
   },
   QUEUE_LAND_BASE_BUSY: {
     anchor: 'queue-land-base-busy',
