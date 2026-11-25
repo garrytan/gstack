@@ -10,9 +10,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { EXIT } from '../lib/headless-artifacts';
+import { EXIT, type ShipReceipt } from '../lib/headless-artifacts';
 import { extractReceipt, renderReceiptBlock } from '../lib/ship-receipt';
-import { bindShippedReceipt, receiptDepthAtHead, receiptDepthVerdict } from '../lib/ship-receipt-depth';
+import { bindShippedReceipt, exceptionProblems, receiptDepthAtHead, receiptDepthVerdict } from '../lib/ship-receipt-depth';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import { runScriptSync } from '../lib/script-invocation';
 import { BUMP_NEVER_KEY_VERSION, HISTORY_NO_REWRITE_KEY_VERSION, LAND_MERGE_COMMIT_PATHS_KEY_VERSION, POLICY_KEY_INTRODUCED, TRAIN_GATES_KEY_VERSION } from '../lib/ship-policy';
@@ -224,6 +224,14 @@ describe('the review-loop exception is gone (GST-3562 part 4)', () => {
     }
     expect(extractReceipt(fs.readFileSync(body, 'utf8')).found).toBe(false);
   }, 90_000);
+
+  // Value: protects=a receipt written before part 4 that still records an exception no longer passes carry or land, since
+  //   nothing checks its disclosure line any more; fails_when=exceptionProblems passes a legacy exception; seam=exceptionProblems
+  test('a legacy receipt that records a review-loop exception does not stand at carry or land', () => {
+    const legacy = { review_loop_exception: { accepted_by: 'x', date: '2026-11-01', via: 'y', reason: 'z', second_pass: { head: 'a'.repeat(40), deferred: ['p1/x#1'] } } } as unknown as ShipReceipt;
+    expect(exceptionProblems('Review-loop exception: x', legacy)).toEqual(['the receipt records a review-loop exception, which GST-3562 part 4 removed']);
+    expect(exceptionProblems('', {} as ShipReceipt)).toEqual([]);
+  });
 });
 
 describe('the queue and a scoped second pass (GSTA-152 D6)', () => {

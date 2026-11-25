@@ -159,10 +159,12 @@ const carries = (body: string, line: string) => body.split(/\r?\n/).some(l => l.
 
 /**
  * The owner exception a receipt records (the documentation exception): valid shape, and the body carries its line verbatim.
+ * A legacy review-loop exception no longer stands: GST-3562 part 4 removed the check that kept its line in the body.
  */
 export function exceptionProblems(body: string, r: ShipReceipt): string[] {
   const out: string[] = [];
-  const raw = r as ShipReceipt & { docs?: unknown };
+  const raw = r as ShipReceipt & { docs?: unknown; review_loop_exception?: unknown };
+  if (raw.review_loop_exception !== undefined) out.push('the receipt records a review-loop exception, which GST-3562 part 4 removed');
   if (raw.docs !== undefined) {
     const d = parseReceiptDocs(raw.docs);
     if (!d.ok) out.push(`docs: ${d.message}`);

@@ -3802,7 +3802,7 @@ review that failed a Godot UID sidecar proof, so it keeps its old route,
 usually behavior ([ship-policy.md#uid-sidecar](ship-policy.md#uid-sidecar)).
 The reason names the failed proof: `needs --reviewed-base`, `could not be
 compared with the reviewed range`, `has no sibling <path> that the reviewed
-range added or modified or the review-loop exception accepted`, `has no
+range added or modified`, `has no
 sibling <path> at the current tree`, `existed at the reviewed tree or the
 current base`, `is not a regular non-executable file (mode <mode>)`, `is not
 exactly one Godot uid://<id> line`, `shares its UID with <paths>`, `could not
@@ -7352,8 +7352,9 @@ Never edit `review_depth` by hand ([review-policy.md](review-policy.md#review-de
 
 **Meaning.** The receipt records a documentation exception (`docs.exception`) that
 the queue cannot accept: the record does not parse, or the PR body no longer
-carries its `Documentation exception: …` line word for word. (The review-loop
-exception was removed in GST-3562 part 4; the queue no longer checks one.)
+carries its `Documentation exception: …` line word for word, or the receipt still
+records a review-loop exception, which GST-3562 part 4 removed: run /gstack-ship
+again for a fresh receipt.
 
 **Fix.** Restore the line in the PR body exactly as `write` printed it, or run
 /gstack-ship again and record the owner's acceptance with `--docs`

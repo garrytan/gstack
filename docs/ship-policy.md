@@ -1412,8 +1412,8 @@ checked-out HEAD, when the receipt records `gstack_version` without
 **`review_loop_exception`.** Removed in GST-3562 part 4. `write --review-loop-exception`
 refuses with [`REVIEW_LOOP_EXCEPTION_INVALID`](troubleshooting.md#review-loop-exception-invalid)
 and writes nothing: an open finding at the round cap ships only as a
-[ruled note](#ruled-notes). A receipt written before keeps the key, and the
-queue no longer checks it.
+[ruled note](#ruled-notes). A receipt written before that still records one no
+longer stands: carry and the queue refuse it, so run /gstack-ship again.
 
 **Prose against the receipt.** `gstack-ship-receipt read --pr <n> --check-prose`
 (or `--body <file>`) compares every counter the body quotes with the receipt's
@@ -2279,8 +2279,7 @@ reader, when all of these hold:
   and at the current base, since a changed UID re-identifies the script for
   every `uid://` reference to it;
 - its sibling (the path without `.uid`) is a regular file now, and one the
-  reviewed range added or modified (present at the reviewed tree), or one the
-  review-loop exception (`finish --review-loop-exception`) accepted; a sibling that is declared `test_code` follows the same rule;
+  reviewed range added or modified (present at the reviewed tree); a sibling that is declared `test_code` follows the same rule;
 - it is a regular, non-executable file (mode `100644`, never a symlink) whose
   whole content is `uid://<id>` with an optional trailing `\n`: the id
   canonical (no leading `a` digit unless it is `a`), at most 13 digits and at
