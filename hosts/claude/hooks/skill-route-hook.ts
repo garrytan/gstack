@@ -15,13 +15,14 @@
  *     no model call, no network.
  *   - An internal deadline (DEADLINE_MS) stays well under the registered 5 s timeout.
  *   - Every decision and failure is one line in $GSTACK_STATE_ROOT/hooks/skill-route.log
- *     (never the prompt text), with a per-session failure counter.
+ *     (never the prompt text: its length, its kind and the matched trigger, which is the skill's own phrase),
+ *     with a per-session failure counter.
  * Docs: docs/skill-routing-and-contracts.md.
  */
 import * as fs from 'fs';
 import {
   appendHookTrace, codexSkillsDir, firstStep, hintLine, hintVariant, hookHost, installedSkillsDir, readSkillSwitch, readStdinBounded,
-  routePrompt, scanCodexSkills, scanInstalledSkills, type HookHost, type RouteCandidate,
+  promptKind, routePrompt, scanCodexSkills, scanInstalledSkills, type HookHost, type RouteCandidate,
 } from '../../../lib/skill-route';
 import { itemSummary, parseContract } from '../../../lib/skill-contract';
 
@@ -75,7 +76,7 @@ async function main(host: HookHost): Promise<void> {
   const decision = routePrompt(p.prompt, skills, undefined, host);
   if (!decision.route) {
     const top = decision.candidates[0];
-    return trace({ event: 'no-route', reason: decision.reason, chars: p.prompt.length, top: top ? `${top.skill}:${top.score}` : '-', ...hostField });
+    return trace({ event: 'no-route', reason: decision.reason, chars: p.prompt.length, kind: promptKind(p.prompt), top: top ? `${top.skill}:${top.score}` : '-', ...hostField });
   }
   const route = decision.route;
   const frontmatter = skills.find(s => s.file === route.file)?.frontmatter ?? '';
@@ -83,8 +84,8 @@ async function main(host: HookHost): Promise<void> {
   const out = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: hintLine(route, variantExtra(route, frontmatter), also, host) } });
   await new Promise<void>(resolve => process.stdout.write(out, () => resolve()));
   trace({
-    event: 'routed', skill: route.skill, score: route.score, source: route.gstack ? 'gstack' : route.file, variant: hintVariant(),
-    ...(also ? { also: also.skill, also_score: also.score, also_source: also.gstack ? 'gstack' : also.file } : {}), ...hostField,
+    event: 'routed', skill: route.skill, score: route.score, trigger: route.trigger, source: route.gstack ? 'gstack' : route.file, variant: hintVariant(),
+    chars: p.prompt.length, kind: promptKind(p.prompt), ...(also ? { also: also.skill, also_score: also.score, also_source: also.gstack ? 'gstack' : also.file } : {}), ...hostField,
   });
 }
 
