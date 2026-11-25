@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { verdictProblem } from '../lib/install-verdict';
+import { newestModel } from '../lib/model-families';
 
 const REPO = path.resolve(import.meta.dir, '..');
 const BUN_DEFAULT = fs.readFileSync(path.join(REPO, 'bin/gstack-bun-version.sh'), 'utf8').match(/^GSTACK_BUN_DEFAULT="([^"]+)"$/m)![1];
@@ -50,7 +51,7 @@ function fixture(opts: { bun?: string; jq?: boolean } = {}) {
   const log = path.join(base, 'calls.log');
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(stub, { recursive: true });
-  for (const rel of ['bin/gstack-capy-install', 'bin/gstack-bun-version.sh', 'bin/gstack-claude-root.sh', 'bin/gstack-doctor-components.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-node-runtime.sh']) {
+  for (const rel of ['bin/gstack-capy-install', 'bin/gstack-bun-version.sh', 'bin/gstack-claude-root.sh', 'bin/gstack-doctor-components.sh', 'bin/gstack-install-verdict.sh', 'bin/gstack-node-runtime.sh', 'lib/model-families.ts']) {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.copyFileSync(path.join(REPO, rel), path.join(root, rel));
     fs.chmodSync(path.join(root, rel), fs.statSync(path.join(REPO, rel)).mode);
@@ -102,7 +103,7 @@ describe('gstack-capy-install', () => {
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(f.calls().filter(l => l.startsWith('setup '))).toEqual([
       'setup --host claude --no-prefix --no-browser',
-      'setup --host codex --model gpt-6.2-astra --no-browser',
+      `setup --host codex --model ${newestModel('astra')} --no-browser`,
     ]);
     expect(f.calls().filter(l => l.startsWith('env '))).toEqual(Array(2).fill('env GSTACK_SKIP_PLAYWRIGHT= GSTACK_SKIP_FONTS= bun=1.4.2'));
     expect(f.calls().some(l => l.startsWith('browser-ensure'))).toBe(false);
@@ -115,6 +116,21 @@ describe('gstack-capy-install', () => {
     expect(r.stdout).toContain('reusing');
     expect(r.stdout).not.toContain('cloning');
     expect(f.calls().some(l => l.startsWith('curl '))).toBe(false);
+  });
+
+  test('the Codex setup model comes from the astra row of lib/model-families.ts; an unreadable registry fails setup before either host runs', () => {
+    const f = fixture();
+    const registry = path.join(f.root, 'lib/model-families.ts');
+    fs.writeFileSync(registry, fs.readFileSync(registry, 'utf8').replace(`model: '${newestModel('astra')}'`, "model: 'gpt-9.9-astra'"));
+    const r = run(f);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(f.calls().filter(l => l.startsWith('setup '))).toEqual(['setup --host claude --no-prefix --no-browser', 'setup --host codex --model gpt-9.9-astra --no-browser']);
+    const g = fixture();
+    fs.rmSync(path.join(g.root, 'lib/model-families.ts'));
+    const bad = run(g);
+    expect(bad.status).toBe(1);
+    expect(g.calls().filter(l => l.startsWith('setup '))).toEqual([]);
+    expect(lastLine(bad.stdout)).toStartWith(`gstack: fail setup — could not read the astra model from ${g.root}/lib/model-families.ts`);
   });
 
   // Integration item 7: setup runs once per host, so each run ends with its
@@ -132,7 +148,7 @@ describe('gstack-capy-install', () => {
     const f = fixture();
     const r = run(f, ['--for', 'qa', '--with-browser']);
     expect(r.status, r.stdout + r.stderr).toBe(0);
-    expect(f.calls().filter(l => l.startsWith('setup '))).toEqual(['setup --host claude --no-prefix', 'setup --host codex --model gpt-6.2-astra']);
+    expect(f.calls().filter(l => l.startsWith('setup '))).toEqual(['setup --host claude --no-prefix', `setup --host codex --model ${newestModel('astra')}`]);
     expect(f.calls().filter(l => l.startsWith('browser-ensure'))).toEqual(['browser-ensure ']);
     expect(f.calls().filter(l => l.startsWith('doctor '))).toEqual(['doctor --check --for qa GSTACK_EPHEMERAL=1']);
     expect(r.stdout).toMatch(/browser bootstrap: \d+s/);
