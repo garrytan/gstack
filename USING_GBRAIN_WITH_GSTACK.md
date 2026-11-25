@@ -92,6 +92,23 @@ That registers gbrain's stdio MCP server with Claude Code. Now `gbrain search`, 
 
 **Other local agents** (Cursor, Codex CLI, etc.) need their own MCP registration. The skill is Claude-Code-targeted for v1; other hosts can register `gbrain serve` manually in their own MCP config.
 
+### Do you need to cut back on MCP servers?
+
+Not for accuracy, up to about 300 tools, as long as Claude Code's tool search stays on. It was on by default in the version we tested, so the one thing to avoid is turning it off with `ENABLE_TOOL_SEARCH=false`.
+
+That comes from a November 2026 test ([report](https://github.com/garrytan/harness-evals/blob/9eaa2d786487/docs/benchmarks/2026-11-mcp-at-scale/report.md)). Agents were connected to fake copies of 30 real open-source MCP servers at about 30, 75, 150 and 300 tools, given the same short requests at every size, and scored on whether they called the right tool, over 21,392 trials. The details differ by agent:
+
+- **Claude Code with tool search on** (Opus 5.5) called the right tool on 94.6% of requests at 30 tools and 92.9% at 300. With tool search off it fell to 85.4% at 300 tools and cost about twice as much per request ($0.240 against $0.117).
+- **Codex** (GPT-6.2 Sol) went from 97.5% at 30 tools to 95.4% at 300, and **OpenClaw** (Opus 5.5) from 98.3% to 98.8%. But both rarely used a tool that a server unlocked partway through a session. When gbrain started with a smaller tool set and let the agent unlock more with `request_tools`, on requests that needed an unlocked tool Codex called it in 13 of 131 trials and OpenClaw in 0 of 131. The report doesn't say why. If you use gbrain with Codex or OpenClaw, register its full tool set (`gbrain serve --surface full`), not the `starter` or `verbs` set.
+- **Hermes and Pi** (Opus 5.5 and particle-1) also held up from 30 to 300 tools.
+
+The test used single short requests, so long sessions and more than 300 tools are untested.
+
+Cutting servers can still be worth it for other reasons:
+
+- **Cost.** More connected tools cost more per request. Claude Code with tool search on cost $0.076 per request at 30 tools and $0.117 at 300 in the same test.
+- **Security.** Each MCP server sees what the agent sends it and can act with whatever access you gave it. Remove servers you don't use or don't trust.
+
 ## Per-remote trust policy (the triad)
 
 Every repo on your machine gets a policy decision: **read-write**, **read-only**, or **deny**.
