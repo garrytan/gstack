@@ -90,7 +90,8 @@ export function callerTools(transcript: unknown[]): CallerTool[] {
     tools.push(tool);
     const native = event.tool_use_result;
     if (!tool.failed && tool.name === 'Read' && typeof tool.input.file_path === 'string'
-      && tool.input.file_path.endsWith('/HANDOFF.md') && Object.keys(tool.input).length === 1
+      && tool.input.file_path.endsWith('/HANDOFF.md')
+      && Object.keys(tool.input).every(key => key === 'file_path' || key === 'offset' && tool.input.offset === 1)
       && typeof tool.sessionId === 'string' && event.session_id === tool.sessionId
       && event.message.content.length === 1 && native?.file?.filePath === tool.input.file_path) {
       if (native.type === 'text' && typeof native.file.content === 'string') {

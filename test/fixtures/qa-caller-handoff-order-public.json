@@ -297,5 +297,277 @@
     }
    ]
   }
- ]
+ ],
+ "passingAttempts": [
+  {
+   "source": "run 45216872389 paid-slice-9-a1 review-exploratory-small-cli",
+   "head": "c4cfe6d",
+   "sourceEventIndices": [
+    28,
+    29,
+    52,
+    53,
+    58,
+    59,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67
+   ],
+   "events": [
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "id": "msg_011ChLBP6BTgcACvAQj6gFHC",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_0171qJUK1UCLNzmy1JzJ6qSt",
+        "name": "Read",
+        "input": {
+         "file_path": "/fixture-root/product/HANDOFF.md"
+        },
+        "caller": {
+         "type": "direct"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "content": [
+       {
+        "tool_use_id": "toolu_0171qJUK1UCLNzmy1JzJ6qSt",
+        "type": "tool_result",
+        "content": "1\tNo concurrent input update.\n2\t"
+       }
+      ]
+     },
+     "tool_use_result": {
+      "type": "text",
+      "file": {
+       "filePath": "/fixture-root/product/HANDOFF.md",
+       "content": "No concurrent input update.\n",
+       "numLines": 2,
+       "startLine": 1,
+       "totalLines": 2
+      }
+     }
+    },
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "id": "msg_011ChLBRwcbXVHTGxs2bFfZA",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_017g8BPgyNwYbnzdQMF41WEk",
+        "name": "Read",
+        "input": {
+         "file_path": "/fixture-root/product/HANDOFF.md"
+        },
+        "caller": {
+         "type": "direct"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "content": [
+       {
+        "tool_use_id": "toolu_017g8BPgyNwYbnzdQMF41WEk",
+        "type": "tool_result",
+        "content": "Wasted call \u2014 file unchanged since your last Read. Refer to that earlier tool_result instead."
+       }
+      ]
+     },
+     "tool_use_result": {
+      "type": "file_unchanged",
+      "file": {
+       "filePath": "/fixture-root/product/HANDOFF.md"
+      }
+     }
+    },
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "id": "msg_011ChLBT5LyZHRN7xKc3yHKN",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_014Q9GJoAaCdzutYNVd69RxD",
+        "name": "Read",
+        "input": {
+         "file_path": "/fixture-root/product/HANDOFF.md"
+        },
+        "caller": {
+         "type": "direct"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "content": [
+       {
+        "tool_use_id": "toolu_014Q9GJoAaCdzutYNVd69RxD",
+        "type": "tool_result",
+        "content": "Wasted call \u2014 file unchanged since your last Read. Refer to that earlier tool_result instead."
+       }
+      ]
+     },
+     "tool_use_result": {
+      "type": "file_unchanged",
+      "file": {
+       "filePath": "/fixture-root/product/HANDOFF.md"
+      }
+     }
+    },
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "id": "msg_011ChLBTX6H4QsDVgySnzydc",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_01T8qK4ZSjgJS3pB4p7HDSEN",
+        "name": "Bash",
+        "input": {
+         "command": "/fixture-root/host/runtime/bin/gstack-review-log '{\"skill\":\"adversarial-review\",\"timestamp\":\"'\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'\",\"status\":\"issues_found\",\"source\":\"in-host\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"unavailable\",\"phase\":\"adversarial\",\"tier\":\"always\",\"gate\":\"informational\",\"commit\":\"'\"$(git rev-parse --short HEAD)\"'\",\"completed\":true,\"converged\":true}' --finish df3af407-565f-48a1-9255-0661b3061fed",
+         "description": "Record native adversarial review result"
+        },
+        "caller": {
+         "type": "direct"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "content": [
+       {
+        "tool_use_id": "toolu_01T8qK4ZSjgJS3pB4p7HDSEN",
+        "type": "tool_result",
+        "content": "(Bash completed with no output)",
+        "is_error": false
+       }
+      ]
+     },
+     "tool_use_result": {
+      "interrupted": false
+     }
+    },
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "id": "msg_011ChLBTX6H4QsDVgySnzydc",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_01TDZUTrW3LVs4Bv7LxZjGRo",
+        "name": "Bash",
+        "input": {
+         "command": "/fixture-root/host/runtime/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"'\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'\",\"status\":\"issues_found\",\"issues_found\":1,\"critical\":1,\"informational\":0,\"quality_score\":10,\"specialists\":{},\"findings\":[{\"severity\":\"CRITICAL\",\"confidence\":10,\"path\":\"scale.ts\",\"line\":3,\"category\":\"functional-contract\",\"fingerprint\":\"scale.ts:3:functional-contract\",\"action\":\"open\",\"summary\":\"!n guard rejects documented valid input 0\"}],\"commit\":\"'\"$(git rev-parse --short HEAD)\"'\",\"completed\":false,\"converged\":false,\"cycles\":1}' --finish e1bfd809-db4d-4d1a-b7b9-64c7d086b385",
+         "description": "Record review result stopped at gate"
+        },
+        "caller": {
+         "type": "direct"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "content": [
+       {
+        "tool_use_id": "toolu_01TDZUTrW3LVs4Bv7LxZjGRo",
+        "type": "tool_result",
+        "content": "(Bash completed with no output)",
+        "is_error": false
+       }
+      ]
+     },
+     "tool_use_result": {
+      "interrupted": false
+     }
+    },
+    {
+     "type": "assistant",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "id": "msg_011ChLBU4AoRK5WzApS9ZYfD",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_01BbTrEf5s4mXH7iZXJrvuA8",
+        "name": "Read",
+        "input": {
+         "file_path": "/fixture-root/product/HANDOFF.md",
+         "offset": 1
+        },
+        "caller": {
+         "type": "direct"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "type": "user",
+     "parent_tool_use_id": null,
+     "session_id": "68631ee2-56e5-4978-989b-9837ceaefd0f",
+     "message": {
+      "content": [
+       {
+        "tool_use_id": "toolu_01BbTrEf5s4mXH7iZXJrvuA8",
+        "type": "tool_result",
+        "content": "Wasted call \u2014 file unchanged since your last Read. Refer to that earlier tool_result instead."
+       }
+      ]
+     },
+     "tool_use_result": {
+      "type": "file_unchanged",
+      "file": {
+       "filePath": "/fixture-root/product/HANDOFF.md"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "passingNote": "Public events (native-events.json indices) from a review-exploratory-small-cli attempt that read HANDOFF.md in full, wrote its completed:true records after unchanged re-reads, then re-read it with {offset: 1} and no limit; fixture paths are rewritten to /fixture-root."
 }

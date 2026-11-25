@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { stopQaOnlyBrowser } from './helpers/qa-only-cleanup';
 import { isAgentRecordGone, isOurAgent, readAgentRecord, spawnTerminalAgent, stopAgentByRecord } from '../browse/src/terminal-agent-control';
-import { readPidStartTime } from '../browse/src/xvfb';
+import { readPidCmdline, readPidStartTime } from '../browse/src/xvfb';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const waitFor = async (check: () => boolean, timeout = 10_000) => {
@@ -45,7 +45,7 @@ test('linked owned state cannot redirect cleanup to a sibling', async () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test.each(['ack-only', 'replaced-state', 'terminal-mismatch', 'chromium-mismatch', 'missing-terminal', 'blocked-identity'])('cleanup refuses unconfirmed settlement: %s', async scenario => {
+test.each(['ack-only', 'replaced-state', 'terminal-mismatch', 'chromium-mismatch', 'missing-terminal', 'unrecorded-terminal', 'unlisted-agents', 'blocked-identity'])('cleanup refuses unconfirmed settlement: %s', async scenario => {
   const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qa-clean-'));
   const stateDir = path.join(dir, '.gstack');
   fs.mkdirSync(stateDir);
@@ -75,6 +75,7 @@ fs.writeFileSync(${JSON.stringify(path.join(dir, 'port'))}, String(server.port))
   let agent: ReturnType<typeof readAgentRecord>;
   let restore: (() => void) | undefined;
   let worker: ReturnType<typeof Bun.spawn> | undefined;
+  let stray: ReturnType<typeof Bun.spawn> | undefined;
   try {
     await waitFor(() => fs.existsSync(path.join(dir, 'port')));
     const port = Number(fs.readFileSync(path.join(dir, 'port'), 'utf8'));
@@ -87,6 +88,23 @@ fs.writeFileSync(${JSON.stringify(path.join(dir, 'port'))}, String(server.port))
       chromiumPid, chromiumStartTime: scenario === 'chromium-mismatch' ? 'stale start' : readPidStartTime(chromiumPid) }));
     const agentFile = path.join(stateDir, 'terminal-agent-pid');
     if (scenario === 'terminal-mismatch') fs.writeFileSync(agentFile, JSON.stringify({ ...agent, ownerPid: process.pid }));
+    if (scenario === 'unrecorded-terminal') {
+      expect(stopAgentByRecord(agent!, 300)).toBe(true);
+      for (const file of [agentFile, path.join(stateDir, 'terminal-port')]) fs.rmSync(file, { force: true });
+      stray = Bun.spawn([process.execPath, '-e', 'setInterval(() => {}, 1000)', 'browse/src/terminal-agent.ts', '--agent-gen=unrecorded'], { cwd: dir });
+      await waitFor(() => /terminal-agent/.test(readPidCmdline(stray!.pid)));
+    }
+    if (scenario === 'unlisted-agents') {
+      expect(stopAgentByRecord(agent!, 300)).toBe(true);
+      for (const file of [agentFile, path.join(stateDir, 'terminal-port')]) fs.rmSync(file, { force: true });
+      const bin = path.join(dir, 'bin');
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, 'pgrep'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+      const original = Bun.spawn;
+      const spy = spyOn(Bun, 'spawn').mockImplementation(((args: string[], options: any) =>
+        original(args, { ...options, env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH } })) as typeof Bun.spawn);
+      restore = () => spy.mockRestore();
+    }
     if (scenario === 'missing-terminal') {
       fs.unlinkSync(agentFile);
       fs.writeFileSync(path.join(stateDir, 'browse-daemon.log'), '[browse] terminal-agent exit remains unconfirmed: fixture\n');
@@ -116,7 +134,10 @@ Bun.spawnSync = (...args) => {
     const started = performance.now();
     const errors = { 'ack-only': 'settlement deadline exceeded', 'replaced-state': 'daemon state was replaced',
       'terminal-mismatch': 'terminal ownership is unconfirmed', 'chromium-mismatch': 'Chromium ownership is unconfirmed',
-      'missing-terminal': /terminal identity is unavailable \(record absent; terminal-port .*daemon log terminal-agent lines: \[browse\] terminal-agent exit remains unconfirmed: fixture\)/, 'blocked-identity': 'owned worker settlement deadline exceeded' };
+      'missing-terminal': /terminal identity is unavailable \(record absent; terminal-port .*daemon log terminal-agent lines: \[browse\] terminal-agent exit remains unconfirmed: fixture\)/,
+      'unrecorded-terminal': new RegExp(`terminal identity is unavailable \\(record absent; terminal-port absent; running fixture agents: ${stray?.pid}; daemon ${daemon.pid} alive`),
+      'unlisted-agents': 'terminal agent identities are unavailable',
+      'blocked-identity': 'owned worker settlement deadline exceeded' };
     await expect(stopQaOnlyBrowser(dir, 1000)).rejects.toThrow(errors[scenario]);
     expect(performance.now() - started).toBeLessThan(2000);
     expect(daemon.exitCode).toBeNull();
@@ -132,12 +153,70 @@ Bun.spawnSync = (...args) => {
     expect(fs.existsSync(requestFile)).toBe(false);
   } finally {
     restore?.();
+    stray?.kill('SIGKILL');
     if (agent) expect(stopAgentByRecord(agent, 300)).toBe(true);
     daemon.kill();
     await daemon.exited;
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }, 15_000);
+
+// Census 45122546426 (qa-only-no-fix): cleanup ran 58 s after a headless daemon started, before its first 60 s watchdog
+// tick spawned a terminal agent, and failed on the record that had never been written ("daemon log terminal-agent
+// lines: none"). The same daemon before its first tick settles with Chromium and no terminal.
+test.each(['no-terminal', 'published-mid-cleanup'])('a real headless daemon settles before its first watchdog tick has started a terminal: %s', async scenario => {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qa-tick-'));
+  const stateDir = path.join(dir, '.gstack');
+  const stateFile = path.join(stateDir, 'browse.json');
+  let restore: (() => void) | undefined;
+  const child = Bun.spawn([process.execPath, path.join(ROOT, 'browse/src/server.ts')], {
+    cwd: dir, stdout: Bun.file(path.join(dir, 'server.log')), stderr: Bun.file(path.join(dir, 'server-error.log')),
+    env: { ...process.env, PATH: path.dirname(process.execPath) + path.delimiter + process.env.PATH,
+      BROWSE_STATE_FILE: stateFile, BROWSE_PORT: '0', BROWSE_PARENT_PID: '0', BROWSE_HEADED: '0', BROWSE_HEADLESS_SKIP: '0',
+      GSTACK_AGENT_WATCHDOG_TICK_MS: '600000', TMPDIR: dir, TMP: dir, TEMP: dir, CHROMIUM_PROFILE: path.join(dir, 'profile') },
+  });
+  try {
+    await waitFor(() => fs.existsSync(stateFile) && JSON.parse(fs.readFileSync(stateFile, 'utf8')).chromiumPid !== undefined);
+    expect(fs.existsSync(path.join(stateDir, 'terminal-agent-pid'))).toBe(false);
+    expect(fs.existsSync(path.join(stateDir, 'terminal-port'))).toBe(false);
+    const { pid, port, chromiumPid, chromiumStartTime } = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    if (scenario === 'published-mid-cleanup') {
+      // The tick fires after cleanup read the missing record and before it signals the daemon.
+      const preload = path.join(dir, 'publish-terminal.ts');
+      fs.writeFileSync(preload, `
+import { spawnTerminalAgent } from ${JSON.stringify(path.join(ROOT, 'browse/src/terminal-agent-control.ts'))};
+const original = Bun.spawnSync;
+let published = false;
+Bun.spawnSync = (...args) => {
+  if (!published && args[0][0] === 'ps') {
+    published = true;
+    const agent = spawnTerminalAgent({ stateFile: ${JSON.stringify(stateFile)}, serverPort: ${port}, ownerPid: ${pid}, cwd: ${JSON.stringify(dir)} });
+    require('node:fs').writeFileSync(${JSON.stringify(path.join(dir, 'published-pid'))}, String(agent));
+  }
+  return original(...args);
+};
+`);
+      const original = Bun.spawn;
+      const spy = spyOn(Bun, 'spawn').mockImplementation(((args: string[], options: any) =>
+        original([args[0], '--preload', preload, ...args.slice(1)], options)) as typeof Bun.spawn);
+      restore = () => spy.mockRestore();
+    }
+    await stopQaOnlyBrowser(dir, 4000);
+    restore?.();
+    expect([0, 137]).toContain(await child.exited);
+    expect(readPidStartTime(chromiumPid) === chromiumStartTime).toBe(false);
+    if (scenario === 'published-mid-cleanup') {
+      const published = Number(fs.readFileSync(path.join(dir, 'published-pid'), 'utf8'));
+      expect(published).toBeGreaterThan(0);
+      expect(readPidCmdline(published)).not.toContain('terminal-agent');
+    }
+    expect(readAgentRecord(stateDir)).toBeNull();
+  } finally {
+    restore?.();
+    if (child.exitCode === null) { child.kill('SIGKILL'); await child.exited; }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}, 30_000);
 
 test.each(['owned-endpoint', 'sibling-endpoint'])('real Chromium and terminal settle before removal without harming a live sibling or recreating state: %s', async scenario => {
   const page = Bun.serve({ port: 0, fetch: () => new Response('<h1>Owned QA fixture</h1>', { headers: { 'Content-Type': 'text/html' } }) });
