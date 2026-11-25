@@ -67,7 +67,7 @@ function executableIdentity(file: string) {
   const fd = fs.openSync(resolved, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try {
     const before = fs.fstatSync(fd);
-    if (!before.isFile() || before.size > 256 * 1024 * 1024) throw new Error('toolchain identity unavailable');
+    if (!before.isFile() || before.size > 1024 * 1024 * 1024) throw new Error('toolchain identity unavailable');
     const hash = createHash('sha256');
     const buffer = Buffer.alloc(65536);
     let count: number;

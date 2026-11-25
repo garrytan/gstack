@@ -1784,6 +1784,198 @@ const nativeCallbackReceipts = {
   }
 };
 
+// Claude Code 2.1.326's own Git calls, captured in CI run 45574111261 (shared-libs-unsupported-git, attempt 1).
+const claude2326Requests = [
+  {
+    "tool": "git",
+    "args": [
+      "-c",
+      "core.askPass=",
+      "-c",
+      "protocol.ext.allow=never",
+      "-c",
+      "core.alternateRefsCommand=f() { git --git-dir=\"$1\" for-each-ref --format='%(objectname)'; }; f",
+      "-c",
+      "submodule.recurse=false",
+      "-c",
+      "log.showSignature=false",
+      "-c",
+      "format.pretty=medium",
+      "-c",
+      "gc.auto=0",
+      "-c",
+      "maintenance.auto=false",
+      "-c",
+      "diff.autoRefreshIndex=false",
+      "-c",
+      "hook.applypatch-msg.enabled=false",
+      "-c",
+      "hook.pre-applypatch.enabled=false",
+      "-c",
+      "hook.post-applypatch.enabled=false",
+      "-c",
+      "hook.pre-commit.enabled=false",
+      "-c",
+      "hook.pre-merge-commit.enabled=false",
+      "-c",
+      "hook.prepare-commit-msg.enabled=false",
+      "-c",
+      "hook.commit-msg.enabled=false",
+      "-c",
+      "hook.post-commit.enabled=false",
+      "-c",
+      "hook.pre-rebase.enabled=false",
+      "-c",
+      "hook.post-checkout.enabled=false",
+      "-c",
+      "hook.post-merge.enabled=false",
+      "-c",
+      "hook.pre-push.enabled=false",
+      "-c",
+      "hook.pre-receive.enabled=false",
+      "-c",
+      "hook.update.enabled=false",
+      "-c",
+      "hook.proc-receive.enabled=false",
+      "-c",
+      "hook.post-receive.enabled=false",
+      "-c",
+      "hook.post-update.enabled=false",
+      "-c",
+      "hook.reference-transaction.enabled=false",
+      "-c",
+      "hook.push-to-checkout.enabled=false",
+      "-c",
+      "hook.pre-auto-gc.enabled=false",
+      "-c",
+      "hook.post-rewrite.enabled=false",
+      "-c",
+      "hook.sendemail-validate.enabled=false",
+      "-c",
+      "hook.fsmonitor-watchman.enabled=false",
+      "-c",
+      "hook.p4-changelist.enabled=false",
+      "-c",
+      "hook.p4-prepare-changelist.enabled=false",
+      "-c",
+      "hook.p4-post-changelist.enabled=false",
+      "-c",
+      "hook.p4-pre-submit.enabled=false",
+      "-c",
+      "hook.post-index-change.enabled=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "core.fsmonitor=",
+      "--version"
+    ],
+    "env": {
+      "GIT_NO_LAZY_FETCH": "1",
+      "GIT_TERMINAL_PROMPT": "0"
+    },
+    "cwd": "/home/runner/.cache/gstack-paid-shard-1U8fZB/tmp/gstack-shared-unsupported-qCjlAU/repo",
+    "ppid": 2431,
+    "parentExecutable": "/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+  },
+  {
+    "tool": "git",
+    "args": [
+      "-c",
+      "protocol.ext.allow=never",
+      "-c",
+      "core.alternateRefsCommand=f() { git --git-dir=\"$1\" for-each-ref --format='%(objectname)'; }; f",
+      "-c",
+      "submodule.recurse=false",
+      "-c",
+      "log.showSignature=false",
+      "-c",
+      "format.pretty=medium",
+      "-c",
+      "gc.auto=0",
+      "-c",
+      "maintenance.auto=false",
+      "-c",
+      "diff.autoRefreshIndex=false",
+      "-c",
+      "hook.applypatch-msg.enabled=false",
+      "-c",
+      "hook.pre-applypatch.enabled=false",
+      "-c",
+      "hook.post-applypatch.enabled=false",
+      "-c",
+      "hook.pre-commit.enabled=false",
+      "-c",
+      "hook.pre-merge-commit.enabled=false",
+      "-c",
+      "hook.prepare-commit-msg.enabled=false",
+      "-c",
+      "hook.commit-msg.enabled=false",
+      "-c",
+      "hook.post-commit.enabled=false",
+      "-c",
+      "hook.pre-rebase.enabled=false",
+      "-c",
+      "hook.post-checkout.enabled=false",
+      "-c",
+      "hook.post-merge.enabled=false",
+      "-c",
+      "hook.pre-push.enabled=false",
+      "-c",
+      "hook.pre-receive.enabled=false",
+      "-c",
+      "hook.update.enabled=false",
+      "-c",
+      "hook.proc-receive.enabled=false",
+      "-c",
+      "hook.post-receive.enabled=false",
+      "-c",
+      "hook.post-update.enabled=false",
+      "-c",
+      "hook.reference-transaction.enabled=false",
+      "-c",
+      "hook.push-to-checkout.enabled=false",
+      "-c",
+      "hook.pre-auto-gc.enabled=false",
+      "-c",
+      "hook.post-rewrite.enabled=false",
+      "-c",
+      "hook.sendemail-validate.enabled=false",
+      "-c",
+      "hook.fsmonitor-watchman.enabled=false",
+      "-c",
+      "hook.p4-changelist.enabled=false",
+      "-c",
+      "hook.p4-prepare-changelist.enabled=false",
+      "-c",
+      "hook.p4-post-changelist.enabled=false",
+      "-c",
+      "hook.p4-pre-submit.enabled=false",
+      "-c",
+      "hook.post-index-change.enabled=false",
+      "--literal-pathspecs",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "core.fsmonitor=",
+      "-c",
+      "core.askPass=",
+      "-c",
+      "core.quotePath=false",
+      "-c",
+      "core.safecrlf=false",
+      "write-tree"
+    ],
+    "env": {
+      "GIT_OPTIONAL_LOCKS": "0",
+      "GIT_NO_LAZY_FETCH": "1",
+      "GIT_TERMINAL_PROMPT": "0"
+    },
+    "cwd": "/home/runner/.cache/gstack-paid-shard-1U8fZB/tmp/gstack-shared-unsupported-qCjlAU/repo",
+    "ppid": 2431,
+    "parentExecutable": "/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+  }
+] as SourceRequest[];
+
 describe('retained native runtime callback failures', () => {
   test.each(nativeCallbackReceipts.intrinsic)('recognizes the protected native probe from $source_sha256', receipt => {
     const request = receipt.public_request, commands = receipt.matching_model_commands;
@@ -1821,6 +2013,19 @@ describe('retained native runtime callback failures', () => {
       expect(isInternalClaudeGitRequest({ ...request, args }, commands), args.slice(-2).join(' ')).toBe(false);
     }
     expect(isInternalClaudeGitRequest(request, [`git ${request.args.join(' ')}`])).toBe(false);
+  });
+
+  test('recognizes the captured Claude Code 2.1.326 version probe and host prefix only', () => {
+    const [probe] = claude2326Requests;
+    expect(probe.args.at(-1)).toBe('--version');
+    for (const request of claude2326Requests) {
+      expect(isInternalClaudeGitRequest(request, [])).toBe(true);
+      expect(isInternalClaudeGitRequest({ ...request, parentExecutable: '/usr/bin/bash' }, [])).toBe(false);
+      expect(isInternalClaudeGitRequest({ ...request, args: request.args.map(arg =>
+        arg.startsWith('core.alternateRefsCommand=') ? 'core.alternateRefsCommand=/tmp/refs' : arg) }, [])).toBe(false);
+      expect(isInternalClaudeGitRequest({ ...request, args: request.args.filter(arg => arg !== 'diff.autoRefreshIndex=false') }, [])).toBe(false);
+    }
+    expect(isInternalClaudeGitRequest({ ...probe, args: [...probe.args.slice(0, -1), 'status'] }, [])).toBe(false);
   });
 
   describe('every repository Git request of the captured unsupported-git run (CI 39161502626)', () => {
