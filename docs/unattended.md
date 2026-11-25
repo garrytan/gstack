@@ -846,7 +846,7 @@ those changes. The capped phases' deltas are recorded `accepted` with
 `basis: applied owner-approved recommendations at the round cap`, the journal
 gets `unreviewed_at_cap`, and `revise` prints one `UNREVIEWED:` line naming
 the revision, the phases that never read it, the decisions and the owner's
-words, then `APPROVED:`. That line is an open note, as a finding /ship ships
+words, then `APPROVED:`. That line is an open note, as a finding /gstack-ship ships
 with after round two is: `gstack-autoplan rule --out <dir> --revision <k> --by
 <ruler> --reason "<why>" [--owner-ref <thread>:<message>]` records a Captain's
 or the owner's ruling on it (`unreviewed_ruled`; gstack cannot rule on its

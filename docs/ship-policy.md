@@ -1931,7 +1931,7 @@ beside the branch's hunks or an uncommitted change reads `STALE` and says which.
 **Ruled edits after the final review (GST-3775).** An edit after the read-only
 final review stops finish (`behavior, tests or build inputs changed since review`),
 and `gstack-review-plan --post-review` then stops for the owner: ship the edit as
-a ruled note, or keep it and run /ship again for one more read-only full review.
+a ruled note, or keep it and run /gstack-ship again for one more read-only full review.
 The owner's "ship it with the note" is a ruling per edited path, with `edit:<path>`
 as the finding and the stop head as the head; the stop line prints the edited
 paths and the head:
@@ -1961,7 +1961,7 @@ line lists only the PR's own edits since the final review, never a path only a
 base merge moved, and names deletions apart, because a deletion cannot be ruled.
 One ruling never covers another path, and a path edited again after its ruling
 stops finish again, even when a later commit restores the ruled bytes. A path with
-whitespace cannot be ruled, so an edit there keeps the fix and runs /ship again.
+whitespace cannot be ruled, so an edit there keeps the fix and runs /gstack-ship again.
 The ruling clears only the review stop: a changed file the documentation audit
 hashed still needs the stage 3 recovery finish's stop names. The ruling is an ordinary
 ruled note, so it prints as `RULED_NOTE:`, marked `(no RULED_EDIT at this head; not
