@@ -15,7 +15,8 @@ import * as path from "node:path";
 
 import { printCss, resolveMargins, screenCss } from "../src/print-css";
 import { keepFieldHeadingsWithText, render } from "../src/render";
-import { contentWidthInches, landscapeContentBox } from "../src/diagram-prepass";
+import { buildDiagramFigure, contentWidthInches, extractDiagramFences, landscapeContentBox, substituteSlots } from "../src/diagram-prepass";
+import { applyImagePolicy } from "../src/image-policy";
 import { generate } from "../src/orchestrator";
 import { DEFAULT_STYLE, SWISS_FIELD_IN, SWISS_MARGIN_SHORTHAND, swissCoverTitle, swissFieldHeadingLines } from "../src/style-swiss";
 
@@ -159,6 +160,85 @@ describe("swiss field headings stay with their text", () => {
   test("plain renders never get the wrapper", () => {
     expect(render({ markdown: "### H\n\ntext", style: "plain" }).html).not.toContain("swiss-keep");
     expect(render({ markdown: "### H\n\ntext" }).html).toContain('<div class="swiss-keep"');
+  });
+});
+
+describe("blocks after a swiss sub-heading", () => {
+  const FIXTURE = path.join(import.meta.dir, "fixtures", "swiss-after-h3.md");
+  const rendered = () => {
+    const extraction = extractDiagramFences(fs.readFileSync(FIXTURE, "utf8"));
+    return { extraction, html: render({ markdown: extraction.markdown }).html };
+  };
+  const wrapped = (html: string) => [...html.matchAll(/<div class="swiss-keep"[^>]*><h3>([\s\S]*?)<\/h3>/g)].map((m) => m[1]);
+
+  test("only paragraphs, lists and quotes pair with the sub-heading before them", () => {
+    const { extraction, html } = rendered();
+    expect(extraction.fences.map((f) => f.lang)).toEqual(["mermaid", "excalidraw", "mermaid"]);
+    expect(wrapped(html)).toEqual([
+      "Paragraph follows",
+      "List follows",
+      "Ordered list follows",
+      "Quote follows",
+      "Second heading",
+      "Monday<br>Tuesday<br>Wednesday<br>Thursday<br>Friday<br>Saturday",
+    ]);
+  });
+
+  test("a diagram after a sub-heading stays a top-level block, so it keeps the full width", () => {
+    const { extraction, html } = rendered();
+    const slots = new Map(extraction.fences.map((f) => [f.token, buildDiagramFigure(f, `<svg width="400" height="100" viewBox="0 0 400 100"><text>${f.lang}</text></svg>`)]));
+    const out = substituteSlots(html, slots);
+    expect(out).not.toMatch(/<div class="swiss-keep"[^>]*><h3>(Mermaid|Excalidraw) follows/);
+    expect(out).toMatch(/<h3>Mermaid follows<\/h3>\s*<figure class="diagram"/);
+    expect(out).toMatch(/<h3>Excalidraw follows<\/h3>\s*<figure class="diagram"/);
+    expect(printCss()).toContain(".chapter > h3:has(+ figure)");
+  });
+
+  test("a landscape-promoted diagram after a sub-heading lands outside the field wrapper", () => {
+    const { extraction, html } = rendered();
+    const mermaid = extraction.fences[0];
+    const figure = buildDiagramFigure({ ...mermaid, page: "landscape" }, '<svg width="2000" height="400" viewBox="0 0 2000 400"></svg>');
+    const out = applyImagePolicy(substituteSlots(html, new Map([[mermaid.token, figure]])), {
+      contentWidthIn: 7, landscape: { contentWIn: 9.5, contentHIn: 7 }, warn: () => {},
+    });
+    expect(out.hasLandscape).toBe(true);
+    expect(out.html).toMatch(/<h3>Mermaid follows<\/h3>\s*<div class="page-wide"[^>]*>\s*<figure class="diagram"/);
+    for (const keep of out.html.match(/<div class="swiss-keep"[\s\S]*?<\/div>/g) ?? []) expect(keep).not.toContain("page-wide");
+    expect(printCss()).toMatch(/\.chapter > h3:has\(\+ \.page-wide\) \{[^}]*page: wide;/);
+  });
+
+  test("explicit <br> line breaks in a sub-heading count toward its height", () => {
+    expect(render({ markdown: "### Monday<br>Tuesday<br>Wednesday\n\nShort." }).html).toContain('<div class="swiss-keep" style="min-height: 41pt;">');
+    expect(render({ markdown: "### Monday<br/>Tuesday<BR >Wednesday\n\nShort." }).html).toContain('<div class="swiss-keep" style="min-height: 41pt;">');
+    const unbroken = swissFieldHeadingLines("Monday Tuesday Wednesday") * 13 + 2;
+    expect(unbroken).toBeLessThan(41);
+    expect(render({ markdown: "### Monday Tuesday Wednesday\n\nShort." }).html).toContain(`<div class="swiss-keep" style="min-height: ${unbroken}pt;">`);
+  });
+});
+
+describe("--to html fits phone screens", () => {
+  const VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1">';
+  for (const style of ["swiss", "plain"] as const) {
+    test(`${style} HTML export declares one device-width viewport in its head`, async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "make-pdf-viewport-"));
+      try {
+        const input = path.join(dir, "doc.md");
+        const output = path.join(dir, "doc.html");
+        fs.writeFileSync(input, '# Doc\n\n<meta name="viewport" content="width=10">\n\n### Sub\n\nBody text.\n');
+        await generate({ input, output, to: "html", quiet: true, style });
+        const html = fs.readFileSync(output, "utf8");
+        expect(html.split(VIEWPORT).length - 1).toBe(1);
+        expect(html).not.toContain("width=10");
+        expect(html.indexOf(VIEWPORT)).toBeLessThan(html.indexOf("</head>"));
+        expect(html).toContain(screenCss(style));
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }, 60_000);
+  }
+  test("the HTML staged for printing carries no viewport", () => {
+    expect(render({ markdown: "# Doc" }).html).not.toContain('name="viewport"');
+    expect(render({ markdown: "# Doc", style: "plain" }).html).not.toContain('name="viewport"');
   });
 });
 

@@ -96,6 +96,9 @@ export class StrictModeError extends Error {
 
 const DIAGRAM_LANGS = new Set(["mermaid", "excalidraw"]);
 
+/** Start of every diagram placeholder token (render.ts tells a diagram slot from a paragraph by it). */
+export const DIAGRAM_SLOT_PREFIX = "gstack-diagram-slot-";
+
 /**
  * Extract column-0 ```mermaid / ```excalidraw fences, replacing each with a
  * unique placeholder token paragraph. Backtick and tilde fences, any length
@@ -131,7 +134,7 @@ export function extractDiagramFences(markdown: string): FenceExtraction {
         const info = parseInfoString(openFence.info);
         if (DIAGRAM_LANGS.has(info.lang) && info.render && openFence.indent === 0) {
           ordinal++;
-          const token = `gstack-diagram-slot-${runId}-${ordinal}`;
+          const token = `${DIAGRAM_SLOT_PREFIX}${runId}-${ordinal}`;
           fences.push({
             lang: info.lang,
             source: openFence.body.join("\n"),

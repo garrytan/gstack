@@ -60,6 +60,9 @@ export function swissRules(opts: { cover?: boolean; toc?: boolean } = {}): strin
     // sub-heading stays in normal flow, so break-after: avoid still keeps it
     // with that block instead of stranding it at a page foot.
     `.chapter > h3:has(+ pre), .chapter > h3:has(+ table), .chapter > h3:has(+ figure), .chapter > h3:has(+ p > img:only-child) { float: none; margin: 6pt 0 4pt 0; }`,
+    // Above a block promoted to a landscape page, the sub-heading takes the same
+    // named page, so it prints on that page instead of alone before it.
+    `.chapter > h3:has(+ .page-wide) { float: none; margin: 6pt 0 4pt 0; page: wide; }`,
     `.chapter > .swiss-keep > h3 { float: none; }`,
     `p { margin: 0 0 7.5pt; }`,
     `ul, ol { padding-left: 14pt; margin: 0 0 7.5pt; }`,
