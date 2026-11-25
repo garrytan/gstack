@@ -321,7 +321,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     if (ok) ruled.set(p, ok[0]); else if (why.length) refusedEdits.push(`${p} (${why.at(-1)![1]}; keep the edit and run /ship again, docs/ship-policy.md#ruled-edits)`);
   }
   by.behavior = by.behavior.filter(p => !ruled.has(p));
-  const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, accepted: [], excluded: opts.excluded });
+  const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, excluded: opts.excluded });
   by.sidecar = Object.keys(uid.proven).sort();
   by.behavior = by.behavior.filter(p => !by.sidecar.includes(p));
   r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${by.mechanical.length ? ` mechanical=${by.mechanical.length}` : ''}${by.sidecar.length ? ` sidecar=${by.sidecar.length}` : ''}`);

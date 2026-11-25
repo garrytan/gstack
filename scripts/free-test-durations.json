@@ -1552,7 +1552,6 @@
     "test/ship-coverage-audit-af.test.ts": 55,
     "test/ship-document-release-dispatch.test.ts": 22123,
     "test/ship-driver.test.ts": 355,
-    "test/ship-finish-fixed-links.test.ts": 55525,
     "test/ship-finish-ruled-notes.test.ts": 92855,
     "test/ship-finish-stack-parent.test.ts": 58306,
     "test/ship-frozen-scope-actor.test.ts": 4936,

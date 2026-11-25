@@ -1,8 +1,7 @@
 /**
  * GST-3260 PR 1: the /ship run record replaces the bare run marker. A run is open until a gstack command ends it (finish,
  * stop, gstack-skill-end, or gstack-ship-run abandon), never because a lease line aged out or another run's touch pruned
- * it (probe 002). A stopped run records only the fix-check grant for its own stop; a bare marker reads as legacy and an
- * unreadable record fails closed, and both are ended with one recorded abandon. Also: a stop binds to the head its
+ * it (probe 002). A bare marker reads as legacy and an unreadable record fails closed, and both are ended with one recorded abandon. Also: a stop binds to the head its
  * stopping row read (#4591), and the round history counts a reused run id once per head (gstack-evals#406).
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
@@ -34,8 +33,8 @@ const age = (f: ShipFx, minutes: number) => {
 const run = (f: ShipFx, bin: string, args: string[]) => f.run(path.join(BIN, bin), args, CHECKOUT);
 const preflight = (f: ShipFx, id?: string) => f.run(PREFLIGHT, ['--base', 'main', ...(id ? ['--run', id] : [])], CHECKOUT);
 const head = (f: ShipFx) => f.git('rev-parse', 'HEAD').stdout.trim();
-const grant = (f: ShipFx, kind: 'extra-round' | 'fix-check', extra: string[] = [], at = head(f)) =>
-  run(f, 'gstack-approvals', ['round-grant', '--pr', '7', '--head', at, '--kind', kind, ...(kind === 'fix-check' && !extra.includes('--stop-run') ? ['--stop-run', 'ro', '--findings', 'p1/outside-voice#1'] : []), ...extra, '--reason', 'fixable blocker', '--by', CAPTAIN]);
+/** An owner ruling with no --owner-ref, which an open /ship run refuses. */
+const ruleBare = (f: ShipFx) => run(f, 'gstack-approvals', ['rule', '--finding', 'src/x.ts:1:correctness', '--head', head(f), '--reason', 'ships as a note', '--words', 'B, note it', '--by', CAPTAIN]);
 /** A review row that stopped on one open blocker, logged through gstack-review-log on the committed tree. */
 const logStoppingReview = (f: ShipFx) => {
   const start = run(f, 'gstack-review-log', ['--start', 'review']);
@@ -65,13 +64,13 @@ describe('a /ship run stays open until a gstack command ends it (GST-3260)', () 
     expect(run(f, 'gstack-ship-run', ['status']).stdout).toMatch(/^RUN_STATE: run=r1 state=open beat_age=180m /m);
   });
 
-  // Value: protects=a bare marker an older gstack left (a run that died) refuses grants with its state and the way out, and one
-  //   recorded abandon ends it, with a mark in the PR body; fails_when=the refusal says nothing about how to end the run, or
-  //   only rm clears it; seam=gstack-approvals round-grant, gstack-ship-run abandon, gstack-ship-receipt abandoned
-  test('a stale bare marker reads legacy: grants refuse with the abandon command, and abandon ends it at any age', () => {
+  // Value: protects=a bare marker an older gstack left (a run that died) refuses an unrelayed ruling with its state, and one
+  //   recorded abandon ends it, with a mark in the PR body; fails_when=the marker never ends, or only rm clears it;
+  //   seam=gstack-approvals rule, gstack-ship-run abandon, gstack-ship-receipt abandoned
+  test('a stale bare marker reads legacy: an unrelayed ruling refuses, and abandon ends it at any age', () => {
     const f = fx();
     fs.writeFileSync(recordFile(f), 'ship-stale-1\n');
-    const refused = grant(f, 'extra-round');
+    const refused = ruleBare(f);
     expect(refused.status).toBe(2);
     expect(refused.stderr).toContain('/ship run ship-stale-1 is open on this checkout (state legacy, beat_age unknown;');
     expect(refused.stderr).toContain('gstack-ship-run abandon --run ship-stale-1 --by <lane or Captain> --reason "<one line>"');
@@ -83,54 +82,14 @@ describe('a /ship run stays open until a gstack command ends it (GST-3260)', () 
     expect(record(f)).toMatchObject({ v: 1, run: 'ship-stale-1', state: 'abandoned', ended_by: CAPTAIN, reason: 'the run died before finish' });
     expect(receiptRuns(fs.readFileSync(body, 'utf8'))).toEqual([expect.objectContaining({ mark: 'abandoned', run: 'ship-stale-1', by: CAPTAIN, reason: 'the run died before finish' })]);
     expect(prReviewHistory(fs.readFileSync(body, 'utf8')).rounds).toBe(0);
-    const ok = grant(f, 'extra-round');
+    const ok = ruleBare(f);
     expect(ok.status, ok.stderr).toBe(0);
     const again = run(f, 'gstack-ship-run', ['abandon', '--run', 'ship-stale-1', '--by', CAPTAIN, '--reason', 'twice']);
     expect(again.status).toBe(3);
     expect(again.stderr).toContain('(SHIP_RUN_ABANDON_REFUSED;');
   });
 
-  // Value: protects=decision C, a stopped run records the fix-check grant its stop's NEXT line names and nothing else; fails_when=
-  //   the stopped run refuses its own grant (the bare marker reads open) or grants itself an extra round; seam=gstack-ship-receipt
-  //   stop, gstack-approvals round-grant
-  test('a stopped record allows its own stop\'s fix-check grant and refuses an extra round', () => {
-    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
-    expect(preflight(f, 'ro').status).toBe(0);
-    const s = head(f);
-    logStoppingReview(f);
-    const body = path.join(f.root, 'body.md');
-    fs.writeFileSync(body, 'Fixes a thing.\n');
-    const stop = run(f, 'gstack-ship-receipt', ['stop', '--body', body, '--pr', '7', '--run', 'ro', '--since', '2000-01-01T00:00:00Z']);
-    expect(stop.status, stop.stderr).toBe(0);
-    expect(record(f)).toMatchObject({ run: 'ro', state: 'stopped', stop: { head: s, tree: f.git('rev-parse', 'HEAD^{tree}').stdout.trim() } });
-    const extra = grant(f, 'extra-round');
-    expect(extra.status).toBe(2);
-    expect(extra.stderr).toContain('/ship run ro is open on this checkout (state stopped, beat_age 0m;');
-    expect(extra.stderr).toContain(`a stopped run records only the fix-check grant for its own stop (--kind fix-check --stop-run ro --head ${s})`);
-    expect(grant(f, 'fix-check', ['--stop-run', 'other', '--findings', 'p1/outside-voice#1']).status).toBe(2);
-    expect(grant(f, 'fix-check', [], f.git('rev-parse', 'HEAD~1').stdout.trim()).status).toBe(2);
-    const own = grant(f, 'fix-check');
-    expect(own.status, own.stderr).toBe(0);
-  });
 
-  // Value: protects=the own-stop exemption buys one fix round per run: once the run claimed it, a later stop needs the lane's
-  //   relayed grant; fails_when=a run loops stop, self-grant, claim past R51's cap; seam=gstack-approvals round-grant, run record claim
-  test('a stopped run grants itself one fix round: after its claim, another stop needs a relayed grant', () => {
-    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
-    expect(preflight(f, 'ro').status).toBe(0);
-    const s = head(f);
-    logStoppingReview(f);
-    const body = path.join(f.root, 'body.md');
-    fs.writeFileSync(body, 'Fixes a thing.\n');
-    expect(run(f, 'gstack-ship-receipt', ['stop', '--body', body, '--pr', '7', '--run', 'ro', '--since', '2000-01-01T00:00:00Z']).status).toBe(0);
-    const g = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(grant(f, 'fix-check').stdout)?.[1];
-    expect(g).toBeDefined();
-    expect(run(f, 'gstack-ship-receipt', ['claim', '--body', body, '--run', 'ro', '--grant', g!]).status).toBe(0);
-    fs.writeFileSync(recordFile(f), JSON.stringify({ ...record(f), state: 'stopped' }) + '\n');
-    const again = grant(f, 'fix-check', [], s);
-    expect(again.status).toBe(2);
-    expect(again.stderr).toContain("this run already spent its own stop's fix-check grant (" + g + ')');
-  });
 
   // Value: protects=a stopped record of another run is replaced by a new --run, while a preflight with no --run stops on it;
   //   fails_when=a bare preflight merges the base under the stopped run's stop head; seam=lib/ship-preflight.ts shipRunClear
@@ -150,9 +109,9 @@ describe('a /ship run stays open until a gstack command ends it (GST-3260)', () 
     expect(record(f)).toMatchObject({ run: 'r2', state: 'open' });
   });
 
-  // Value: protects=stop and claim upgrade a bare marker that names their run, and claim writes the grant it spends into the record;
-  //   fails_when=a legacy marker stays bare after stop, or the claim lives only in the PR body; seam=gstack-ship-receipt stop/claim
-  test('stop and claim upgrade a legacy marker naming their run; claim records the grant and reopens the run', () => {
+  // Value: protects=stop upgrades a bare marker that names its run; fails_when=a legacy marker stays bare after stop;
+  //   seam=gstack-ship-receipt stop
+  test('stop upgrades a legacy marker naming its run', () => {
     const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
     const s = head(f);
     fs.writeFileSync(recordFile(f), 'ro\n');
@@ -161,16 +120,11 @@ describe('a /ship run stays open until a gstack command ends it (GST-3260)', () 
     fs.writeFileSync(body, 'Fixes a thing.\n');
     expect(run(f, 'gstack-ship-receipt', ['stop', '--body', body, '--pr', '7', '--run', 'ro', '--since', '2000-01-01T00:00:00Z']).status).toBe(0);
     expect(record(f)).toMatchObject({ v: 1, run: 'ro', state: 'stopped', stop: { head: s } });
-    const g = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(grant(f, 'fix-check').stdout)?.[1];
-    expect(g).toBeDefined();
-    const claim = run(f, 'gstack-ship-receipt', ['claim', '--body', body, '--run', 'ro', '--grant', g!]);
-    expect(claim.status, claim.stderr).toBe(0);
-    expect(record(f)).toMatchObject({ run: 'ro', state: 'open', stop: { head: s }, claim: { grant: g, stop_run: 'ro', stop_head: s, findings: ['p1/outside-voice#1'] } });
   });
 
-  // Value: protects=an unreadable record fails closed (preflight and grants refuse) and one abandon naming its digest ends it;
+  // Value: protects=an unreadable record fails closed (preflight and unrelayed rulings refuse) and one abandon naming its digest ends it;
   //   fails_when=a corrupt record reads as no run; seam=lib/ship-run-record.ts readRunRecord, gstack-ship-run
-  test('an unreadable record stops preflight and grants; abandon --run unknown takes only its digest', () => {
+  test('an unreadable record stops preflight and rulings; abandon --run unknown takes only its digest', () => {
     const f = fx();
     fs.writeFileSync(recordFile(f), '{"v":1,"run":\n');
     f.advanceBase({ 'docs/new.md': '# new\n' });
@@ -178,7 +132,7 @@ describe('a /ship run stays open until a gstack command ends it (GST-3260)', () 
     expect(pre.status).toBe(3);
     expect(pre.stdout).toContain('STOP: /ship run unknown is open on this checkout and past its preflight (');
     expect(pre.stdout).toContain('state unreadable');
-    expect(grant(f, 'extra-round').stderr).toContain('state unreadable');
+    expect(ruleBare(f).stderr).toContain('state unreadable');
     const status = run(f, 'gstack-ship-run', ['status']);
     expect(status.status).toBe(1);
     expect(status.stderr).toContain('(SHIP_RUN_RECORD_UNREADABLE;');
