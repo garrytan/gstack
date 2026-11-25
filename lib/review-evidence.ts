@@ -4,7 +4,7 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFi
 import { join, resolve } from 'node:path';
 import { deriveReviewStatus, isCriticalFinding, isOpenByAction, readJsonl } from './headless-artifacts';
 import { resultLine, type ResultCodeName } from './result-codes';
-import { readRunRecord, thisRunOwner } from './ship-run-record';
+import { thisRunOwner } from './ship-run-record';
 
 const DIFF_REVIEWS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review', 'design-review-lite', 'ship']);
 const SHARED_LIBS_COVERAGE_VERSION = 1;
@@ -204,7 +204,6 @@ export function captureReviewStart(skill: string, env = process.env, fixRange = 
     throw new Error('cannot capture a diff review without a working-tree fingerprint');
   }
   const fixBase = fixRange ? fixRangeBase(skill, env) : undefined;
-  const claimed = skill === 'review-fix-check' ? (r => (r.kind === 'record' && r.record.state === 'open' ? r.record : undefined))(readRunRecord(env.GSTACK_REVIEW_REPO)) : undefined;
   const dir = join(env.GSTACK_REVIEW_DIR!, '.review-starts');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const token = crypto.randomUUID();
@@ -212,7 +211,6 @@ export function captureReviewStart(skill: string, env = process.env, fixRange = 
     skill, repo: env.GSTACK_REVIEW_REPO, branch: env.GSTACK_REVIEW_BRANCH,
     wtree: env.GSTACK_STAMP_WTREE, started_at: new Date().toISOString(), ...(o => (o ? { owner: o } : {}))(thisRunOwner()),
     ...(fixBase ? { scope: 'fix-range', fix_base: fixBase } : {}),
-    ...(claimed?.claim ? { fix_check: { base: claimed.claim.stop_head, run: claimed.run, grant: claimed.claim.grant, pr: claimed.claim.pr ?? claimed.pr } } : {}),
   }), { mode: 0o600, flag: 'wx' });
   return fixBase ? `${token}\nFIX_BASE=${fixBase}` : token;
 }
@@ -305,11 +303,7 @@ export function bindReview(rec: Record<string, any>, token: string, env = proces
       if (error.code !== 'ENOENT') console.error(`gstack-review-log: cannot consume review start: ${error.message}`);
     }
   }
-  if (rec.skill === 'review-fix-check') {
-    for (const key of ['fix_check_base', 'run', 'grant', 'pr', 'hunks']) delete rec[key];
-    const fc = start?.fix_check;
-    if (fc) Object.assign(rec, { fix_check_base: fc.base, run: fc.run, grant: fc.grant, ...(fc.pr ? { pr: fc.pr } : {}), ...(h => (h ? { hunks: h } : {}))(readFixCheckHunks(env.GSTACK_REVIEW_REPO!, start.started_at)) });
-  }
+  if (rec.skill === 'review-fix-check') for (const key of ['fix_check_base', 'run', 'grant', 'pr', 'hunks']) delete rec[key];
   const end = env.GSTACK_STAMP_WTREE;
   const state = !start || !end ? 'uncaptured'
     : start.wtree !== end ? 'changed'
@@ -484,59 +478,3 @@ export function reviewFreshness(rec: Record<string, any>, currentWtree: string, 
   return { status: 'CURRENT', reason: merged ? `completed clean pass; ${merged}` : 'completed clean pass on unchanged content' };
 }
 
-/** The hunks a fix-check reader was given: the sha256 of the file's bytes and every path its diff headers name. */
-export function hunksDigest(text: string): { sha256: string; paths: string[] } {
-  const paths = new Set<string>();
-  for (const m of text.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)) { paths.add(m[1]!); paths.add(m[2]!); }
-  return { sha256: createHash('sha256').update(text).digest('hex'), paths: [...paths].sort() };
-}
-
-const hunksFile = (cwd: string) => {
-  const r = spawnSync('git', ['rev-parse', '--git-path', 'gstack-fix-check-hunks'], { cwd, encoding: 'utf8', timeout: 60_000 });
-  return r.status === 0 && r.stdout.trim() ? resolve(cwd, r.stdout.trim()) : '';
-};
-
-/**
- * The hunks a claimed fix-check reads, built by gstack (GST-3546): git diff <the claimed grant's head> HEAD, the exact bytes
- * bindFixCheckRow later compares, so a thread never hand-builds a partial or stale packet. Undefined when this checkout's run
- * record holds no open claim, or git cannot diff it (the caller's --hunks file stands then).
- */
-export function claimedFixCheckHunks(cwd: string): { base: string; text: string } | undefined {
-  const read = readRunRecord(cwd);
-  const base = read.kind === 'record' && read.record.state === 'open' ? read.record.claim?.stop_head : undefined;
-  if (!base) return undefined;
-  const r = spawnSync('git', ['diff', base, 'HEAD'], { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
-  return r.status === 0 && r.stdout.trim() ? { base, text: r.stdout } : undefined;
-}
-
-/** The ledger ids, path:line:category fingerprints and a-… approval ids a fix list names: the only grant ids its clean fix-check can close. */
-export function fixListNames(text: string): string[] {
-  return [...new Set(text.split(/[\s`'"(),;]+/).map(t => t.replace(/[.:]+$/, '')).filter(t => t.includes('#') || /:\d+:/.test(t) || /^a-[0-9a-f]{12}$/.test(t)))].sort();
-}
-
-/** gstack-review-plan --fix-check-prompt and the pass program's fix-check render record the hunks and fix list they rendered from; a failed write only leaves the row without hunks, so it closes nothing. */
-export function recordFixCheckHunks(cwd: string, text: string, ledger: string | undefined, fixList: string): void {
-  try {
-    const file = hunksFile(cwd);
-    if (file) writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...hunksDigest(text), fix_list: fixListNames(fixList), ...(ledger ? { ledger: resolve(ledger) } : {}) }) + '\n');
-  } catch { /* the row carries no hunks and closes nothing */ }
-}
-
-/** The pass program renders a fix-check brief before it takes the review-fix-check start (GST-3523): re-date that render's record, only while its digest still matches the hunks the brief carried, so the start's row attaches it. */
-export function restampFixCheckHunks(cwd: string, text: string): boolean {
-  try {
-    const file = hunksFile(cwd);
-    const o = JSON.parse(readFileSync(file, 'utf8'));
-    if (o.sha256 !== hunksDigest(text).sha256) return false;
-    writeFileSync(file, JSON.stringify({ ...o, at: new Date().toISOString() }) + '\n');
-    return true;
-  } catch { return false; }
-}
-
-/** The hunks record gstack-review-log stamps on a granted fix-check row: the newest render at or after the row's start. */
-export function readFixCheckHunks(cwd: string, since: string): { sha256: string; paths: string[]; fix_list: string[]; ledger?: string } | undefined {
-  try {
-    const o = JSON.parse(readFileSync(hunksFile(cwd), 'utf8'));
-    return Date.parse(o.at) >= Date.parse(since) && typeof o.sha256 === 'string' && Array.isArray(o.paths) ? { sha256: o.sha256, paths: o.paths, fix_list: Array.isArray(o.fix_list) ? o.fix_list : [], ...(typeof o.ledger === 'string' ? { ledger: o.ledger } : {}) } : undefined;
-  } catch { return undefined; }
-}
