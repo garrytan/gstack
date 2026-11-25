@@ -7,8 +7,8 @@
  * way to detect model drift: it runs the semantic-pass instructions against
  * should-flag / should-clean fixtures and asserts the outcome.
  *
- * Requires: EVALS=1 + ANTHROPIC_API_KEY. 11 calls to the default judge. Periodic tier.
- * Run: EVALS=1 bun test ./test/redact-semantic-pass.eval.ts
+ * Requires: EVALS=1 + ANTHROPIC_API_KEY. Cost ~$1-2/run (sonnet). Periodic tier.
+ * Run: EVALS=1 bun test test/redact-semantic-pass.eval.ts
  */
 import { describe, test, expect } from "bun:test";
 import { callJudge } from "./helpers/llm-judge";
