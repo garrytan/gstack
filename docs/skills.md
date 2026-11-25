@@ -1425,7 +1425,7 @@ This is my **second opinion mode**.
 `/codex` brings OpenAI Codex CLI to review the same diff independently. It is available on every harness except Codex itself. External harnesses install it as `/gstack-codex`. Compare its findings with the native review to distinguish corroborated findings from issues only one reviewer caught.
 
 Without a role, gstack-owned Codex calls select a request-specific model, then
-`GSTACK_CODEX_MODEL`, then Codex native settings, falling back to `gpt-6-astra`.
+`GSTACK_CODEX_MODEL`, then Codex native settings, falling back to `gpt-6.2-astra`.
 This also applies to resumed consultations. Generated commands pass the selection
 through `-c model=...`, overriding the CLI's configured model for that call.
 Native review also sets `-c review_model=...` to that selection, overriding any

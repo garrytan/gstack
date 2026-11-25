@@ -13,7 +13,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { JSONOutputFormat } from '@anthropic-ai/sdk/resources/messages';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { CLAUDE_JUDGE_EVAL_MODEL, DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel } from '../../lib/eval-model';
+import { DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel } from '../../lib/eval-model';
 export { DEFAULT_JUDGE_MAX_TOKENS } from '../../lib/eval-model';
 
 export interface JudgeScore {
@@ -619,9 +619,10 @@ export interface ArmJudgeScore {
  * Fixed judge model for the arm benchmark — deliberately NOT env-overridable
  * (GSTACK_EVAL_MODEL_JUDGE is ignored). Cross-run comparability is the whole
  * point of a research instrument; a per-run judge swap silently moves the
- * ruler.
+ * ruler. It stays on the Fable the arm benchmark's frozen preregistration
+ * names and its calibration measured, not the newest default judge.
  */
-export const ARM_JUDGE_MODEL = CLAUDE_JUDGE_EVAL_MODEL;
+export const ARM_JUDGE_MODEL = 'claude-fable-5-1';
 
 /**
  * Build the over-engineering rubric prompt. Exported (pure) so the free

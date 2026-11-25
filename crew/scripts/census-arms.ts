@@ -3,7 +3,8 @@
  * Gate census arms for evals-periodic.yml (GSTA-49 TM2). Each arm is one host
  * and model running the weekly gate census plan:
  *   - Monday cron (0 6 * * 1): claude-opus (the capture model, lib/eval-model.ts)
- *     and codex-sol (gpt-6.1-sol on the Codex host, adapter cases only);
+ *     and codex-sol (the newest Sol, lib/model-families.ts, on the Codex host,
+ *     adapter cases only);
  *   - monthly cron (0 6 1 * *): claude-fable and codex-astra, census jobs only;
  *   - dispatch: `census_arms` runs only the census with the named arms; without
  *     it a dispatch keeps the periodic lane plus the Monday arms when the census
@@ -18,15 +19,16 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { EvalHost } from '../../test/helpers/e2e-hosts';
+import { newestModel } from '../../lib/model-families';
 
 export interface CensusArm { host: EvalHost; model?: string }
 
 export const CENSUS_ARMS: Readonly<Record<string, CensusArm>> = Object.freeze({
   // No model: the Claude runners' capture default (claude-opus-5-5 since TM1).
   'claude-opus': { host: 'claude' },
-  'codex-sol': { host: 'codex', model: 'gpt-6.1-sol' },
-  'claude-fable': { host: 'claude', model: 'claude-fable-5-1' },
-  'codex-astra': { host: 'codex', model: 'gpt-6-astra' },
+  'codex-sol': { host: 'codex', model: newestModel('sol') },
+  'claude-fable': { host: 'claude', model: newestModel('fable') },
+  'codex-astra': { host: 'codex', model: newestModel('astra') },
 });
 
 export const WEEKLY_CENSUS_SCHEDULE = '0 6 * * 1';

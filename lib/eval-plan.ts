@@ -13,6 +13,7 @@ import { spawnSync } from './spawn-sync';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { FRONTIER_MODELS } from './model-families';
 import { modelsMain } from './model-policy-cli';
 import { isConfigUnavailable, loadConfigFromBase } from './pregate/config';
 import { EXCLUDED_BILLING_CATEGORIES, estimateCostUsd, hasPricing, PRICING, pricingRow } from './pricing';
@@ -357,8 +358,6 @@ export interface DryRunResult {
 }
 export interface DryRunOptions { input: string; arms: string[]; fields?: string[]; outputBudget?: number; retryPrompt?: string; maxRows?: number; cap?: number; modelRules?: ModelRulesCheck; tierQuestion?: string; prereg?: PlanModels }
 
-/** Today's frontier models under test (R54, docs/TESTING_INTERNALS.md#frontier-models-under-test); a small-tier plan is re-costed on these. */
-export const FRONTIER_MODELS = ['claude-opus-5-5', 'gpt-6.2-sol'] as const;
 export const isSmallTierModel = (model: string) => /(^|[-/])(haiku|sonnet)(-|$)/i.test(model);
 
 /** Four bytes per token, the estimator every gstack admission uses. */

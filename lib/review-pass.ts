@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AgentModelError, resolveAgentModel } from './agent-model';
+import { newestModel } from './model-families';
 import { BriefError, briefFile, checkoutRoot, checkoutTree, promptHash, renderBrief, sliceDiff, sliceNote, withWorkspace, type BriefRole, type SectionTexts, type Slots } from './review-brief';
 import { REVIEW_DIFF_MAX_BYTES, disclosureDigest } from './review-exclude';
 import { appendEvent, readerKey } from './review-ledger';
@@ -275,11 +276,11 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
 }
 
 /**
- * R95 (2026-11-13): after OpenAI refuses the outside voice under cyber_policy, the brief goes once to GPT-6 Astra reworded as a
+ * R95 (2026-11-13): after OpenAI refuses the outside voice under cyber_policy, the brief goes once to the newest GPT Astra reworded as a
  * read-only correctness review, then once to Gemini 4 Carbon unchanged; never the same brief to another OpenAI model.
  */
 export const CYBER_RETRIES: ReadonlyArray<{ name: string; model: PassModel; read_only?: true }> = [
-  { name: 'astra-read-only', model: { model_id: 'openai/gpt-6-astra', reasoning_mode: 'high' }, read_only: true },
+  { name: 'astra-read-only', model: { model_id: `openai/${newestModel('astra')}`, reasoning_mode: 'high' }, read_only: true },
   { name: 'gemini-4-carbon', model: { model_id: 'google/gemini-4-carbon', reasoning_mode: 'high' } },
 ];
 

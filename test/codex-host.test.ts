@@ -234,7 +234,7 @@ describe('Codex runner parity', () => {
     expect(() => codexHostExecArgs('m', 'go', { GSTACK_CODEX_EFFORT: 'high" -c x="y' })).toThrow('GSTACK_CODEX_EFFORT');
     expect(codexHostModel('claude-opus-4-7', { GSTACK_CODEX_MODEL: 'gpt-6.1-sol' })).toBe('gpt-6.1-sol');
     expect(codexHostModel('gpt-6-astra', { GSTACK_CODEX_MODEL: 'gpt-6.1-sol' })).toBe('gpt-6-astra');
-    expect(codexHostModel(undefined, {})).toBe('gpt-6-astra');
+    expect(codexHostModel(undefined, {})).toBe('gpt-6.2-astra');
   });
 
   test('every shard on the Codex host gets the CI Codex install', () => {

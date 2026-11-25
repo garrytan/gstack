@@ -45,7 +45,7 @@ model = "gpt-5.6-terra"
       codexHome: codexHome('[profiles.sol]\nmodel = "gpt-5.6-sol"\n'),
     });
     expect(result.model).toBe('gpt-6-astra');
-    expect(result.source).toBe('default (gpt-6-astra)');
+    expect(result.source).toBe('default (gpt-6.2-astra)');
   });
 
   test('missing, malformed, non-string, and unsupported configs fall back safely', () => {
@@ -69,7 +69,7 @@ model = "gpt-5.6-terra"
     fs.mkdirSync(path.join(home, 'config.toml'));
     const result = resolveCodexGenerationModel({ codexHome: home });
     expect(result.model).toBe('gpt-6-astra');
-    expect(result.source).toBe('default (gpt-6-astra)');
+    expect(result.source).toBe('default (gpt-6.2-astra)');
     expect(result.warnings[0]).toContain('Could not read');
   });
 
@@ -86,7 +86,7 @@ model = "gpt-5.6-terra"
   test('non-absolute codex home falls back with a warning (relative-path steering guard)', () => {
     const result = resolveCodexGenerationModel({ codexHome: '.codex' });
     expect(result.model).toBe('gpt-6-astra');
-    expect(result.source).toBe('default (gpt-6-astra)');
+    expect(result.source).toBe('default (gpt-6.2-astra)');
     expect(result.warnings[0]).toContain('not an absolute path');
   });
 
@@ -156,17 +156,17 @@ describe('Codex runtime model resolution (#2914)', () => {
   });
 
   test('a legacy active profile model wins over the top-level model', () => {
-    const home = codexHome('profile = "cheap"\nmodel = "gpt-6-astra"\n[profiles.cheap]\nmodel = "gpt-6-luna"\n[profiles.other]\nmodel = "gpt-6-sol"\n');
+    const home = codexHome('profile = "cheap"\nmodel = "gpt-6.2-astra"\n[profiles.cheap]\nmodel = "gpt-6-luna"\n[profiles.other]\nmodel = "gpt-6-sol"\n');
     expect(resolveCodexRuntimeModel({ kind: 'exec', codexHome: home, env: env() })).toEqual({
       kind: 'exec', model: 'gpt-6-luna', source: `${path.join(home, 'config.toml')} [profiles.cheap].model`,
     });
   });
 
-  test('honors CODEX_HOME from the environment and falls back to gpt-6-astra only when nothing chooses', () => {
+  test('honors CODEX_HOME from the environment and falls back to gpt-6.2-astra only when nothing chooses', () => {
     const home = codexHome('model = "gpt-5.4"\n');
     expect(resolveCodexRuntimeModel({ kind: 'exec', env: env({ CODEX_HOME: home }) }).model).toBe('gpt-5.4');
     const empty = codexHome('approval_policy = "never"\n');
-    expect(resolveCodexRuntimeModel({ kind: 'review', codexHome: empty, env: env() }).model).toBe('gpt-6-astra');
+    expect(resolveCodexRuntimeModel({ kind: 'review', codexHome: empty, env: env() }).model).toBe('gpt-6.2-astra');
     expect(resolveCodexRuntimeModel({ kind: 'exec', codexHome: codexHome(), env: env() }).source).toContain('gstack default');
   });
 

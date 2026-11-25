@@ -1745,6 +1745,11 @@ pure overhead:
 - **Unnecessary abstraction** — Claude already has a Bash tool. A CLI that
   prints to stdout is the simplest possible interface.
 
+These are cost, speed and reliability reasons, not accuracy. Connecting more
+MCP tools doesn't make agents pick the wrong tool, up to about 300 tools with
+Claude Code's tool search on; see
+[Do you need to cut back on MCP servers?](USING_GBRAIN_WITH_GSTACK.md#do-you-need-to-cut-back-on-mcp-servers).
+
 gstack skips all of this. Compiled binary. Plain text in, plain text out.
 No protocol. No schema. No connection management.
 

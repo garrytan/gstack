@@ -43,6 +43,9 @@ export type Model = (typeof ALL_MODEL_NAMES)[number];
  *    It is also how to force a model-pinned profile: `--model opus-4-7`,
  *    `--model sonnet-5`, and so on.
  * 2. Family heuristics for common variants:
+ *    - `gpt-6.2-astra` and every other GPT-6 Astra point release or snapshot
+ *      → `gpt-6-astra`, the overlay for gstack's default Codex model
+ *      (lib/model-families.ts)
  *    - `gpt-5.4-mini`, `gpt-5.4-turbo`, `gpt-5.4-*` → `gpt-5.4`
  *    - `gpt-*` (anything else GPT, including other 5.6 variants) → `gpt`
  *    - `o3`, `o4`, `o4-mini`, `o1`, `o1-mini`, `o1-pro` → `o-series`
@@ -79,7 +82,7 @@ export function resolveModel(input: string): Model | null {
   // not add a Sol family pattern: Terra, Luna, future 5.6 variants, and
   // suffixed model IDs must NOT inherit Sol's behavioral profile; they fall
   // through to the generic `gpt` family below.
-  if (/^gpt-6-astra(-|$)/.test(s)) return 'gpt-6-astra';
+  if (/^gpt-6(\.\d+)?-astra(-|$)/.test(s)) return 'gpt-6-astra';
   if (/^gpt-5\.4(-|$)/.test(s)) return 'gpt-5.4';
   if (/^gpt(-|$)/.test(s)) return 'gpt';
   if (/^o[0-9]+(-|$)/.test(s)) return 'o-series';

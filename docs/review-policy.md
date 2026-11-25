@@ -292,7 +292,7 @@ the same grant, whichever row records it:
 | a light pass 1 whose below-floor fixes change no runtime lines | done |
 | round 2 that fixed anything, blocking or below the floor | one read-only full review of the final head, with no fix round (R51) |
 | round 2 on a light diff whose below-floor fixes change no runtime lines | done: notes in the PR body |
-| a fix after that read-only review | stop: the lane's Captain rules it a note, or the fix goes to a new /gstack-ship run's read-only full review |
+| a fix after that read-only review | stop: the lane's Captain rules it a note (one `gstack-approvals rule --finding edit:<path>` per edited path, which finish then routes as `RULED_EDIT`: [ruled edits](ship-policy.md#ruled-edits)), or the fix goes to a new /gstack-ship run's read-only full review |
 | a full pass that leaves a blocking finding open (fixed or not) | stop: name it for the owner |
 | a fix-check (granted before GST-3562) that found nothing blocking | done |
 | a fix-check (granted before GST-3562) that found a blocking finding | stop: name it for the owner |

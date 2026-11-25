@@ -565,7 +565,7 @@ export function statusLines(state: RunState): string[] {
   }
   if (fs.existsSync(path.join(state.out, FILES.spend))) lines.push(renderSpend(summarize(readLedger(path.join(state.out, FILES.spend)))));
   lines.push(roundsLine(state), ...stopLines(state));
-  for (const d of state.capped_deltas ?? []) lines.push(`CAPPED_DELTA: v${d.k} ${d.phase} +${d.added} -${d.removed} ${d.status}`);
+  for (const d of state.capped_deltas ?? []) lines.push(`CAPPED_DELTA: v${d.k} ${d.phase} +${d.added} -${d.removed} ${d.status}${d.basis ? ` unreviewed ${d.ruling ? `ruled by ${d.ruling.by}` : 'open: needs gstack-autoplan rule'}` : ''}`);
   return lines;
 }
 export const TERMINAL: readonly RunStatus[] = ['complete', 'reviewed', 'gate_pending', 'amend_pending', 'incomplete', 'refused', 'interrupted'];

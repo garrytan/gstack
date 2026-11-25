@@ -124,8 +124,9 @@ gstack-approvals import --autoplan <run dir> --by <name>
 
 A later gate that asks nothing new is answered for you with the words you recorded (`CARRIED:`, then `APPROVED:`);
 the brief says "Nothing pending. Carried forward", so import and build without a second ask. `CARRY_CHECK:` means
-one reviewer from another model family reads the unreviewed delta first (`gstack-autoplan check`). Anything
-else prints `CARRY: no (<why>)` and goes to the person as today (`docs/unattended.md#carry-forward`).
+one reviewer from another model family reads the unreviewed delta first (`gstack-autoplan check`). `UNREVIEWED:`
+means a revise at the round cap only took recommendations the person approved, so the run finished with no gate;
+rule on that note with `gstack-autoplan rule` when you accept it. Anything else prints `CARRY: no (<why>)` and goes to the person as today (`docs/unattended.md#carry-forward`).
 
 If the person answers in words ("split it into two PRs"), map the words to tokens, answer, and confirm in one
 line what you recorded ("Recorded: split into two PRs; everything else as recommended"). A named option ("B2")

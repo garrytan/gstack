@@ -49,6 +49,8 @@ export const EXCLUDED_BILLING_CATEGORIES: readonly string[] = Object.freeze([
 
 export const PRICING: Record<string, ModelPricing> = {
   // Claude (Anthropic)
+  // https://platform.claude.com/docs/en/models/fable-5-2/overview#pricing (fetched 2026-11-24)
+  'claude-fable-5-2':  { input_per_mtok: 8.00,  output_per_mtok: 40.00, cached_input_per_mtok: 0.20, as_of: '2026-11' },
   // https://platform.claude.com/docs/en/models/fable-5-1/overview#pricing
   'claude-fable-5-1':  { input_per_mtok: 10.00, output_per_mtok: 50.00, cached_input_per_mtok: 0.25, as_of: '2026-09' },
   // https://platform.claude.com/docs/en/models/opus-5-5/overview#pricing (list prices effective 2026-10-07)

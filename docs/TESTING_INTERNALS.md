@@ -2214,9 +2214,11 @@ form), or any model `lib/pricing.ts` marks `superseded_by`, as an arm, a judge,
 a reader or a simulator. A row is marked when a newer major generation of its
 family has its own row (`claude-opus-4-7` → `claude-opus-5-5`, `gpt-5.4` →
 `gpt-6.2-sol`, `gemini-2.5-flash` → `gemini-3.8-flash`); a point release in
-the same generation is not, so `gpt-6-astra` stays a valid judge beside
-`gpt-6.2-astra` and `claude-fable-5-1` stays current until Fable 5.2 has a
-price row. Readers and simulators go in an optional `## Models` section as
+the same generation is not, so this check still admits `gpt-6-astra` and
+`claude-fable-5-1` where a frozen plan names them. gstack's own defaults and
+new plans use the newest model of each family (`lib/model-families.ts`;
+Garry, 2026-11-24: "gstack should always be using latest astra, sol, fable or
+opus"). Readers and simulators go in an optional `## Models` section as
 `reader: <model>` and `simulator: <model>` lines.
 
 The one exception: a competitor system tested as its vendor ships it keeps its

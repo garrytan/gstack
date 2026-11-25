@@ -1,7 +1,7 @@
 import { describe, expect, test, spyOn } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { MODEL_CATALOG, modelCatalogSha256 } from '../lib/model-catalog';
-import { assessFreshness, freshnessCatalogIdentity, validLifecycle, validState } from '../lib/model-policy-freshness';
+import { assessFreshness, CATALOG_SOURCE_FILES, catalogSourceSha256, freshnessCatalogIdentity, validLifecycle, validState } from '../lib/model-policy-freshness';
 import { FRESHNESS_SOURCES, FRESHNESS_BOUNDS, sha256 } from '../lib/model-policy-freshness-sources';
 import { FRESHNESS_ISSUE_AUTHOR, FRESHNESS_ISSUE_MARKER, FRESHNESS_REGION_BEGIN, FRESHNESS_REGION_END, publishFreshness, readFreshnessIssue, writeFreshnessIssue, type FreshnessGitHub, type TrackingIssue } from '../lib/model-policy-freshness-publication';
 import { freshnessGitHub } from '../lib/model-policy-freshness-github';
@@ -449,10 +449,11 @@ describe('publication ordering and default-branch guards', () => {
 
 describe('network adapter, real catalog and CLI seams', () => {
   test('real catalog export and canonical hash bind the four identities and separate source-file hash', () => {
-    const source = readFileSync(new URL('../lib/model-catalog.ts', import.meta.url), 'utf8');
-    const identity = freshnessCatalogIdentity(source);
+    const sources = CATALOG_SOURCE_FILES.map(file => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'));
+    const identity = freshnessCatalogIdentity(sources);
     expect(identity.sha256).toBe(modelCatalogSha256());
-    expect(identity.sourceSha256).toBe(sha256(source));
+    expect(identity.sourceSha256).toBe(catalogSourceSha256(sources));
+    expect(identity.sourceSha256).not.toBe(catalogSourceSha256([sources[0], `${sources[1]}\n`]));
     expect(identity.models).toEqual(MODEL_CATALOG.map(entry => ({ provider: entry.provider, tier: entry.tier, modelId: entry.model })));
   });
 
@@ -463,13 +464,15 @@ describe('network adapter, real catalog and CLI seams', () => {
       calls.push({ url, method: init.method });
       expect(init.redirect).toBe('error');
       if (url.endsWith('/repos/owner/repo')) return Response.json({ default_branch: 'main' });
+      if (url.endsWith('/commits/main')) return Response.json({ sha: 'c'.repeat(40) });
       if (url.includes('/contents/')) return Response.json({ encoding: 'base64', content: Buffer.from(text).toString('base64'), size: Buffer.byteLength(text) });
       if (new URL(url).searchParams.get('page') === '1') return Response.json(Array.from({ length: 100 }, (_, i) => ({ number: i + 1, body: '', state: 'closed', user: { login: FRESHNESS_ISSUE_AUTHOR }, ...(i === 0 ? {} : { pull_request: {} }) })));
       if (new URL(url).searchParams.get('page') === '2') return Response.json([{ number: 101, body: FRESHNESS_ISSUE_MARKER, state: 'closed', user: { login: FRESHNESS_ISSUE_AUTHOR } }]);
       return Response.json({ number: 101, body: FRESHNESS_ISSUE_MARKER, state: 'closed', user: { login: FRESHNESS_ISSUE_AUTHOR } });
     });
     const signal = new AbortController().signal;
-    expect(await api.defaultCatalog(signal)).toEqual({ defaultBranch: 'main', sourceSha256: sha256(text) });
+    expect(await api.defaultCatalog(signal)).toEqual({ defaultBranch: 'main', sourceSha256: catalogSourceSha256([text, text]) });
+    expect(calls.filter(call => call.url.includes('/contents/')).map(call => call.url.split('/contents/')[1])).toEqual(CATALOG_SOURCE_FILES.map(file => `${file}?ref=${'c'.repeat(40)}`));
     expect((await api.listIssues(signal)).map(issue => issue.number)).toEqual([1, 101]);
     await api.updateIssue(101, { body: 'machine-owned data', state: 'open' }, signal);
     expect(calls.at(-1)?.method).toBe('PATCH');

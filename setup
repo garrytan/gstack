@@ -2076,7 +2076,7 @@ probe_cso_build_prerequisites() {
 # the hardcoded fallback. The resolver is a read-only TOML lookup that falls
 # back to the current frontier Codex profile when no Codex config exists.
 CODEX_GENERATION_MODEL="gpt-6-astra"
-CODEX_GENERATION_MODEL_SOURCE="default (gpt-6-astra)"
+CODEX_GENERATION_MODEL_SOURCE="default (gpt-6.2-astra)"
 _CODEX_MODEL_ARGS=(run scripts/resolve-codex-generation-model.ts)
 if [ "$MODEL_OVERRIDE_SET" -eq 1 ]; then
   _CODEX_MODEL_ARGS+=(--explicit "$MODEL_OVERRIDE")

@@ -355,7 +355,7 @@ uses it to refuse a base merge under an open run
    whatever node the launch PATH gives, and a Node mismatch names the node it
    read and the installer command that fixes it.
 3. `./setup --host claude --no-prefix`, then `./setup --host codex --model
-   gpt-6-astra`, both with `--no-browser`. Skipped when this exact HEAD was set
+   gpt-6.2-astra`, both with `--no-browser`. Skipped when this exact HEAD was set
    up with the same hosts, model and browser flag (recorded in the git dir
    after a successful setup) and `gstack-doctor --check` passes; a warm rerun
    takes about a second. Each setup ends with its own `gstack ready (<host>)`;

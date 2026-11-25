@@ -13,6 +13,7 @@ export const CLAUDE_CODE_RUNTIME_FILES = [
   'lib/claude-code.ts', 'lib/claude-code-windows-job.ts', 'lib/claude-bin.ts',
   'lib/outside-review-result.ts', 'lib/autoplan-reconcile.ts', 'lib/gate-outcomes.ts', 'lib/outside-consent.ts', 'lib/state-root.ts',
   'lib/model-catalog.ts', 'lib/model-policy.ts', 'lib/model-policy-cli.ts', 'lib/model-policy-notice.ts', 'lib/agent-model.ts',
+  'lib/model-families.ts',
 ];
 
 export interface RenameOptions {

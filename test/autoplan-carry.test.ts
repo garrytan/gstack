@@ -2,7 +2,7 @@
  * Carry-forward (GSTA-155, lib/autoplan-carry.ts): a later gate revision that asks nothing new is answered with the
  * owner's recorded words from the revision before it, and recorded as a carry; every other case prints why not and
  * stays at the gate. A "do it" also covers new auto items that change no scope, cost or direction. A capped,
- * unreviewed delta gets one reviewer on the delta first (CARRY_CHECK, gstack-autoplan check): High or above means no
+ * unreviewed delta the owner did not take as a recommendation gets one reviewer on the delta first (CARRY_CHECK, gstack-autoplan check): High or above means no
  * carry. Runs on the simulated Capy host.
  */
 import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
@@ -50,6 +50,27 @@ function answeredAndRevised(args: string[] = [], words = 'Garry: Do it', ceo: { 
   return { dir, out, run, v2, rev };
 }
 const recHashOf = (out: string) => recHash(gateOf(out));
+
+/**
+ * Gate 1 answered item by item in the owner's words, taking a change the gate did not recommend (d1b), then revised to take
+ * it. At the round cap that is an unreviewed change the owner did not take as a recommendation, so it keeps its gate item
+ * and the delta check (a revise that only takes recommendations he approved needs neither, GST-3753).
+ */
+function overriddenAndRevised(args: string[] = []) {
+  const dir = path.join(r.host.base, `carry${++n}`);
+  const out = path.join(dir, 'run');
+  expect(r.ap(['next', '--out', out, '--plan', writePlan(dir), '--no-ui', ...args]).status).toBe(0);
+  phaseVia(r, out, 'ceo', ONE_VOICE);
+  expect(phaseVia(r, out, 'eng', NONE).outside.stdout).toContain('status=gate_pending');
+  const ans = r.ap(['answer', '--out', out, '--gate-rev', '1', '--reply', 'd1b p1b', '--by', 'agent:gstack-minder', '--owner-reply', 'd1b p1b']);
+  expect(ans.status, ans.stderr).toBe(0);
+  expect(ans.stdout).toMatch(/^APPLY: /m);
+  const v2 = path.join(dir, 'plan-v2.md');
+  fs.writeFileSync(v2, V2);
+  const rev = r.ap(['revise', '--out', out, '--plan', v2, '--incorporates', 'd1']);
+  expect(rev.status, rev.stderr).toBe(0);
+  return { dir, out, v2, rev };
+}
 
 describe('whose words answered the gate (GEVA-2, P7)', () => {
   test("an agent's own words are recorded as its own, never as the owner's, never carried, and imported under the agent", () => {
@@ -312,9 +333,9 @@ describe('carry-forward', () => {
 
 describe('the delta check before a carry', () => {
   function capped() {
-    const s = answeredAndRevised(['--max-rounds', '1']);
+    const s = overriddenAndRevised(['--max-rounds', '1']);
     expect(s.rev.stdout).toMatch(/^CAPPED: ceo used round 1 of 1/m);
-    expect(s.rev.stdout).toMatch(/^CARRY_CHECK: attempt=\S+-c2 items=uc\d+,uc\d+ prompt=\S+ result=\S+ model_family=not anthropic estimate=5\.00 cap=5\.00$/m);
+    expect(s.rev.stdout).toMatch(/^CARRY_CHECK: attempt=\S+-c2 items=uc\d+ prompt=\S+ result=\S+ model_family=not anthropic estimate=5\.00 cap=5\.00$/m);
     expect(s.rev.stdout).toMatch(/^GATE: gate_rev=2 /m);
     const run = readRunJson(s.out);
     expect(run.status).toBe('gate_pending');
@@ -335,10 +356,10 @@ describe('the delta check before a carry', () => {
     const ok = r.ap(['check', '--out', s.out, '--attempt', s.check.attempt, '--result', s.check.result, '--model', 'openai/gpt-6.1-sol']);
     expect(ok.status, ok.stderr).toBe(0);
     expect(ok.stdout).toMatch(/^CARRY_CHECK: passed attempt=\S+ model=openai\/gpt-6\.1-sol findings=1 highest=Low$/m);
-    expect(ok.stdout).toMatch(/^CARRIED: gate_rev=2 <- gate_rev=1 .*reason=delta check passed on uc\d+,uc\d+; plan unchanged/m);
+    expect(ok.stdout).toMatch(/^CARRIED: gate_rev=2 <- gate_rev=1 .*reason=delta check passed on uc\d+; plan unchanged/m);
     expect(ok.stdout).toContain('status=complete');
     expect(gateOf(s.out).carry_check).toMatchObject({ verdict: 'passed', model: 'openai/gpt-6.1-sol', max_severity: 'Low', findings: 1 });
-    expect(decisions(s.out).filter(x => x.gate_rev === 2 && x.carry_check).length).toBe(2);
+    expect(decisions(s.out).filter(x => x.gate_rev === 2 && x.carry_check).length).toBe(1);
     expect(fs.readFileSync(path.join(s.out, 'decisions.tsv'), 'utf8')).toContain('delta check before carrying gate_rev 2');
     expect(r.ap(['export', '--out', s.out]).status).toBe(0);
     expect(r.validate(s.out).status).toBe(0);
@@ -367,7 +388,7 @@ describe('the delta check before a carry', () => {
   // fails_when=the cap comparison or the attempt guard is dropped or inverted; why_new=tests above run at the default cap
   // with the right attempt only; seam=none; no_claim=real reviewer dispatch (simulated Capy host)
   test('a check over --carry-check-cap refuses the carry; a wrong --attempt is refused', () => {
-    const over = answeredAndRevised(['--max-rounds', '1', '--carry-check-cap', '1']);
+    const over = overriddenAndRevised(['--max-rounds', '1', '--carry-check-cap', '1']);
     expect(over.rev.stdout).toMatch(/^CARRY: no \(delta check estimate 5\.00 is over the per-gate cap 1\.00 \(--carry-check-cap\)\)$/m);
     expect(over.rev.stdout).not.toMatch(/^CARRY_CHECK:/m);
     expect(readRunJson(over.out).status).toBe('gate_pending');

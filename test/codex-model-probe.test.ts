@@ -24,7 +24,7 @@
  *                          MODEL_UNUSABLE (editing the pin IS the fix)
  *   - the probed model is the runtime selection (#2914): explicit request,
  *     GSTACK_CODEX_MODEL, config.toml (review_model first for native review),
- *     then gpt-6-astra; an invalid choice never falls back to the default
+ *     then gpt-6.2-astra; an invalid choice never falls back to the default
  *   - the cache key also covers the resolved codex binary, its mtime and the
  *     auth mode (#2787), and never stores a credential
  */
@@ -55,8 +55,8 @@ printf '%s\\n' "$*" >> "$STUB_ARGS_LOG"
 case "\${STUB_MODE:-ok}" in
   ok) echo "OK"; exit 0 ;;
   model400)
-    echo 'warning: Model metadata for \`gpt-6-astra\` not found.' >&2
-    echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-6-astra'"'"' model is not supported when using Codex with a ChatGPT account."}}' >&2
+    echo 'warning: Model metadata for \`gpt-6.2-astra\` not found.' >&2
+    echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-6.2-astra'"'"' model is not supported when using Codex with a ChatGPT account."}}' >&2
     exit 1 ;;
   transient) echo "stream error: network unreachable" >&2; exit 7 ;;
   quota)
@@ -80,7 +80,7 @@ case "\${STUB_MODE:-ok}" in
     exit 1 ;;
   baseurl404) echo 'ERROR: unexpected status 404 Not Found: <html><body>Not Found</body></html>, url: http://localhost:9999/v1/responses' >&2; exit 1 ;;
   outdated400)
-    echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-6-astra'"'"' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}' >&2
+    echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-6.2-astra'"'"' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}' >&2
     exit 1 ;;
 esac
 `;
@@ -280,7 +280,7 @@ describe('codex model probe (#2477)', () => {
     }
   });
 
-  test('#2914: precedence is explicit request, GSTACK_CODEX_MODEL, config.toml, then gpt-6-astra', () => {
+  test('#2914: precedence is explicit request, GSTACK_CODEX_MODEL, config.toml, then gpt-6.2-astra', () => {
     const f = makeFixture();
     try {
       fs.writeFileSync(path.join(f.codexHome, 'config.toml'), 'model = "gpt-5.6-terra"\nreview_model = "gpt-5.6-luna"\n');
@@ -295,7 +295,7 @@ describe('codex model probe (#2477)', () => {
       fs.writeFileSync(config, 'model = "acme/custom-model:2026-09"\n');
       expect(sel({}, '_gstack_codex_select_model review')).toBe(`acme/custom-model:2026-09|${config} model`);
       fs.rmSync(config);
-      expect(sel({}, '_gstack_codex_select_model exec')).toBe(`gpt-6-astra|gstack default (no ${config})`);
+      expect(sel({}, '_gstack_codex_select_model exec')).toBe(`gpt-6.2-astra|gstack default (no ${config})`);
       expect(invocations(f)).toBe(0); // selection alone never spends a call
     } finally {
       fs.rmSync(f.home, { recursive: true, force: true });
@@ -329,7 +329,7 @@ describe('codex model probe (#2477)', () => {
         expect(r.stdout).toContain('MODEL_UNUSABLE');
         expect(r.stderr).toContain('GSTACK_CODEX_MODEL=<model>');
         expect(r.stderr).toContain('No Codex call was made');
-        expect(r.stderr).not.toContain('CODEX_MODEL: gpt-6-astra');
+        expect(r.stderr).not.toContain('CODEX_MODEL: gpt-6.2-astra');
         expect(invocations(f)).toBe(0);
         expect(fs.existsSync(path.join(f.home, 'PWNED'))).toBe(false);
       } finally {

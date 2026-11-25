@@ -317,7 +317,7 @@ function fixChecked(cwd: string, o: BridgeOpts & { now: string; parent?: string;
   }
   const inRange = (l: FixLink, c: string) => !!l.from && !!l.commit && ancestor(l.from, c) && ancestor(c, l.commit);
   const rulings = readRuledNotes(cwd).map(n => ({ ...n, links: chain.filter(l => inRange(l, n.head)) }));
-  for (const n of rulings) r.add(`RULED_NOTE: ${ruledNoteText(n)}${chain.length && !n.links.length ? ' (outside this fix-check\'s range; not applied)' : ''}`);
+  for (const n of rulings) if (!n.finding.startsWith('edit:')) r.add(`RULED_NOTE: ${ruledNoteText(n)}${chain.length && !n.links.length ? ' (outside this fix-check\'s range; not applied)' : ''}`);
   const gates = readGateDispositions(cwd);
   for (const d of gates) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).length) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
   const gatedOn = (l: FixLink) => new Set(dispositionedOn(cwd, l.row, gates).map(d => gateKey(d.finding, d.gate_id)));
@@ -450,11 +450,35 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.behavior = by.behavior.filter(p => !by.accepted.includes(p));
     by.docs = by.docs.filter(p => !by.accepted.includes(p));
   }
+  const edits = readRuledNotes(cwd).filter(n => n.finding.startsWith('edit:'));
+  const top = edits.length ? git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim() : '';
+  const entry = (tree: string, p: string) => { const ls = git(cwd, ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', tree, '--', p]); const rows = ls.stdout.split('\0').filter(Boolean);
+    return ls.status !== 0 || rows.length > 1 || rows.some(e => e.slice(e.indexOf('\t') + 1) !== p) ? null : rows[0] ?? ''; };
+  const untouched = (head: string, p: string) => { const log = git(top, ['--literal-pathspecs', 'log', '--first-parent', '--format=%H', `${head}..HEAD`, '--', p]); return log.status === 0 && !log.stdout.trim(); };
+  const refusal = (n: (typeof edits)[number], p: string) => {
+    if (!ancestor(n.head, 'HEAD')) return `ruled at ${n.head.slice(0, 12)}, which is not HEAD or an ancestor of it`;
+    const [at, cur] = [entry(n.head, p), entry(now, p)], where = (e: string | null) => e === at ? n.head.slice(0, 12) : 'the tree finish routes';
+    if (at === null || cur === null) return `git ls-tree could not read it at ${where(null)}`;
+    if (!at || !cur) return `no file at ${where('')}: a ruling covers a file git holds under this spelling, never a deletion`;
+    if (p.includes('\uFFFD')) return 'its spelling holds a replacement character (U+FFFD), so the file git changed may have another name';
+    if (at !== cur) return `its mode or bytes differ from the ruled head ${n.head.slice(0, 12)}`;
+    return top && untouched(n.head, p) ? '' : `a commit after ${n.head.slice(0, 12)} touches it, or git could not list them`;
+  };
+  const ruled = new Map<string, (typeof edits)[number]>(), refusedEdits: string[] = [];
+  for (const p of by.behavior) {
+    const why = edits.filter(n => n.finding === `edit:${p}`).map(n => [n, refusal(n, p)] as const);
+    const ok = why.filter(([, w]) => !w).at(-1);
+    if (ok) ruled.set(p, ok[0]); else if (why.length) refusedEdits.push(`${p} (${why.at(-1)![1]}; keep the edit and run /ship again, docs/ship-policy.md#ruled-edits)`);
+  }
+  by.behavior = by.behavior.filter(p => !ruled.has(p));
   const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, accepted: by.accepted, excluded: opts.excluded });
   by.sidecar = Object.keys(uid.proven).sort();
   by.behavior = by.behavior.filter(p => !by.sidecar.includes(p));
   r.add(`ROUTE: reviewed=${reviewed.slice(0, 12)} current=${now.slice(0, 12)} behavior=${by.behavior.length} docs=${by.docs.length} metadata=${by.metadata.length} tests=${by.tests.length} base=${sides ? by.base.length : 'unknown'} context=${by.context.length}${by.bounded.length ? ` bounded=${by.bounded.length}` : ''}${by.mechanical.length ? ` mechanical=${by.mechanical.length}` : ''}${counted ? ` fix_checked=${by.fix_checked.length}` : ''}${loop ? ` accepted=${by.accepted.length}` : ''}${by.sidecar.length ? ` sidecar=${by.sidecar.length}` : ''}`);
   if (loop) r.add(`REVIEW_LOOP_EXCEPTION: accepted ${by.accepted.length ? short(by.accepted) : 'none'} (changed since fix-check ${loop.fix_check.head.slice(0, 12)}; accepted by ${loop.accepted_by} ${loop.date} via ${loop.via})`);
+  for (const [p, n] of ruled) r.add(`RULED_EDIT: ${p} (ruled at ${n.head.slice(0, 12)} by ${n.by}, approval ${n.approval})`);
+  for (const x of refusedEdits) r.add(`RULED_EDIT_REFUSED: ${x}`);
+  for (const n of edits) r.add(`RULED_NOTE: ${ruledNoteText(n)}${[...ruled.values()].includes(n) ? '' : ' (no RULED_EDIT at this head; not applied)'}`);
   for (const x of bounded.refused) if (by.behavior.includes(x.path)) r.add(`ROUTE_BOUNDED_REFUSED: ${x.path} ${x.reason} (fix: ${x.fix}; docs/troubleshooting.md#route-bounded-refused)`);
   for (const p of by.mechanical) r.add(`MECHANICAL: ${p} (${mech.proven[p]})`);
   for (const x of mech.refused) r.add(`ROUTE_MECHANICAL_REFUSED: ${x.path} ${x.reason} (docs/troubleshooting.md#route-mechanical-refused)`);

@@ -13,7 +13,10 @@
  * are all below High (no user challenge, no newly in-scope phase) applies
  * without re-review: the touched phases' reviewed hash is rebound to the
  * revision and `applied_without_rereview` is journaled; anything unsure
- * reopens. One recoverable transaction: the staged plan and state are
+ * reopens. A phase at its round cap is not reopened: an edit that only
+ * takes recommendations the owner approved in his own words is accepted
+ * with one UNREVIEWED note (`ownerTookRecs`, GST-3753); any other edit
+ * becomes one gate item for all the capped phases. One recoverable transaction: the staged plan and state are
  * written and `revise_intent` journaled before anything moves; `resume`
  * (recoverRevise) completes an interrupted revise from the stage.
  */
@@ -23,7 +26,8 @@ import * as path from 'node:path';
 import { exportRun } from './autoplan-export';
 import { applyRenames, approve, closeDraftDirections, finishGate, planReopen } from './autoplan-gate';
 import { carryLines, keepPlanFile, voidPendingCheck } from './autoplan-carry';
-import { atCap, pendingDeltas, roundCap, roundOf } from './autoplan-budget';
+import { atCap, OWNER_RECS_AT_CAP, ownerTookRecs, pendingDeltas, roundCap, roundOf, unreviewedLine, unreviewedRevisions } from './autoplan-budget';
+import { isGstackActor, OWNER_REF, OWNER_REF_SHAPE } from './ruled-notes';
 import { diffStat, earlierRows, lineDiff } from './autoplan-confirm';
 import { SETTLEABLE_CHANGES } from './autoplan-reconcile';
 import { sectionHeadings } from '../bin/gstack-autoplan-snapshot';
@@ -196,10 +200,13 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
   voidPendingCheck(state, 'the plan was revised');
 
   const renames = reopen.length ? planReopen(state, reopen, state.gate_rev ?? 0, `revise v${k}`) : [];
+  const words = capped.length ? ownerTookRecs(state, [...incorporates, ...settle]) : undefined;
+  const approved = words ? { decided_at: at, basis: OWNER_RECS_AT_CAP, decisions: [...incorporates, ...settle] } : {};
   for (const phase of capped) {
-    (state.capped_deltas ??= []).push({ k, phase, round: roundOf(state, phase), cap: roundCap(state, phase)!, old_plan_sha256: oldHash, new_plan_sha256: newHash, ...delta, status: 'pending', at });
-    journal(out, { event: 'cap_delta', k, phase, round: roundOf(state, phase), cap: roundCap(state, phase), old_plan_sha256: oldHash, new_plan_sha256: newHash, ...delta });
+    (state.capped_deltas ??= []).push({ k, phase, round: roundOf(state, phase), cap: roundCap(state, phase)!, old_plan_sha256: oldHash, new_plan_sha256: newHash, ...delta, status: words ? 'accepted' : 'pending', at, ...approved });
+    journal(out, { event: 'cap_delta', k, phase, round: roundOf(state, phase), cap: roundCap(state, phase), old_plan_sha256: oldHash, new_plan_sha256: newHash, ...delta, ...(words ? { accepted: OWNER_RECS_AT_CAP } : {}) });
   }
+  if (words) journal(out, { event: 'unreviewed_at_cap', k, phases: capped, reason: OWNER_RECS_AT_CAP, decisions: [...incorporates, ...settle], old_plan_sha256: oldHash, new_plan_sha256: newHash });
   for (const p of quiet ? touched : []) {
     const ps = state.phases[p]!;
     (ps.rebound ??= []).push({ k, from: ps.snapshot!, to: newHash, decisions: incorporates, at });
@@ -226,7 +233,8 @@ export function reviseRun(o: ReviseOptions): ReviseResult {
     ...(scaffoldedHeading ? [`SCAFFOLDED: added "${scaffoldedHeading}" (${state.scaffolded ? 'the run was scaffolded' : "the run's first plan had no section headings"}; copy at ${state.plan_source}; ${file} unchanged)`] : []),
     ...(inputFrom ? [`PLAN_INPUT: ${inputFrom} -> ${file} (drift checks and later revises read ${file}; pass --plan ${inputFrom} to go back)`] : []),
     ...(quiet ? [`APPLIED: ${incorporates.join(',')} without re-review (${state.lean ? 'lean run: one gate revision' : 'below High'}; plan +${delta.added} -${delta.removed} lines)`] : []), amendmentLine(state)];
-  for (const phase of capped) lines.push(`CAPPED: ${phase} used round ${roundOf(state, phase)} of ${roundCap(state, phase)}: not reopened; the gate asks the owner about the unreviewed delta (+${delta.added} -${delta.removed} lines)`);
+  for (const phase of capped) lines.push(`CAPPED: ${phase} used round ${roundOf(state, phase)} of ${roundCap(state, phase)}: not reopened; ${words ? 'the owner already approved this delta (UNREVIEWED below)' : 'the gate asks the owner about the unreviewed delta'} (+${delta.added} -${delta.removed} lines)`);
+  if (words) lines.push(unreviewedLine(state, k));
   if (regate) {
     lines.push(...approveOrRegate(state, at));
     writeState(state);
@@ -271,4 +279,24 @@ export function recoverRevise(out: string): string[] {
   const state = readState(out);
   publish(state, staging, stage.renames, { ...stage.committed, recovered: true }, stage.settled);
   return [`REVISE_RECOVERED: v${intent.k} completed (reopened=${(stage.committed.reopened as string[]).join(',') || 'none'})`];
+}
+
+export interface RuleOptions { revision?: number; by?: string; reason?: string; ownerRef?: string }
+
+/** `gstack-autoplan rule`: a Captain's (or the owner's) ruling on an unreviewed revision, closing the open note as /ship's ruled notes do after round two. */
+export function ruleUnreviewed(state: RunState, o: RuleOptions): string[] {
+  const ds = o.revision === undefined ? undefined : unreviewedRevisions(state).get(o.revision);
+  if (!ds) throw new RunError('ARTIFACT_SCHEMA', `--revision ${o.revision ?? '<k>'} names no revision accepted unreviewed at the round cap (unreviewed: ${[...unreviewedRevisions(state).keys()].map(k => `v${k}`).join(', ') || 'none'})`, 3);
+  const by = o.by?.trim();
+  if (!by || by.startsWith('--') || isGstackActor(by)) throw new RunError('ANSWER_BY_REQUIRED', 'rule records who ruled: pass --by <the Captain or owner> (gstack cannot rule on its own note)', 3);
+  if (!o.reason?.trim() || o.reason.trim().startsWith('--')) throw new RunError('ARTIFACT_SCHEMA', 'rule needs --reason "<why the unreviewed revision stands>"', 3);
+  if (o.ownerRef !== undefined && !OWNER_REF.test(o.ownerRef)) throw new RunError('ARTIFACT_SCHEMA', `--owner-ref must be ${OWNER_REF_SHAPE}`, 3);
+  if (by.startsWith('agent:') && !o.ownerRef) throw new RunError('ANSWER_BY_REQUIRED', `${by} is an agent: an agent rules only by relaying the Captain's or owner's ruling, with --owner-ref ${OWNER_REF_SHAPE}`, 3);
+  const journaled = readJournal(state.out).filter(e => e.event === 'unreviewed_ruled' && e.k === o.revision).at(-1);
+  const ruled = ds.find(d => d.ruling)?.ruling ?? (journaled && { by: journaled.by, reason: journaled.reason, ...(journaled.owner_ref ? { owner_ref: journaled.owner_ref } : {}), at: journaled.at });
+  if (ruled && (ruled.by !== by || ruled.reason !== o.reason.trim() || ruled.owner_ref !== o.ownerRef)) throw new RunError('ARTIFACT_SCHEMA', `revise v${o.revision} is already ruled by ${ruled.by} (${ruled.at}); a ruling stands once recorded`, 3);
+  const ruling = ruled ?? { by, reason: o.reason.trim(), ...(o.ownerRef ? { owner_ref: o.ownerRef } : {}), at: now() };
+  for (const d of ds) d.ruling = ruling;
+  if (!journaled) journal(state.out, { event: 'unreviewed_ruled', k: o.revision, phases: ds.map(d => d.phase), ...ruling });
+  return [unreviewedLine(state, o.revision!)];
 }

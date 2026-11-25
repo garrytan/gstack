@@ -75,7 +75,7 @@ const FAMILY_RULES: Array<[ModelFamily, RegExp]> = [
   ['mistral', /^(mistral(ai)?\/|mistral|mixtral|codestral)/],
   ['minimax', /^(minimax\/|minimax)/],
 ];
-/** Family from a model id (`openai/gpt-6-astra`, `claude-opus-4-7`, `gpt-5.4`); `unknown` when no rule matches. */
+/** Family from a model id (`openai/gpt-6.2-astra`, `claude-opus-5-5`, `gpt-5.4`); `unknown` when no rule matches. */
 export function modelFamily(model: string | undefined | null): ModelFamily {
   const id = (model ?? '').trim().toLowerCase();
   if (!id) return 'unknown';

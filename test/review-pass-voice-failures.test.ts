@@ -114,20 +114,20 @@ describe('Capy pass program (fake host, real bins)', () => {
     return { res, all, h, created, verify, base };
   }
 
-  // Value: protects=R95 on the real pass program: Capy's captured cyber_policy refusal of the Sol outside voice is recorded unavailable with its own reason and retried once on openai/gpt-6-astra with the read-only brief, whose review is the Step 11 outside record; fails_when=the refusal is recorded as a plain failure with no retry, the retry resends the original brief, or the original's unavailable record replaces the retry's;
+  // Value: protects=R95 on the real pass program: Capy's captured cyber_policy refusal of the Sol outside voice is recorded unavailable with its own reason and retried once on openai/gpt-6.2-astra with the read-only brief, whose review is the Step 11 outside record; fails_when=the refusal is recorded as a plain failure with no retry, the retry resends the original brief, or the original's unavailable record replaces the retry's;
   //   why_new=R95; seam=lib/capy-review-pass.js ended outside voice; no_claim=that Astra finishes a real refused brief (one live smoke in GSTA-537)
   test('a cyber_policy refusal is retried once on Astra with the read-only brief (R95)', async () => {
     const { res, all, h, created, verify } = await refusedVoices('x40p1', t => (t.endsWith(' outside-voice') ? CYBER : undefined));
     expect(res).not.toContain('STOP:');
-    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6-astra brief=read-only');
+    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6.2-astra brief=read-only');
     expect(all).toMatch(/COLLECT_UNAVAILABLE: reader=outside-voice .*/);
     const astra = created('outside-voice/astra-read-only')!;
-    expect(astra.model).toEqual({ model_id: 'openai/gpt-6-astra', reasoning_mode: 'high' });
+    expect(astra.model).toEqual({ model_id: 'openai/gpt-6.2-astra', reasoning_mode: 'high' });
     expect(astra.prompt).toContain(READ_ONLY_RETRY);
     expect(astra.prompt).not.toContain('Think like an attacker');
     expect(created('outside-voice')!.prompt).toContain('Think like an attacker and a chaos engineer.');
     expect(created('outside-voice/gemini-4-carbon')).toBeUndefined();
-    expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6-astra","outside_status":"completed","outside_note":"second-family read by openai/gpt-6-astra on the read-only retry brief after cyber_policy refused openai/gpt-6.2-sol"');
+    expect(res).toContain('OUTSIDE_RECORD: "outside_provider":"host-subagent","outside_model":"openai/gpt-6.2-astra","outside_status":"completed","outside_note":"second-family read by openai/gpt-6.2-astra on the read-only retry brief after cyber_policy refused openai/gpt-6.2-sol"');
     expect(res).not.toContain('"outside_model":"openai/gpt-6.2-sol"');
     expect(res).toContain('NEXT: judge the voices');
     expect(verify).toMatch(/^BRIEF outside-voice UNAVAILABLE/m);
@@ -143,14 +143,14 @@ describe('Capy pass program (fake host, real bins)', () => {
   test('an Astra refusal falls through to Gemini 4 Carbon with the original brief, then the second-family read is missing (R95)', async () => {
     const { res, all, h, created, verify } = await refusedVoices('x41p1', t => (/outside-voice(\/astra-read-only|\/gemini-4-carbon)?$/.test(t) ? CYBER : undefined));
     expect(res).not.toContain('STOP:');
-    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6-astra brief=read-only');
+    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6.2-astra brief=read-only');
     expect(all).toContain('RETRY: reader=outside-voice/gemini-4-carbon model=google/gemini-4-carbon brief=original');
     expect(all).toContain('RETRY: exhausted');
     const gemini = created('outside-voice/gemini-4-carbon')!;
     expect(gemini.model).toEqual({ model_id: 'google/gemini-4-carbon', reasoning_mode: 'high' });
     expect(gemini.prompt).toBe(created('outside-voice')!.prompt);
     expect(h.creates.filter(c => c.title.includes('outside-voice')).length).toBe(3);
-    expect(res).toContain('"outside_model":"google/gemini-4-carbon","outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.2-sol, openai/gpt-6-astra (read-only retry brief) and google/gemini-4-carbon"');
+    expect(res).toContain('"outside_model":"google/gemini-4-carbon","outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.2-sol, openai/gpt-6.2-astra (read-only retry brief) and google/gemini-4-carbon"');
     expect(res).toContain('first write this voice its own adversarial-review row');
     expect(res).toContain('NEXT: judge the voices');
     expect(verify).not.toContain('MISMATCH');
@@ -164,10 +164,10 @@ describe('Capy pass program (fake host, real bins)', () => {
     const lane = { laneModel: 'google/gemini-4-argon', models: { 'outside-voice': { model_id: 'openai/gpt-6.2-sol', reasoning_mode: 'medium' } } };
     const { res, all, h, created, base } = await refusedVoices('x45p1', t => (/outside-voice(\/astra-read-only)?$/.test(t) ? CYBER : undefined), lane);
     expect(all).not.toContain('STOP:');
-    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6-astra brief=read-only');
+    expect(all).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6.2-astra brief=read-only');
     expect(all).toContain('RETRY: exhausted reader=outside-voice/astra-read-only');
     expect(created('outside-voice/gemini-4-carbon')).toBeUndefined();
-    expect(res).toContain('"outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.2-sol and openai/gpt-6-astra (read-only retry brief)"');
+    expect(res).toContain('"outside_status":"unavailable","outside_note":"second-family read missing: cyber_policy refused openai/gpt-6.2-sol and openai/gpt-6.2-astra (read-only retry brief)"');
     expect(res).toContain('NEXT: judge the voices');
     const again = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
     expect(again).not.toContain('STOP:');

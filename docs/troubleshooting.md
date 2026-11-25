@@ -4548,7 +4548,7 @@ says which was which.
 **Fix.** Run the outside voice on a model from another family and pass its id
 with `--model`. Families recognized: anthropic, openai, google, xai, deepseek,
 qwen, zai, moonshot, meta, mistral, minimax. An id the table cannot classify
-is refused; name the model fully (`openai/gpt-6-astra`, not `astra`).
+is refused; name the model fully (`openai/gpt-6.2-astra`, not `astra`).
 
 <a id="spend-cap-exceeded"></a>
 ### `SPEND_CAP_EXCEEDED`

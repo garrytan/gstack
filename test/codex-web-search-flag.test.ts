@@ -105,10 +105,10 @@ describe('codex frontier model flag is present', () => {
     }
   };
 
-  test('the model flag passes the selected model: GSTACK_CODEX_MODEL, then config.toml, then gpt-6-astra', () => {
+  test('the model flag passes the selected model: GSTACK_CODEX_MODEL, then config.toml, then gpt-6.2-astra', () => {
     const select = 'exec' as const;
     const isolation = ['-c', 'skills.include_instructions=false'];
-    expect(flagArgv(CODEX_MODEL_CONFIG_FLAG, select, {})).toEqual(['-c', 'model="gpt-6-astra"', ...isolation]);
+    expect(flagArgv(CODEX_MODEL_CONFIG_FLAG, select, {})).toEqual(['-c', 'model="gpt-6.2-astra"', ...isolation]);
     expect(flagArgv(CODEX_MODEL_CONFIG_FLAG, select, {}, 'model = "gpt-5.6-terra"\n')).toEqual(['-c', 'model="gpt-5.6-terra"', ...isolation]);
     expect(flagArgv(CODEX_MODEL_CONFIG_FLAG, select, { GSTACK_CODEX_MODEL: 'custom-codex' }, 'model = "gpt-5.6-terra"\n')).toEqual(['-c', 'model="custom-codex"', ...isolation]);
     // Without a selection in the same shell the command stops instead of guessing.
@@ -117,7 +117,7 @@ describe('codex frontier model flag is present', () => {
 
   test('the review model flag overrides both model settings with the same selection, and review sites run codex exec with the plain model flag', () => {
     for (const [env, config, expected] of [
-      [{}, undefined, 'gpt-6-astra'],
+      [{}, undefined, 'gpt-6.2-astra'],
       [{ GSTACK_CODEX_MODEL: 'custom-codex' }, 'review_model = "gpt-5.6-luna"\n', 'custom-codex'],
       [{}, 'model = "gpt-5.6-terra"\nreview_model = "gpt-5.6-luna"\n', 'gpt-5.6-luna'],
     ] as const) {

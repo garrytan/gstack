@@ -52,6 +52,8 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           words from, and the row, receipt and Ruled note line then say relayed from it (APPROVAL_RULING_RUN_OPEN without);
           the ref is ${OWNER_REF_SHAPE};
           --not-security: the owner's call that a red-team finding is not security class, so public text shows it;
+          --finding edit:<path> rules an edit after the final review a note: finish routes that path at the head's bytes
+          as RULED_EDIT instead of stopping (docs/ship-policy.md#ruled-edits);
           refused while a /ship run is open on this checkout
   rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry
   gate    --finding <the gate finding's fingerprint> --gate-id <its gate_id> --head <the stop head the owner answered at>

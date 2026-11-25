@@ -7,8 +7,11 @@ session or edits the host's native configuration.
 
 | Tier | Default job | Anthropic | OpenAI |
 | --- | --- | --- | --- |
-| `frontier` | Independent plan review | `claude-fable-5-1` | `gpt-6-astra` |
-| `smart` | Implementation recommendation | `claude-opus-5-5` | `gpt-6.1-sol` |
+| `frontier` | Independent plan review | `claude-fable-5-2` | `gpt-6.2-astra` |
+| `smart` | Implementation recommendation | `claude-opus-5-5` | `gpt-6.2-sol` |
+
+Each entry is the newest model of its family, read from `lib/model-families.ts`,
+so a new generation moves every default at once.
 
 ## Inspect and change your policy
 
@@ -46,8 +49,8 @@ Choose the less expensive review tier, then inspect the effective result:
 Pin a provider's model within a tier, or reset a pin to the shipped default:
 
 ```bash
-"$GSTACK_ROOT/bin/gstack-config" set model_frontier_openai gpt-6-astra
-"$GSTACK_ROOT/bin/gstack-config" set model_frontier_claude claude-fable-5-1
+"$GSTACK_ROOT/bin/gstack-config" set model_frontier_openai gpt-6.2-astra
+"$GSTACK_ROOT/bin/gstack-config" set model_frontier_claude claude-fable-5-2
 "$GSTACK_ROOT/bin/gstack-config" unset model_frontier_openai
 "$GSTACK_ROOT/bin/gstack-config" unset plan_review_tier
 ```

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readConfigKeyWithRoot, type StateRootEnv } from './state-root';
+import { MODEL_FAMILIES, newestModel } from './model-families';
 
 /**
  * The agent role: the model a user wants gstack's working agents (lanes,
@@ -18,17 +19,8 @@ export const PREFERENCES_FILE_MAX_BYTES = 4096;
 const OTHER_PREFERENCE_KEYS = new Set(['telemetry_capy', 'telemetry_capy_source']);
 const DOCS = 'https://github.com/garrytan/gstack/blob/main/docs/model-policy.md#your-model-preference';
 
-/** Family names a preference may use. When gstack's tier catalog lists a family, its entry here is the same model (test/agent-model.test.ts). */
-export const MODEL_FAMILIES = Object.freeze([
-  { family: 'opus', provider: 'anthropic', model: 'claude-opus-5-5' },
-  { family: 'fable', provider: 'anthropic', model: 'claude-fable-5-1' },
-  { family: 'sonnet', provider: 'anthropic', model: 'claude-sonnet-5-5' },
-  { family: 'haiku', provider: 'anthropic', model: 'claude-haiku-5-5' },
-  { family: 'astra', provider: 'openai', model: 'gpt-6-astra' },
-  { family: 'sol', provider: 'openai', model: 'gpt-6.1-sol' },
-  { family: 'luna', provider: 'openai', model: 'gpt-6-luna' },
-  { family: 'terra', provider: 'openai', model: 'gpt-6.1-terra' },
-].map(f => Object.freeze(f)));
+/** Family names a preference may use: lib/model-families.ts, the table gstack's tier catalog also reads. */
+export { MODEL_FAMILIES };
 
 export const AGENT_MODEL_EXEMPTIONS = Object.freeze([
   'a cross-family outside voice (gstack-models resolve --role plan-review)',
@@ -91,7 +83,7 @@ export function parseAgentModel(raw: string): Parsed | null {
 function invalid(value: string, where: string, repair: string[]): AgentModelError {
   return new AgentModelError(
     `agent_model '${sanitize(value)}' in ${where} is not a model gstack can use`,
-    `use host, a family (${MODEL_FAMILIES.map(f => f.family).join(', ')}) or a provider-qualified id such as anthropic/claude-opus-5-5`,
+    `use host, a family (${MODEL_FAMILIES.map(f => f.family).join(', ')}) or a provider-qualified id such as anthropic/${newestModel('opus')}`,
     repair,
   );
 }
