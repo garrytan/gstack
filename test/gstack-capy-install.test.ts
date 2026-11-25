@@ -118,19 +118,28 @@ describe('gstack-capy-install', () => {
     expect(f.calls().some(l => l.startsWith('curl '))).toBe(false);
   });
 
-  test('the Codex setup model comes from the astra row of lib/model-families.ts; an unreadable registry fails setup before either host runs', () => {
+  test('the Codex setup model comes from the astra row of lib/model-families.ts, also under a relative --root; a checkout without the registry keeps setup\'s default; an unreadable registry fails setup before either host runs', () => {
     const f = fixture();
     const registry = path.join(f.root, 'lib/model-families.ts');
     fs.writeFileSync(registry, fs.readFileSync(registry, 'utf8').replace(`model: '${newestModel('astra')}'`, "model: 'gpt-9.9-astra'"));
     const r = run(f);
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(f.calls().filter(l => l.startsWith('setup '))).toEqual(['setup --host claude --no-prefix --no-browser', 'setup --host codex --model gpt-9.9-astra --no-browser']);
+    const rel = fixture();
+    const relative = run(rel, ['--root', 'gstack'], {}, rel.base);
+    expect(relative.status, relative.stdout + relative.stderr).toBe(0);
+    expect(rel.calls().filter(l => l.startsWith('setup '))).toEqual(['setup --host claude --no-prefix --no-browser', `setup --host codex --model ${newestModel('astra')} --no-browser`]);
+    const old = fixture();
+    fs.rmSync(path.join(old.root, 'lib/model-families.ts'));
+    const pre = run(old);
+    expect(pre.status, pre.stdout + pre.stderr).toBe(0);
+    expect(old.calls().filter(l => l.startsWith('setup '))).toEqual(['setup --host claude --no-prefix --no-browser', 'setup --host codex --no-browser']);
     const g = fixture();
-    fs.rmSync(path.join(g.root, 'lib/model-families.ts'));
+    fs.writeFileSync(path.join(g.root, 'lib/model-families.ts'), 'export const MODEL_FAMILIES = [];\n');
     const bad = run(g);
     expect(bad.status).toBe(1);
     expect(g.calls().filter(l => l.startsWith('setup '))).toEqual([]);
-    expect(lastLine(bad.stdout)).toStartWith(`gstack: fail setup — could not read the astra model from ${g.root}/lib/model-families.ts`);
+    expect(lastLine(bad.stdout)).toStartWith(`gstack: fail setup — could not read the astra model from `);
   });
 
   // Integration item 7: setup runs once per host, so each run ends with its

@@ -90,9 +90,10 @@ preregistration, and the other corpora serve no configuration. So the check on
 | `plan-devex-peer-comparison-classification` (`test/fixtures/devex-peer-comparison-classification.ts`) | 3 calibrations | PASS 1/1 | not rerun |
 | `test/redact-semantic-pass.eval.ts` | 5 flag, 5 clean, 1 injection | 11/11 | 11/11 (same items, `GSTACK_EVAL_MODEL_JUDGE`) |
 
-Every item agreed with its label on 5.2. That is agreement on 29 labelled items, one
-sample each, not a kappa estimate: it shows the new judge did not move on these
-controls and says nothing finer.
+Every input agreed with its label on 5.2: 18 labelled inputs (4 + 3 + 11), one sample
+each, and the 11 redaction inputs also agreed on 5.1 when run as a pair. That is not
+a kappa estimate: it shows the new judge did not move on these controls and says
+nothing finer. The runs were local (run id `gsta856-judge52`, 2026-11-25), outside CI.
 
 The remaining callers of the default judge have no labelled outputs to replay, so
 they were not recalibrated: `safety-ship-stale-evidence` (gate tier),
