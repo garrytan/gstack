@@ -12,9 +12,21 @@ make-pdf/dist/
 bin/gstack-global-discover*
 # Build outputs of the removed /cso helper. An upgraded checkout keeps them
 # until ./setup deletes them; ignoring them keeps that checkout clean meanwhile.
-bin/gstack-cso-*
-bin/.gstack-cso-*
-lib/cso/
+bin/gstack-cso-launcher
+bin/gstack-cso-launcher.exe
+bin/gstack-cso-core
+bin/gstack-cso-core.exe
+bin/gstack-cso-watchdog
+bin/gstack-cso-watchdog.exe
+bin/.gstack-cso-stage.*
+bin/.gstack-cso-build.lock/
+bin/.gstack-cso-generation.lock
+bin/.gstack-cso-generation
+bin/.gstack-cso-build-result
+bin/.gstack-cso-build.log
+bin/.gstack-cso-evaluation
+lib/cso/images/gstack-cso-verifier
+lib/cso/images/gstack-cso-preparation
 .gstack/*
 !.gstack/ship-policy.json
 !.gstack/ship-policy.example.json

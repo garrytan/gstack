@@ -160,15 +160,26 @@ describe('setup: NEEDS_BUILD decision executes', () => {
   test('an upgraded checkout loses the removed /cso helper and its build records, and nothing else (GST-3920)', () => {
     const dir = makeTree();
     const leftovers = ['bin/gstack-cso-launcher', 'bin/gstack-cso-core', 'bin/gstack-cso-watchdog', 'bin/gstack-cso-core.exe',
-      'bin/.gstack-cso-generation', 'bin/.gstack-cso-build-result', 'bin/.gstack-cso-build.log',
+      'bin/.gstack-cso-generation', 'bin/.gstack-cso-build-result', 'bin/.gstack-cso-build.log', 'bin/.gstack-cso-evaluation',
+      'bin/.gstack-cso-stage.Ab12Cd/gstack-cso-core', 'bin/.gstack-cso-build.lock/owner',
       'lib/cso/images/gstack-cso-verifier', 'lib/cso/images/gstack-cso-preparation'];
     for (const rel of leftovers) writeAt(path.join(dir, rel), OLD_T, 0o755);
     writeAt(path.join(dir, 'bin/gstack-config'), OLD_T, 0o755);
     expect(decide(dir)).toBe(0);
     for (const rel of leftovers) expect([rel, fs.existsSync(path.join(dir, rel))]).toEqual([rel, false]);
+    expect(fs.existsSync(path.join(dir, 'bin/.gstack-cso-stage.Ab12Cd'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'bin/.gstack-cso-build.lock'))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'lib/cso'))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'bin/gstack-config'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'lib/claude-bin.ts'))).toBe(true);
+  });
+
+  test('a file of your own that only shares the old helper prefix is kept', () => {
+    const dir = makeTree();
+    const own = ['bin/gstack-cso-wrapper', 'bin/.gstack-cso-notes/todo.md', 'bin/.gstack-cso-stage.mine/keep'];
+    for (const rel of own) writeAt(path.join(dir, rel), OLD_T, 0o755);
+    expect(decide(dir)).toBe(0);
+    for (const rel of own) expect([rel, fs.existsSync(path.join(dir, rel))]).toEqual([rel, true]);
   });
 
   test('a lib/cso directory holding anything else is kept', () => {

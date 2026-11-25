@@ -2034,10 +2034,17 @@ fi
 _EXE=""
 if [ "$IS_WINDOWS" -eq 1 ]; then _EXE=".exe"; fi
 # /cso was removed, and its native helper with it. Git leaves the helper an
-# earlier build compiled in this checkout because it is ignored, so remove it,
-# its build records and its two ignored image build outputs.
-rm -rf "$SOURCE_GSTACK_DIR"/bin/gstack-cso-* "$SOURCE_GSTACK_DIR"/bin/.gstack-cso-* \
-  "$SOURCE_GSTACK_DIR/lib/cso/images/gstack-cso-verifier" "$SOURCE_GSTACK_DIR/lib/cso/images/gstack-cso-preparation"
+# earlier build compiled in this checkout because it is ignored, so remove
+# exactly the files and staging directories that build wrote, and its two
+# ignored image build outputs. A locked file (a /cso run still going on
+# Windows) leaves a warning, never a failed setup.
+_CSO_BIN="$SOURCE_GSTACK_DIR/bin"
+rm -rf "$_CSO_BIN/gstack-cso-launcher" "$_CSO_BIN/gstack-cso-launcher.exe" "$_CSO_BIN/gstack-cso-core" "$_CSO_BIN/gstack-cso-core.exe" \
+  "$_CSO_BIN/gstack-cso-watchdog" "$_CSO_BIN/gstack-cso-watchdog.exe" "$_CSO_BIN/.gstack-cso-generation" "$_CSO_BIN/.gstack-cso-generation.lock" \
+  "$_CSO_BIN/.gstack-cso-build-result" "$_CSO_BIN/.gstack-cso-build.log" "$_CSO_BIN/.gstack-cso-build.lock" "$_CSO_BIN/.gstack-cso-evaluation" \
+  "$_CSO_BIN"/.gstack-cso-stage.?????? \
+  "$SOURCE_GSTACK_DIR/lib/cso/images/gstack-cso-verifier" "$SOURCE_GSTACK_DIR/lib/cso/images/gstack-cso-preparation" 2>/dev/null \
+  || echo "warning: could not remove every old /cso helper file under $_CSO_BIN; close any running /cso and re-run ./setup" >&2
 rmdir "$SOURCE_GSTACK_DIR/lib/cso/images" "$SOURCE_GSTACK_DIR/lib/cso" 2>/dev/null || true
 BUILD_STAMP="$SOURCE_GSTACK_DIR/browse/dist/.build-complete"
 NEEDS_BUILD=0
