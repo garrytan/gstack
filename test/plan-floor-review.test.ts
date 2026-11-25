@@ -324,6 +324,13 @@ test('the first structured call the CLI accepted is the assessment',()=>{
   expect(run(rejected,{input:citationFinding()}).kind).toBe('finding');
   expect(run(rejected,{input:placeholder}).kind).toBe('uncertain');
   expect(()=>run(rejected)).toThrow('no accepted structured output');
+  const limit=JSON.stringify({type:'result',subtype:'error_max_turns',is_error:true});
+  const exit=(status:number,stdout:string)=>judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
+   invoke:(()=>({status,stdout,stderr:''})) as any});
+  expect(exit(1,stream(rejected,{input:citationFinding()})+'\n'+limit).kind).toBe('finding');
+  expect(()=>exit(1,stream(rejected)+'\n'+limit)).toThrow('no accepted structured output');
+  expect(()=>exit(1,stream({input:citationFinding()}))).toThrow('did not complete');
+  expect(()=>exit(2,stream({input:citationFinding()})+'\n'+limit)).toThrow('did not complete');
  } finally {log.mockRestore();}
 });
 test('failed assessment retains the complete public response and input identity before throwing',()=>{

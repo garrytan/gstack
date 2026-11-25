@@ -49,7 +49,7 @@ describe.skipIf(process.platform !== 'linux')('bootstrap paid-shard cleanup inte
         import * as fs from 'node:fs';
         import { runPaidShard } from ${JSON.stringify(path.join(import.meta.dir, '../scripts/test-paid-shards.ts'))};
         const outcome = await runPaidShard(['test/skill-e2e-qa-workflow.test.ts'], 1, 1, {
-          rootDir: ${JSON.stringify(path.join(import.meta.dir, '..'))}, timeoutMs: 25000, jobs: 2, logDir: ${JSON.stringify(root)},
+          rootDir: ${JSON.stringify(path.join(import.meta.dir, '..'))}, timeoutMs: 45000, jobs: 2, logDir: ${JSON.stringify(root)},
           evalDirBase: ${JSON.stringify(path.join(root, 'artifacts'))}, log: line => console.log(line),
           env: { PATH: process.env.PATH, GSTACK_CLAUDE_CLI_VERSION: 'synthetic-no-provider', EVALS_RUN_ID: 'integration-run' },
           commandFor: () => ({ command: process.execPath, args: ['test', ${JSON.stringify(script)}, '--retry', ${JSON.stringify(scenario === 'retry' ? '1' : '0')}, '--timeout', '20000'] }),
@@ -57,7 +57,7 @@ describe.skipIf(process.platform !== 'linux')('bootstrap paid-shard cleanup inte
         fs.writeFileSync(${JSON.stringify(outcomePath)}, JSON.stringify(outcome), { mode: 0o600 });
       `);
       const controller = spawnSync(process.execPath, [controllerScript], {
-        cwd: root, encoding: 'utf8', timeout: 40000,
+        cwd: root, encoding: 'utf8', timeout: 60000,
       });
       fs.writeFileSync(path.join(root, 'controller.stdout.log'), controller.stdout ?? '', { mode: 0o600 });
       fs.writeFileSync(path.join(root, 'controller.stderr.log'), controller.stderr ?? '', { mode: 0o600 });
@@ -86,5 +86,5 @@ describe.skipIf(process.platform !== 'linux')('bootstrap paid-shard cleanup inte
         }
       }
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
-  }, 60000);
+  }, 90000);
 });

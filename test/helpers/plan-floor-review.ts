@@ -226,7 +226,8 @@ const PLAN_FLOOR_ASSESSMENT_SCHEMA = JSON.stringify({
 
 /** The first StructuredOutput call the CLI accepted is the assessment. A call
  * the CLI rejects (an extra "metadata" key in a local replay) is no assessment,
- * so the second turn lets the model resend the same answer in the schema. The
+ * so the second turn lets the model resend the same answer in the schema; the
+ * CLI may then end at its turn limit (exit 1, error_max_turns) after accepting it. The
  * CLI's own result keeps the last call, and the model can call it again after
  * committing (a local replay saw a second call replace a finding with "Placeholder"). */
 function firstStructuredAssessment(stream: string): unknown {
@@ -267,7 +268,10 @@ export function judgePlanFloorReview(input: PlanFloorReview, opts: {
         '--json-schema', PLAN_FLOOR_ASSESSMENT_SCHEMA],
       { input: prompt, stdio: ['pipe', 'pipe', 'pipe'], timeout: Math.min(PLAN_FLOOR_ASSESSMENT_CAP_MS, remaining), encoding: 'utf8' });
     Object.assign(diagnostic, { rawOutput: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), status: result.status });
-    if (result.error || result.status !== 0 || Date.now() >= opts.deadlineAt)
+    const turnLimit = result.status === 1 && diagnostic.rawOutput.split('\n').some(line => {
+      try { const event = JSON.parse(line); return event.type === 'result' && event.subtype === 'error_max_turns'; } catch { return false; }
+    });
+    if (result.error || (result.status !== 0 && !turnLimit) || Date.now() >= opts.deadlineAt)
       throw Error(`Floor assessment did not complete: ${result.error?.message ?? `exit ${result.status}`} ${String(result.stderr ?? '').slice(-3000)}`.trim());
     const assessment = resolvePlanFloorCitations(input, firstStructuredAssessment(diagnostic.rawOutput));
     console.log(JSON.stringify({ ...diagnostic, assessment }));
