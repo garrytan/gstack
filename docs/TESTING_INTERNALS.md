@@ -2283,12 +2283,15 @@ people's, at the same count and kappa bar. `## Scoring` then says:
   absent means people.
 - `blind: yes`: the labeller sees each output with no judge verdict and no
   arm name.
-- `anchors: <n>` and `anchor-pass: <k>`: known-answer anchors, items whose
-  label is fixed by construction, frozen with the plan, and how many the
-  labeller must answer right before any of its labels count.
+- `anchors: <n>`, `anchor-pass: <k>` and `anchors-digest: <hex>`:
+  known-answer anchors, items whose label is fixed by construction, frozen
+  with the plan; how many the labeller must answer right before any of its
+  labels count; and the digest `gstack-eval-plan anchors --hash <file>`
+  prints for the frozen `{"id", "expected"}` rows.
 
 `judge --check --anchors <file>` scores the labeller's `{"id", "expected",
-"label"}` answers first (`JUDGE_ANCHORS:`); a "can't tell" is a miss. The
+"label"}` answers first (`JUDGE_ANCHORS:`); a "can't tell" is a miss, and
+ids or expected answers that don't hash to `anchors-digest:` are refused. The
 results file then carries `judge checked against <model>, a third model, not
 against people`, which `judge --check` prints as `JUDGE_RESULTS_LINE:`.
 Why the anchors are required: on the /cso check, Neon answered yes on only 1

@@ -5426,9 +5426,10 @@ least 0.6). With `per-arm: yes` in `## Scoring`, it also refuses a label row
 with no `arm`, rows naming an arm not in `## Arms`, an arm with no rows, or
 any arm whose own kappa is below the bar (its `JUDGE_ARM:` line). When
 `labels-by:` names a third-family model (R126, code judges only), it also
-refuses a missing `--anchors` file, an anchor count other than the frozen
-`anchors:` count, an anchor id that is also a label row, or fewer right
-answers than `anchor-pass:` (its `JUDGE_ANCHORS:` line). Until it passes,
+refuses a missing `--anchors` file, anchor ids or expected answers that
+don't hash to the plan's `anchors-digest:`, an anchor count other than the
+frozen `anchors:` count, an anchor id that is also a label row, or fewer
+right answers than `anchor-pass:` (its `JUDGE_ANCHORS:` line). Until it passes,
 the judge's numbers do not count.
 
 **Fix.** Label outputs by hand from development or calibration rows, never

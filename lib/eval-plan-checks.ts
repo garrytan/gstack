@@ -7,6 +7,7 @@
  * `frozen:` date is before RESULT_CHECKS_SINCE keeps the rules it was frozen
  * under. Reads text only; executes nothing.
  */
+import { createHash } from 'node:crypto';
 import { currentReplacement } from './pricing';
 
 export const RESULT_CHECKS_SINCE = '2026-11-15';
@@ -197,7 +198,7 @@ export function checkDecisions(body: string[] | null): DecisionsCheck {
   return { outcomes, errors };
 }
 
-export interface ModelLabeller { model: string; anchors: number | null; anchor_pass: number | null }
+export interface ModelLabeller { model: string; anchors: number | null; anchor_pass: number | null; anchors_digest: string | null }
 export interface ScoringCheck { judge: string | null; labels: number | null; agreement: number | null; errors: string[]; per_arm?: boolean; min_labels?: number; labeller?: ModelLabeller | null }
 /**
  * `## Scoring`: `judge: none` or the judge model; a model judge needs `labels:`
@@ -219,7 +220,7 @@ export function checkScoring(body: string[] | null, arms: string[], frozen: stri
   else if (judge.toLowerCase() !== 'none') {
     const by = (kv['labels-by'] ?? 'people').trim();
     if (!(LABEL_SOURCES as readonly string[]).includes(by.toLowerCase())) {
-      labeller = { model: by, anchors: firstNumber(kv.anchors), anchor_pass: firstNumber(kv['anchor-pass']) };
+      labeller = { model: by, anchors: firstNumber(kv.anchors), anchor_pass: firstNumber(kv['anchor-pass']), anchors_digest: /^[0-9a-f]{64}$/i.test(kv['anchors-digest'] ?? '') ? kv['anchors-digest']!.toLowerCase() : null };
       errors.push(...labellerErrors(labeller, kv, judge, arms));
     }
     if (labels === null || labels < min_labels) errors.push(`labels: needs at least ${min_labels} ${labeller ? '' : 'hand-'}labelled outputs the judge is checked against${min_labels > JUDGE_MIN_LABELS ? ` (${JUDGE_MIN_LABELS} only for a plan frozen before ${JUDGE_LABELS_RAISED_SINCE})` : ''}`);
@@ -248,10 +249,11 @@ function labellerErrors(l: ModelLabeller, kv: Record<string, string>, judge: str
   if (!/^yes\b/i.test(kv.blind ?? '')) errors.push('blind: yes (the labeller sees each output with no judge verdict and no arm name)');
   if (l.anchors === null || l.anchors < 1 || !filled(kv.anchors)) errors.push('anchors: <n> frozen known-answer anchors (items whose label is fixed by construction) the labeller answers before its labels count, and where they are frozen');
   if (l.anchor_pass === null || l.anchor_pass < 1 || (l.anchors !== null && l.anchor_pass > l.anchors)) errors.push('anchor-pass: <k>, how many anchors the labeller must answer right before its labels count (1 to the anchors: count)');
+  if (l.anchors_digest === null) errors.push('anchors-digest: the 64-hex digest gstack-eval-plan anchors --hash prints for the frozen anchor ids and expected answers, so the answers are scored against the set frozen with the plan');
   return errors;
 }
 
-export interface AnchorCheck { labeller: string; n: number; right: number; need_n: number | null; need_right: number | null }
+export interface AnchorCheck { labeller: string; n: number; right: number; need_n: number | null; need_right: number | null; frozen: boolean }
 export interface JudgeLabelCheck { ok: boolean; judge: string; n: number; kappa: number | null; need_n: number; need_kappa: number; problems: string[]; arms: Array<{ arm: string; n: number; kappa: number | null }>; labels_by?: string; anchors?: AnchorCheck | null }
 
 /** Cohen's kappa over paired categorical labels; null when chance agreement is total (every label one class). */
@@ -265,29 +267,46 @@ export function cohensKappa(pairs: Array<[string, string]>): number | null {
   return pe === 1 ? null : (agree / n - pe) / (1 - pe);
 }
 
-/**
- * Score the labeller's answers on the frozen known-answer anchors, JSONL rows `{"id", "expected", "label"}`. A
- * "can't tell" or any answer other than the expected one is a miss.
- */
-export function checkAnchors(l: ModelLabeller, anchorsText: string | null, labelIds: Set<string>): { check: AnchorCheck | null; problems: string[] } {
-  if (anchorsText === null) return { check: null, problems: [`labels-by: ${l.model} is a model; pass --anchors <file> with its answers on the ${l.anchors ?? 'preregistered'} frozen known-answer anchors, and its labels count only at anchor-pass: ${l.anchor_pass ?? '?'} or better (R126)`] };
+const scalar = (v: unknown) => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number' || typeof v === 'boolean';
+/** The anchor rows of a JSONL file: `{"id", "expected"}`, plus `"label"` (the labeller's answer) when `answered`. */
+function anchorRows(text: string, answered: boolean) {
+  const rows: Array<{ id: string; expected: string; label: string }> = [];
   const problems: string[] = [];
   const ids = new Set<string>();
-  let right = 0;
-  anchorsText.split('\n').forEach((line, i) => {
+  text.split('\n').forEach((line, i) => {
     if (!line.trim()) return;
     let row: { id?: unknown; expected?: unknown; label?: unknown } | null = null;
     try { row = JSON.parse(line); } catch { row = null; }
-    if (!row || typeof row !== 'object' || ![row.id, row.expected, row.label].every(v => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number' || typeof v === 'boolean')) { problems.push(`anchors line ${i + 1}: needs {"id", "expected", "label"}, each a string, number or boolean`); return; }
+    if (!row || typeof row !== 'object' || ![row.id, row.expected, ...(answered ? [row.label] : [])].every(scalar)) { problems.push(`anchors line ${i + 1}: needs {"id", "expected"${answered ? ', "label"' : ''}}, each a string, number or boolean`); return; }
     const id = String(row.id);
-    if (ids.has(id)) { problems.push(`anchor ${id} is answered twice`); return; }
-    if (labelIds.has(id)) problems.push(`anchor ${id} is also a label row; anchors do not count toward the labels`);
+    if (ids.has(id)) { problems.push(`anchor ${id} appears twice`); return; }
     ids.add(id);
-    if (String(row.label) === String(row.expected)) right++;
+    rows.push({ id, expected: String(row.expected), label: String(row.label) });
   });
-  const check: AnchorCheck = { labeller: l.model, n: ids.size, right, need_n: l.anchors, need_right: l.anchor_pass };
-  if (l.anchors !== null && ids.size !== l.anchors) problems.push(`${ids.size} anchors answered, the plan froze ${l.anchors}`);
-  if (l.anchor_pass === null || right < l.anchor_pass) problems.push(`${l.model} answered ${right} of ${ids.size} anchors right, below the pass line ${l.anchor_pass ?? '?'}; its labels do not count`);
+  return { rows, problems };
+}
+/** sha256 of the anchor ids and expected answers, order-free: what `anchors-digest:` freezes in the plan. */
+export const anchorSetDigest = (rows: Array<{ id: string; expected: string }>) =>
+  createHash('sha256').update(rows.map(r => JSON.stringify([r.id, r.expected])).sort().join('\n')).digest('hex');
+/** `gstack-eval-plan anchors --hash`: the digest of a frozen anchor file of `{"id", "expected"}` rows. */
+export function hashAnchors(text: string): { n: number; sha256: string; problems: string[] } {
+  const { rows, problems } = anchorRows(text, false);
+  return { n: rows.length, sha256: anchorSetDigest(rows), problems };
+}
+
+/**
+ * Score the labeller's answers on the frozen known-answer anchors, JSONL rows `{"id", "expected", "label"}` whose ids
+ * and expected answers must hash to the plan's `anchors-digest:`. A "can't tell" or any other answer is a miss.
+ */
+export function checkAnchors(l: ModelLabeller, anchorsText: string | null, labelIds: Set<string>): { check: AnchorCheck | null; problems: string[] } {
+  if (anchorsText === null) return { check: null, problems: [`labels-by: ${l.model} is a model; pass --anchors <file> with its answers on the ${l.anchors ?? 'preregistered'} frozen known-answer anchors, and its labels count only at anchor-pass: ${l.anchor_pass ?? '?'} or better (R126)`] };
+  const { rows, problems } = anchorRows(anchorsText, true);
+  for (const r of rows) if (labelIds.has(r.id)) problems.push(`anchor ${r.id} is also a label row; anchors do not count toward the labels`);
+  if (anchorSetDigest(rows) !== l.anchors_digest) problems.push(`the anchor ids and expected answers hash to ${anchorSetDigest(rows)}, not the frozen anchors-digest ${l.anchors_digest ?? '(none)'}; score the labeller on the anchors frozen with the plan`);
+  const right = rows.filter(r => r.label === r.expected).length;
+  const check: AnchorCheck = { labeller: l.model, n: rows.length, right, need_n: l.anchors, need_right: l.anchor_pass, frozen: anchorSetDigest(rows) === l.anchors_digest };
+  if (l.anchors !== null && rows.length !== l.anchors) problems.push(`${rows.length} anchors answered, the plan froze ${l.anchors}`);
+  if (l.anchor_pass === null || right < l.anchor_pass) problems.push(`${l.model} answered ${right} of ${rows.length} anchors right, below the pass line ${l.anchor_pass ?? '?'}; its labels do not count`);
   return { check, problems };
 }
 
@@ -331,4 +350,4 @@ export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string, plan
   return { ok: problems.length === 0, judge: scoring.judge ?? 'none', n: pairs.length, kappa, need_n, need_kappa, problems, arms, labels_by: scoring.labeller.model, anchors: anchors.check };
 }
 
-export const renderJudgeLabels = (c: JudgeLabelCheck) => (c.anchors ? `JUDGE_ANCHORS: ${c.anchors.need_right !== null && c.anchors.right >= c.anchors.need_right && c.anchors.n === c.anchors.need_n ? 'ok' : 'missed'} labeller=${c.anchors.labeller} right=${c.anchors.right}/${c.anchors.n} pass=${c.anchors.need_right ?? '?'}\n` : '') + c.arms.map(a => `JUDGE_ARM: ${a.arm} n=${a.n} kappa=${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} bar=${c.need_kappa}\n`).join('') + `JUDGE_AGREEMENT: ${c.ok ? 'ok' : 'unchecked'} judge=${c.judge} n=${c.n}/${c.need_n} kappa=${c.kappa === null ? 'undefined' : c.kappa.toFixed(2)} bar=${c.need_kappa}${c.labels_by ? ` labels_by=${c.labels_by}` : ''}\n` + (c.labels_by ? `JUDGE_RESULTS_LINE: ${thirdModelLine(c.labels_by)}\n` : '');
+export const renderJudgeLabels = (c: JudgeLabelCheck) => (c.anchors ? `JUDGE_ANCHORS: ${c.anchors.need_right !== null && c.anchors.right >= c.anchors.need_right && c.anchors.n === c.anchors.need_n && c.anchors.frozen ? 'ok' : 'missed'} labeller=${c.anchors.labeller} right=${c.anchors.right}/${c.anchors.n} pass=${c.anchors.need_right ?? '?'} frozen=${c.anchors.frozen ? 'match' : 'mismatch'}\n` : '') + c.arms.map(a => `JUDGE_ARM: ${a.arm} n=${a.n} kappa=${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} bar=${c.need_kappa}\n`).join('') + `JUDGE_AGREEMENT: ${c.ok ? 'ok' : 'unchecked'} judge=${c.judge} n=${c.n}/${c.need_n} kappa=${c.kappa === null ? 'undefined' : c.kappa.toFixed(2)} bar=${c.need_kappa}${c.labels_by ? ` labels_by=${c.labels_by}` : ''}\n` + (c.labels_by ? `JUDGE_RESULTS_LINE: ${thirdModelLine(c.labels_by)}\n` : '');
