@@ -1,0 +1,7 @@
+@media screen {
+  body { max-width: 42em; margin: 0 auto; padding: 2.5em 1.5em; }
+  .chapter { break-before: auto; }
+  .watermark { display: none; }
+  figure.diagram { overflow-x: auto; }
+  .toc li .toc-page, .toc li .toc-dots { display: none; }
+}

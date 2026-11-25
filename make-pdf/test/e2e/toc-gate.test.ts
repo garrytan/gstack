@@ -113,7 +113,11 @@ function checkToc(pdf: string): void {
 describe("TOC page-number gate (#2903)", () => {
   const avail = prerequisitesAvailable();
 
-  for (const variant of [{ name: "cover + toc", args: ["--cover", "--toc"] }, { name: "toc only", args: ["--toc"] }]) {
+  for (const variant of [
+    { name: "cover + toc", args: ["--cover", "--toc"] },
+    { name: "toc only", args: ["--toc"] },
+    { name: "plain cover + toc", args: ["--cover", "--toc", "--style", "plain"] },
+  ]) {
     test.skipIf(!avail.ok)(`${variant.name}: every TOC cell holds its heading's printed page and every link lands there`, () => {
       if (!avail.ok) return;
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "make-pdf-toc-gate-"));

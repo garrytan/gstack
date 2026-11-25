@@ -42,11 +42,14 @@ function prerequisitesAvailable(): { ok: true } | { ok: false; reason: string } 
 describe("combined-features copy-paste gate", () => {
   const avail = prerequisitesAvailable();
 
-  test.skipIf(!avail.ok)("fixture PDF extracts cleanly through pdftotext", () => {
+  // Both looks extract the same text in the same order: swiss moves sub-headings
+  // into a left field and paints bars, and copy-paste must not notice.
+  for (const style of ["swiss", "plain"]) {
+  test.skipIf(!avail.ok)(`${style}: fixture PDF extracts cleanly through pdftotext`, () => {
     if (!avail.ok) return; // satisfies the type checker
-    const outputPdf = path.join(os.tmpdir(), `make-pdf-combined-gate-${process.pid}.pdf`);
+    const outputPdf = path.join(os.tmpdir(), `make-pdf-combined-gate-${style}-${process.pid}.pdf`);
     try {
-      execFileSync(PDF_BIN, ["generate", FIXTURE, outputPdf, "--quiet"], {
+      execFileSync(PDF_BIN, ["generate", FIXTURE, outputPdf, "--quiet", "--style", style], {
         encoding: "utf8",
         timeout: 60_000,
         stdio: ["ignore", "pipe", "pipe"],
@@ -65,6 +68,7 @@ describe("combined-features copy-paste gate", () => {
       try { fs.unlinkSync(outputPdf); } catch { /* ignore */ }
     }
   }, 60000);
+  }
 
   if (!avail.ok) {
     test("prerequisites check", () => {

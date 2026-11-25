@@ -75,12 +75,13 @@ function generate(args: string[], outputPdf: string): void {
 describe("landscape promotion gate", () => {
   const avail = prerequisitesAvailable();
 
-  test.skipIf(!avail.ok)("exactly the promoted blocks get landscape pages", () => {
+  for (const style of ["swiss", "plain"]) {
+  test.skipIf(!avail.ok)(`${style}: exactly the promoted blocks get landscape pages`, () => {
     if (!avail.ok) return;
     const workDir = fs.mkdtempSync("/tmp/make-pdf-landscape-gate-");
     const outputPdf = path.join(workDir, "out.pdf");
     try {
-      generate([], outputPdf);
+      generate(["--style", style], outputPdf);
       const boxes = pageBoxes(outputPdf);
       const landscape = boxes.filter(isLandscape);
       const portrait = boxes.filter((b) => !isLandscape(b));
@@ -113,6 +114,7 @@ describe("landscape promotion gate", () => {
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
   }, 120000);
+  }
 
   test.skipIf(!avail.ok)("--toc combo: TOC renders and landscape promotion survives", () => {
     if (!avail.ok) return;

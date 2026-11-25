@@ -13,7 +13,8 @@
 
 import { COMMANDS } from "./commands";
 import { ExitCode, BrowserUnavailableError } from "./types";
-import type { GenerateOptions, PreviewOptions } from "./types";
+import type { GenerateOptions, PreviewOptions, Style } from "./types";
+import { STYLES } from "./style-swiss";
 
 interface ParsedArgs {
   command: string;
@@ -85,8 +86,14 @@ function printUsage(): void {
   lines.push("                            html = single self-contained file, no network refs.");
   lines.push("                            docx = content fidelity, diagrams as PNG.");
   lines.push("");
+  lines.push("Look:");
+  lines.push("  --style swiss|plain       swiss (default): bold Swiss layout, black heading bars,");
+  lines.push("                            red accents, a left field for sub-headings.");
+  lines.push("                            plain: the look before swiss, unchanged.");
+  lines.push("");
   lines.push("Page layout:");
-  lines.push("  --margins <dim>           All four margins (default: 1in). in, pt, cm, mm.");
+  lines.push("  --margins <dim>           All four margins (default: 0.7in 0.75in 0.85in 0.75in");
+  lines.push("                            under swiss, 1in under plain). in, pt, cm, mm.");
   lines.push("  --page-size letter|a4|legal  (aliases: --format — page SIZE, not output format)");
   lines.push("");
   lines.push("Document structure:");
@@ -126,6 +133,15 @@ function printUsage(): void {
   console.error(lines.join("\n"));
 }
 
+function styleFromFlags(f: Record<string, string | boolean>, command: string): Style | undefined {
+  if (f.style === undefined) return undefined;
+  const value = typeof f.style === "string" ? f.style.toLowerCase() : "";
+  if ((STYLES as readonly string[]).includes(value)) return value as Style;
+  const got = typeof f.style === "string" ? `'${f.style}'` : "no value";
+  console.error(`$P ${command}: invalid --style (got ${got}). Expected ${STYLES.join(" or ")}, for example --style plain.`);
+  process.exit(ExitCode.BadArgs);
+}
+
 function generateOptionsFromFlags(parsed: ParsedArgs): GenerateOptions {
   const p = parsed.positional;
   if (p.length === 0) {
@@ -149,6 +165,7 @@ function generateOptionsFromFlags(parsed: ParsedArgs): GenerateOptions {
     input: p[0],
     output: p[1],
     to: to as GenerateOptions["to"],
+    style: styleFromFlags(f, "generate"),
     margins: f.margins as string | undefined,
     marginTop: f["margin-top"] as string | undefined,
     marginRight: f["margin-right"] as string | undefined,
@@ -192,6 +209,7 @@ function previewOptionsFromFlags(parsed: ParsedArgs): PreviewOptions {
   };
   return {
     input: p[0],
+    style: styleFromFlags(f, "preview"),
     cover: f.cover === true,
     toc: f.toc === true,
     watermark: typeof f.watermark === "string" ? f.watermark : undefined,

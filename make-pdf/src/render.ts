@@ -13,7 +13,8 @@
 
 import { marked } from "marked";
 import { smartypants } from "./smartypants";
-import { printCss, type PrintCssOptions } from "./print-css";
+import { DEFAULT_STYLE, printCss, resolveMargins, type PrintCssOptions, type Style } from "./print-css";
+import { swissCoverTitle, swissFieldHeadingLines } from "./style-swiss";
 import { applyImageDirectives } from "./image-policy";
 
 export interface RenderOptions {
@@ -31,6 +32,9 @@ export interface RenderOptions {
   watermark?: string;
   noChapterBreaks?: boolean;
   confidential?: boolean;         // default: true
+
+  // Look: "swiss" (default) or "plain".
+  style?: Style;
 
   // Page layout
   pageSize?: "letter" | "a4" | "legal" | "tabloid";
@@ -95,7 +99,9 @@ export function render(opts: RenderOptions): RenderResult {
   // numbering is always off in orchestrator). If the caller supplied a custom
   // footerTemplate, suppress CSS page numbers too so their footer wins.
   const showPageNumbers = opts.pageNumbers !== false && !opts.footerTemplate;
+  const style = opts.style ?? DEFAULT_STYLE;
   const cssOptions: PrintCssOptions = {
+    style,
     cover: opts.cover,
     toc: opts.toc,
     noChapterBreaks: opts.noChapterBreaks,
@@ -105,7 +111,7 @@ export function render(opts: RenderOptions): RenderResult {
     pageSize: opts.pageSize,
     // Compose per-side margins into the CSS shorthand so @page stays the
     // single source of truth even under preferCSSPageSize.
-    margins: composeMargins(opts),
+    margins: composeMargins(resolveMargins(opts, style)),
     pageNumbers: showPageNumbers,
   };
   const css = printCss(cssOptions);
@@ -117,6 +123,7 @@ export function render(opts: RenderOptions): RenderResult {
         subtitle: opts.subtitle,
         author: derivedAuthor,
         date: derivedDate,
+        style,
       })
     : "";
 
@@ -128,10 +135,12 @@ export function render(opts: RenderOptions): RenderResult {
 
   const tocBlock = opts.toc ? buildTocBlock(anchored.entries) : "";
 
+  const laidOutHtml = style === "swiss" ? keepFieldHeadingsWithText(anchoredHtml) : anchoredHtml;
+
   // Wrap body in .chapter sections at H1 boundaries if chapter breaks are on.
   const chapterHtml = opts.noChapterBreaks
-    ? `<section class="chapter">${anchoredHtml}</section>`
-    : wrapChaptersByH1(anchoredHtml);
+    ? `<section class="chapter">${laidOutHtml}</section>`
+    : wrapChaptersByH1(laidOutHtml);
 
   const watermarkBlock = opts.watermark
     ? `<div class="watermark">${escapeHtml(opts.watermark)}</div>`
@@ -401,19 +410,63 @@ function sanitizePass(html: string): string {
 
 // ─── Cover / TOC / Chapter helpers ────────────────────────────────────
 
+/**
+ * swiss sets an h3 in the left field beside the text that follows it. A float
+ * does not move with that text: when orphans push a paragraph to the next
+ * page, a floated sub-heading stays behind at the page foot. So the h3 and the
+ * paragraph, list or quote right after it go in <div class="swiss-keep">,
+ * where the CSS pins the h3 to the wrapper's top and the wrapper starts where
+ * the text does. min-height keeps a sub-heading longer than its text clear of
+ * the next block. (Code, tables and figures need no wrapper: the CSS keeps the
+ * h3 in normal flow above them.)
+ */
+export function keepFieldHeadingsWithText(html: string): string {
+  const out: string[] = [];
+  const h3 = /<h3\b[^>]*>(?:(?!<\/h3>)[\s\S])*<\/h3>/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = h3.exec(html)) !== null) {
+    const after = html.slice(h3.lastIndex);
+    const open = after.match(/^\s*<(p|ul|ol|blockquote)\b/);
+    const end = open ? closingIndex(after, open[1]) : -1;
+    if (end < 0) continue;
+    const minPt = swissFieldHeadingLines(stripTags(m[0])) * 13 + 2;
+    out.push(html.slice(last, m.index), `<div class="swiss-keep" style="min-height: ${minPt}pt;">${m[0]}${after.slice(0, end)}</div>`);
+    last = h3.lastIndex + end;
+    h3.lastIndex = last;
+  }
+  out.push(html.slice(last));
+  return out.join("");
+}
+
+/** Index just past the close of the first <tag> in s, counting nested same-name tags; -1 if unbalanced. */
+function closingIndex(s: string, tag: string): number {
+  const re = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+  let depth = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    depth += m[1] ? -1 : 1;
+    if (depth === 0) return re.lastIndex;
+  }
+  return -1;
+}
+
 function buildCoverBlock(opts: {
   title: string;
   subtitle?: string;
   author?: string;
   date: string;
+  style: Style;
 }): string {
   const title = escapeHtml(opts.title);
+  const size = opts.style === "swiss" ? swissCoverTitle(opts.title) : undefined;
+  const titleStyle = size ? ` style="font-size: ${size.fontPt}pt; padding-top: ${size.padTopIn}in;"` : "";
   const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : "";
   const author = opts.author ? escapeHtml(opts.author) : "";
   const date = escapeHtml(opts.date);
   return [
     `<section class="cover">`,
-    `  <h1 class="cover-title">${title}</h1>`,
+    `  <h1 class="cover-title"${titleStyle}>${title}</h1>`,
     subtitle ? `  <p class="cover-subtitle">${subtitle}</p>` : ``,
     `  <hr class="rule">`,
     `  <div class="cover-meta">`,

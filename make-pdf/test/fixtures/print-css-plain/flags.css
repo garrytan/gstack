@@ -1,0 +1,217 @@
+@page {
+  size: a4;
+  margin: 72pt;
+  @top-center { content: "Title \"q\""; font-family: Helvetica, "Liberation Sans", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-size: 9pt; color: #666; }
+}
+@page :first {
+  @top-center { content: none; }
+  @bottom-center { content: none; }
+  @bottom-right { content: none; }
+}
+@page wide {
+  size: a4 landscape;
+  margin: 72pt;
+}
+.page-wide {
+  page: wide;
+  text-align: center;
+}
+.page-wide img, .page-wide svg { width: 100%; height: auto; max-width: none; }
+.page-wide figure.diagram > svg { max-width: none; }
+
+html { lang: en; }
+img { max-width: 100%; height: auto; }
+body {
+  font-family: Helvetica, "Liberation Sans", Arial, "PingFang SC", "Heiti SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 12pt;
+  line-height: 1.5;
+  color: #111;
+  background: white;
+  hyphens: manual;
+  font-variant-ligatures: common-ligatures;
+  font-kerning: normal;
+  text-rendering: geometricPrecision;
+  margin: 0;
+  padding: 0;
+}
+
+.cover {
+  page: first;
+  page-break-after: always;
+  break-after: page;
+  text-align: left;
+  padding-top: 1.4in;
+}
+.cover .eyebrow {
+  font-size: 11pt;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #666;
+  margin: 0 0 36pt;
+}
+.cover h1.cover-title {
+  font-size: 56pt;
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 24pt;
+  max-width: 6in;
+  text-align: left;
+}
+.cover .cover-subtitle {
+  font-size: 18pt;
+  line-height: 1.35;
+  font-weight: 400;
+  color: #333;
+  margin: 0 0 36pt;
+  max-width: 5.5in;
+  text-align: left;
+}
+.cover hr.rule {
+  width: 2.5in;
+  height: 0;
+  border: 0;
+  border-top: 1.5px solid #111;
+  margin: 0 0 24pt 0;
+}
+.cover .cover-meta { font-size: 13pt; line-height: 1.6; color: #333; text-align: left; }
+.cover .cover-meta strong { font-weight: 700; }
+
+.toc { page-break-after: always; break-after: page; }
+.toc h2 {
+  font-size: 16pt;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: #444;
+  font-weight: 700;
+  margin: 0 0 0.4in;
+}
+.toc ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.toc li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25in;
+  font-size: 12pt;
+  line-height: 1.7;
+  padding: 3pt 0;
+}
+.toc li .toc-title { flex: 0 0 auto; }
+.toc li .toc-dots { flex: 1 1 auto; border-bottom: 1px dotted #aaa; margin: 0 6pt; transform: translateY(-4pt); }
+.toc li .toc-page { flex: 0 0 auto; color: #666; font-variant-numeric: tabular-nums; }
+.toc li.level-2 { padding-left: 0.35in; font-size: 11pt; }
+.toc li a { color: inherit; text-decoration: none; }
+
+/* chapter breaks disabled */
+h1 {
+  font-size: 26pt;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.25in;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+h2 { font-size: 18pt; line-height: 1.3; font-weight: 700; margin: 26pt 0 8pt; break-after: avoid; page-break-after: avoid; }
+h3 { font-size: 13.5pt; line-height: 1.4; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #333; margin: 20pt 0 5pt; break-after: avoid; page-break-after: avoid; }
+h4 { font-size: 12pt; font-weight: 700; margin: 14pt 0 5pt; break-after: avoid; page-break-after: avoid; }
+
+p {
+  margin: 0 0 12pt;
+  text-align: left;
+  widows: 3;
+  orphans: 3;
+}
+p:first-child { margin-top: 0; }
+p.lead { font-size: 14pt; line-height: 1.45; color: #222; margin: 0 0 18pt; }
+
+a {
+  color: #0055cc;
+  text-decoration: underline;
+  text-decoration-thickness: 0.5pt;
+  text-underline-offset: 1.5pt;
+}
+strong { font-weight: 700; }
+em { font-style: italic; }
+
+code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10.5pt;
+  background: #f4f4f4;
+  padding: 1pt 3pt;
+  border-radius: 2pt;
+  border: 0.5pt solid #e4e4e4;
+}
+pre {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10pt;
+  line-height: 1.4;
+  background: #f7f7f5;
+  padding: 10pt 12pt;
+  border: 0.5pt solid #e0e0e0;
+  border-radius: 3pt;
+  margin: 12pt 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+.hljs-keyword { color: #8b0000; font-weight: 500; }
+.hljs-string { color: #0d6608; }
+.hljs-comment { color: #888; font-style: italic; }
+.hljs-function, .hljs-title { color: #0044aa; }
+.hljs-number { color: #a64d00; }
+
+blockquote {
+  margin: 12pt 0;
+  padding: 0 0 0 18pt;
+  border-left: 2pt solid #111;
+  color: #333;
+  font-size: 12pt;
+  line-height: 1.5;
+}
+blockquote p { margin-bottom: 6pt; text-align: left; }
+blockquote cite { display: block; margin-top: 6pt; font-style: normal; font-size: 10pt; color: #666; letter-spacing: 0.02em; }
+blockquote cite::before { content: "— "; }
+
+figure { margin: 12pt 0; }
+figure img { display: block; max-width: 100%; height: auto; }
+figcaption { font-size: 10pt; color: #666; margin-top: 6pt; font-style: italic; }
+figure.diagram { break-inside: avoid; text-align: center; }
+figure.diagram > svg { max-width: 100%; height: auto; }
+figure.diagram .diagram-caption { text-align: center; }
+figure.diagram-error { border: 1.5pt solid #b00020; padding: 8pt 10pt; text-align: left; }
+figure.diagram-error .diagram-error-title { font-weight: 700; color: #b00020; font-style: normal; margin: 0 0 6pt; }
+figure.diagram-error .diagram-error-detail { font-size: 8.5pt; white-space: pre-wrap; margin: 0; }
+.image-missing { display: inline-block; border: 1pt dashed #b00020; color: #b00020; padding: 4pt 8pt; font-size: 9pt; }
+
+table { width: 100%; border-collapse: collapse; margin: 12pt 0; font-size: 11pt; }
+th, td { border-bottom: 0.5pt solid #ccc; padding: 5pt 8pt; text-align: left; vertical-align: top; }
+th { font-weight: 700; border-bottom: 1pt solid #111; background: transparent; }
+
+ul, ol { margin: 0 0 12pt 0; padding-left: 20pt; }
+li { margin-bottom: 3pt; line-height: 1.45; }
+li > ul, li > ol { margin-top: 3pt; margin-bottom: 0; }
+
+.footnote-ref { font-size: 0.75em; vertical-align: super; line-height: 0; text-decoration: none; color: #0055cc; }
+.footnotes { margin-top: 24pt; padding-top: 12pt; border-top: 0.5pt solid #ccc; font-size: 10pt; line-height: 1.4; }
+.footnotes ol { padding-left: 18pt; }
+
+.watermark {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-30deg);
+  font-size: 140pt;
+  font-weight: 700;
+  color: rgba(200, 0, 0, 0.06);
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  z-index: 9999;
+  user-select: none;
+  white-space: nowrap;
+}
+
+blockquote, pre, code, table, figure, li, .keep-together { break-inside: avoid; page-break-inside: avoid; }
