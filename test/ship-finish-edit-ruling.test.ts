@@ -92,4 +92,24 @@ describe('finish honours an edit ruling after the final review (GST-3775)', () =
     expect(r.stdout).toContain('RULED_EDIT: test/x.test.ts (');
     expect(r.stdout).toMatch(new RegExp(`^RULED_NOTE: edit:test/\\uFFFDy\\.test\\.ts at .* \\(no RULED_EDIT at this head; not applied\\)$`, 'm'));
   });
+
+  // Value: protects=a ruling on a replacement-character spelling never clears an edit to a different file: a filename with
+  //   invalid UTF-8 changed after review reaches finish as the spelling of an unchanged file that holds a literal U+FFFD;
+  //   fails_when=finish prints RULED_EDIT for the unchanged file and the unreviewed edit ships; seam=finish's route refusal
+  test('a ruled spelling with a replacement character stops finish even when a file of that name exists', () => {
+    const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n', 'test/\uFFFDy.test.ts': TEST_V1 }, { 'src/x.ts': 'export const x = 2;\n' });
+    ships.push(f);
+    const raw = Buffer.concat([Buffer.from(path.join(f.work, 'test') + path.sep), Buffer.from([0xff]), Buffer.from('y.test.ts')]);
+    fs.writeFileSync(raw, TEST_V1); f.commit('add a test whose name is not UTF-8');
+    const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+    const post = path.join(f.root, 'post.json');
+    expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', 'README.md']).status).toBe(0);
+    fs.writeFileSync(raw, TEST_V2); f.commit('edit it after the final review');
+    const routed = 'test/\uFFFDy.test.ts';
+    expect(rule(f, routed, f.git('rev-parse', 'HEAD').stdout.trim()).status).toBe(0);
+    const r = finish(f, reviewed, post);
+    expect([r.status, r.stdout]).toEqual([3, expect.stringContaining(`${STOPPED} (${routed})`)]);
+    expect(r.stdout).not.toContain('RULED_EDIT:');
+    expect(lineOf(r.stdout, 'RULED_EDIT_REFUSED')).toStartWith(`RULED_EDIT_REFUSED: ${routed} (its spelling holds a replacement character (U+FFFD)`);
+  });
 });

@@ -460,6 +460,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     const [at, cur] = [entry(n.head, p), entry(now, p)], where = (e: string | null) => e === at ? n.head.slice(0, 12) : 'the tree finish routes';
     if (at === null || cur === null) return `git ls-tree could not read it at ${where(null)}`;
     if (!at || !cur) return `no file at ${where('')}: a ruling covers a file git holds under this spelling, never a deletion`;
+    if (p.includes('\uFFFD')) return 'its spelling holds a replacement character (U+FFFD), so the file git changed may have another name';
     if (at !== cur) return `its mode or bytes differ from the ruled head ${n.head.slice(0, 12)}`;
     return top && untouched(n.head, p) ? '' : `a commit after ${n.head.slice(0, 12)} touches it, or git could not list them`;
   };
