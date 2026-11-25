@@ -176,6 +176,30 @@ describe('install verdict keyed by (checkout, project): both twins', () => {
     expect(bashAdmit('ship', proj, { _GH: sr, ...env }).line).toBe(without.line);
   });
 
+  // Value: protects=a document-release audit that /ship launches after a reviewer's review-voice install rewrote the shared verdict
+  //   is admitted by /ship's own passing record for this checkout and HEAD (CAPY-1, yc-software/qm#3974), in both twins;
+  //   fails_when=it refuses with INSTALL_UNVERIFIED, or a /ship record for another HEAD or one that skipped claude admits it;
+  //   seam=gstack_install_admission and checkInstallAdmission on fixture verdicts
+  test("CAPY-1: a review-voice install rewrote the launched verdict; document-release admits from /ship's own record, never from a stale or narrower one", () => {
+    const sr = tmp();
+    const proj = project('qm');
+    const shared = writeVerdict(sr, { project: proj, bun_path: BUN, bun_version: '1.4.2', schema_version: 2, for: 'review-voice',
+      required: ['patch', 'runtime', 'helpers', 'state-root', 'privacy', 'cores', 'revision'], trailer: 'gstack: ok 9.9.9.9 for=review-voice' });
+    const env = { GSTACK_STATE_ROOT: sr, GSTACK_INSTALL_VERDICT: shared };
+    const without = both('document-release', proj, env);
+    expect(without).toMatchObject({ refuse: true, status: 'verdict', code: 'INSTALL_UNVERIFIED' });
+    expect(without.detail).toContain('certified for=review-voice, which does not cover claude that document-release needs');
+    const ship = shared.replace(/\.json$/, '.for/ship.json');
+    const shipVerdict = { project: proj, bun_path: BUN, bun_version: '1.4.2', schema_version: 2, for: 'ship', trailer: 'gstack: ok 9.9.9.9 for=ship' };
+    writeVerdict(sr, shipVerdict, ship);
+    expect(both('document-release', proj, env)).toMatchObject({ refuse: false, status: 'ok' });
+    expect(bashAdmit('document-release', proj, { _GH: sr, ...env }).line).toBe('INSTALL_VERDICT: ok gstack: ok 9.9.9.9 for=ship');
+    writeVerdict(sr, { ...shipVerdict, head: 'f'.repeat(40) }, ship);
+    expect(both('document-release', proj, env)).toMatchObject({ refuse: true, status: 'verdict', detail: without.detail });
+    writeVerdict(sr, { ...shipVerdict, required: ['codex', 'patch', 'runtime', 'pins', 'state-root', 'privacy', 'cores', 'revision'] }, ship);
+    expect(both('document-release', proj, env)).toMatchObject({ refuse: true, status: 'verdict', detail: without.detail });
+  });
+
   test('a running Bun other than the recorded one refuses with BUN_RESOLUTION_DRIFT and names both', () => {
     const sr = tmp();
     const a = project('a');

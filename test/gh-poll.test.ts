@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GhResult } from '../lib/ci-gate';
 import { MAX_LIMIT_WAITS, MIN_POLL_MS, parseHeadChecks, parsePullState, pollDelayMs, rateLimitKind, rateLimitWaitMs, withRateLimit } from '../lib/gh-poll';
-import { GhError, fetchChecks, runGh } from '../lib/pr-wait-github';
+import { GhError, bucketClass, fetchChecks, runGh } from '../lib/pr-wait-github';
 import { waitForRun } from '../lib/ci-carry';
 import { ciRest } from './helpers/ci-attempts-fixture';
 
@@ -187,6 +187,23 @@ describe('REST replies parse from recorded fixtures', () => {
       ['api', `repos/garrytan/gstack/actions/runs?head_sha=${'f'.repeat(40)}&per_page=100&page=1`],
     ]);
     expect(calls.some(c => c[0] === 'pr' || c[1] === 'graphql')).toBe(false);
+  });
+
+  // Value: protects=gstack-pr-wait agrees with gstack-ship-queue ready on a cancelled run that a newer passing run of the same app and
+  //   check name replaced (concurrency: cancel-in-progress), pending while that run is still going, and every other duplicate keeps
+  //   the worst bucket (#4807, exGeni's repro); fails_when=the replaced cancel blocks with PR_WAIT_BLOCKED, or a cancel that is newest, a failure, or another app's pass stops
+  //   gating; seam=fetchChecks over the shared REST fake; no_claim=the CLI exit
+  test("fetchChecks drops a cancelled run that a newer passing or running run of the same check replaced, and nothing else (#4807)", () => {
+    const app = { id: 15368 };
+    const run = (id: number, suite: number, conclusion: string, done: string, appId = app): Record<string, unknown> =>
+      ({ id, name: 'title-check', status: 'completed', conclusion, completed_at: done, check_suite: { id: suite }, app: appId });
+    const bucket = (check_runs: Array<Record<string, unknown>>) => fetchChecks({ gh: (args: string[]) => ciRest(args, { check_runs }) ?? ok(''), sleep: () => {}, log: () => {} }, 'owner/repo', 'a'.repeat(40)).get('title-check')!.bucket;
+    expect(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:10Z'), run(2, 200, 'success', '2026-01-01T10:00:50Z')])).toBe('pass');
+    expect(bucketClass(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:50Z'), run(2, 200, 'success', '2026-01-01T10:00:10Z')]))).toBe('fail');
+    expect(bucketClass(bucket([run(1, 100, 'failure', '2026-01-01T10:00:10Z'), run(2, 200, 'success', '2026-01-01T10:00:50Z')]))).toBe('fail');
+    expect(bucketClass(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:10Z'), run(2, 200, 'success', '2026-01-01T10:00:50Z', { id: 99 })]))).toBe('fail');
+    expect(bucketClass(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:10Z'), run(2, 200, 'failure', '2026-01-01T10:00:50Z')]))).toBe('fail');
+    expect(bucketClass(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:10Z'), { ...run(2, 200, 'success', '2026-01-01T10:00:50Z'), status: 'in_progress', conclusion: null, completed_at: null }]))).toBe('pending');
   });
 });
 

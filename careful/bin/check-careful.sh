@@ -177,6 +177,13 @@ _S=""
 _R=""
 _RISK=""
 _D=""
+_WT_N=-1
+_WT_ROOT=()
+_WT_GIT=""
+_WT_CWD=""
+_WT_HOME=""
+_WT_SOLO=1
+_WT_GRANT=0
 
 # Up to two layers of quotes, any mix: trap 'rm -rf "$T"' leaves $T.
 _Q="[\"']"
@@ -240,6 +247,90 @@ _careful_squash() {
   while [[ $_SQ == *//* || $_SQ == */./* ]]; do _SQ=${_SQ//\/\//\/}; _SQ=${_SQ//\/.\//\/}; done
 }
 
+# The worktrees of the session's own repository (#4827), read once from
+# git worktree list --porcelain -z and resolved on disk with cd -P. A bare or
+# prunable entry never counts, and neither does a worktree that is /, the home
+# folder or a folder holding it, a personal folder, or a system folder. None
+# count when git fails or the session folder is inside none of them.
+_careful_wt_add() {
+  local r="$1" p
+  [ -n "$r" ] || return 0
+  if command -v gstack_hook_normalize_path >/dev/null 2>&1; then gstack_hook_normalize_path "$r"; r="$GSTACK_HOOK_PATH"; fi
+  case "$r" in /*) ;; *) return 0 ;; esac
+  case "$r" in *"$_NL"*) return 0 ;; esac
+  p=$(cd -P -- "$r" 2>/dev/null && pwd -P) || return 0
+  p="${p%/}"
+  [ -n "$p" ] || return 0
+  case "$_WT_HOME/" in "$p"/*) return 0 ;; esac
+  case "${p#"$_WT_HOME"/}" in Documents|Desktop|Downloads|Library|Pictures|Movies|Music|.config|.ssh|.ssh/*|.aws|.aws/*|.gnupg|.gnupg/*|.kube|.kube/*) return 0 ;; esac
+  [[ $p =~ $_RX_ROOT ]] && return 0
+  [[ $p/ =~ $_RX_SYSDIR ]] && return 0
+  _WT_ROOT[$_WT_N]="$p"; _WT_N=$((_WT_N + 1))
+  return 0
+}
+_careful_worktrees() {
+  [ "$_WT_N" -lt 0 ] || return 0
+  _WT_N=0
+  local rec root="" skip=0 i=0 in=0
+  _WT_HOME=$(cd -P -- "${HOME:-/}" 2>/dev/null && pwd -P) || _WT_HOME=/
+  _WT_HOME="${_WT_HOME%/}"
+  _WT_CWD=$(cd -P -- "$_CAREFUL_CWD" 2>/dev/null && pwd -P) || return 0
+  _WT_GIT=$(unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR; GIT_OPTIONAL_LOCKS=0 git -C "$_CAREFUL_CWD" rev-parse --path-format=absolute --git-common-dir </dev/null 2>/dev/null) || return 0
+  _WT_GIT=$(cd -P -- "$_WT_GIT" 2>/dev/null && pwd -P) || return 0
+  [ -n "$_WT_GIT" ] && [ "$_WT_GIT" != / ] || return 0
+  while IFS= read -r -d '' rec; do
+    case "$rec" in
+      'worktree '*) [ "$skip" -eq 1 ] || _careful_wt_add "$root"; root="${rec#worktree }"; skip=0 ;;
+      bare|prunable|'prunable '*) skip=1 ;;
+    esac
+  done < <(unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR; GIT_OPTIONAL_LOCKS=0 git -C "$_CAREFUL_CWD" worktree list --porcelain -z </dev/null 2>/dev/null)
+  [ "$skip" -eq 1 ] || _careful_wt_add "$root"
+  while [ "$i" -lt "$_WT_N" ]; do
+    case "$_WT_CWD/" in "${_WT_ROOT[$i]}"/*) in=1 ;; esac
+    i=$((i + 1))
+  done
+  [ "$in" -eq 1 ] || _WT_N=0
+  return 0
+}
+
+# An absolute delete target strictly inside a worktree of the session's own
+# repository, checked on disk (#4827). Never a glob, a quote, a variable, a ..
+# or a symlink; never a .git entry or anything in the git folder; never a
+# worktree's root, the session folder or a folder holding one of them. Only an
+# rm whose every option is one of -f -i -I -v -d (or their long names), or an
+# unlink, grants it (_WT_GRANT), and only when every statement in
+# the command is one (_WT_SOLO): the disk is read before the command runs, so
+# nothing else in it, before or beside the delete, may move a folder or make a
+# link.
+_RX_WT_PATH='^/[A-Za-z0-9._/@+,:%=-]+$'
+_careful_in_worktree() {
+  local t="$1" dir base p r i=0 in=0
+  [[ $t =~ $_RX_WT_PATH ]] || return 1
+  _careful_squash "$t"; t="${_SQ%/}"
+  case "/$t/" in */../*|*/./*) return 1 ;; esac
+  case "$t/" in */.[Gg][Ii][Tt]/*) return 1 ;; esac
+  base="${t##*/}"; dir="${t%/*}"
+  [ -n "$base" ] && [ -n "$dir" ] || return 1
+  [ ! -L "$t" ] || return 1
+  _careful_worktrees
+  [ "$_WT_N" -gt 0 ] || return 1
+  if [ -d "$t" ]; then
+    p=$(cd -P -- "$t" 2>/dev/null && pwd -P) || return 1
+  else
+    p=$(cd -P -- "$dir" 2>/dev/null && pwd -P) || return 1
+    p="${p%/}/$base"
+  fi
+  case "$p/" in */.[Gg][Ii][Tt]/*|"$_WT_GIT"/*) return 1 ;; esac
+  case "$_WT_GIT/" in "$p"/*) return 1 ;; esac
+  case "$_WT_CWD/" in "$p"/*) return 1 ;; esac
+  while [ "$i" -lt "$_WT_N" ]; do
+    r="${_WT_ROOT[$i]}"; i=$((i + 1))
+    case "$r/" in "$p"/*) return 1 ;; esac
+    case "$p" in "$r"/*) in=1 ;; esac
+  done
+  [ "$in" -eq 1 ]
+}
+
 # A delete target outside the session's folder: an absolute or ~ path that is
 # not scratch or a cache, a path climbing out with .., or a word led by a
 # variable that may be unset.
@@ -282,6 +373,7 @@ _careful_outside() {
   esac
   t="${t%/}"
   if [ -n "$_CAREFUL_CWD" ] && { [ "$t" = "$_CAREFUL_CWD" ] || [ "${t#"$_CAREFUL_CWD"/}" != "$t" ]; }; then return 1; fi
+  [ "$_WT_GRANT" -eq 1 ] && [ "$_WT_SOLO" -eq 1 ] && _careful_in_worktree "$t" && return 1
   return 0
 }
 
@@ -317,7 +409,7 @@ _careful_cd() {
 }
 
 _careful_rm() {
-  local k="$1" t rec=0 late=0 nt=0 first=1 q="" cp=1
+  local k="$1" t rec=0 late=0 nt=0 first=1 q="" cp=1 plain=1
   local tg=()
   # rm opening a quoted string (trap 'rm -rf "$T"' EXIT) ends where it closes.
   case "${RW[$((k - 1))]}" in \'*) q="'" ;; \"*) q='"' ;; esac
@@ -336,6 +428,10 @@ _careful_rm() {
     # recursive rm leads with its flags, as the original family required.
     if [ "$first" -eq 1 ]; then first=0; case "$t" in -*) ;; *) [ "$cp" -eq 1 ] || rec=2 ;; esac; fi
     case "$t" in
+      --|--force|--verbose|--dir|--interactive|--interactive=*) ;;
+      --*|-*[!fivdI]*) plain=0 ;;
+    esac
+    case "$t" in
       --recursive) late=1; [ "$rec" -eq 2 ] || rec=1 ;;
       -*) case "${t#-}" in *[!a-zA-Z]*|'') ;; *[rR]*) late=1; [ "$rec" -eq 2 ] || rec=1 ;; esac ;;
       [0-9]'>'*|[0-9]'<'*|'>'*|'<'*) ;;
@@ -351,7 +447,9 @@ _careful_rm() {
     if [ "$rec" -eq 1 ]; then
       _careful_rm_safe "$t" || _RM_UNSAFE=1
     fi
+    if [ "$rec" -eq 0 ] && [ "$plain" -eq 1 ]; then _WT_GRANT=1; fi
     if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "$t"; then _OUTSIDE=1; fi
+    _WT_GRANT=0
   done
   return 0
 }
@@ -365,7 +463,9 @@ _careful_del() {
     [ -n "$t" ] || continue
     case "$tool" in
       shred|unlink)
-        case "$t" in -*) ;; *) if _careful_outside "$t"; then hit=1; fi ;; esac ;;
+        [ "$tool" = unlink ] && _WT_GRANT=1
+        case "$t" in -*) ;; *) if _careful_outside "$t"; then hit=1; fi ;; esac
+        _WT_GRANT=0 ;;
       rsync)
         case "$t" in
           --delete*) del=1 ;;
@@ -736,6 +836,10 @@ _careful_scan() {
   local segs=( $s )
   IFS=$' \t\n'
   case "$CMD_MEDIUM" in *cd*|*pushd*|*popd*) track=1 ;; esac
+  for seg in ${segs[@]+"${segs[@]}"}; do
+    set -- $seg
+    case "${1:-rm}" in rm|unlink|/bin/rm|/usr/bin/rm|/bin/unlink|/usr/bin/unlink|$'\004'|$'\005') ;; *) _WT_SOLO=0; break ;; esac
+  done
   # for over the whole array: indexing it is linear per access on bash 3.2.
   for seg in ${segs[@]+"${segs[@]}"}; do
     # With no cd, pushd or popd anywhere, the separators change no folder state.

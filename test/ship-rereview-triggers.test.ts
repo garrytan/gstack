@@ -623,6 +623,21 @@ describe('test-only and audit-requested edits after the docs audit (GST-391, gbr
     const reset = f.run(path.join(BIN, 'gstack-docs-candidate'), ['attempt', refused, '--state', corrupt]);
     expect([reset.status, reset.stdout.includes('ATTEMPT: counted (a second install refusal in this invocation)')]).toEqual([3, true]);
   });
+
+  // Value: protects=a child whose install check refused document-release and that then reported the refusal as a blocked result
+  //   (no file reviewed or updated, as Step 14.5's contract asks) does not spend the PR's re-audit (CAPY-1, yc-software/qm#3974);
+  //   fails_when=that blocked line reads as an audit, or a blocked result that reviewed or updated a file stops counting; seam=none
+  test('gstack-docs-candidate attempt does not count an install refusal reported as an empty blocked result', () => {
+    const f = fx();
+    const out = (name: string, text: string) => { const p = path.join(f.root, name); fs.writeFileSync(p, text); return p; };
+    const attempt = (file: string, state: string) => f.run(path.join(BIN, 'gstack-docs-candidate'), ['attempt', file, '--state', path.join(f.root, state)]).stdout.trim();
+    const refusal = 'SESSION_KIND: spawned\nINSTALL: fail verdict — the install verdict certified for=review-voice, which does not cover claude that document-release needs; fix: run the installer (INSTALL_UNVERIFIED)\nGSTACK_RESULT: skill=document-release status=refused run=-\n';
+    const blocked = (reviewed: string[], updated: string[]) => JSON.stringify({ schema_version: 1, audit_id: 'a1', status: 'blocked', files_updated: updated, files_reviewed: reviewed, blockers: ['install admission refused document-release'], decisions: [], documentation_section: 'blocked' }) + '\n';
+    expect(attempt(out('empty.txt', refusal + blocked([], [])), 's1.json')).toBe("ATTEMPT: not-counted (the audit child's install check refused document-release)");
+    expect(attempt(out('reviewed.txt', refusal + blocked(['README.md'], [])), 's2.json')).toBe('ATTEMPT: counted');
+    expect(attempt(out('updated.txt', refusal + blocked([], ['README.md'])), 's3.json')).toBe('ATTEMPT: counted');
+    expect(attempt(out('current.txt', refusal + JSON.stringify({ schema_version: 1, audit_id: 'a1', status: 'current', files_updated: [], files_reviewed: [] }) + '\n'), 's4.json')).toBe('ATTEMPT: counted');
+  });
 });
 
 describe('preflight carry route for a spliced hunk (GST-442)', () => {

@@ -228,7 +228,10 @@ describe('runPlanSkillFloorCheck through the fake driver', () => {
     const screen = plan.replace('●API Error:', `${prose.replace(/\n/g, '\r\n')}\r\n●API Error:`);
     const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'floor-judge-stub-'));
     const stub = path.join(stubDir, 'claude');
-    fs.writeFileSync(stub, '#!/bin/sh\ncat >/dev/null\necho \'{"kind":"finding","seedId":"seed-1","questionId":"prose-1","optionId":"prose-1","reason":"the stub judge credits the staged prose question"}\'\n', { mode: 0o755 });
+    const answer = { kind: 'finding', seedId: 'seed-1', questionId: 'prose-1', optionId: 'prose-1', reason: 'the stub judge credits the staged prose question' };
+    const events = [{ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 'toolu_stub', name: 'StructuredOutput', input: answer }] } },
+      { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_stub', content: 'Structured output provided successfully' }] } }];
+    fs.writeFileSync(stub, `#!/bin/sh\ncat >/dev/null\ncat <<'EOF'\n${events.map(event => JSON.stringify(event)).join('\n')}\nEOF\n`, { mode: 0o755 });
     const saved = process.env.BROWSE_TERMINAL_BINARY;
     process.env.BROWSE_TERMINAL_BINARY = stub;
     try {

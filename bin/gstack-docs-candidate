@@ -48,7 +48,8 @@
  * attempt reads one audit child's output and says whether the launch counts
  * against Step 14.5's attempt budget. A launch the child's install check refused
  * (an `INSTALL: fail` row, its last GSTACK_RESULT line a document-release
- * refusal, and no audit JSON) never audited, so it is not counted, once per
+ * refusal, and no audit JSON beyond a blocked result that reviewed and updated
+ * no file, CAPY-1) never audited, so it is not counted, once per
  * invocation (--state, the invocation's record); a second refusal is counted
  * and stops for the install fix (GST-391, gbrain #8084).
  *
@@ -325,7 +326,8 @@ function main(argv: string[]): void {
     const lines = fs.readFileSync(file, 'utf8').split('\n').map(l => l.trim()).filter(Boolean);
     const last = lines.filter(l => l.startsWith('GSTACK_RESULT: ')).pop();
     const install = lines.find(l => /^INSTALL: fail\b/.test(l));
-    const audited = lines.some(l => { try { const v = JSON.parse(l); return !!v && typeof v === 'object' && 'schema_version' in v; } catch { return false; } });
+    const empty = (a: unknown) => Array.isArray(a) && a.length === 0;
+    const audited = lines.some(l => { try { const v = JSON.parse(l); return !!v && typeof v === 'object' && 'schema_version' in v && !(v.status === 'blocked' && empty(v.files_reviewed) && empty(v.files_updated)); } catch { return false; } });
     if (!last || !/^GSTACK_RESULT: skill=document-release status=refused\b/.test(last) || !install || audited) { console.log('ATTEMPT: counted'); return; }
     let seen = 0;
     try { seen = Number(JSON.parse(fs.readFileSync(state, 'utf8')).not_counted) || 0; } catch { seen = fs.existsSync(state) ? 1 : 0; }
