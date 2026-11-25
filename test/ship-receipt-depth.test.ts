@@ -121,7 +121,7 @@ describe('the queue refuses a receipt below the depth its head needs', () => {
     expect(low.depthLine).toContain('receipt=standard required=full runtime_lines=80');
     expect(low.depthLine).toContain(`inputs=base@${base},registry@${base},gate_scan@${head.slice(0, 12)}`);
     expect(low.message).toContain('risk:money');
-    expect(low.message).toContain(`the receipt is unchanged; run /ship on ${head.slice(0, 12)}`);
+    expect(low.message).toContain(`the receipt is unchanged; run /gstack-ship on ${head.slice(0, 12)}`);
 
     const unbound = bind(rewrite(body, r => { r.review_depth.depth = 'standard'; r.review_depth.gate_scan.head = 'a'.repeat(40); }));
     expect(unbound.ok).toBe(false);

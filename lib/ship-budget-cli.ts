@@ -120,10 +120,10 @@ export function stopLines(l: Ledger, f: { call: number | null; next: string; ste
   if (f.reason === 'budget_exhausted') {
     lines.push(`STOP: reason=budget_exhausted spent=${t.used} reserved=${t.reserved} unknown=${t.unknown} admission_cap=${l.cap} next=${f.next} projected=${f.projected}`,
       resultLine('gstack-ship-budget', 'BUDGET_CAP_REACHED', `next ${f.next} needs ${f.projected} + reserve ${p.reserve}`),
-      `RECOVER: /ship --resume ${l.record ?? '<record>'} --token-cap ${t.used + t.reserved + t.unknown + tailCost}`);
+      `RECOVER: /gstack-ship --resume ${l.record ?? '<record>'} --token-cap ${t.used + t.reserved + t.unknown + tailCost}`);
   } else {
     lines.push(`STOP: reason=context_threshold call=${f.call ?? 'unknown'} call_floor=${p.floor} above_floor=${aboveFloor(f.call, p.floor) ?? 'unknown'} threshold=${f.threshold ?? DELEGATE_SEGMENT_CALL} next=${f.next} (--delegate never)`,
-      `RECOVER: /ship --resume ${l.record ?? '<record>'} in a fresh session`);
+      `RECOVER: /gstack-ship --resume ${l.record ?? '<record>'} in a fresh session`);
   }
   lines.push(`GSTACK_RESULT: skill=ship status=incomplete run=${l.dir}`);
   if (l.role === 'child' && l.parent) writeReturnFile(l.parent.return_file, [`RETURN: handoff=${l.parent.handoff_sha} status=incomplete steps=${l.parent.from}-${l.parent.to} next=${f.next}`, ...lines]);

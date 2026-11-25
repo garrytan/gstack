@@ -482,7 +482,7 @@ export function excludeMismatch(x: Exclusion, r: ShipReceipt, head: string, base
   const recorded = r.review_exclude?.digest ?? 'none';
   const source = x.state === 'active' ? x.record.source : r.review_exclude?.source ?? base;
   const h = head.slice(0, 12);
-  return `field=review_exclude expected=${expected} recorded=${recorded} source=${source}: the receipt records another selection than ${base}'s review_exclude_paths gives ${h}, and the two give the PR's files different selections; the receipt is unchanged; fix: rerun /ship's review on ${h} (gstack-review-dispatch pass --base ${base.replace(/^(refs\/remotes\/)?origin\//, '')}), then gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body> with the digest gstack-review-dispatch verify --ledger <ledger> prints on REVIEW_EXCLUDE_RECORD: (write checks the digest against the base policy and does not read the review ledger, so only the rerun shows the reviewers read this selection)`;
+  return `field=review_exclude expected=${expected} recorded=${recorded} source=${source}: the receipt records another selection than ${base}'s review_exclude_paths gives ${h}, and the two give the PR's files different selections; the receipt is unchanged; fix: rerun /gstack-ship's review on ${h} (gstack-review-dispatch pass --base ${base.replace(/^(refs\/remotes\/)?origin\//, '')}), then gstack-ship-receipt write --pr <n> --review-exclude <d> --body <body> with the digest gstack-review-dispatch verify --ledger <ledger> prints on REVIEW_EXCLUDE_RECORD: (write checks the digest against the base policy and does not read the review ledger, so only the rerun shows the reviewers read this selection)`;
 }
 /** The receipt's recorded gate scan when it names this head; otherwise null (unavailable). */
 const boundScan = (r: ShipReceipt, head: string): number | null => {
@@ -513,12 +513,12 @@ export function receiptDepthVerdict(root: string, baseRef: string, r: ShipReceip
     const fits = need.depth === 'light' && platformFits(need.class, c.paths, need.runtimeLines, scanNumbers(c.added));
     const ok = review.platform === 'on' && fits && !!pr && pr.head === head.toLowerCase();
     if (ok) return { ok: true, line: `${line} platform_review=${pr!.id}@${pr!.head.slice(0, 12)}` };
-    return { ok: false, line, message: `the receipt records the platform depth, but ${review.platform !== 'on' ? `the base policy has review.platform ${review.platform}` : !fits ? `head ${head.slice(0, 12)} needs ${need.depth} review of a diff the platform depth does not cover` : `its platform review is not at head ${head.slice(0, 12)}`}; the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
+    return { ok: false, line, message: `the receipt records the platform depth, but ${review.platform !== 'on' ? `the base policy has review.platform ${review.platform}` : !fits ? `head ${head.slice(0, 12)} needs ${need.depth} review of a diff the platform depth does not cover` : `its platform review is not at head ${head.slice(0, 12)}`}; the receipt is unchanged; run /gstack-ship on ${head.slice(0, 12)}` };
   }
   if (have && !depthBelow(have, need.depth)) return { ok: true, line };
   const why = have ? `was reviewed at ${have} depth` : 'records no review_depth though its writer records one';
   const errs = need.errors.map(e => `${e.code} (${e.input})`).join('; ');
-  return { ok: false, line, message: `the receipt ${why}, but head ${head.slice(0, 12)} needs ${need.depth} (${need.reasons.join(', ')}${errs ? `; ${errs}` : ''}); the receipt is unchanged; run /ship on ${head.slice(0, 12)}` };
+  return { ok: false, line, message: `the receipt ${why}, but head ${head.slice(0, 12)} needs ${need.depth} (${need.reasons.join(', ')}${errs ? `; ${errs}` : ''}); the receipt is unchanged; run /gstack-ship on ${head.slice(0, 12)}` };
 }
 
 /** bindReceipt plus the owner exceptions, the review depth and the targeted pass: what READY, train build and land accept. A base that already contains the head refuses (BASE_CONTAINS_HEAD, GST-774) before any depth is computed, except for a PR GitHub already merged (`merged`: land resuming after a merge-only true merge), whose depth then reads the range with diff-scope's `--merged` and whose exclusion digest is not recomputed over that emptied range. */
@@ -542,7 +542,7 @@ export function bindShippedReceipt(root: string, baseRef: string, body: string, 
   const gateTagged = boundScan(b.receipt, b.head) ?? (gateScanNeeded(at.c.paths, at.c.root) ? null : 0);
   const t = receiptTargetedVerdict(targetedAt(at, gateTagged).classes, b.receipt);
   if (!d.ok) return { ok: false, code: 'QUEUE_RECEIPT_DEPTH_RAISED', message: d.message!, line: b.line, depthLine: d.line, targetedLine: t.line };
-  if (!t.ok) return { ok: false, code: 'QUEUE_RECEIPT_TARGETED_MISSING', message: `${t.message}; the receipt is unchanged; run /ship on ${b.head.slice(0, 12)}`, line: b.line, depthLine: d.line, targetedLine: t.line };
+  if (!t.ok) return { ok: false, code: 'QUEUE_RECEIPT_TARGETED_MISSING', message: `${t.message}; the receipt is unchanged; run /gstack-ship on ${b.head.slice(0, 12)}`, line: b.line, depthLine: d.line, targetedLine: t.line };
   return { ...b, depthLine: d.line, targetedLine: t.line };
 }
 

@@ -115,8 +115,8 @@ export function bindReceipt(body: string, pr: string | undefined, accepted: read
     const [was, want] = [oneLine(r.base).slice(0, 120), branch(opts.base)];
     return { ok: false, code: 'QUEUE_RECEIPT_BASE_MISMATCH', message: `${subject} ship receipt was reviewed against ${was}, not ${want}, so it covers only the change since ${was}; land the parent (${was}) first, merge ${want} into this branch and push, then gstack-ship-receipt carry --pr ${pr ?? '<n>'} --base ${want} moves the receipt to ${want}`, line };
   }
-  if (recheckCarried(r)) return { ok: false, code: 'QUEUE_RECEIPT_STALE', message: `${subject} ship receipt reached ${oneLine(r.head.slice(0, 12))} through a scoped re-check (carry: ${oneLine(r.carry!.reason).slice(0, 160)}), which is advice only, so the product code it covered never got a full review; run /ship on that head for its full review (GST-2673, docs/review-policy.md#rounds-per-pull-request)`, line };
-  if (r.base_red && !opts.conditional) return { ok: false, code: 'QUEUE_RECEIPT_CONDITIONAL', message: `${subject} ship receipt is paused on a red base (${oneLine(r.base_red.cases.join(', ')).slice(0, 160)} fail at ${oneLine(r.base_red.base.slice(0, 12))}); /ship --resume rewrites it once the base passes them`, line };
+  if (recheckCarried(r)) return { ok: false, code: 'QUEUE_RECEIPT_STALE', message: `${subject} ship receipt reached ${oneLine(r.head.slice(0, 12))} through a scoped re-check (carry: ${oneLine(r.carry!.reason).slice(0, 160)}), which is advice only, so the product code it covered never got a full review; run /gstack-ship on that head for its full review (GST-2673, docs/review-policy.md#rounds-per-pull-request)`, line };
+  if (r.base_red && !opts.conditional) return { ok: false, code: 'QUEUE_RECEIPT_CONDITIONAL', message: `${subject} ship receipt is paused on a red base (${oneLine(r.base_red.cases.join(', ')).slice(0, 160)} fail at ${oneLine(r.base_red.base.slice(0, 12))}); /gstack-ship --resume rewrites it once the base passes them`, line };
   return { ok: true, receipt: r, head, line };
 }
 
@@ -479,10 +479,10 @@ export interface TreeCarryInput {
  */
 export function planTreeCarry(input: TreeCarryInput): CarryPlan {
   if (!input.coveredTrees.includes(input.headTree)) {
-    return { ok: false, code: 'RECEIPT_CARRY_TREE_MISMATCH', message: `the receipt's head ${input.from.slice(0, 12)} is not an ancestor of HEAD ${input.head.slice(0, 12)} (rebased or force-pushed), and HEAD's tree ${input.headTree.slice(0, 12)} is not a tree the receipt covers (${input.coveredTrees.map(t => t.slice(0, 12)).join(', ') || 'none recorded'}); the receipt is unchanged: run /ship on ${input.head.slice(0, 12)}` };
+    return { ok: false, code: 'RECEIPT_CARRY_TREE_MISMATCH', message: `the receipt's head ${input.from.slice(0, 12)} is not an ancestor of HEAD ${input.head.slice(0, 12)} (rebased or force-pushed), and HEAD's tree ${input.headTree.slice(0, 12)} is not a tree the receipt covers (${input.coveredTrees.map(t => t.slice(0, 12)).join(', ') || 'none recorded'}); the receipt is unchanged: run /gstack-ship on ${input.head.slice(0, 12)}` };
   }
   if (input.productPatchId.recorded !== input.productPatchId.head) {
-    return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `HEAD ${input.head.slice(0, 12)} has the reviewed tree, but its product diff against the current base differs from the one reviewed at ${input.from.slice(0, 12)} (the base itself moved under it); the receipt is unchanged: run /ship on ${input.head.slice(0, 12)}` };
+    return { ok: false, code: 'RECEIPT_CARRY_PRODUCT_CHANGED', message: `HEAD ${input.head.slice(0, 12)} has the reviewed tree, but its product diff against the current base differs from the one reviewed at ${input.from.slice(0, 12)} (the base itself moved under it); the receipt is unchanged: run /gstack-ship on ${input.head.slice(0, 12)}` };
   }
   return {
     ok: true,

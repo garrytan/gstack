@@ -81,7 +81,7 @@ describe('reservations', () => {
     expect(stop).toContain('STOP: reason=budget_exhausted');
     expect(reading).toBeLessThanOrEqual(25_000_000);
     expect(admitted).toBeLessThan(10);
-    expect(stop).toMatch(/^RECOVER: \/ship --resume \S+ --token-cap \d+$/m);
+    expect(stop).toMatch(/^RECOVER: \/gstack-ship --resume \S+ --token-cap \d+$/m);
     expect(stop.trim().split('\n').at(-1)).toMatch(/^GSTACK_RESULT: skill=ship status=incomplete run=/);
   });
 
@@ -366,7 +366,7 @@ describe('stop, resume and recovery', () => {
     const s = started(h, ['--token-cap', '20M', '--reading', '0']);
     const stop = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:specialist,red-team', '--reading', '9000000']);
     expect(stop.code).toBe(3);
-    const recover = stop.out.match(/^RECOVER: \/ship --resume (\S+) --token-cap (\d+)$/m)!;
+    const recover = stop.out.match(/^RECOVER: \/gstack-ship --resume (\S+) --token-cap (\d+)$/m)!;
     expect(recover[1]).toBe(s.record);
     expect(h.sb(['check', '--run', s.run, '--step', '9', '--next', '10', '--reading', '9000000']).code).toBe(3);
     const noWords = h.sb(['resume', '--record', recover[1]!, '--token-cap', recover[2]!, '--reading', '9100000']);

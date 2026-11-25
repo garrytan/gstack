@@ -73,7 +73,7 @@ function wait(args: string[], json: boolean, repoRoot: string): number {
   const pollSec = Number(flag(args, '--poll') ?? 120);
   if (!(timeoutSec > 0) || !(pollSec >= 5)) { process.stderr.write('gstack-base-red wait: --timeout must be > 0 and --poll >= 5 seconds\n'); return EXIT.usage; }
   const r = waitBaseGreen({ repoRoot, pause, policy, timeoutSec, pollSec });
-  if (r.code === 'BASE_GREEN') { say(json, [`BASE_GREEN: origin/${pause.base} ${r.sha} passes ${pause.cases.length} paused case(s) after ${r.checked} base head(s); resume with /ship --resume <record>`], r); return EXIT.ok; }
+  if (r.code === 'BASE_GREEN') { say(json, [`BASE_GREEN: origin/${pause.base} ${r.sha} passes ${pause.cases.length} paused case(s) after ${r.checked} base head(s); resume with /gstack-ship --resume <record>`], r); return EXIT.ok; }
   process.stderr.write(resultLineWithDocs('gstack-base-red wait', r.code, r.detail) + '\n');
   say(json, [`BASE_RED_WAIT: ${r.code} last base ${r.sha.slice(0, 12)} (${r.checked} head(s) checked)`], r);
   return EXIT.refused;

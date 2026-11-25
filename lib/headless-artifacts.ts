@@ -142,7 +142,7 @@ export interface ShipReceipt {
   mechanical?: string[];
   /** The targeted pass on money, gate, auth and secret code (lib/review-targeted.ts), bound to the receipt's product_patch_id; `done` only with its output collected. */
   review_targeted?: { classes: string[]; rules: string; brief_sha: string; product_patch_id: string; status: 'done' | 'failed' | 'not-run'; findings: number; raised_by: string };
-  /** Step 5 failures gstack-base-red proved are the base's own (lib/base-red.ts): a conditional receipt the queue refuses until /ship --resume rewrites it without this block. */
+  /** Step 5 failures gstack-base-red proved are the base's own (lib/base-red.ts): a conditional receipt the queue refuses until /gstack-ship --resume rewrites it without this block. */
   base_red?: { cases: string[]; files: string[]; base: string; lane: string; expires_at: string };
   /** The pregate's owner-granted flaky exceptions (gstack-pregate clear --flaky-exception): pregate only, never a required CI check. */
   flaky_exception?: Array<{ lane: string; runs: string[]; cases: string[]; grant: string; by: string }>;
