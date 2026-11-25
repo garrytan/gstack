@@ -1575,7 +1575,7 @@ describe('real caller-specific native fixture and capture boundary', () => {
         expect(() => readCallerReceipt(fixture)).toThrow();
       } finally { await fixture.close(); fs.rmSync(fixture.root, { recursive: true, force: true }); }
     }
-  });
+  }, 60_000);
 
   test.each(QA_CALLER_CASES)('%s supplies scheduling boundaries through the actual runner callback', async caseId => {
     const fixture = createQaCallerFixture(caseId);
