@@ -182,6 +182,8 @@ _WT_ROOT=()
 _WT_GIT=""
 _WT_CWD=""
 _WT_HOME=""
+_WT_SOLO=1
+_WT_GRANT=0
 
 # Up to two layers of quotes, any mix: trap 'rm -rf "$T"' leaves $T.
 _Q="[\"']"
@@ -260,7 +262,7 @@ _careful_wt_add() {
   p="${p%/}"
   [ -n "$p" ] || return 0
   case "$_WT_HOME/" in "$p"/*) return 0 ;; esac
-  case "${p#"$_WT_HOME"/}" in Documents|Desktop|Downloads|Library|Pictures|Movies|Music|.ssh|.config|.aws|.gnupg|.kube) return 0 ;; esac
+  case "${p#"$_WT_HOME"/}" in Documents|Desktop|Downloads|Library|Pictures|Movies|Music|.config|.ssh|.ssh/*|.aws|.aws/*|.gnupg|.gnupg/*|.kube|.kube/*) return 0 ;; esac
   [[ $p =~ $_RX_ROOT ]] && return 0
   [[ $p/ =~ $_RX_SYSDIR ]] && return 0
   _WT_ROOT[$_WT_N]="$p"; _WT_N=$((_WT_N + 1))
@@ -294,7 +296,11 @@ _careful_worktrees() {
 # An absolute delete target strictly inside a worktree of the session's own
 # repository, checked on disk (#4827). Never a glob, a quote, a variable, a ..
 # or a symlink; never a .git entry or anything in the git folder; never a
-# worktree's root, the session folder or a folder holding one of them.
+# worktree's root, the session folder or a folder holding one of them. Only a
+# plain rm or unlink grants it (_WT_GRANT), and only when every statement in
+# the command is one (_WT_SOLO): the disk is read before the command runs, so
+# nothing else in it, before or beside the delete, may move a folder or make a
+# link.
 _RX_WT_PATH='^/[A-Za-z0-9._/@+,:%=-]+$'
 _careful_in_worktree() {
   local t="$1" dir base p r i=0 in=0
@@ -366,7 +372,7 @@ _careful_outside() {
   esac
   t="${t%/}"
   if [ -n "$_CAREFUL_CWD" ] && { [ "$t" = "$_CAREFUL_CWD" ] || [ "${t#"$_CAREFUL_CWD"/}" != "$t" ]; }; then return 1; fi
-  _careful_in_worktree "$t" && return 1
+  [ "$_WT_GRANT" -eq 1 ] && [ "$_WT_SOLO" -eq 1 ] && _careful_in_worktree "$t" && return 1
   return 0
 }
 
@@ -436,7 +442,9 @@ _careful_rm() {
     if [ "$rec" -eq 1 ]; then
       _careful_rm_safe "$t" || _RM_UNSAFE=1
     fi
+    if [ "$rec" -eq 0 ]; then _WT_GRANT=1; fi
     if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "$t"; then _OUTSIDE=1; fi
+    _WT_GRANT=0
   done
   return 0
 }
@@ -450,7 +458,9 @@ _careful_del() {
     [ -n "$t" ] || continue
     case "$tool" in
       shred|unlink)
-        case "$t" in -*) ;; *) if _careful_outside "$t"; then hit=1; fi ;; esac ;;
+        [ "$tool" = unlink ] && _WT_GRANT=1
+        case "$t" in -*) ;; *) if _careful_outside "$t"; then hit=1; fi ;; esac
+        _WT_GRANT=0 ;;
       rsync)
         case "$t" in
           --delete*) del=1 ;;
@@ -821,6 +831,10 @@ _careful_scan() {
   local segs=( $s )
   IFS=$' \t\n'
   case "$CMD_MEDIUM" in *cd*|*pushd*|*popd*) track=1 ;; esac
+  for seg in ${segs[@]+"${segs[@]}"}; do
+    set -- $seg
+    case "${1:-rm}" in rm|unlink|/bin/rm|/usr/bin/rm|/bin/unlink|/usr/bin/unlink|$'\004'|$'\005') ;; *) _WT_SOLO=0; break ;; esac
+  done
   # for over the whole array: indexing it is linear per access on bash 3.2.
   for seg in ${segs[@]+"${segs[@]}"}; do
     # With no cd, pushd or popd anywhere, the separators change no folder state.

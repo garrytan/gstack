@@ -1321,7 +1321,7 @@ describe.skipIf(process.platform === 'win32')('check-careful.sh sibling git work
         ['app', 'rm B/app-192/src/a.txt'],
         ['app', 'rm -f B/app-192/src/debug.spec.ts'],
         ['app', 'unlink B/app-192/src/a.txt'],
-        ['app', 'find B/app-192/src -name "*.log" -delete'],
+        ['app', 'rm B/app-192/src/a.txt && rm -f B/app-192/src/b.txt; unlink B/app-192/src/c.txt'],
         ['app-192', 'rm B/app/src/a.txt'],
         ['app/.claude/worktrees/x', 'rm -f B/app/src/a.txt'],
         ['app-192', 'rm B/app/.claude/worktrees/x/src/a.txt'],
@@ -1331,7 +1331,7 @@ describe.skipIf(process.platform === 'win32')('check-careful.sh sibling git work
     });
   }, 30_000);
 
-  test('roots, .git, the git folder, .., symlinks, globs and recursive deletes still ask', () => {
+  test('roots, .git, the git folder, .., symlinks, globs, recursive deletes, find, rsync, shred and commands that run anything else still ask', () => {
     withWorktrees((b) => {
       for (const [cwd, command] of [
         ['app', 'rm -f B/app-192'],
@@ -1355,6 +1355,17 @@ describe.skipIf(process.platform === 'win32')('check-careful.sh sibling git work
         ['app', 'rm -f B/app-192/.g*'],
         ['app', 'rm $W/src/a.txt'],
         ['app', 'git worktree remove --force B/app-192'],
+        ['app', 'find B/app-192/src -name "*.log" -delete'],
+        ['app', 'find -L B/app-192/src -delete'],
+        ['app', 'find B/app-192/src -exec rm {} +'],
+        ['app', 'rsync -a --delete ./src/ B/app-192/src/'],
+        ['app', 'shred -u B/app-192/src/a.txt'],
+        ['app', 'sudo rm B/app-192/src/a.txt'],
+        ['app', 'echo done && rm B/app-192/src/a.txt'],
+        ['app', 'mv B/app-192/src B/app-192/old && ln -s ~ B/app-192/src && rm B/app-192/src/.bashrc'],
+        ['app', 'rm B/app-192/src/a.txt; ln -s ~ B/app-192/d; rm B/app-192/d/.bashrc'],
+        ['app', 'rm B/app-192/d/.bashrc & mv B/app-192/d B/app-192/e'],
+        ['app', 'rm -f B/app-192/src/a.txt | cat'],
       ]) {
         expect([command, decide(b, cwd, command)]).toEqual([command, 'ask']);
       }
