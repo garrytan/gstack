@@ -1361,7 +1361,7 @@ describe.skipIf(process.platform === 'win32')('check-careful.sh sibling git work
     });
   }, 30_000);
 
-  test('another repository, a pruned worktree, a non-git folder, GIT_DIR and a home-folder repository grant nothing', () => {
+  test('another repository, a pruned worktree, a non-git folder, GIT_DIR, a home-folder repository and a worktree that is a personal folder grant nothing', () => {
     withWorktrees((b) => {
       expect(decide(b, 'app', 'rm B/other/src/a.txt')).toBe('ask');
       expect(decide(b, 'other', 'rm B/app-192/src/a.txt')).toBe('ask');
@@ -1369,6 +1369,12 @@ describe.skipIf(process.platform === 'win32')('check-careful.sh sibling git work
       expect(decide(b, 'plain', 'rm B/app-192/src/a.txt')).toBe('ask');
       expect(decide(b, 'plain', 'rm B/app-192/src/a.txt', { GIT_DIR: path.join(b, 'app', '.git') })).toBe('ask');
       expect(decide(b, 'app/src', 'rm B/app-192/src/a.txt', { HOME: path.join(b, 'app') })).toBe('ask');
+      for (const dir of ['Documents', '.ssh']) {
+        const r = gitArgvIn(path.join(b, 'app'), ['worktree', 'add', '-q', path.join(b, dir), '-b', `wt-${dir}`], 10_000);
+        expect(r.status).toBe(0);
+        expect(decide(b, 'app', `rm B/${dir}/src/a.txt`, { HOME: b })).toBe('ask');
+      }
+      expect(decide(b, 'app', 'rm B/app-192/src/a.txt', { HOME: b })).toBe('allow');
     });
   }, 30_000);
 });
