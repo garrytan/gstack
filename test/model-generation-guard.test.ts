@@ -8,6 +8,7 @@ import { CLAUDE_CAPTURE_EVAL_MODEL, CLAUDE_JUDGE_EVAL_MODEL } from '../lib/eval-
 import { CYBER_RETRIES } from '../lib/review-pass';
 import { CODEX_FRONTIER_MODEL } from '../scripts/resolvers/constants';
 import { resolveCodexRuntimeModel } from '../scripts/resolve-codex-generation-model';
+import { resolveModel } from '../scripts/models';
 
 /**
  * Garry, 2026-11-24: "gstack should always be using latest astra, sol, fable or opus".
@@ -89,6 +90,10 @@ describe('model generations', () => {
     expect(ids('gpt-6-astra openai/gpt-6.1-sol claude-fable-5-1 claude-opus-4-7-1 claude-opus-5* gpt-5.6-sol.')).toEqual(['gpt-6-astra', 'gpt-6.1-sol', 'claude-fable-5-1', 'claude-opus-4-7', 'claude-opus-5', 'gpt-5.6-sol']);
     expect(ids(`${NEWEST.opus} ${NEWEST.fable} openai/${NEWEST.sol} ${NEWEST.astra} ${NEWEST.opus}-20261101 ${NEWEST.sol}-2026-11-01`)).toEqual([]);
     expect(ids('claude-sonnet-4-6 claude-haiku-4-5 gpt-6-luna gpt-5.4 claude-fable-* gpt-daybreak-blue-latest')).toEqual([]);
+  });
+
+  test('the newest Astra maps to a Codex prompt overlay', () => {
+    expect(resolveModel(newestModel('astra'))).not.toBeNull();
   });
 
   test('runtime code and agent-loaded prose name only the newest opus, fable, sol and astra', () => {

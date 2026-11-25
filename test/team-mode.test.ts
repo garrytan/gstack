@@ -490,7 +490,7 @@ case "$*" in
   *'/bin/gstack-migrate-claude-code --install-dir '*)
     [[ "$#" -eq 5 && "$2" = --install-dir && "$4" = --skills-dir ]] || exit 90
     exit 0 ;;
-  'run gen:skill-docs --host codex --model gpt-6.2-astra') mkdir -p .agents/skills; exit 0 ;;
+  'run gen:skill-docs --host codex --model gpt-6-astra') mkdir -p .agents/skills; exit 0 ;;
   'run scripts/resolve-codex-generation-model.ts') exec ${quote(process.execPath)} "$@" ;;
   *'/scripts/preflight-codex-overlap.ts --source '*)
     [[ "$#" -eq 13 && "$1" = ${quote(path.join(cwd, 'scripts/preflight-codex-overlap.ts'))}
