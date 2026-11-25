@@ -14,7 +14,7 @@ ${ctx.host === 'claude' ? `- If the caller directory is \`review\`, Read \`../qa
 - If neither layout applies, report an unresolved QA installation as a setup blocker; do not guess another path.` : `- Read \`../gstack-qa/sections/${id}.md\` in full.`}
 Use this host's installation, never the product tree. ${QA_ASSET_BLOCKER}`;
     }
-    return `From the installed /${ctx.skillName} SKILL.md's directory, Read \`../${sibling}/sections/${id}.md\` in full.${ctx.host === 'claude' ? ` If the caller directory is prefixed \`gstack-${ctx.skillName}\`, use \`../gstack-qa/sections/${id}.md\` instead.` : ''} Use this host's installation, never the product tree. ${QA_ASSET_BLOCKER}`;
+    return `From the installed /${ctx.skillName} SKILL.md's directory, Read \`../${sibling}/sections/${id}.md\` in full.${ctx.host === 'claude' ? ` If the caller directory is prefixed \`gstack-${ctx.skillName}\`, use \`../gstack-qa/sections/${id}.md\` instead when that file exists.` : ''} Use this host's installation, never the product tree. ${QA_ASSET_BLOCKER}`;
   }
   return `Read ${sectionPath(ctx, 'qa', id)} in full. Find qa/gstack-qa beside this host's installed caller skill. ${QA_ASSET_BLOCKER} No product-directory or cross-host substitutes.`;
 };
