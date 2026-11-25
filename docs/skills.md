@@ -1501,7 +1501,7 @@ Four skills that add safety rails to any Claude Code session. They work via Clau
 Say "be careful" or run `/careful` when you're working near production, running destructive commands, or just want a safety net. Every Bash and PowerShell command gets checked against known-dangerous patterns:
 
 - `rm -rf` / `rm -r` of anything that isn't scratch — recursive delete
-- `rm`, `find -delete`, `rsync --delete`, `shred` or `unlink` outside the session folder, or through a variable that may be unset — files git can't bring back
+- `rm`, `find -delete`, `rsync --delete`, `shred` or `unlink` outside the session folder, or through a variable that may be unset — files git can't bring back (a plain `rm` or `unlink` of a file inside another `git worktree` of the same repository doesn't ask)
 - SQL `DROP TABLE` / `DROP DATABASE` / `TRUNCATE` run by a database client — data loss
 - `git push --force` / `-f` / `+ref` / `--force-with-lease` and remote branch deletes — history rewrite
 - `git reset --hard`, `checkout -- paths`, `checkout -f`, `switch -f`, `restore`, `clean -f` — only when the tree really has uncommitted work they would discard; `stash drop` and `worktree remove --force` always
