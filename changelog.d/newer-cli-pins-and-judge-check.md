@@ -1,5 +1,5 @@
 ### Changed
 
-- **The CI image now runs Claude Code 2.1.326 and Codex 0.172.0, versions that know gstack's newest default models.** Claude Code 2.1.292 had no entry for claude-fable-5-2, the default eval judge, and Codex 0.160.0 had no metadata for gpt-6.2-sol or gpt-6.2-astra. Both new versions were checked: their binaries carry those model ids, and Codex 0.172.0 answered on both GPT-6.2 models.
+- **The CI image now runs Claude Code 2.1.326 and Codex 0.172.0, versions that know gstack's newest default models.** Claude Code 2.1.292 had no entry for claude-fable-5-2, the default eval judge, and Codex 0.160.0 had no metadata for gpt-6.2-sol or gpt-6.2-astra. Both new versions were checked. Their binaries carry those model ids, and Codex 0.172.0 answered on both GPT-6.2 models.
 - `bin/gstack-capy-install` reads the Codex setup model from the astra row of `lib/model-families.ts` instead of naming it, so the next Astra release is still a one-line change. An unreadable registry fails setup before either host runs.
 - The default judge's move to claude-fable-5-2 is checked against the labelled controls next to its callers (plan-decision and DX peer-comparison calibrations, the redaction semantic pass): every item agreed with its label. The record and the callers that have no labelled outputs yet are in `test/fixtures/judge-calibration/README.md`.
