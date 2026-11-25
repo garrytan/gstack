@@ -200,16 +200,16 @@ function main(): number {
     else if (!(own = ownChangeSince(root, ref, resolved, 'HEAD'))) fixRange = unread('git could not build the PR\'s own change since the range base');
     else {
       const commit = collectCommit(root, resolved, own);
+      const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', own]), gateTagged: gateTagsOf(['--commit', own]), ...riskPaths, ...(active ? { excluded: active.excluded } : {}) });
       const edits = readRuledNotes(root).filter(n => n.finding.startsWith('edit:'));
-      routed = edits.length ? ruledEdits(root, commit.paths, head, edits) : null;
-      const ruled = [...(routed?.ruled.keys() ?? [])].sort();
-      const excluded = new Set([...(active?.excluded ?? []), ...ruled]);
-      const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', own]), gateTagged: gateTagsOf(['--commit', own]), ...riskPaths, ...(excluded.size ? { excluded } : {}) });
-      ruledAll = !range.errors.length && !!commit.paths.length && ruled.length === commit.paths.length;
-      fixRange = ruledAll ? { base: rangeBase, runtime_lines: 0, ruled }
-        : range.errors.length ? unread([...range.errors.slice(0, 5).map(e => `${e.code} ${e.input}`), ...(range.errors.length > 5 ? [`+${range.errors.length - 5} more`] : [])].join('; '))
+      routed = edits.length && commit.paths.length && !range.errors.length ? ruledEdits(root, commit.paths, head, edits) : null;
+      const tagsBeyond = (ruled: ReadonlyMap<string, unknown>) => { const g = runGateDiff(['--commit', own!, '--format', 'jsonl']);
+        return g.status !== 0 || (g.stdout ?? '').split('\n').slice(1).some(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return !!h.tags?.length && !ruled.has(h.path ?? ''); } catch { return false; } }); };
+      ruledAll = !!routed && routed.ruled.size === commit.paths.length && !tagsBeyond(routed.ruled);
+      fixRange = range.errors.length ? unread([...range.errors.slice(0, 5).map(e => `${e.code} ${e.input}`), ...(range.errors.length > 5 ? [`+${range.errors.length - 5} more`] : [])].join('; '))
         : !commit.paths.length ? unread('the fix range is empty: commit the fix after the range base (a base merge alone is not the PR\'s own change)')
-        : { base: rangeBase, runtime_lines: range.runtimeLines, ...(range.class === 'gate' ? { touched_gate: true as const } : {}), ...(ruled.length ? { ruled } : {}) };
+        : ruledAll ? { base: rangeBase, runtime_lines: 0, ruled: [...routed!.ruled.keys()].sort() }
+        : { base: rangeBase, runtime_lines: range.runtimeLines, ...(range.class === 'gate' ? { touched_gate: true as const } : {}) };
     }
   }
   const targeted = targetedClasses({ ...collected, scope, gateTagged, ...(active ? { excluded: active.excluded } : {}) });
@@ -238,9 +238,11 @@ function main(): number {
   const ranArg = flag('--targeted-ran');
   const delta = plan.next.step !== 'done' || !targeted.classes.length || ran ? null
     : rangeBase && ranArg ? targetedDelta(root, ref, rangeBase, ranArg) : null;
-  if (delta?.state === 'dispatch') {
-    const why = `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')})`;
-    plan.next = { step: 'targeted', reason: `the loop is done and ${why} after the targeted read at ${delta.range_base.slice(0, 12)}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
+  const ruledRead = ruledAll && plan.next.step === 'done' && targeted.classes.length > 0 && !ran && !(delta?.state === 'skip' && delta.carried);
+  if (delta?.state === 'dispatch' || ruledRead) {
+    const why = delta?.state === 'dispatch' ? `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')}) after the targeted read at ${delta.range_base.slice(0, 12)}`
+      : 'every edit since --range-base is ruled a note, but no targeted record covers the ruled bytes';
+    plan.next = { step: 'targeted', reason: `the loop is done and ${why}: one targeted reader reads HEAD for ${classList(targeted.classes)}; it is not a review round` };
     plan.dispatches.push({ role: 'targeted', name: 'targeted', effort: ROLE_EFFORT.targeted, exclude: active ? [...active.specs] : [], classes: [...targeted.classes], ...(active?.keep.length ? { keep: [...active.keep] } : {}) });
   } else if (delta) plan.skipped.push(`targeted-only read (${delta.reason})`);
   if (last === 'full' && plan.next.step === 'done' && fixRange && !ruledAll && fixRange.runtime_lines !== null && !ran && !(delta?.state === 'skip' && delta.carried) && !postReview && !['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate'].some(has)) {
