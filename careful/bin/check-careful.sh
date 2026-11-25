@@ -177,6 +177,11 @@ _S=""
 _R=""
 _RISK=""
 _D=""
+_WT_N=-1
+_WT_ROOT=()
+_WT_GIT=""
+_WT_CWD=""
+_WT_HOME=""
 
 # Up to two layers of quotes, any mix: trap 'rm -rf "$T"' leaves $T.
 _Q="[\"']"
@@ -240,6 +245,85 @@ _careful_squash() {
   while [[ $_SQ == *//* || $_SQ == */./* ]]; do _SQ=${_SQ//\/\//\/}; _SQ=${_SQ//\/.\//\/}; done
 }
 
+# The worktrees of the session's own repository (#4827), read once from
+# git worktree list --porcelain -z and resolved on disk with cd -P. A bare or
+# prunable entry never counts, and neither does a worktree that is /, the home
+# folder or a folder holding it, a personal folder, or a system folder. None
+# count when git fails or the session folder is inside none of them.
+_careful_wt_add() {
+  local r="$1" p
+  [ -n "$r" ] || return 0
+  if command -v gstack_hook_normalize_path >/dev/null 2>&1; then gstack_hook_normalize_path "$r"; r="$GSTACK_HOOK_PATH"; fi
+  case "$r" in /*) ;; *) return 0 ;; esac
+  case "$r" in *"$_NL"*) return 0 ;; esac
+  p=$(cd -P -- "$r" 2>/dev/null && pwd -P) || return 0
+  p="${p%/}"
+  [ -n "$p" ] || return 0
+  case "$_WT_HOME/" in "$p"/*) return 0 ;; esac
+  case "${p#"$_WT_HOME"/}" in Documents|Desktop|Downloads|Library|Pictures|Movies|Music|.ssh|.config|.aws|.gnupg|.kube) return 0 ;; esac
+  [[ $p =~ $_RX_ROOT ]] && return 0
+  [[ $p/ =~ $_RX_SYSDIR ]] && return 0
+  _WT_ROOT[$_WT_N]="$p"; _WT_N=$((_WT_N + 1))
+  return 0
+}
+_careful_worktrees() {
+  [ "$_WT_N" -lt 0 ] || return 0
+  _WT_N=0
+  local rec root="" skip=0 i=0 in=0
+  _WT_HOME=$(cd -P -- "${HOME:-/}" 2>/dev/null && pwd -P) || _WT_HOME=/
+  _WT_HOME="${_WT_HOME%/}"
+  _WT_CWD=$(cd -P -- "$_CAREFUL_CWD" 2>/dev/null && pwd -P) || return 0
+  _WT_GIT=$(unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR; GIT_OPTIONAL_LOCKS=0 git -C "$_CAREFUL_CWD" rev-parse --path-format=absolute --git-common-dir </dev/null 2>/dev/null) || return 0
+  _WT_GIT=$(cd -P -- "$_WT_GIT" 2>/dev/null && pwd -P) || return 0
+  [ -n "$_WT_GIT" ] && [ "$_WT_GIT" != / ] || return 0
+  while IFS= read -r -d '' rec; do
+    case "$rec" in
+      'worktree '*) [ "$skip" -eq 1 ] || _careful_wt_add "$root"; root="${rec#worktree }"; skip=0 ;;
+      bare|prunable|'prunable '*) skip=1 ;;
+    esac
+  done < <(unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR; GIT_OPTIONAL_LOCKS=0 git -C "$_CAREFUL_CWD" worktree list --porcelain -z </dev/null 2>/dev/null)
+  [ "$skip" -eq 1 ] || _careful_wt_add "$root"
+  while [ "$i" -lt "$_WT_N" ]; do
+    case "$_WT_CWD/" in "${_WT_ROOT[$i]}"/*) in=1 ;; esac
+    i=$((i + 1))
+  done
+  [ "$in" -eq 1 ] || _WT_N=0
+  return 0
+}
+
+# An absolute delete target strictly inside a worktree of the session's own
+# repository, checked on disk (#4827). Never a glob, a quote, a variable, a ..
+# or a symlink; never a .git entry or anything in the git folder; never a
+# worktree's root, the session folder or a folder holding one of them.
+_RX_WT_PATH='^/[A-Za-z0-9._/@+,:%=-]+$'
+_careful_in_worktree() {
+  local t="$1" dir base p r i=0 in=0
+  [[ $t =~ $_RX_WT_PATH ]] || return 1
+  _careful_squash "$t"; t="${_SQ%/}"
+  case "/$t/" in */../*|*/./*) return 1 ;; esac
+  case "$t/" in */.[Gg][Ii][Tt]/*) return 1 ;; esac
+  base="${t##*/}"; dir="${t%/*}"
+  [ -n "$base" ] && [ -n "$dir" ] || return 1
+  [ ! -L "$t" ] || return 1
+  _careful_worktrees
+  [ "$_WT_N" -gt 0 ] || return 1
+  if [ -d "$t" ]; then
+    p=$(cd -P -- "$t" 2>/dev/null && pwd -P) || return 1
+  else
+    p=$(cd -P -- "$dir" 2>/dev/null && pwd -P) || return 1
+    p="${p%/}/$base"
+  fi
+  case "$p/" in */.[Gg][Ii][Tt]/*|"$_WT_GIT"/*) return 1 ;; esac
+  case "$_WT_GIT/" in "$p"/*) return 1 ;; esac
+  case "$_WT_CWD/" in "$p"/*) return 1 ;; esac
+  while [ "$i" -lt "$_WT_N" ]; do
+    r="${_WT_ROOT[$i]}"; i=$((i + 1))
+    case "$r/" in "$p"/*) return 1 ;; esac
+    case "$p" in "$r"/*) in=1 ;; esac
+  done
+  [ "$in" -eq 1 ]
+}
+
 # A delete target outside the session's folder: an absolute or ~ path that is
 # not scratch or a cache, a path climbing out with .., or a word led by a
 # variable that may be unset.
@@ -282,6 +366,7 @@ _careful_outside() {
   esac
   t="${t%/}"
   if [ -n "$_CAREFUL_CWD" ] && { [ "$t" = "$_CAREFUL_CWD" ] || [ "${t#"$_CAREFUL_CWD"/}" != "$t" ]; }; then return 1; fi
+  _careful_in_worktree "$t" && return 1
   return 0
 }
 

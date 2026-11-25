@@ -1274,6 +1274,105 @@ describe('check-careful.sh PowerShell and cmd coverage (#3067)', () => {
 // The freeze fix (#3623) made the shared extractor keep trailing newlines and
 // map lone surrogates on PATH fields only; a command must come out exactly as
 // before, on both extractor branches.
+// #4827: deletes inside another worktree of the session's own repository. The
+// fixture lives outside /tmp, which the check already treats as scratch, so
+// every ask below is the check's real decision. POSIX symlinks and paths.
+describe.skipIf(process.platform === 'win32')('check-careful.sh sibling git worktrees (#4827)', () => {
+  const real = (p: string) => fs.realpathSync(p);
+  const scratchTmp = /^\/(private\/)?(tmp|var\/tmp)(\/|$)/.test(real(os.tmpdir()));
+  function withWorktrees(fn: (b: string) => void) {
+    const b = real(fs.mkdtempSync(path.join(scratchTmp ? os.homedir() : os.tmpdir(), '.gstack-careful-wt-')));
+    try {
+      const git = (cwd: string, args: string[]) => {
+        const r = gitArgvIn(cwd, args, 10_000);
+        if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+      };
+      for (const d of ['app/src', 'other/src', 'outside', 'plain']) fs.mkdirSync(path.join(b, d), { recursive: true });
+      fs.writeFileSync(path.join(b, 'app', 'src', 'a.txt'), 'a\n');
+      fs.writeFileSync(path.join(b, 'other', 'src', 'a.txt'), 'a\n');
+      fs.writeFileSync(path.join(b, 'outside', 'secret'), 's\n');
+      for (const repo of ['app', 'other']) {
+        git(path.join(b, repo), ['init', '-q', '-b', 'main']);
+        git(path.join(b, repo), ['add', '.']);
+        git(path.join(b, repo), ['commit', '-q', '-m', 'init']);
+      }
+      git(path.join(b, 'app'), ['worktree', 'add', '-q', path.join(b, 'app-192'), '-b', 'feat']);
+      git(path.join(b, 'app'), ['worktree', 'add', '-q', path.join(b, 'app', '.claude', 'worktrees', 'x'), '-b', 'nested']);
+      git(path.join(b, 'app'), ['worktree', 'add', '-q', path.join(b, 'gone'), '-b', 'gone']);
+      fs.rmSync(path.join(b, 'gone'), { recursive: true, force: true });
+      fs.mkdirSync(path.join(b, 'gone', 'src'), { recursive: true });
+      git(path.join(b, 'app'), ['worktree', 'prune']);
+      fs.symlinkSync(path.join(b, 'outside'), path.join(b, 'app-192', 'escape'));
+      fs.symlinkSync(path.join(b, 'outside', 'secret'), path.join(b, 'app-192', 'link-file'));
+      fn(b);
+    } finally {
+      fs.rmSync(b, { recursive: true, force: true });
+    }
+  }
+  const decide = (b: string, cwd: string, command: string, env: Record<string, string> = {}) => {
+    const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command.replaceAll('B/', `${b}/`)), env, path.join(b, cwd));
+    expect(exitCode).toBe(0);
+    return output.hookSpecificOutput?.permissionDecision ?? 'allow';
+  };
+
+  test('a file delete inside a sibling worktree, either way round or from a nested worktree, is allowed', () => {
+    withWorktrees((b) => {
+      for (const [cwd, command] of [
+        ['app', 'rm B/app-192/src/a.txt'],
+        ['app', 'rm -f B/app-192/src/debug.spec.ts'],
+        ['app', 'unlink B/app-192/src/a.txt'],
+        ['app', 'find B/app-192/src -name "*.log" -delete'],
+        ['app-192', 'rm B/app/src/a.txt'],
+        ['app/.claude/worktrees/x', 'rm -f B/app/src/a.txt'],
+        ['app-192', 'rm B/app/.claude/worktrees/x/src/a.txt'],
+      ]) {
+        expect([command, decide(b, cwd, command)]).toEqual([command, 'allow']);
+      }
+    });
+  }, 30_000);
+
+  test('roots, .git, the git folder, .., symlinks, globs and recursive deletes still ask', () => {
+    withWorktrees((b) => {
+      for (const [cwd, command] of [
+        ['app', 'rm -f B/app-192'],
+        ['app', 'rm -f B/app-192/'],
+        ['app', 'rm -rf B/app-192/src'],
+        ['app', 'find B/app-192 -delete'],
+        ['app', 'rsync -a --delete ./src/ B/app-192'],
+        ['app-192', 'rm -f B/app'],
+        ['app-192', 'rm -f B/app/.claude/worktrees/x'],
+        ['app-192', 'find B/app/.claude -delete'],
+        ['app/.claude/worktrees/x', 'rm -f B/app/.claude'],
+        ['app', 'rm B/app-192/.git'],
+        ['app', 'rm B/app-192/.GIT'],
+        ['app-192', 'rm B/app/.git/config'],
+        ['app-192', 'rm -f B/app/.git/worktrees/app-192/HEAD'],
+        ['app', 'rm B/app-192/src/../../outside/secret'],
+        ['app', 'rm B/app-192/escape/secret'],
+        ['app', 'rm B/app-192/link-file'],
+        ['app', 'shred -u B/app-192/escape/secret'],
+        ['app', 'rm B/app-192/src/*.txt'],
+        ['app', 'rm -f B/app-192/.g*'],
+        ['app', 'rm $W/src/a.txt'],
+        ['app', 'git worktree remove --force B/app-192'],
+      ]) {
+        expect([command, decide(b, cwd, command)]).toEqual([command, 'ask']);
+      }
+    });
+  }, 30_000);
+
+  test('another repository, a pruned worktree, a non-git folder, GIT_DIR and a home-folder repository grant nothing', () => {
+    withWorktrees((b) => {
+      expect(decide(b, 'app', 'rm B/other/src/a.txt')).toBe('ask');
+      expect(decide(b, 'other', 'rm B/app-192/src/a.txt')).toBe('ask');
+      expect(decide(b, 'app', 'rm B/gone/src/a.txt')).toBe('ask');
+      expect(decide(b, 'plain', 'rm B/app-192/src/a.txt')).toBe('ask');
+      expect(decide(b, 'plain', 'rm B/app-192/src/a.txt', { GIT_DIR: path.join(b, 'app', '.git') })).toBe('ask');
+      expect(decide(b, 'app/src', 'rm B/app-192/src/a.txt', { HOME: path.join(b, 'app') })).toBe('ask');
+    });
+  }, 30_000);
+});
+
 describe('shared extractor keeps /careful command values unchanged (#3623)', () => {
   test.skipIf(process.platform === 'win32').each(['python3', 'node'])('with %s failing, a command still drops trailing newlines and nothing else', (broken) => {
     const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-extract-shim-'));

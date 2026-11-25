@@ -1,0 +1,3 @@
+### Fixed
+
+- **The destructive-command check no longer asks before deleting a file inside another `git worktree` of the same repository.** A session started in `~/Projects/app` that ran `rm /Users/me/Projects/app-192/src/debug.spec.ts` got "deletes files outside this session's folder" on every delete, even in bypass mode (#4827). A path now counts as inside when, resolved on disk, it sits strictly inside a worktree that `git worktree list` reports for the session's own repository. Everything else still asks, including a worktree's root or a folder holding one, `.git` and the git folder, `..`, symlinks, globs, other repositories, `rm -r`, and `git worktree remove --force`.
