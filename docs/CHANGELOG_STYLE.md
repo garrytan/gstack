@@ -72,9 +72,9 @@ ownership"), document it as a property, not as a fix. The shipped system is what
 the user gets; the path to that system is invisible to them.
 
 **When to write the CHANGELOG entry:**
-- At `/ship` time (Step 13), not during development or mid-branch.
+- At `/gstack-ship` time (Step 13), not during development or mid-branch.
 - The entry covers ALL commits on this branch vs the base branch.
-- `/ship` lints the fragment with `bin/gstack-prose-lint changelog.d/<branch-slug>.md --gate`.
+- `/gstack-ship` lints the fragment with `bin/gstack-prose-lint changelog.d/<branch-slug>.md --gate`.
   Rewrite each `PROSE:` line it names ([docs/troubleshooting.md](troubleshooting.md#prose-lint-found)).
 - Never fold new work into a CHANGELOG.md section that already landed on main.
   New work goes in this branch's fragment, and the merge stamp gives it its own
@@ -133,7 +133,7 @@ If the diff between the base branch and this branch has no user-facing change
 (only merges, only CHANGELOG edits, only placeholder work), the honest fragment is one
 sentence: "No user-facing changes yet." Stop
 there. Do not pad. Do not explain the plan that will ship eventually. Do not narrate
-the branch's history. When real work lands, the entry will replace this at /ship time.
+the branch's history. When real work lands, the entry will replace this at /gstack-ship time.
 
 ### Raising the supported minimum (`capy/support.env`)
 

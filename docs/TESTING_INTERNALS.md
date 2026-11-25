@@ -539,7 +539,7 @@ after its rerun binds RED and is never reused. Train runs take the same
 ### Ship measure
 
 **Measure-then-fix: diagnostic trials are not verdicts** (`scripts/ship-measure.ts`).
-When a paid case goes red during /ship, /ship measures that case alone before it
+When a paid case goes red during /gstack-ship, /gstack-ship measures that case alone before it
 reruns the full gate: classify the red line, measure, fix at the cause,
 re-measure, then run the gate once (`ship/sections/measure.md`). The repeated
 runs are **diagnostic measurement, not verdict retries**, so they fit the
@@ -626,7 +626,7 @@ state root and flake ledger and with `GSTACK_FREE_RETRY_FLAKY=0`, under a
 free random ports, as in the normal suite. `ship_rerun_backend=ubicloud` runs the
 reruns on one Ubicloud VM through `bun run test:ubicloud --diagnostic`, which
 also sets the flaky retry off. The seeded paid case `ship-measure-seeded-flake`
-(periodic, `behavior`) drives /ship through this loop against a stub eval
+(periodic, `behavior`) drives /gstack-ship through this loop against a stub eval
 command that fails trial slots 2, 5 and 9 until its list is sorted. The weekly
 [off-ship sweep](#ship-measure-sweep) measures main's flakiest gate cases with
 the same runner and bar.
@@ -956,7 +956,7 @@ latest gate census, and ranks every live, non-quarantined gate case with a
 failed trial or red verdict by its cost to the all-green probability
 Π(1 − p_i) (the shrunk red-verdict rate from `--reds`; ties go to the lower
 per-trial pass rate). It measures the top K (`ship_measure_sweep_cases`,
-default 5; `--k`) at their kind's N on the checked-out head with /ship's runner
+default 5; `--k`) at their kind's N on the checked-out head with /gstack-ship's runner
 and bar, in rank order. The report (`sweep-report.md` and `.json` under
 `.context/ship-measure/sweep-<time>/`, rewritten after every case) has one row
 per case (history rate, measured count, decision, estimated and actual cost,
@@ -979,7 +979,7 @@ reports first, uploads the report and captures as the `ship-measure-sweep`
 artifact, and writes the job summary. It holds `contents: read`, never pushes
 or opens a pull request, and runs one sweep at a time repository-wide
 (concurrency group `eval-sweep`, not cancelled) so two runs never spend the
-same weekly cap. Fixing is done by an agent from the report, through /ship's
+same weekly cap. Fixing is done by an agent from the report, through /gstack-ship's
 measure loop. Sweep trials are diagnostic like every ship-measure trial: they
 never become verdicts and never enter EVAL_POLICY pooling or series history.
 
@@ -1033,7 +1033,7 @@ poppler, emoji fonts, zsh for the bash+zsh portability arms (#2669), generated
 host outputs, gate binaries, and the CSO helper), and runs `xvfb-run -a bun run test:free` with `GSTACK_EXPECT_BINARIES=1`
 and `GSTACK_FREE_RETRY_FLAKY=1`. Shard logs are copied to
 `.context/ubicloud/<timestamp>/`, and the VM is destroyed on every exit path.
-The exit status is the suite's. `--diagnostic` instead runs /ship's free-shard
+The exit status is the suite's. `--diagnostic` instead runs /gstack-ship's free-shard
 measurement (`scripts/ship-measure.ts free`, see [ship-measure](#ship-measure))
 with `GSTACK_FREE_RETRY_FLAKY=0`.
 

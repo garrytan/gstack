@@ -183,7 +183,7 @@ describe('gstack_claude_render_action / render_plain / render_settle', () => {
     expect(out).toContain('Rendering Claude skills with the claude overlay and no plan-mode preamble into');
     expect(bunLog()).toMatch(/run gen:skill-docs --host claude --out-dir \S+ --link-root \S+ --model claude --plan-mode=off$/m);
     expect(fs.existsSync(path.join(tmp, 'render/claude/autoplan/SKILL.md'))).toBe(true);
-    expect(record()).toBe('overlay=claude\nsource=default\nmodel=claude\nversion=0.1.2.3\ngbrain=absent\nrender=user\nplan_mode=off\n');
+    expect(record()).toBe('overlay=claude\nsource=default\nmodel=claude\nversion=0.1.2.3\ngbrain=absent\nrender=user\nnames=2\nplan_mode=off\n');
     expect(out).not.toContain('Claude skill overlay:');
   });
 
@@ -206,6 +206,6 @@ describe('gstack_claude_render_action / render_plain / render_settle', () => {
   test('key on: a pinned render and its record are byte-for-byte unchanged', () => {
     helper('gstack_claude_render_plain "$SRC" "$R" && gstack_claude_render_settle "$SRC" "$R" absent rendered', '', 'opus-4-7');
     expect(bunLog()).toMatch(/run gen:skill-docs --host claude --out-dir \S+ --link-root \S+ --model opus-4-7$/m);
-    expect(record()).toBe('overlay=opus-4-7\nsource=explicit\nmodel=opus-4-7\nversion=0.1.2.3\ngbrain=absent\nrender=user\n');
+    expect(record()).toBe('overlay=opus-4-7\nsource=explicit\nmodel=opus-4-7\nversion=0.1.2.3\ngbrain=absent\nrender=user\nnames=2\n');
   });
 });

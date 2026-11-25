@@ -168,7 +168,7 @@ function versionSource(cwd: string, explicit?: string): VersionSource {
 }
 
 function failBroken(src: VersionSource, verb: string): never {
-  fail(`${verb}: version source is broken: ${src.reason}. Fix that file or its pin, then re-run /ship (gstack never substitutes 0.0.0.0).`, 2);
+  fail(`${verb}: version source is broken: ${src.reason}. Fix that file or its pin, then re-run /gstack-ship (gstack never substitutes 0.0.0.0).`, 2);
 }
 
 
@@ -623,7 +623,7 @@ function cmdRepair(args: string[], cwd: string): void {
   if (!VERSION_RE.test(current)) {
     fail(
       `VERSION file contents (${current}) do not match MAJOR.MINOR.PATCH[.MICRO]. ` +
-        "Refusing to propagate invalid semver into package.json. Fix VERSION, then re-run /ship.",
+        "Refusing to propagate invalid semver into package.json. Fix VERSION, then re-run /gstack-ship.",
       2,
     );
   }

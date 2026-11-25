@@ -1,12 +1,12 @@
-# /ship token budget and fresh-context handoffs
+# /gstack-ship token budget and fresh-context handoffs
 
-`/ship --token-cap 25M` (or `GSTACK_SHIP_TOKEN_CAP=25M`) bounds what one /ship run spends, and
+`/gstack-ship --token-cap 25M` (or `GSTACK_SHIP_TOKEN_CAP=25M`) bounds what one /gstack-ship run spends, and
 long runs hand their heavy segments to fresh-context children. The helper is
 `bin/gstack-ship-budget`; the skill's procedure is `ship/sections/budget-handoff.md`.
 There is one default cap: an observe-mode run that meters its own counter (the thread's own jam id, `--reading-from own`,
 or one row of a root thread's `tasks` with `--reading-from task`, below) and names no cap gets 50M, the line where
 /runaway-stopper stops a subagent, and prints `BUDGET_DEFAULT_CAP: 50M`; `--token-cap none` turns it off. A run that
-reads a shared counter (`--reading-from this`, `--meter-scope tree`) gets no default. Without a cap, /ship meters usage when it can and prints it, and
+reads a shared counter (`--reading-from this`, `--meter-scope tree`) gets no default. Without a cap, /gstack-ship meters usage when it can and prints it, and
 nothing else changes.
 
 ## What the cap guarantees
@@ -51,7 +51,7 @@ item is one parent call; a `wait`, or a program that only reads status (plus at 
 note), is a keep-alive, and a gap over 300 s between calls outlives the prompt cache
 (`lib/ship-calls.ts`).
 
-A Capy /ship helper cannot read its own transcript, so it counts from the call log instead:
+A Capy /gstack-ship helper cannot read its own transcript, so it counts from the call log instead:
 `gstack-ship-budget calls --run <id>|--record <path> [--log <file>] [--since <iso>] [--until <iso>]`. On Capy (`GSTACK_CAPY=1`, set by the
 launch file) every gstack-ship-* bin and `gstack-review-dispatch` append one row to `<state root>/ship-calls.jsonl` when they exit (a bin another
 one spawned writes none), so counting adds no call. The window is the run's start to its close, and the
@@ -141,7 +141,7 @@ one program measure nothing: Capy books a call after its program ends.
 
 A jam's own counter includes its own subagents, outside voices too (measured 2026-10-30: +10.92M
 across a six-reader dispatch with two ~0.35M parent calls between). `"this"` is the root thread,
-whose counter also holds every sibling tree. /ship runs in the thread that owns the pull request, never in a subagent,
+whose counter also holds every sibling tree. /gstack-ship runs in the thread that owns the pull request, never in a subagent,
 so on Capy it reads that thread's own jam id: a crew thread is a root thread, and its counter holds its reviewers. A
 reading taken inside a subagent is different, because a subagent cannot read its own jam id. When its brief names its title
 (`GSTACK_SHIP_TASK_TITLE=<title>`), it reads `cost` from its own row of the root thread's `tasks` (the row whose `title` matches; its subtree, exact)
@@ -153,7 +153,7 @@ and BUDGET_TIMELINE line it prints is followed by `METER: tree (root counter, up
 subagent that asks for `--meter-scope self` while reading `"this"` is refused
 (`METER_SCOPE_PARENT`). A `--token-cap` on a tree-scoped run stops on that upper bound, so sibling
 lanes count against it. Exact per-run cost comes from a root replay thread: a root thread that runs
-only that /ship, whose `"this"` is its own counter. A root thread's own jam id is its `"this"`. A Capy handoff child cannot read its own jam id, so it
+only that /gstack-ship, whose `"this"` is its own counter. A root thread's own jam id is its `"this"`. A Capy handoff child cannot read its own jam id, so it
 verifies with no reading and prints `METER: parent`; the parent's handoff and reconcile readings,
 taken on its own counter (which holds the child), measure it.
 
@@ -186,7 +186,7 @@ With a cap set and no readable meter, start refuses
 
 Any exit other than 0 means the next step does not start. Exit 2 is a usage or validation
 error on stderr with the code, the value and the repair. GSTACK_RESULT appears only on a stop,
-an incomplete close and a child's return; /ship's real terminal line stays Step 22's.
+an incomplete close and a child's return; /gstack-ship's real terminal line stays Step 22's.
 
 ## Dispatches
 
@@ -225,11 +225,11 @@ BUDGET_CHECK_SKIPPED line and the run ends status=incomplete for the owner to ac
 ## Delegation
 
 The delegate rule measures context above the host's per-call floor: what one call costs in a
-fresh session with the ship skill loaded, before any /ship work. The floor is `call_floor` per
+fresh session with the ship skill loaded, before any /gstack-ship work. The floor is `call_floor` per
 unit in `lib/ship-budget-calibration.json` (150k on Capy, where a fresh thread's calls cost
 150–230k; 40k on Claude Code; 0 for the estimate meter, whose charge is always unknown), or
 `start --call-floor <n>`, which the ledger records and every child inherits. At start, 100k or
-more above the floor delegates the whole /ship. Before Step 9 and before Step 12, 150k or more
+more above the floor delegates the whole /gstack-ship. Before Step 9 and before Step 12, 150k or more
 above the floor (or an unknown charge) delegates the next segment (9–11.5, 12–22). The BUDGET
 line prints `call`, `call_floor` and `above_floor`, so each verdict can be checked:
 
@@ -248,7 +248,7 @@ line prints `call`, `call_floor` and `above_floor`, so each verdict can be check
 2. The child is a Capy subagent on the shared machine, or on Claude Code
    `gstack-ship-budget launch --in <brief>`: a background `claude -p` (resolved through lib/claude-bin.ts)
    with explicit permission flags and the return file named, whose prompt opens with the typed
-   `/ship --continue <brief>` (`/gstack-ship` under `skill_prefix: true`; see
+   `/gstack-ship --continue <brief>` (`/gstack-ship` under `skill_prefix: true`; see
    [unattended.md](unattended.md#starting-a-child-agent-type-the-skill-first)).
 3. The child runs `verify-handoff` first; a moved pin refuses
    ([HANDOFF_PIN_MOVED](troubleshooting.md#handoff-pin-moved)). It admits against its sub-cap
@@ -295,7 +295,7 @@ cannot pay for one. Without the flag the rule above applies unchanged.
 A stop prints
 
     STOP: reason=budget_exhausted spent=<n> reserved=<n> unknown=<n> admission_cap=<n> next=<id> projected=<n>
-    RECOVER: /ship --resume <record> --token-cap <used + reserved + unknown + projected tail>
+    RECOVER: /gstack-ship --resume <record> --token-cap <used + reserved + unknown + projected tail>
     GSTACK_RESULT: skill=ship status=incomplete run=<dir>
 
 Raising the cap is the owner's call; the resume journals who raised it and their words:
@@ -305,7 +305,7 @@ gstack-ship-budget resume --record <record> --token-cap <n> --approved-by Garry 
 ```
 
 Every command takes `--run` or `--record`; runs are never found by branch or directory, and a
-/ship without `--resume` or `--continue` always starts a new run. The ledger and record are
+/gstack-ship without `--resume` or `--continue` always starts a new run. The ledger and record are
 mirrored to a private Drive checkpoint (`GSTACK_SHIP_BUDGET_CHECKPOINT_DIR`, else the
 project-user Drive folder on Capy) bound to the run id and their hashes, so after a machine
 change `resume --run <id>` restores both. A corrupt ledger
@@ -314,7 +314,7 @@ record's block with `--rebuild-from-record`; open reservations are then charged 
 
 ### A stopped run whose ledger is closed
 
-A /ship run that stopped after its ledger closed (the run's last step closes it) can't be resumed:
+A /gstack-ship run that stopped after its ledger closed (the run's last step closes it) can't be resumed:
 `resume` refuses with `run <id> is closed`. To continue that run's remaining steps, open a new
 observe ledger on the same record:
 
@@ -330,7 +330,7 @@ one, so add the two when you report what the run cost. On Capy, `--reading` is t
 
 ### Successor handoff
 
-When another thread takes over a /ship run (a successor handoff, routine under the 75%-of-hard-stop
+When another thread takes over a /gstack-ship run (a successor handoff, routine under the 75%-of-hard-stop
 rule), its `cost.tokens` and `cost.credits` are a different counter: they start near zero, or at an
 unrelated cumulative value, so the run's last readings mean nothing to them. The successor resumes
 the same run and names the thread its readings come from:
@@ -369,7 +369,7 @@ largest observation times 1.5, rounded up to 10,000 tokens. The leave-one-out te
 (test/ship-budget-calibration.test.ts) covers the per-call constant only, the one observed
 across three runs; per-dispatch has two observations and stop overhead one. Only the Capy
 meter has observations; the Claude Code and estimate units are seeded from it until a
-Claude-metered /ship completes. Each unit's `call_floor` is calibrated separately, with its
+Claude-metered /gstack-ship completes. Each unit's `call_floor` is calibrated separately, with its
 evidence in `call_floor_why`; a floor is the largest 10,000 multiple at or below its smallest
 observed fresh call.
 
@@ -401,8 +401,8 @@ meter has no readings, so it always projects at the prior.
 ## Token cap and USD spend cap
 
 A lane's `--spend-cap` (USD) bounds paid gates and evals through lib/spend-ledger.ts; `--token-cap`
-bounds the /ship run's model tokens through its own ledger. They are independent: set both
-when a lane runs paid gates inside /ship, and neither converts into the other.
+bounds the /gstack-ship run's model tokens through its own ledger. They are independent: set both
+when a lane runs paid gates inside /gstack-ship, and neither converts into the other.
 
 ## Claiming savings
 

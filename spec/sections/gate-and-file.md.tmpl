@@ -152,14 +152,14 @@ per printed `RULE:` line exactly as in the 4.5b disposition (auto-redact rewrite
 is, rerun the block with `--confirm <confirm-token>` after `--body-file "$REDACT_FILE"`.
 Any edit needs a new scan, so the token no longer applies. Exit 3: `gh` failed; report it.
 
-The last line records the spec as a durable, issue-scoped cross-session decision so a future session (or `/ship` closing the issue) inherits the core approach and why, not just the issue link. Non-interactive, best-effort (`|| true`). The approach file holds the one core approach/decision the spec settled. Only fires when the issue was actually filed.
+The last line records the spec as a durable, issue-scoped cross-session decision so a future session (or `/gstack-ship` closing the issue) inherits the core approach and why, not just the issue link. Non-interactive, best-effort (`|| true`). The approach file holds the one core approach/decision the spec settled. Only fires when the issue was actually filed.
 
 If `gh` is not available, print: "`gh` not authenticated — title and body below
 for paste into https://github.com/{owner}/{repo}/issues/new with zero
 reformatting needed." Then emit the rendered title + body.
 
 **Capture `$ISSUE_NUMBER`** — it goes in the archive frontmatter (next step) and
-is consumed by `/ship` for auto-close.
+is consumed by `/gstack-ship` for auto-close.
 
 #### Archive the spec (always, local by default)
 
@@ -310,7 +310,7 @@ echo "Follow with: cd $SPAWN_PATH && claude --resume"
 
 Update archive frontmatter with `spec_worktree_path: $SPAWN_PATH` and
 `spec_executed: true` (atomic re-write). When the worktree was created, also set
-`spec_branch: $SPAWN_BRANCH`: /ship matches the archive by the branch it ships from.
+`spec_branch: $SPAWN_BRANCH`: /gstack-ship matches the archive by the branch it ships from.
 
 **Stash restore safety (when B path was chosen):** Do NOT auto-restore inline
 — the spawned agent may take hours. Instead print: "Stash preserved as

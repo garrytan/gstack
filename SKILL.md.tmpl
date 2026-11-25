@@ -53,7 +53,7 @@ Only run skills the user explicitly invokes. This preference persists across ses
 
 If `PROACTIVE` is `core` (default): **invoke the Skill tool** only for the four core
 skills when the user's request matches their rule below: `/office-hours`, `/review`,
-`/qa` and `/ship`. For every other rule, answer directly and do not suggest the skill;
+`/qa` and `/gstack-ship`. For every other rule, answer directly and do not suggest the skill;
 the user types it. The browser step above follows the
 same rule: under `core`, name `/browse` for the user to type instead of
 invoking it. A skill the user names is always invoked, whatever this setting says,
@@ -82,7 +82,7 @@ whenever a routing rule below matches, subject to "When to invoke, and when not 
 - User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
 - User asks to run the checks, make the tests pass, "check my work" while building → invoke `/build-check`
-- User asks to ship, push, create a PR, "let's land this", "send it" → invoke `/ship` (deploying is `/land-and-deploy`, below)
+- User asks to ship, push, create a PR, "let's land this", "send it" → invoke `/gstack-ship` (deploying is `/land-and-deploy`, below)
 - User asks to merge + deploy + verify as one flow → tell them to type `/land-and-deploy`; never merge or deploy by hand
 - User asks to rebase or revive an old PR, "modernize this PR", whether a stale PR is still worth landing → tell them to type `/modernize`
 - User asks to configure deployment for the project → invoke `/setup-deploy`

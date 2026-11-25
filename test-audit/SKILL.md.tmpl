@@ -26,7 +26,7 @@ allowed-tools:
 Find existing tests that cost more than they protect, prove it with evidence, and
 retire them only in approved batches. Optimize for confidence, not deletion count;
 a few well-evidenced candidates beat a large speculative list, and none is a valid
-result. `/review`, `/ship`, `/qa` and `/plan-eng-review` apply the same bar to new
+result. `/review`, `/gstack-ship`, `/qa` and `/plan-eng-review` apply the same bar to new
 tests in a diff; this skill is the whole-repo sweep for tests that already exist.
 
 Usage: `/test-audit [path ...] [--since <ref>] [--max-candidates N]` (default: whole
@@ -35,7 +35,7 @@ repo, 10 candidates).
 ## Boundaries
 
 - Discovery and the report are read-only. Edit only a batch the user approved in
-  Step 5. Never commit, push or open a PR; landing goes through `/ship`, one owner
+  Step 5. Never commit, push or open a PR; landing goes through `/gstack-ship`, one owner
   batch per PR.
 - When the preamble echoed `SESSION_KIND: spawned` or `headless`, this run is hard
   report-only: write the report, ask nothing, edit nothing, and treat every batch as
@@ -141,7 +141,7 @@ otherwise recommend B. Report-only unless a batch is approved.
    passes with it removed in a scratch worktree; grep evidence alone is not enough.
 3. Run the owner and sibling tests with the detected runner, then `git diff --check`.
 4. Report `git diff --numstat` with production and test LOC separately.
-5. Hand landing to `/ship`. After it lands, rerun discovery for the next batch.
+5. Hand landing to `/gstack-ship`. After it lands, rerun discovery for the next batch.
 
 ## Handoff
 

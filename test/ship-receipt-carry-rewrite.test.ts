@@ -72,7 +72,7 @@ describe('carry across a rebase', () => {
     expect(out.status).toBe(EXIT.refused);
     expect(out.out).toContain('CARRY: refused (RECEIPT_CARRY_TREE_MISMATCH)');
     expect(out.err).toContain(`HEAD's tree ${repo.git('rev-parse', 'HEAD^{tree}').slice(0, 12)} is not a tree the receipt covers`);
-    expect(out.err).toContain(`run /ship on ${head.slice(0, 12)}`);
+    expect(out.err).toContain(`run /gstack-ship on ${head.slice(0, 12)}`);
     expect(receiptIn(body).head).toBe(reviewed);
   }, 60_000);
 

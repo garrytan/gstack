@@ -36,6 +36,6 @@ approved"; then `## User challenges (direction kept)` (plan says, proposal,
 why, cost if wrong), `## Scope added`, `## Conservative choices`,
 `## Findings` (severity, section, fix, disposition) and `## Decision Audit
 Trail` (copied), each "None." when empty. Send the CEO Completion Summary and
-both paths, skip Completion's logs, approval and `/ship`, and end with:
+both paths, skip Completion's logs, approval and `/gstack-ship`, and end with:
 
 `GSTACK_RESULT: skill=autoplan status=reviewed run=<absolute $_AP>`

@@ -97,7 +97,7 @@ serves); and what the reader has to do, or "Nothing to do".>
 and what they get now; themes from `git log origin/<base>..HEAD --oneline` after that,
 minus VERSION/CHANGELOG bookkeeping. Never an inventory or a commit list. BAD: "Adds
 gstack-prose-lint, wires Steps 13 and 19, refreshes the goldens." GOOD: "Nobody reads a
-CHANGELOG entry twice, so autopilot words shipped every release. /ship now lints the entry
+CHANGELOG entry twice, so autopilot words shipped every release. /gstack-ship now lints the entry
 before the commit and names each line to rewrite.">
 
 ## Blast radius
@@ -139,7 +139,7 @@ proof, fixes and blocked/inconclusive/not-run coverage. Never present stale or
 unavailable results as passing.>
 
 ## Design Review
-<If design review ran: "Design Review: static (no preview declared). Design-lite: N findings — M auto-fixed, K skipped. AI Slop: clean/N issues." The receipt's `design` field says the same; no rendered /design-review runs inside /ship yet.>
+<If design review ran: "Design Review: static (no preview declared). Design-lite: N findings — M auto-fixed, K skipped. AI Slop: clean/N issues." The receipt's `design` field says the same; no rendered /design-review runs inside /gstack-ship yet.>
 <Detector: "clean" | "N findings (rule-id, rule-id)" | "not installed" | "not cached" | "off" — the state the probe printed; rule ids and counts only, finding text and snippets never reach the PR body.>
 <If no frontend files changed: "No frontend files changed — design review skipped.">
 
@@ -288,7 +288,7 @@ Add `--receipt .gstack/tmp/tree-receipt.json` only when Step 16 wrote it (gate-a
 New PR/MR: omit `--pr`, then rerun with the number after creation and repost the body.
 Its `SHIP_RECEIPT:` line opens the completion message. The posted receipt is what
 `gstack-ship-queue ready`, `train build` and `verify --train` require (`QUEUE_RECEIPT_MISSING`,
-`QUEUE_RECEIPT_STALE`, no flag around them), so /ship runs before every READY and after any
+`QUEUE_RECEIPT_STALE`, no flag around them), so /gstack-ship runs before every READY and after any
 push. `RECEIPT_INVALID` names the bad
 field: fix that input file and rerun; nothing was written. `ISSUE_LINKS_MISSING`: add
 the named line under `## Issues` and rerun. `PREGATE_STALE` means rerun
@@ -334,7 +334,7 @@ With open gate findings the same command carries `--draft` before `--title-file`
 
 Branch on the exit code of either block:
 - **0** posted. If `pr-body` printed `kept` sections, open each in the PR: keep one a person
-  wrote. One an earlier /ship run wrote is stale: put the live body (it keeps the run history)
+  wrote. One an earlier /gstack-ship run wrote is stale: put the live body (it keeps the run history)
   minus those sections in `$PR_BODY_FILE`. Read the live body again: if it changed, stop and report;
   else rerun the body command with `--replace`. When unsure, keep it and name it in Step 22's report. Then remove `$PR_BODY_FILE` and the title file.
 - **4** nothing was posted, title and body checked in one pass. For each `PLAIN_TITLE:` line, rewrite the

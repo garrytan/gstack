@@ -39,7 +39,7 @@ function assertSharedBrowserAuthority(body: string): void {
   const decision = body.slice(body.indexOf('## Browser access decision'), body.indexOf('## BROWSER SETUP'));
   expect(decision).toMatch(/invoking workflow, not this file/i);
   const reportOnly = decision.slice(decision.indexOf('**Report-only'), decision.indexOf('**Standalone /qa'));
-  expect(reportOnly).toContain('/qa-only, /review and /ship');
+  expect(reportOnly).toContain('/qa-only, /review and /gstack-ship');
   expect(reportOnly).toMatch(/do not run the fallback's setup\/install or cookie-import workflow/i);
   expect(reportOnly).toMatch(/never bootstrap or invoke another skill/i);
   expect(reportOnly).toMatch(/block only the affected browser probes/i);
@@ -76,7 +76,7 @@ describe('QA caller authority in pure host renders', () => {
     test(`${host.name}: exploratory scope defines its controller and timing before probes`, () => {
       for (const caller of callers) {
         const body = RESOLVERS.QA_EXPLORATORY(context(host.name, caller));
-        expect(body).toContain('The **caller** (/qa, /qa-only, /review or /ship)');
+        expect(body).toContain('The **caller** (/qa, /qa-only, /review or /gstack-ship)');
         const n = qaProbeNames(body);
         const start = `bun ${n.guard} start ${n.deadline} SECONDS [EARLIER_UTC]`;
         expect(body).toContain(start);

@@ -4,7 +4,7 @@ preamble-tier: 3
 version: 0.1.0
 description: |
   Turn vague intent into a precise, executable spec in five phases. Files the issue,
-  optionally spawns a Claude Code agent in a fresh worktree, and lets /ship close
+  optionally spawns a Claude Code agent in a fresh worktree, and lets /gstack-ship close
   the source issue on merge. Use when asked to "spec this out", "file an issue",
   "write up a ticket", "make this a GitHub issue", or "turn this into a backlog item".
   (gstack)
@@ -479,10 +479,10 @@ Add to the standard template:
 - **For implementation:** the issue itself is the handoff. The implementer can
   open it and execute without re-asking the user.
   {{IMPLEMENTATION_MODEL_HANDOFF}}
-- **`/ship` integration:** when `/ship` opens a PR for a worktree that contains
+- **`/gstack-ship` integration:** when `/gstack-ship` opens a PR for a worktree that contains
   a `/spec` archive (frontmatter `spec_issue_number: <N>`) AND the PR delivers
-  the full spec (acceptance criteria checked off per `/ship`'s existing
-  plan-completion gate), `/ship` adds `Closes #<N>` to the PR body so merging
+  the full spec (acceptance criteria checked off per `/gstack-ship`'s existing
+  plan-completion gate), `/gstack-ship` adds `Closes #<N>` to the PR body so merging
   auto-closes the source issue. Conditional — partial PRs do not auto-close, and
   the source issue is never inferred from the branch name.
 

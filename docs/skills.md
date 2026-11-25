@@ -11,7 +11,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
 | [`/review`](#review) | **Staff Engineer** | Looks for the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. Advisory simplification lens flags over-built code — never blocks, never auto-applies. |
-| [`/build-check`](#build-check) | **Build Loop** | Run the repo's checks and the tests `/ship`'s pre-gate would pick for your change, fix, repeat until green, then hand off to `/ship`. Never green on an unmapped change. |
+| [`/build-check`](#build-check) | **Build Loop** | Run the repo's checks and the tests `/gstack-ship`'s pre-gate would pick for your change, fix, repeat until green, then hand off to `/gstack-ship`. Never green on an unmapped change. |
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. Previews render through your Aside browser. |
@@ -20,7 +20,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/qa-only`](#qa) | **QA Reporter** | Explore the same surfaces and propose regression cases with evidence, without changing product code or tests. |
 | [`/scrape`](#browse) | **Browser Data Extractor** | Pull structured data off a web page — tables, lists, prices — in your Aside browser with the page's real logged-in state. Same driver contract as `/browse`. On the fallback browser, a codified browser-skill answers a repeat intent in ~200ms. |
 | [`/skillify`](#browse) | **Skill Codifier** | Fallback-browser skill: walks back through your conversation, finds the last `/scrape` prototype, synthesizes script + test + fixture, runs the test, asks before committing. On Aside, durable per-site automation belongs to Aside's own skills. |
-| [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, explore changed behavior within a bound, audit coverage and docs before final verification, then push and open or update a PR. Bootstraps test frameworks when appropriate. |
+| [`/gstack-ship`](#gstack-ship) | **Release Engineer** | Sync main, run tests, explore changed behavior within a bound, audit coverage and docs before final verification, then push and open or update a PR. Bootstraps test frameworks when appropriate. |
 | [`/land-and-deploy`](#land-and-deploy) | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | [`/modernize`](#modernize) | **Stale-PR Maintainer** | Bring an aging PR onto its current base and decide whether it should still exist: MODERNIZE, REWORK or CLOSE. Reads what moved under the PR for conflicts in meaning, proves the rebase with `git range-diff`, pushes with a lease pinned to the observed head, and never closes a PR on its own. |
 | [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures in your Aside browser. |
@@ -37,7 +37,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/plan-devex-review`](../plan-devex-review/SKILL.md) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces, and error messages scored for the agents that read them ([agent-ready errors](agent-ready-errors.md)). Three modes: Expansion, Polish, Triage. |
 | [`/devex-review`](../devex-review/SKILL.md) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies, and triggers CLI errors the way an agent meets them (no terminal, contained, redacted) through `gstack-error-capture`. |
 | [`/plan-tune`](../plan-tune/SKILL.md) | **Question Tuner** | Self-tune AskUserQuestion sensitivity per question. Mark questions as never-ask, always-ask, or only-for-one-way. |
-| [`/spec`](../spec/SKILL.md) | **Spec Author** | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
+| [`/spec`](../spec/SKILL.md) | **Spec Author** | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/gstack-ship` close the source issue on merge. |
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
 | [`/context-save`](../context-save/SKILL.md) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
 | [`/context-restore`](../context-restore/SKILL.md) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
@@ -263,7 +263,7 @@ Every review (CEO, Eng, Design) logs its result. At the end of each review, you 
 
 Eng Review is the only required gate (disable with `gstack-config set skip_eng_review true`). CEO and Design are informational — recommended for product and UI changes respectively.
 
-Diff reviews use the `review_freshness` grade computed by `gstack-review-read`, shared by `/ship` and `/land-and-deploy`. CURRENT requires a clean, reviewer-reported completed and converged pass whose captured start and finish fingerprints match the current working-tree content. Tracked edits and non-ignored untracked source both count; an identical commit hash or zero commits since review is not a fallback. The one exception is a head that holds only clean merges of the base on top of the reviewed commit, with the branch's own patch unchanged: it still grades CURRENT, and the reason names the reviewed base ([ship policy](ship-policy.md)).
+Diff reviews use the `review_freshness` grade computed by `gstack-review-read`, shared by `/gstack-ship` and `/land-and-deploy`. CURRENT requires a clean, reviewer-reported completed and converged pass whose captured start and finish fingerprints match the current working-tree content. Tracked edits and non-ignored untracked source both count; an identical commit hash or zero commits since review is not a fallback. The one exception is a head that holds only clean merges of the base on top of the reviewed commit, with the branch's own patch unchanged: it still grades CURRENT, and the reason names the reviewed base ([ship policy](ship-policy.md)).
 
 A captured pass with different start/end content grades STALE, as does a previously verified pass whose fingerprint no longer matches. Missing or reused start receipts, legacy log-only records, incomplete or nonconverged passes, and unresolved findings cannot grade CURRENT; missing evidence grades UNVERIFIED. Ship telemetry is not a review pass. After fixes, run a genuine full re-review with a new start receipt rather than capturing one only to log the result. Completion remains reviewer-reported, not independent proof that a model read the source.
 
@@ -633,7 +633,7 @@ Findings get action, not just listed. Obvious mechanical fixes (dead code, stale
 
 One exception: a shortcut you took deliberately and logged. A `gstack-shortcut(dec-<id>)` marker whose decision id resolves in the decision ledger downgrades the finding to acknowledged debt. An orphan marker — one with no ledger entry behind it — doesn't suppress anything; the gap is reported normally and the marker itself gets flagged.
 
-**Design pass.** When the diff touches frontend files, the Design specialist reads `review/design-checklist.md`, which is generated from `lib/design-catalog.ts`, so `/review`, `/ship`, and `/design-review` flag the same patterns under the same rule ids. If you have [impeccable](https://impeccable.style) installed, its engine scans the changed frontend files first (Dart, Swift, Interface Builder, string-catalog and asset-catalog files get the checklist pass only): its rows bucket by tier (auto-fix, ask, possible), a detector hit and a checklist hit at the same file:line collapse into one row, and your repo's `.impeccable/config*.json` ignores are read as settled decisions. Without it, the checklist pass runs alone.
+**Design pass.** When the diff touches frontend files, the Design specialist reads `review/design-checklist.md`, which is generated from `lib/design-catalog.ts`, so `/review`, `/gstack-ship`, and `/design-review` flag the same patterns under the same rule ids. If you have [impeccable](https://impeccable.style) installed, its engine scans the changed frontend files first (Dart, Swift, Interface Builder, string-catalog and asset-catalog files get the checklist pass only): its rows bucket by tier (auto-fix, ask, possible), a detector hit and a checklist hit at the same file:line collapse into one row, and your repo's `.impeccable/config*.json` ignores are read as settled decisions. Without it, the checklist pass runs alone.
 
 **PR type.** The checklist starts by naming the kind of PR from the changed paths: docs-only, CI/infra, scripts/tooling, application or mixed, and the review's first line says which (`PR type: <type>`). Application and mixed diffs run every category as before. A CI/infra, scripts/tooling or docs-only diff always gets Gate Integrity, Shell Injection, Completeness Gaps, Distribution & CI/CD Pipeline and Repo Conventions & Platform Fit; every other category with nothing to check is listed once, in one line, as not applicable, and never counts as passed. Repo Conventions & Platform Fit flags new files that don't match the languages and tools the repo already uses or the platforms its CI runs on, such as a `.bat` build script in a bash-and-Makefile repo.
 
@@ -668,9 +668,9 @@ The skill no longer installs, and `./setup` removes an existing gstack-owned `in
 
 ## `/build-check`
 
-`/build-check` is the loop you run while you build: change something, run the repo's checks, fix what broke, run again. `gstack-checks detect` finds the checks the repo already declares (a `gstack:verify:` line or a `## Health Stack` section in CLAUDE.md, else package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml, go.mod) and never makes one up. `gstack-checks run` runs them plus the tests `/ship`'s pre-gate selects for your change, using pregate's own selector, so a green `/build-check` predicts a green pre-gate. `/health` finds its tools with the same detector (`gstack-checks detect --for health`), which adds its test, knip, shellcheck and gbrain dimensions.
+`/build-check` is the loop you run while you build: change something, run the repo's checks, fix what broke, run again. `gstack-checks detect` finds the checks the repo already declares (a `gstack:verify:` line or a `## Health Stack` section in CLAUDE.md, else package.json scripts, tsconfig, eslint or biome, pyproject, Cargo.toml, go.mod) and never makes one up. `gstack-checks run` runs them plus the tests `/gstack-ship`'s pre-gate selects for your change, using pregate's own selector, so a green `/build-check` predicts a green pre-gate. `/health` finds its tools with the same detector (`gstack-checks detect --for health`), which adds its test, knip, shellcheck and gbrain dimensions.
 
-It asks once before running any repo command (`gstack-checks trust`) and asks again when a command changes. A touched file no test covers is `UNMAPPED`, a selection that ran zero tests is `ZERO_RUN`, and neither counts as green. A missing tool or service is reported, not worked around. It stops after five runs or when the same failure comes back twice, and asks for a focused failing test and a root-cause trace before another fix to a stubborn red. When everything passes, `gstack-checks status` prints `READY_FOR_SHIP tree=<tree>` without rerunning anything, and you run `/ship`. It never reviews, bumps versions, pushes or opens a PR.
+It asks once before running any repo command (`gstack-checks trust`) and asks again when a command changes. A touched file no test covers is `UNMAPPED`, a selection that ran zero tests is `ZERO_RUN`, and neither counts as green. A missing tool or service is reported, not worked around. It stops after five runs or when the same failure comes back twice, and asks for a focused failing test and a root-cause trace before another fix to a stubborn red. When everything passes, `gstack-checks status` prints `READY_FOR_SHIP tree=<tree>` without rerunning anything, and you run `/gstack-ship`. It never reviews, bumps versions, pushes or opens a PR.
 
 `/build-check` was called `/verify` until this release. Claude Code ships its own `/verify` skill, which checks a change end to end by running your app, and an installed skill with the same name hid it. Since Claude Code 2.1.286 the name alone also made Claude Code run gstack's skill right before every commit (#4593). Upgrading removes gstack's old `verify` and `gstack-verify` entries on every host, but never a `verify` skill of your own, so `/verify` opens Claude Code's built-in again and the before-every-commit instruction goes away.
 
@@ -730,35 +730,35 @@ Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
 
 ---
 
-## `/ship`
+## `/gstack-ship`
 
 This is my **release machine mode**.
 
 Once I have decided what to build, nailed the technical plan, and run a serious review, I do not want more talking. I want execution.
 
-`/ship` is for the final mile. It is for a ready branch, not for deciding what to build.
+`/gstack-ship` is for the final mile. It is for a ready branch, not for deciding what to build.
 
 This is where the model should stop behaving like a brainstorm partner and start behaving like a disciplined release engineer: sync with main, run the right tests, make sure the branch state is sane, update changelog or versioning if the repo expects it, push, and create or update the PR.
 
 ### Test bootstrap
 
-If your project doesn't have a test framework, `/ship` sets one up — detects your runtime, researches the best framework, installs it, writes 3-5 real tests for your actual code, sets up CI/CD (GitHub Actions), and creates TESTING.md. 100% test coverage is the goal — tests make vibe coding safe instead of yolo coding.
+If your project doesn't have a test framework, `/gstack-ship` sets one up — detects your runtime, researches the best framework, installs it, writes 3-5 real tests for your actual code, sets up CI/CD (GitHub Actions), and creates TESTING.md. 100% test coverage is the goal — tests make vibe coding safe instead of yolo coding.
 
 ### Coverage audit
 
-Every `/ship` run builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with quality stars. Gaps get tests auto-generated. Your PR body shows the coverage: `Tests: 42 → 47 (+5 new)`. An unattended `/ship` ([ship/DRIVER.md](../ship/DRIVER.md)) skips this coverage reader, and with no plan it also skips the plan-completion audit and the exploratory pass below (GST-3562).
+Every `/gstack-ship` run builds a code path map from your diff, searches for corresponding tests, and produces an ASCII coverage diagram with quality stars. Gaps get tests auto-generated. Your PR body shows the coverage: `Tests: 42 → 47 (+5 new)`. An unattended `/gstack-ship` ([ship/DRIVER.md](../ship/DRIVER.md)) skips this coverage reader, and with no plan it also skips the plan-completion audit and the exploratory pass below (GST-3562).
 
-`/review` and `/ship` also run a bounded exploratory pass on changed behavior and nearby risks, even for a small diff without a plan or web server. Their existing approval and test rules govern any fixes or permanent tests; a blocked probe remains a coverage gap, not a passing QA result.
+`/review` and `/gstack-ship` also run a bounded exploratory pass on changed behavior and nearby risks, even for a small diff without a plan or web server. Their existing approval and test rules govern any fixes or permanent tests; a blocked probe remains a coverage gap, not a passing QA result.
 
 ### Review gate
 
-`/ship` displays historical review readiness in the [Review Readiness Dashboard](#review-readiness-dashboard) during preflight. A missing Eng Review is reported without an extra question; it does not replace or waive the current pre-landing review. Step 9 still runs the checklist, one batched specialist (Testing and Security, plus the checklists scope selects) and bounded exploratory QA, with its existing approval and completion gates.
+`/gstack-ship` displays historical review readiness in the [Review Readiness Dashboard](#review-readiness-dashboard) during preflight. A missing Eng Review is reported without an extra question; it does not replace or waive the current pre-landing review. Step 9 still runs the checklist, one batched specialist (Testing and Security, plus the checklists scope selects) and bounded exploratory QA, with its existing approval and completion gates.
 
 A lot of branches die when the interesting work is done and only the boring release work is left. Humans procrastinate that part. AI should not.
 
 ### The PR body
 
-`/ship` writes the PR body from the diff, the receipt and the review, and a reader who was not in the session decides the merge from it. The front is for people and the end is for machines: the body opens with at most three plain lines (600 characters) saying what changed for someone using the project, why (the README goal it serves) and what the reader has to do, every other section sits under a `## ` heading that `gstack-post` folds into a collapsed section ([writing-prs.md](writing-prs.md)), and it ends with one collapsed **Agent notes** section (`<!-- gstack:agent-notes -->` then `<details><summary>Agent notes</summary>`) that holds the ship receipt, the approval and Plan lines, issue codes and the review-loop lines gstack's tools read. The title follows the same shape: plain words first, an issue code only at the end (`Stop gstack from hitting GitHub's rate limit while it waits on PRs (GST-1713)`), checked by `gstack-plain-title` (see [Plain titles](ship-policy.md#plain-titles)). On Capy (`CAPY_PR: on`) the opening is followed by three sections, in this order, before the standard sections (Documentation, Tests and the rest); `## What changed` holds the pictures, then the template's themes:
+`/gstack-ship` writes the PR body from the diff, the receipt and the review, and a reader who was not in the session decides the merge from it. The front is for people and the end is for machines: the body opens with at most three plain lines (600 characters) saying what changed for someone using the project, why (the README goal it serves) and what the reader has to do, every other section sits under a `## ` heading that `gstack-post` folds into a collapsed section ([writing-prs.md](writing-prs.md)), and it ends with one collapsed **Agent notes** section (`<!-- gstack:agent-notes -->` then `<details><summary>Agent notes</summary>`) that holds the ship receipt, the approval and Plan lines, issue codes and the review-loop lines gstack's tools read. The title follows the same shape: plain words first, an issue code only at the end (`Stop gstack from hitting GitHub's rate limit while it waits on PRs (GST-1713)`), checked by `gstack-plain-title` (see [Plain titles](ship-policy.md#plain-titles)). On Capy (`CAPY_PR: on`) the opening is followed by three sections, in this order, before the standard sections (Documentation, Tests and the rest); `## What changed` holds the pictures, then the template's themes:
 
 1. **`## What changed`**: one to three captioned before/after images from `gstack-pr-shots` or a UI screenshot, highest-signal first, with a collapsed text version under each.
 2. **`## Why`**: two or three sentences. The first states the problem in the person's words (the issue, the message, the failing run), then the cause and the user-visible effect.
@@ -767,25 +767,25 @@ A lot of branches die when the interesting work is done and only the boring rele
 
 Before the body is composed, `gstack-prose-lint` reads the Why, What changed and Blast radius drafts (`--sections 'Why,What changed,Blast radius' --gate`) and the CHANGELOG entry (`--base origin/<base> --gate`), and a `PROSE_LINT_FOUND` line names the sentence to rewrite; the rest of the body is advisory. The Captain's merge-ask template (`captain/templates/merge-ask.md`) carries the same sections, so a READY report and its PR say the same thing.
 
-### Versions: where `/ship` looks, and when it ships without one
+### Versions: where `/gstack-ship` looks, and when it ships without one
 
-`/ship` bumps a version only when the project says where the version lives. It checks, in order:
+`/gstack-ship` bumps a version only when the project says where the version lives. It checks, in order:
 
 1. `--version-path <path>` passed to `gstack-version-bump` / `gstack-next-version`.
 2. `.gstack/version-path`: a committed one-line file holding the version file's repo-relative path, for example `package.json` or `apps/web/package.json`. A `.json` path is read and written as its `"version"` field; 3-digit semver stays 3-digit.
 3. A root `VERSION` file (gstack's own 4-digit `MAJOR.MINOR.PATCH.MICRO` format).
 
-A root `package.json` on its own does not count, because many apps carry a placeholder there. To have `/ship` version it, run `echo package.json > .gstack/version-path` and commit the file.
+A root `package.json` on its own does not count, because many apps carry a placeholder there. To have `/gstack-ship` version it, run `echo package.json > .gstack/version-path` and commit the file.
 
-When none of these exist, `/ship` ships without a version change: no bump, no CHANGELOG version header, no `v1.2.3` title prefix, no tag. It prints:
+When none of these exist, `/gstack-ship` ships without a version change: no bump, no CHANGELOG version header, no `v1.2.3` title prefix, no tag. It prints:
 
 > Shipped without a version change: no version source is configured (no VERSION file, no .gstack/version-path). To version releases, create VERSION or write the version file's path (for example package.json) to .gstack/version-path.
 
-It does the same, with the reason, when release-please, Changesets or semantic-release is configured, when the repo is a workspace monorepo, or when `package.json` holds a placeholder such as `0.0.0-development`; those tools own the version. `/land-and-deploy` and `/document-release` read the same signal. A configured version file that is missing, empty, unreadable or malformed stops `/ship` with the file's path and the problem; gstack never substitutes `0.0.0.0`.
+It does the same, with the reason, when release-please, Changesets or semantic-release is configured, when the repo is a workspace monorepo, or when `package.json` holds a placeholder such as `0.0.0-development`; those tools own the version. `/land-and-deploy` and `/document-release` read the same signal. A configured version file that is missing, empty, unreadable or malformed stops `/gstack-ship` with the file's path and the problem; gstack never substitutes `0.0.0.0`.
 
 ### Third-party web actions (v1.72.0.0+)
 
-Sometimes the release work leaves the terminal: registering an API key, creating a vendor account, wiring a webhook or OAuth app. Instead of handing you a manual step list, `/ship` (and `/spec`, `/office-hours`, `/land-and-deploy`, `/setup-deploy`) offers to drive the browser for you. Aside first — it acts across your real logged-in sessions, which is exactly what vendor dashboards need. No Aside? gstack's own visible browser (headed `$B` with handoff for sign-in) is the fallback on every platform, with one pointer to aside.com (macOS 15+) per task.
+Sometimes the release work leaves the terminal: registering an API key, creating a vendor account, wiring a webhook or OAuth app. Instead of handing you a manual step list, `/gstack-ship` (and `/spec`, `/office-hours`, `/land-and-deploy`, `/setup-deploy`) offers to drive the browser for you. Aside first — it acts across your real logged-in sessions, which is exactly what vendor dashboards need. No Aside? gstack's own visible browser (headed `$B` with handoff for sign-in) is the fallback on every platform, with one pointer to aside.com (macOS 15+) per task.
 
 The consent rules are strict and pin-tested: one explicit question per task naming the exact site and actions, no standing permission, no auto-install ever (on a Mac without Aside you get one download pointer — aside.com, macOS 15+ — once per task). Passwords, payment, CAPTCHAs, and identity verification stay yours; Apple credential creation is never a drive target in any skill. A captured secret never appears in chat — it lands in an owner-only file and gets verified with one read-only API call before gstack claims success.
 
@@ -795,7 +795,7 @@ The consent rules are strict and pin-tested: one explicit question per task nami
 
 This is my **deploy pipeline mode**.
 
-`/ship` creates the PR. `/land-and-deploy` finishes the job: merge, deploy, verify.
+`/gstack-ship` creates the PR. `/land-and-deploy` finishes the job: merge, deploy, verify.
 
 It confirms PR readiness and your merge approval, merges, then monitors CI and deployment before checking production. If deployment breaks, it reports what failed and whether rollback is available. If the new revision's deployment cannot be confirmed, it reports that uncertainty rather than treating a healthy old page as proof.
 
@@ -823,7 +823,7 @@ Claude: Merging PR #42...
 
 ## `/modernize`
 
-`/ship` merges the base into a branch you are working on. `/modernize` is for the other
+`/gstack-ship` merges the base into a branch you are working on. `/modernize` is for the other
 case: a pull request that has sat for weeks, often someone else's, where the real question
 is not "does it rebase" but "should it still exist".
 
@@ -940,7 +940,7 @@ gstack's own templates and for any skill folder you own.
 
 ## `/test-audit`
 
-Find existing tests that cost more than they protect. `/review`, `/ship`, `/qa` and
+Find existing tests that cost more than they protect. `/review`, `/gstack-ship`, `/qa` and
 `/plan-eng-review` apply the same [test value bar](test-value-bar.md) to tests in a
 diff; `/test-audit` sweeps the tests that already exist.
 
@@ -1030,7 +1030,7 @@ This is my **Spend Warden**.
 
 A long-lived agent thread re-reads its whole history on every step, so its cost grows with every wake, even
 the ones that end with nothing to say. One Founderstar thread used 6.9B tokens in 13 days, about 4B of it its
-own context, and one of its /ship subagents reached 485M because it was reused for five /ship runs.
+own context, and one of its /gstack-ship subagents reached 485M because it was reused for five /gstack-ship runs.
 `/runaway-stopper` finds that pattern from the host's own thread data, stops it where stopping is safe, and
 sets the defaults that keep it from coming back.
 
@@ -1047,7 +1047,7 @@ sets the defaults that keep it from coming back.
   a handoff file and a successor brief (`runaway-stopper/templates/`), then archived by its own Captain once none of
   its PRs is open (R91), through `gstack-archive-check thread`. A thread
   mid-/ship or mid-merge gets `DEFER:` and nothing happens until that work finishes.
-- **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, /ship run in the pull
+- **Prevent.** One wait on all pending operations, quiet wakes, compact program returns, /gstack-ship run in the pull
   request's own thread rather than a subagent, two review rounds, and a fresh thread per automation run.
 
 Scanning FOUN-4, FOUN-14 and FOUN-71 as read on 2026-11-03, before R70's 2026-11-09 amendment and the 2026-11-15 halving of
@@ -1057,7 +1057,7 @@ subagent past 50M gets `STOP` or `LOOK`; and a thread holding an open PR never r
 ```
 RUNAWAY: thread=FOUN-4 verdict=ROTATE own=4.04B(upper) total=6.90B credits=2299398 age_days=13.1 active=yes ...
 FLAG: ROTATE own_tokens 4.04B > 500M (upper bound)
-FLAG: LOOK subagent 40 "Run /ship on PR #442 (careless margin)" 485M > 100M (done)
+FLAG: LOOK subagent 40 "Run /gstack-ship on PR #442 (careless margin)" 485M > 100M (done)
 RUNAWAY: thread=FOUN-14 verdict=ROTATE own=2.02B(exact) total=2.54B ...
 RUNAWAY: thread=FOUN-71 verdict=ROTATE own=677M(exact) total=953M ...
 ```
@@ -1134,7 +1134,7 @@ Claude: complete — assessed application routes, tenant authorization, secrets,
 
 This is my **technical writer mode**.
 
-On every `/ship` run, including reruns and existing-PR updates, a ship-owned `/document-release` audit checks relevant authored docs against committed and selected uncommitted changes before the final commit, verification and publication. Clear factual corrections join the checked change; the ship parent owns versioning, Git and PR publication. A blocked or incomplete audit requires recovery or explicit acceptance of the named documentation risk before shipping, and never silently becomes current. You can still invoke `/document-release` standalone after a PR exists; that workflow retains its own approval, commit and PR-body steps.
+On every `/gstack-ship` run, including reruns and existing-PR updates, a ship-owned `/document-release` audit checks relevant authored docs against committed and selected uncommitted changes before the final commit, verification and publication. Clear factual corrections join the checked change; the ship parent owns versioning, Git and PR publication. A blocked or incomplete audit requires recovery or explicit acceptance of the named documentation risk before shipping, and never silently becomes current. You can still invoke `/document-release` standalone after a PR exists; that workflow retains its own approval, commit and PR-body steps.
 
 ```
 You:   /document-release
@@ -1490,7 +1490,7 @@ Outside-review routing follows the harness, independently of the configured mode
 
 ## Proactive skill suggestions
 
-gstack can invoke a skill for you when your request matches one. By default (`proactive: core`) only `/office-hours`, `/review`, `/qa` and `/ship` auto-invoke; `all` frees every skill and `off` suggests nothing. See [docs/proactive.md](proactive.md).
+gstack can invoke a skill for you when your request matches one. By default (`proactive: core`) only `/office-hours`, `/review`, `/qa` and `/gstack-ship` auto-invoke; `all` frees every skill and `off` suggests nothing. See [docs/proactive.md](proactive.md).
 
 ## Safety & Guardrails
 
@@ -1614,13 +1614,13 @@ Install Greptile on your GitHub repo at [greptile.com](https://greptile.com) —
 
 The problem with any automated reviewer is triage. Greptile is good, but not every comment is a real issue. Some are false positives. Some flag things you already fixed three commits ago. Without a triage layer, the comments pile up and you start ignoring them — which defeats the purpose.
 
-gstack solves this. `/review` and `/ship` read your review bots' comments (Greptile, CodeRabbit, Macroscope, or any bot you name), classify each one, and take action:
+gstack solves this. `/review` and `/gstack-ship` read your review bots' comments (Greptile, CodeRabbit, Macroscope, or any bot you name), classify each one, and take action:
 
 - **Valid issues** get added to the critical findings and fixed before shipping
 - **Already-fixed issues** get an auto-reply acknowledging the catch
 - **False positives** get pushed back — you confirm, and a reply goes out explaining why it's wrong
 
-The result is a two-layer review: Greptile catches things asynchronously on the PR, then `/review` and `/ship` triage those findings as part of the normal workflow, so every bot comment gets a decision.
+The result is a two-layer review: Greptile catches things asynchronously on the PR, then `/review` and `/gstack-ship` triage those findings as part of the normal workflow, so every bot comment gets a decision.
 
 ### Learning from history
 
@@ -1628,12 +1628,12 @@ Every false positive you confirm gets saved to `~/.gstack/review-bot-history.md`
 
 ### Choosing your bots
 
-The bots are the two lists `gstack-pr-wait` uses: `gstack-config set pr_wait_gating_bots greptile,macroscope` (waited for, then triaged) and `gstack-config set pr_wait_advisory_bots coderabbit,copilot` (triaged, never waited for). Set both to `none` to turn bot triage off. Greptile's early review (`/ship` opening the PR early) runs only while `greptile` is in one of the lists.
+The bots are the two lists `gstack-pr-wait` uses: `gstack-config set pr_wait_gating_bots greptile,macroscope` (waited for, then triaged) and `gstack-config set pr_wait_advisory_bots coderabbit,copilot` (triaged, never waited for). Set both to `none` to turn bot triage off. Greptile's early review (`/gstack-ship` opening the PR early) runs only while `greptile` is in one of the lists.
 
 ### Example
 
 ```
-You:   /ship
+You:   /gstack-ship
 
 Claude: [syncs main, runs tests, pre-landing review...]
 

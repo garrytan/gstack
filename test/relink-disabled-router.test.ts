@@ -61,7 +61,7 @@ describe('C8: disabled_skills reaches the served Claude router', () => {
     expect(router).toContain('Disabled on this install (never invoke or suggest them): `/make-pdf`, `/retro`.');
     expect(router).not.toMatch(/→ invoke `\/make-pdf`/);
     expect(router).not.toMatch(/→ invoke `\/retro`/);
-    expect(router).toContain('→ invoke `/ship`');
+    expect(router).toContain('→ invoke `/gstack-ship`');
 
     const clear = config('set', 'disabled_skills', '');
     expect(clear.status, clear.stderr).toBe(0);

@@ -185,7 +185,7 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_BASE_RED_NO_TRAIN: {
     anchor: 'queue-base-red-no-train',
     summary: 'a conditional READY (ready --base-red) needs a train that gates every prefix, and the base policy has no train block with gates',
-    fix: 'wait for the base to pass the cases and run /ship --resume (the normal READY follows), or turn on a train with gates on the base branch',
+    fix: 'wait for the base to pass the cases and run /gstack-ship --resume (the normal READY follows), or turn on a train with gates on the base branch',
   },
   SHIP_BASE_RED_FIXER: {
     anchor: 'ship-base-red-fixer',
@@ -237,27 +237,27 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_RECEIPT_MISSING: {
     anchor: 'queue-receipt-missing',
     summary: 'the PR body carries no valid /ship receipt, so the PR was never shipped through gstack and cannot be READY’d, admitted to a train or merged',
-    fix: 'run /ship on the branch (unattended it writes the receipt into an open PR at HEAD with gstack-ship-receipt write --pr <n> --body …, else leaves it in .gstack/tmp/ship-receipt.md for the parent to post), then gstack-ship-queue ready again; there is no flag to skip this',
+    fix: 'run /gstack-ship on the branch (unattended it writes the receipt into an open PR at HEAD with gstack-ship-receipt write --pr <n> --body …, else leaves it in .gstack/tmp/ship-receipt.md for the parent to post), then gstack-ship-queue ready again; there is no flag to skip this',
   },
   QUEUE_RECEIPT_STALE: {
     anchor: 'queue-receipt-stale',
     summary: 'the PR body’s /ship receipt is for another head than the one being READY’d or merged (a push after /ship, or a receipt copied from another PR)',
-    fix: 'rerun /ship on the current head so the receipt names it, then gstack-ship-queue ready again; a slot’s stamp commit keeps the receipt written for its pinned head',
+    fix: 'rerun /gstack-ship on the current head so the receipt names it, then gstack-ship-queue ready again; a slot’s stamp commit keeps the receipt written for its pinned head',
   },
   QUEUE_RECEIPT_CONDITIONAL: {
     anchor: 'queue-receipt-conditional',
     summary: 'the PR body’s /ship receipt is conditional: Step 5 failed on cases gstack-base-red proved are the base branch’s own, so /ship paused before READY',
-    fix: 'wait for the base to pass those cases (gstack-base-red wait --pause <file>), then /ship --resume <record>, which re-runs Step 5 and rewrites the receipt without base_red; only ready --base-red --fixer <pr> READYs a conditional receipt, and it rides only a train with gates whose slot 1 is its fixer',
+    fix: 'wait for the base to pass those cases (gstack-base-red wait --pause <file>), then /gstack-ship --resume <record>, which re-runs Step 5 and rewrites the receipt without base_red; only ready --base-red --fixer <pr> READYs a conditional receipt, and it rides only a train with gates whose slot 1 is its fixer',
   },
   QUEUE_RECEIPT_BASE_MISMATCH: {
     anchor: 'queue-receipt-base-mismatch',
     summary: 'the PR body’s /ship receipt was reviewed against another branch than the queue’s base (a #3570 stacked child retargeted before its parent landed), so it covers only the change since that branch',
-    fix: 'land the parent first, merge the base into this branch and push, then gstack-ship-receipt carry --pr <n> --base <base> moves the receipt to the base (it carries only when the parent fully landed and the child is unchanged), else rerun /ship against the base; then gstack-ship-queue ready again',
+    fix: 'land the parent first, merge the base into this branch and push, then gstack-ship-receipt carry --pr <n> --base <base> moves the receipt to the base (it carries only when the parent fully landed and the child is unchanged), else rerun /gstack-ship against the base; then gstack-ship-queue ready again',
   },
   BASE_RED_UNCONFIGURED: {
     anchor: 'base-red-unconfigured',
     summary: 'the base branch’s ship policy declares no base_red block, so gstack-base-red cannot reproduce a Step 5 failure there and every failure stays in-branch',
-    fix: 'handle the failure with /ship’s usual triage; to let /ship pause on a red base, add base_red { setup, select, timeout_sec } to .gstack/ship-policy.json on the base branch',
+    fix: 'handle the failure with /gstack-ship’s usual triage; to let /ship pause on a red base, add base_red { setup, select, timeout_sec } to .gstack/ship-policy.json on the base branch',
   },
   BASE_RED_UNNAMED: {
     anchor: 'base-red-unnamed',
@@ -272,7 +272,7 @@ export const RELEASE_RESULT_CODES = {
   BASE_RED_PAUSE_EXPIRED: {
     anchor: 'base-red-pause-expired',
     summary: 'the base-red pause is older than 24 hours, so its classification is stale',
-    fix: 'report the paused PR to its Captain (or owner), then start /ship again on the current base; it classifies afresh',
+    fix: 'report the paused PR to its Captain (or owner), then start /gstack-ship again on the current base; it classifies afresh',
   },
   BASE_RED_WAIT_TIMEOUT: {
     anchor: 'base-red-wait-timeout',
@@ -287,17 +287,17 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_RECEIPT_DEPTH_RAISED: {
     anchor: 'queue-receipt-depth-raised',
     summary: 'the PR body’s /ship receipt records a review depth below the one its head needs (the queue recomputed it from git), or a current receipt records no review_depth at all',
-    fix: 'run /ship on the head the READY names; the REVIEW_DEPTH line shows the receipt’s depth, the required depth, its reasons and inputs, and the receipt is left unchanged',
+    fix: 'run /gstack-ship on the head the READY names; the REVIEW_DEPTH line shows the receipt’s depth, the required depth, its reasons and inputs, and the receipt is left unchanged',
   },
   QUEUE_RECEIPT_EXCEPTION_INVALID: {
     anchor: 'queue-receipt-exception-invalid',
     summary: 'the PR body’s /ship receipt records an owner exception (docs or review loop) that is malformed, lacks the fix-check it follows, or whose line the body no longer carries verbatim',
-    fix: 'restore the exception line in the PR body word for word, or run /ship again and record the owner’s acceptance with --docs or --review-loop-exception',
+    fix: 'restore the exception line in the PR body word for word, or run /gstack-ship again and record the owner’s acceptance with --docs or --review-loop-exception',
   },
   QUEUE_RECEIPT_TARGETED_MISSING: {
     anchor: 'queue-receipt-targeted-missing',
     summary: 'the head touches money, gate, auth or secret code that needs the targeted reader, and the PR body’s /ship receipt records no done targeted pass covering every required class (none recorded, failed, not run, or other classes)',
-    fix: 'run /ship on the head the READY names so the targeted reader covers every class the REVIEW_TARGETED line lists as required; the receipt is left unchanged',
+    fix: 'run /gstack-ship on the head the READY names so the targeted reader covers every class the REVIEW_TARGETED line lists as required; the receipt is left unchanged',
   },
   QUEUE_SCREEN_STALE_REF: {
     anchor: 'queue-screen-stale-ref',
@@ -327,7 +327,7 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_SCREEN_RED: {
     anchor: 'queue-screen-red',
     summary: 'the PR head’s dispatched screen run finished RED (its gate binding says so; a case that failed twice is real), so the head is not READY and a train will not seat it',
-    fix: 'read the SCREEN_VERDICT line (gstack-ship-queue verify --pr <n> --screen prints the red and flaky cases), repair, push a new head, run /ship and ready again; a red screen is never re-dispatched at the same merge SHA',
+    fix: 'read the SCREEN_VERDICT line (gstack-ship-queue verify --pr <n> --screen prints the red and flaky cases), repair, push a new head, run /gstack-ship and ready again; a red screen is never re-dispatched at the same merge SHA',
   },
   READY_SCREEN_CHOICE_REQUIRED: {
     anchor: 'ready-screen-choice-required',
@@ -408,7 +408,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_REFUSED: {
     anchor: 'receipt-carry-refused',
     summary: 'gstack-ship-receipt carry could not carry the /ship receipt to HEAD: the PR body has no receipt, the working tree has uncommitted changes, the receipt head is not an ancestor of HEAD and the receipt records no tree to compare, or the product diff could not be compared',
-    fix: 'commit or stash working-tree changes and rerun carry; when history was rewritten and the receipt predates head_tree, run /ship on the new head (merge the base in instead of rebasing next time)',
+    fix: 'commit or stash working-tree changes and rerun carry; when history was rewritten and the receipt predates head_tree, run /gstack-ship on the new head (merge the base in instead of rebasing next time)',
   },
   PROSE_LINT_FOUND: {
     anchor: 'prose-lint-found',
@@ -418,7 +418,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_BLOCKER_OPEN: {
     anchor: 'receipt-blocker-open',
     summary: 'the review loop stopped at this head with a blocking finding still open (a Step 9 or Step 11 finding, the second-model review included, whose newest review-log action is still open and no owner ruling closed), so no receipt is written',
-    fix: 'fix the finding and run /ship again on the new head, or take the stop to the owner, whose ruled note or grant closes it; never write the receipt by hand or drop the finding from the review-log row',
+    fix: 'fix the finding and run /gstack-ship again on the new head, or take the stop to the owner, whose ruled note or grant closes it; never write the receipt by hand or drop the finding from the review-log row',
   },
   REVIEW_LOOP_EXCEPTION_INVALID: {
     anchor: 'review-loop-exception-invalid',
@@ -438,12 +438,12 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_TREE_MISMATCH: {
     anchor: 'receipt-carry-tree-mismatch',
     summary: 'the branch was rebased or force-pushed since its /ship receipt, and HEAD\'s tree is not a tree the receipt covers, so no review saw this code',
-    fix: 'run /ship on the new head; next time merge the base in instead of rebasing a reviewed branch (a rebase carries only onto a reviewed tree with the reviewed product diff)',
+    fix: 'run /gstack-ship on the new head; next time merge the base in instead of rebasing a reviewed branch (a rebase carries only onto a reviewed tree with the reviewed product diff)',
   },
   RECEIPT_CARRY_PRODUCT_CHANGED: {
     anchor: 'receipt-carry-product-changed',
     summary: 'the product diff against the base changed between the receipt\'s head and HEAD (a product file differs beyond a base merge, a test-only fix, release metadata or a regenerated output), so the reviewed verdict does not cover HEAD',
-    fix: 'run /ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks carries as the base merge, and a hunk the base merge spliced is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped reader, no /ship)',
+    fix: 'run /gstack-ship on the new head; the receipt carries only when every changed path is a test, release metadata, a registered output the pregate regen check proved, or the base merge, and the product patch-id is unchanged; base context next to unchanged reviewed hunks carries as the base merge, and a hunk the base merge spliced is RECEIPT_CARRY_SCOPED_REVIEW instead (one scoped reader, no /ship)',
   },
   STOP_UNBOUND: {
     anchor: 'stop-unbound',
@@ -473,7 +473,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_CARRY_SCOPED_REVIEW: {
     anchor: 'receipt-carry-scoped-review',
     summary: 'the base replaced the very lines one of the branch\'s hunks replaces and the merge kept both (GST-2975), so the branch\'s own lines are not the reviewed bytes; the receipt carries only after a scoped review of those hunks',
-    fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /ship on the new head',
+    fix: 'dispatch one fix-check reviewer on the packet the refusal names, write its clean verdict as { head, paths, reviewer, verdict } and rerun carry with --scoped-review <record.json>; a blocking finding means /gstack-ship on the new head',
   },
   RECEIPT_DOCS_AUDIT_READ: {
     anchor: 'receipt-docs-audit-read',
@@ -493,7 +493,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_PROSE_MISMATCH: {
     anchor: 'receipt-prose-mismatch',
     summary: 'the PR body quotes a counter the ship receipt also records (review passes, deferred findings, gate case counts) with a different number, so the prose and the receipt disagree about the same run',
-    fix: 'correct the body to the receipt\'s number (the PROSE: line names each field with both values); when the receipt is the stale one, rerun /ship so the receipt is rewritten from the run',
+    fix: 'correct the body to the receipt\'s number (the PROSE: line names each field with both values); when the receipt is the stale one, rerun /gstack-ship so the receipt is rewritten from the run',
   },
   RECEIPT_CARRY_PREGATE_STALE: {
     anchor: 'receipt-carry-pregate-stale',
@@ -503,7 +503,7 @@ export const RELEASE_RESULT_CODES = {
   RECEIPT_GIT_TOO_OLD: {
     anchor: 'receipt-git-too-old',
     summary: 'gstack-ship-receipt carry needs git 2.39 or later for `git patch-id --verbatim`; the installed git is older, so the product diff could not be compared',
-    fix: 'upgrade git to 2.39 or later (the refusal names the installed version), then rerun carry; otherwise run /ship on the new head',
+    fix: 'upgrade git to 2.39 or later (the refusal names the installed version), then rerun carry; otherwise run /gstack-ship on the new head',
   },
   // Changelog fragments and the per-PR merge step (lib/changelog-fragments.ts, lib/ship-queue-land.ts).
   CHANGELOG_FRAGMENT_INVALID: {
@@ -535,7 +535,7 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_LAND_CONFLICT: {
     anchor: 'queue-land-conflict',
     summary: 'the PR conflicts with the base branch in product files (or a release field cannot be resolved alone), so the merge step cannot stamp it',
-    fix: 'the lane merges the base branch into the PR, resolves the named files, runs /ship and reports READY again',
+    fix: 'the lane merges the base branch into the PR, resolves the named files, runs /gstack-ship and reports READY again',
   },
   QUEUE_LAND_DRIFT: {
     anchor: 'queue-land-drift',
@@ -551,17 +551,17 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_LAND_STAMPED: {
     anchor: 'queue-land-stamped',
     summary: 'under merge: direct the PR changes VERSION, the package.json version or the CHANGELOG; versions and the CHANGELOG are set at release, so a PR carries only its changelog fragment',
-    fix: 'put the named files back to the merge base (git checkout $(git merge-base origin/main HEAD) -- <files>), keep or add the changelog.d fragment, commit, then /ship and ready at the new head',
+    fix: 'put the named files back to the merge base (git checkout $(git merge-base origin/main HEAD) -- <files>), keep or add the changelog.d fragment, commit, then /gstack-ship and ready at the new head',
   },
   QUEUE_LAND_PIN_MOVED: {
     anchor: 'queue-land-pin-moved',
     summary: 'the PR head is not the pin land was given, so the READY it was given does not describe what would merge',
-    fix: 'the lane runs /ship and gstack-ship-queue ready --pr <n> --no-screen at the new head and reports READY with it; land that pin',
+    fix: 'the lane runs /gstack-ship and gstack-ship-queue ready --pr <n> --no-screen at the new head and reports READY with it; land that pin',
   },
   QUEUE_GATE_DISPOSITION: {
     anchor: 'queue-gate-disposition',
     summary: 'the owner gate dispositions the approval store applies at the pin are not all accepted by the lander, an accepted id is not applied, or the receipt or PR body differs from the store',
-    fix: 'read each GATE_DISPOSITION line, then rerun land (or verify) with --accept-gate-disposition <approval id> for each one you accept; when the receipt or body differs from the store, the lane reruns /ship and ready at the pin',
+    fix: 'read each GATE_DISPOSITION line, then rerun land (or verify) with --accept-gate-disposition <approval id> for each one you accept; when the receipt or body differs from the store, the lane reruns /gstack-ship and ready at the pin',
   },
   QUEUE_LAND_CHECKS: {
     anchor: 'queue-land-checks',
@@ -571,12 +571,12 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_LAND_MERGED_CHECKS: {
     anchor: 'queue-land-merged-checks',
     summary: 'the base moved past the pin\'s merge base, and a land.merged_checks command failed on the pin merged onto the base tip (GST-1316: a stale-base PR pushed a budgeted file past its cap on main); nothing merged',
-    fix: 'merge the base into the branch, fix what the failing command names, push, wait for the required checks, run /ship and gstack-ship-queue ready at the new head, then land it',
+    fix: 'merge the base into the branch, fix what the failing command names, push, wait for the required checks, run /gstack-ship and gstack-ship-queue ready at the new head, then land it',
   },
   QUEUE_LAND_NOT_CLEAN: {
     anchor: 'queue-land-not-clean',
     summary: 'GitHub does not report the PR mergeable and clean (a conflict, a branch rule, or a state GitHub is still computing)',
-    fix: 'CONFLICTING: the lane merges the base into the branch, resolves, runs /ship and ready at the new head; UNKNOWN: rerun land in a minute; BLOCKED or BEHIND: meet the branch rule it names',
+    fix: 'CONFLICTING: the lane merges the base into the branch, resolves, runs /gstack-ship and ready at the new head; UNKNOWN: rerun land in a minute; BLOCKED or BEHIND: meet the branch rule it names',
   },
   QUEUE_LAND_UNVERIFIED: {
     anchor: 'queue-land-unverified',

@@ -1,0 +1,4 @@
+{
+  "bytes": 22,
+  "why": "/gstack-ship reads ../gstack-qa only when it exists, so the short-name QA folder ../qa still resolves (#4775)"
+}

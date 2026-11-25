@@ -39,7 +39,7 @@ CLIs (`gstack-ios-qa-daemon`, `gstack-ios-qa-mint`, `gstack-ios-qa-regen`) are i
 | `/qa-only` | build + review |
 | `/scrape` | build + review |
 | `/skillify` | build + review |
-| `/ship` | release + deploy |
+| `/gstack-ship` | release + deploy |
 | `/land-and-deploy` | release + deploy |
 | `/modernize` | release + deploy |
 | `/canary` | release + deploy |
@@ -80,7 +80,7 @@ CLIs (`gstack-ios-qa-daemon`, `gstack-ios-qa-mint`, `gstack-ios-qa-regen`) are i
 
 ## Validation discipline
 
-When fixing failures or preparing `/ship`, follow this order:
+When fixing failures or preparing `/gstack-ship`, follow this order:
 
 1. List the known failing cases, their logs and source revision, the demonstrated
    cause, and the smallest check that can prove each repair. Keep one current

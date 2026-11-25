@@ -60,7 +60,7 @@ describe("gstack-greptile-early open", () => {
       ["pr", "create", "--base=main", "--title=v1.2.3 feat: early review", "--body-file=-", "--draft"],
       ["pr", "comment", "12", "--body-file=-"],
     ]);
-    expect(calls[0]!.stdin).toContain("/ship opened this pull request early");
+    expect(calls[0]!.stdin).toContain("/gstack-ship opened this pull request early");
     expect(calls[1]!.stdin).toBe("@greptileai\n");
   });
 

@@ -43,7 +43,7 @@ describe("/ship Step 6.5 early Greptile PR", () => {
 
   test("a stopped /ship leaves the draft open with one comment through gstack-post (ENG-20)", () => {
     const s = flat(early);
-    expect(s).toContain("leave the draft open (never close or force-push it) and post one comment saying /ship stopped and why");
+    expect(s).toContain("leave the draft open (never close or force-push it) and post one comment saying /gstack-ship stopped and why");
     expect(early).toContain("gstack-post pr-comment <pr-number> --body-file <that file>");
     expect(flat(skeleton)).toContain("**An early Greptile PR stays up.** A stop after Step 6.5 opened it leaves the draft open with one comment saying why");
   });

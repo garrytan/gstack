@@ -90,7 +90,7 @@ describe('CLAUDE.md facts match the code that owns them', () => {
 const SHIP_STEP_REFERENCES: Array<{ file: string; step: string; title?: string; historical?: string }> = [
   { file: 'document-release/sections/release-body.md.tmpl', step: '14', title: 'TODOS.md' },
 ];
-const SHIP_REFERENCE = /\/ship`?(?:'s)? Step (\d+(?:\.\d+)?)\b/g;
+const SHIP_REFERENCE = /\/(?:gstack-)?ship`?(?:'s)? Step (\d+(?:\.\d+)?)\b/g;
 
 function shipSteps(): Map<string, string> {
   const steps = new Map<string, string>();
@@ -149,7 +149,7 @@ describe('/ship step references resolve to the step they mean', () => {
 
   test('negative control: moving a reference to another existing /ship step fails', () => {
     const file = 'document-release/sections/release-body.md.tmpl';
-    const moved = sources[file]!.replace("`/ship`'s Step 14.", "`/ship`'s Step 12.");
+    const moved = sources[file]!.replace("`/gstack-ship`'s Step 14.", "`/gstack-ship`'s Step 12.");
     expect(moved).not.toBe(sources[file]);
     expect(shipSteps().has('12')).toBe(true);
     const problems = shipReferenceProblems({ ...sources, [file]: moved });

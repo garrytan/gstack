@@ -11,7 +11,7 @@ The scope section's ownership rules apply even to LOCAL browser targets.
 
 Use the invoking workflow, not this file's /qa location, to select authority:
 
-- **Report-only (/qa-only, /review and /ship discovery):** do not run the fallback's setup/install or cookie-import workflow.
+- **Report-only (/qa-only, /review and /gstack-ship discovery):** do not run the fallback's setup/install or cookie-import workflow.
   Never bootstrap or invoke another skill. With missing tools/sessions,
   block only the affected browser probes; continue independent functional/static checks.
 - **Standalone /qa:** for `NEEDS_SETUP` or cookie import, ask for explicit approval; STOP and wait.
@@ -20,7 +20,7 @@ Use the invoking workflow, not this file's /qa location, to select authority:
   mark affected probes blocked; continue independent safe checks.
 
 Unknown caller: use report-only authority. Blocked coverage stays incomplete;
-the caller owns completion and /ship's named-risk gate.
+the caller owns completion and /gstack-ship's named-risk gate.
 
 ## BROWSER SETUP (Aside — run this check BEFORE any browser step)
 

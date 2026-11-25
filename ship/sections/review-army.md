@@ -608,7 +608,7 @@ Never overwrite another run's reports. Batch only independent Reads.
 
 > **STOP.** Before any probe, including plan checks, complete the ordered scope/method Reads in earlier responses. Never batch a probe (capture, guard start, plan check) with a Read.
 
-1. From the installed /ship SKILL.md's directory, Read `../qa/sections/exploratory.md` in full. If the caller directory is prefixed `gstack-ship`, use `../gstack-qa/sections/exploratory.md` instead. Use this host's installation, never the product tree. If missing or unreadable, report a QA setup blocker and its affected probes as blocked; continue other safe probes (independent functional/static checks). Missing/unreadable assets block required QA.
+1. From the installed /ship SKILL.md's directory, Read `../qa/sections/exploratory.md` in full. If the caller directory is prefixed `gstack-ship`, use `../gstack-qa/sections/exploratory.md` instead when that file exists. Use this host's installation, never the product tree. If missing or unreadable, report a QA setup blocker and its affected probes as blocked; continue other safe probes (independent functional/static checks). Missing/unreadable assets block required QA.
 2. Then Read QA's `sections/scope.md` in full; pick surfaces.
 3. Then Read each listed method in full; the entrypoint alone completes nothing.
 

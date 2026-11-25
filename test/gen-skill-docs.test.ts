@@ -2936,7 +2936,7 @@ describe('Codex generation (--host codex)', () => {
       const tmpl = fs.readFileSync(path.join(ROOT, dir, 'SKILL.md.tmpl'), 'utf-8');
       const prompt = extractCodexDefaultPrompt(tmpl);
       expect(prompt, `${dir} declares codex_default_prompt`).toBeDefined();
-      expect(prompt!, dir).toContain(`$${dir} `);
+      expect(prompt!, dir).toContain(dir === 'ship' ? '$gstack-ship ' : `$${dir} `);
       expect(prompt!, `${dir}: a prompt tells the picker what the skill is for`).not.toBe(`Use gstack-${dir} for this task.`);
       const yaml = Bun.YAML.parse(fs.readFileSync(path.join(AGENTS_DIR, `gstack-${dir}`, 'agents', 'openai.yaml'), 'utf-8')) as { interface: { default_prompt: string } };
       expect(yaml.interface.default_prompt, dir).toBe(prompt!);

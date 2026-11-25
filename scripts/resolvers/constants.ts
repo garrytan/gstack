@@ -226,7 +226,7 @@ Plan-review readiness probes the [policy](https://github.com/garrytan/gstack/blo
 
 /**
  * Canonical foreground-dispatch guidance (#497 → #2440 → a third recurrence at
- * a /ship documentation dispatch). Claude Code v2.1.198 made Agent-tool subagents run in the
+ * a /gstack-ship documentation dispatch). Claude Code v2.1.198 made Agent-tool subagents run in the
  * BACKGROUND by default; a synchronous dispatch site must pass the flag
  * explicitly or the parent waits on output that never arrives. Rendered via
  * {{FOREGROUND_DISPATCH_NOTE}} in section templates; resolver sites may

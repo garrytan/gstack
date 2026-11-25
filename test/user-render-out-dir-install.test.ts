@@ -140,7 +140,7 @@ describe(':user render targets the out-dir, never the checkout (#2569)', () => {
 
   test('gstack-relink prefers the render dir when a rendered SKILL.md exists', () => {
     expect(RELINK_SRC).toContain('render/claude');
-    expect(RELINK_SRC).toContain('[ -f "$RENDER_DIR/$skill/SKILL.md" ] && skill_md_src="$RENDER_DIR/$skill/SKILL.md"');
+    expect(RELINK_SRC).toContain('! gstack_render_serves "$RENDER_DIR" "$skill" || skill_md_src="$RENDER_DIR/$skill/SKILL.md"');
   });
 });
 

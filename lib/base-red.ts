@@ -10,7 +10,7 @@
  *
  * A base-red /ship finishes its other steps, writes a pause record here and
  * ends with a conditional receipt; `wait` re-runs the cases on each new base
- * head and returns once they pass there, and `/ship --resume` re-runs Step 5.
+ * head and returns once they pass there, and `/gstack-ship --resume` re-runs Step 5.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';

@@ -63,7 +63,7 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
     expect(r.status, r.stderr).toBe(0);
     expect(fs.lstatSync(path.join(skills, 'investigate'), { throwIfNoEntry: false })).toBeUndefined();
     expect(fs.lstatSync(path.join(skills, 'gstack-investigate'), { throwIfNoEntry: false })).toBeUndefined();
-    expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(true); // ship installs as gstack-ship (#4775)
   });
 
   test("a user's own investigate skill is left alone", () => {
@@ -115,7 +115,7 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
     expect(fs.existsSync(path.join(skills, 'build-check', 'SKILL.md'))).toBe(false);
-    expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(true); // ship installs as gstack-ship (#4775)
   });
 
   test('gstack-config set disabled_skills verify stores build-check (#4593)', () => {
@@ -196,7 +196,7 @@ describe('gstack-relink after /plan-eng-review returned (GST-2726)', () => {
     const back = relink();
     expect(back.status, back.stderr).toBe(0);
     expect(fs.readFileSync(path.join(skills, PLAN_ENG, 'SKILL.md'), 'utf8')).toContain(`# ${PLAN_ENG}`);
-    expect(fs.existsSync(path.join(skills, 'ship', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(true); // ship installs as gstack-ship (#4775)
   });
 
   test("a user's own plan-eng-review skill is left alone", () => {

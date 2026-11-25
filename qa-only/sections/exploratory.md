@@ -2,7 +2,7 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 # Shared exploratory QA
 
-The **caller** (/qa, /qa-only, /review or /ship) owns decisions, tests, fixes and publication. Discovery writes only reports/evidence
+The **caller** (/qa, /qa-only, /review or /gstack-ship) owns decisions, tests, fixes and publication. Discovery writes only reports/evidence
 and owned fixture state; no workflows, framework installs or publication.
 
 ## 0. Preparation gate

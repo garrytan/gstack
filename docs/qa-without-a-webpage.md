@@ -25,7 +25,7 @@ must fail for the bug before the repair and pass afterward. Unit tests protect l
 integration and end-to-end tests protect real boundaries that mocks would hide.
 `/qa-only` proposes those tests without writing them.
 
-Normal `/review` and `/ship` run a bounded version on changed behavior and nearby
+Normal `/review` and `/gstack-ship` run a bounded version on changed behavior and nearby
 risks automatically, including small diffs without a plan or web server. Existing
 fix/test approval rules still apply. Missing dependencies, denied actions and time
 limits remain visible coverage gaps; a short smoke pass never means exhaustive QA.

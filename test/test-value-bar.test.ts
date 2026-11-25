@@ -56,7 +56,7 @@ const CONTRACT: Record<TestValueBarMode, { render: string; required: string[]; a
       'No `tests_rejected` path may remain on disk as a new file', 'dispatch one read-only Agent', 'it uses no generation\n   pass',
       'Regression proof — fails at HEAD: yes · passes at base: yes | unavailable (<reason>) | manual · passes after fix: yes | pending',
       'base control unavailable: collection error', 'N of M regression tests got base control', 'worktree add --quiet --detach',
-      'trap cleanup EXIT INT TERM', 'timeout 30 git -C "$ROOT" fetch', 'within a 3-minute total per /ship run',
+      'trap cleanup EXIT INT TERM', 'timeout 30 git -C "$ROOT" fetch', 'within a 3-minute total per /gstack-ship run',
       "find \"${TMPDIR:-/tmp}\" -maxdepth 1 -name 'gstack-base-control.*'",
       'K = `tests_added.length`', 'R = `tests_rejected.length`', 'E = `tests_extended.length`', 'W = `weak_gaps.length`',
       'The gate only asks; it never hard-fails.', `C) These paths don't need tests — mark as intentionally uncovered. ${SWEEP_POINTER}`,

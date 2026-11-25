@@ -1,7 +1,7 @@
 # Merge ask (shape C)
 
 What every PR body carries when it is READY, and what the controller's merge report to
-the owner shows. /ship writes the PR body in this shape on Capy; the controller checks
+the owner shows. /gstack-ship writes the PR body in this shape on Capy; the controller checks
 it before training the PR.
 
 ```text

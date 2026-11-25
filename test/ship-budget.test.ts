@@ -81,7 +81,7 @@ describe('reservations', () => {
     expect(stop).toContain('STOP: reason=budget_exhausted');
     expect(reading).toBeLessThanOrEqual(25_000_000);
     expect(admitted).toBeLessThan(10);
-    expect(stop).toMatch(/^RECOVER: \/ship --resume \S+ --token-cap \d+$/m);
+    expect(stop).toMatch(/^RECOVER: \/gstack-ship --resume \S+ --token-cap \d+$/m);
     expect(stop.trim().split('\n').at(-1)).toMatch(/^GSTACK_RESULT: skill=ship status=incomplete run=/);
   });
 
@@ -347,11 +347,11 @@ describe('Claude Code child launch', () => {
     expect(parsed.prompts[0]).toContain(`verify-handoff --in ${file} --session ${session}`);
   });
 
-  // Value: protects=the Claude Code child loads /ship: Claude Code expands a skill only when the prompt starts with the typed command, and unattended Opus found a skill from its description 0 of 60 times (gstack-evals#366); fails_when=the prompt opens with prose ("Load gstack. … Run /ship") or types /ship under a gstack- prefixed install;
+  // Value: protects=the Claude Code child loads gstack's shipping skill: Claude Code expands a skill only when the prompt starts with the typed command, and unattended Opus found a skill from its description 0 of 60 times (gstack-evals#366); fails_when=the prompt opens with prose ("Load gstack. … Run /gstack-ship") or types the bare /ship, which Claude Code reserves for its own built-in (#4775);
   //   why_new=the test above checks only that verify-handoff appears somewhere in the prompt; seam=GSTACK_CLAUDE_BIN fake; no_claim=that a real claude expands it
-  test('the child prompt opens with the typed /ship --continue <brief>, under the installed skill name', async () => {
+  test('the child prompt opens with the typed /gstack-ship --continue <brief> in both prefix modes', async () => {
     const plain = await launchChild(fresh());
-    expect(plain.parsed.prompts[0]).toStartWith(`/ship --continue ${plain.file} `);
+    expect(plain.parsed.prompts[0]).toStartWith(`/gstack-ship --continue ${plain.file} `);
     const h = fresh();
     fs.mkdirSync(h.state, { recursive: true });
     fs.writeFileSync(path.join(h.state, 'config.yaml'), 'skill_prefix: true\n');
@@ -366,7 +366,7 @@ describe('stop, resume and recovery', () => {
     const s = started(h, ['--token-cap', '20M', '--reading', '0']);
     const stop = h.sb(['check', '--run', s.run, '--step', '9', '--next', 'dispatch:specialist,red-team', '--reading', '9000000']);
     expect(stop.code).toBe(3);
-    const recover = stop.out.match(/^RECOVER: \/ship --resume (\S+) --token-cap (\d+)$/m)!;
+    const recover = stop.out.match(/^RECOVER: \/gstack-ship --resume (\S+) --token-cap (\d+)$/m)!;
     expect(recover[1]).toBe(s.record);
     expect(h.sb(['check', '--run', s.run, '--step', '9', '--next', '10', '--reading', '9000000']).code).toBe(3);
     const noWords = h.sb(['resume', '--record', recover[1]!, '--token-cap', recover[2]!, '--reading', '9100000']);

@@ -37,16 +37,16 @@ Context: after the install check, read the gstack skill's lane-card.md (the chec
    reports APPROVED (a later gate that asks nothing new prints CARRIED: and needs no second
    ask). Then gstack-approvals import --autoplan <run dir> --by "<owner>" (--stack b1,b2 for a stack).
    New scope you take on part-way goes back to step 1 with its own plan.
-3. Ship. CHANGELOG entry under [Unreleased]; GUARD_CHECKS, pregate and /ship at the final
+3. Ship. CHANGELOG entry under [Unreleased]; GUARD_CHECKS, pregate and /gstack-ship at the final
    head; one unstamped READY block (captain/templates/READY.md) to me; the PR body carries
    gstack-approvals render --plan "<this brief's Plan line>". Never merge; stamp only on my slot call.
-   Run /ship yourself, in this thread: follow ship/DRIVER.md phase by phase and start its
-   reviewers as your own subagents; never start a subagent to run /ship (a red check during
-   /ship waits for it to finish). /ship owns the receipt and the PREGATE line. After the
+   Run /gstack-ship yourself, in this thread: follow ship/DRIVER.md phase by phase and start its
+   reviewers as your own subagents; never start a subagent to run /gstack-ship (a red check during
+   /gstack-ship waits for it to finish). /gstack-ship owns the receipt and the PREGATE line. After the
    receipt, read the PR's checks and comments once, run gstack-ship-queue ready
    --pr <n> --pregate <pregate.json> --screen|--no-screen at the pin (its notes on origin),
    audit your decision trail, write Attention and send READY; after READY, handle PR events
-   as usual (crew/docs/captain.md, the lane's /ship sequence).
+   as usual (crew/docs/captain.md, the lane's /gstack-ship sequence).
 
 Done when: the READY block is sent at a frozen head, reports/<thread code>.md is written
 (its Open work line names a live owner for every open PR and issue it leaves), and its Approvals table carries the plan approval row (the owner's words, the date) or the

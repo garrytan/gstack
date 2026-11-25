@@ -138,7 +138,7 @@ if (pBase && cmp(pPR, pBase) <= 0) {
 const collision = claimed.find((c) => c.version.trim() === prVersion);
 if (collision) {
   console.log(`::error::VERSION collision: ${tag} claims v${prVersion} but #${collision.pr} (${collision.branch}) already claims the same slot.`);
-  console.log(`::error::Rerun /ship to pick a different slot, or coordinate with #${collision.pr} on landing order.`);
+  console.log(`::error::Rerun /gstack-ship to pick a different slot, or coordinate with #${collision.pr} on landing order.`);
   process.exit(1);
 }
 

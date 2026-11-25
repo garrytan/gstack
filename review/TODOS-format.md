@@ -1,6 +1,6 @@
 # TODOS.md Format Reference
 
-Shared reference for the canonical TODOS.md format. Referenced by `/ship` (Step 14) and `/plan-ceo-review` (TODOS.md updates section) to ensure consistent TODO item structure.
+Shared reference for the canonical TODOS.md format. Referenced by `/gstack-ship` (Step 14) and `/plan-ceo-review` (TODOS.md updates section) to ensure consistent TODO item structure.
 
 ---
 
