@@ -71,7 +71,7 @@ jobs:
         if: env.TRUNK_ORG_API_TOKEN != '' && hashFiles('free-junit/**/*.xml') != ''
         timeout-minutes: 5
         continue-on-error: true
-        uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
+        uses: trunk-io/analytics-uploader@6bc623e3c4b7a80d7a35badde2a8e8be1e78605d # v3.0.0
         with:
           junit-paths: ${{ github.workspace }}/free-junit/**/*.xml
           org-slug: garry-tan
@@ -89,7 +89,7 @@ jobs:
         if: env.TRUNK_ORG_API_TOKEN != '' && hashFiles('quick-junit/**/*.xml') != ''
         timeout-minutes: 5
         continue-on-error: true
-        uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
+        uses: trunk-io/analytics-uploader@6bc623e3c4b7a80d7a35badde2a8e8be1e78605d # v3.0.0
         with:
           junit-paths: ${{ github.workspace }}/quick-junit/**/*.xml
           org-slug: garry-tan
