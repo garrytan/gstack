@@ -391,7 +391,6 @@ describe('test-free-shards: Windows curation', () => {
     // These replay real callbacks with injected subprocess/SDK boundaries.
     // Fixture-only bin paths must not hide the native PATH/supervision checks.
     expect(result.safe).toContain('test/setup-gbrain-remote-caller.test.ts');
-    expect(result.safe).toContain('test/cso-windows-build-contract.test.ts');
     // Sanity: at least one excluded entry, since we know test/ship-version-sync.test.ts uses /bin/bash
     expect(result.excluded.length).toBeGreaterThan(0);
     // Every excluded entry has a non-empty reason
@@ -421,21 +420,6 @@ describe('test-free-shards: Windows curation', () => {
     for (const { reason } of result.excluded) expect(reason).toMatch(/Linux inotify|POSIX signal/);
   });
 
-  test('excludes POSIX CSO helper suites while retaining portable image metadata coverage', () => {
-    const posixOnly = [
-      'test/cso-preparation-adversarial.test.ts',
-      'test/cso-preparation-container.test.ts',
-      'test/cso-preparation-executor.test.ts',
-      'test/cso-scanner-cli.test.ts',
-      'test/cso-verification-cleanup.test.ts',
-      'test/cso-witness.test.ts',
-    ];
-    const portable = ['test/cso-image-provisioning.test.ts', 'test/cso-public-ghcr.test.ts'];
-    const result = curateWindowsSafe([...posixOnly, ...portable], ROOT);
-    expect(result.safe).toEqual(portable);
-    expect(result.excluded.map(({ file }) => file).sort()).toEqual(posixOnly.sort());
-    for (const { reason } of result.excluded) expect(reason).toMatch(/Linux|POSIX|Windows/);
-  });
 });
 
 describe('test-free-shards: sharding', () => {

@@ -426,3 +426,28 @@ describe('gstack-relink after /verify became /build-check (#4593)', () => {
     expect(fs.readdirSync(path.join(skills, 'verify'))).toEqual(['runbook.md']);
   });
 });
+
+describe('/cso stays removed (GST-3920)', () => {
+  const REMOVED_SCRIPTS = [
+    'scripts/cso-attestation-evidence.ts',
+    'scripts/cso-eval.ts',
+    'scripts/cso-native-evidence.ts',
+    'scripts/cso-public-ghcr.ts',
+    'scripts/cso-sbom-packages-check.jq',
+    'scripts/cso-sbom-packages.jq',
+    'scripts/cso-scanner-catalog.ts',
+    'scripts/cso-scanner-matrix.ts',
+    'scripts/cso-staging-run.ts',
+    'scripts/cso-verify-runtime-base.ts',
+  ];
+  const RUNNERS = ['package.json', 'setup', 'scripts/build.sh', ...fs.readdirSync(path.join(ROOT, '.github', 'workflows')).map(f => path.join('.github', 'workflows', f))];
+
+  test('its evaluation, image and scanner scripts are gone, and no package script, setup step or workflow still runs one', () => {
+    expect(REMOVED_SCRIPTS.filter(f => fs.existsSync(path.join(ROOT, f)))).toEqual([]);
+    const stillRun = RUNNERS.flatMap(runner => {
+      const text = fs.readFileSync(path.join(ROOT, runner), 'utf8');
+      return REMOVED_SCRIPTS.filter(f => text.includes(path.basename(f))).map(f => `${runner}: ${f}`);
+    });
+    expect(stillRun).toEqual([]);
+  });
+});

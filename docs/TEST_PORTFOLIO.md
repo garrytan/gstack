@@ -225,8 +225,8 @@ test/eng-test-plan-edit-approval.test.ts
 
 The quoted-frame selector was folded into `test/plan-count-file-permission.test.ts` in the 2026-09 audit.
 
-The publication/watchdog pair is `test/autoplan-publication-guard.test.ts` and
-`test/cso-watchdog.test.ts`. The live pair is
+The publication/watchdog pair was `test/autoplan-publication-guard.test.ts` and
+a watchdog test since deleted with the skill it covered. The live pair is
 `test/skill-e2e-auq-consistency.test.ts` and
 `test/skill-e2e-auq-verbose-vs-carved-ab.test.ts`, using the default three
 consistency samples plus the two A/B captures.

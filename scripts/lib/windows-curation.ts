@@ -230,30 +230,6 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'browse/test/security-audit-r2.test.ts',
     reason: 'symlink-attack fixtures (evil-link) need Developer Mode CI runners lack; expect(toThrow) fires unhandled on Windows',
   },
-  // CSO comprehensive execution is qualified only for Linux containers behind
-  // the POSIX watchdog and Unix-domain registry broker. Keep the portable
-  // static/parser contracts in the Windows lane while leaving these exact
-  // containment suites to the Linux and macOS gates.
-  {
-    file: 'test/cso-preparation-adversarial.test.ts',
-    reason: 'exercises POSIX prepared-tree and archive-cache containment for qualified Linux Docker execution, which Windows does not admit',
-  },
-  {
-    file: 'test/cso-preparation-container.test.ts',
-    reason: 'asserts POSIX permission and symlink semantics for inert exports consumed by qualified Linux Docker execution',
-  },
-  {
-    file: 'test/cso-preparation-executor.test.ts',
-    reason: 'executes the Linux Docker acquisition path and its Unix-domain registry broker; comprehensive execution is unavailable on Windows',
-  },
-  {
-    file: 'test/cso-verification-cleanup.test.ts',
-    reason: 'spawns the POSIX detached watchdog used by contained repair verification, which Windows intentionally leaves unavailable',
-  },
-  {
-    file: 'test/cso-witness.test.ts',
-    reason: 'tests the contained repair witness with POSIX private-directory and compiled-helper assumptions; comprehensive execution is unavailable on Windows',
-  },
   {
     file: 'test/shard-engine-equivalence.test.ts',
     reason: 'its classification golden was recorded from the POSIX runners (process-group wall kill); the win32 engine path is pinned by the mocked-platform case in shard-engine.test.ts',
@@ -285,10 +261,6 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   {
     file: 'test/setup-codex-scope-runtime-links.test.ts',
     reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/install-fixture.ts and test/helpers/setup-codex-scope-cyclic.ts, so the source scan misses them',
-  },
-  {
-    file: 'test/cso-scanner-cli.test.ts',
-    reason: 'drives the prebuilt POSIX CSO launcher with /usr/bin/git and a POSIX-only PATH; native Windows launcher behavior is covered by the dedicated cso-windows-launcher gate',
   },
   // C-stamp (ship policy, restamp, tree receipt, evidence bundle, ship receipt):
   // every case spawns bin/ shebang scripts and a #!/bin/sh `gh` shim through
@@ -543,7 +515,6 @@ export const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   // the curated lane even if a future edit trips a content pattern.
   { file: 'browse/test/cli-chain-stdin.test.ts', reason: 'piped-stdin browse chain against a stub daemon, and no-flow usage errors before any daemon boots; spawns the CLI through Bun argv' },
   { file: 'browse/test/runtime-root-server-bundle.test.ts', reason: 'a runtime root copy without node_modules resolves the checkout bundle via .source-path and refuses on version skew; os.tmpdir layouts only' },
-  { file: 'test/cso-windows-docker.test.ts', reason: '/cso docker.exe discovery under known-folder roots (real path, no reparse points) and the native-transport-unsupported outcome; pure win32 path logic' },
   { file: 'test/copilot-windows-bash.test.ts', reason: 'the Copilot glossary line that runs bash blocks in Git for Windows Bash; reads host config only' },
   { file: 'test/ship-hook-windows-paths.test.ts', reason: 'runs bin/ helpers through explicit bash and Bun argv with forward-slash paths; never executes a shebang; the path-spelling simulation is skipIf win32' },
   { file: 'test/review-scope-windows-launch.test.ts', reason: '#3541: runs gstack-review-scope through lib/script-invocation.ts, which must reach the bash gstack-review-read through Git Bash (red at main: windows-free-shard 3, run 41228091417); os.tmpdir state only' },
@@ -599,12 +570,6 @@ export const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
     // bin is an expected PATH component; the adapter injects the SDK boundary
     // and never launches a shebang. Keep the native delimiter cases in CI.
     reason: 'replays the registered SDK callback with fixture-only bin paths; covers native Windows PATH composition',
-  },
-  {
-    file: 'test/cso-windows-build-contract.test.ts',
-    // bin is a temporary staging directory. The adapter injects spawnSync;
-    // real PowerShell/native execution remains in cso-windows-launcher.
-    reason: 'replays the native build callbacks with an injected subprocess; bin paths are staging fixtures, not shebang launches',
   },
   {
     file: 'test/setup-windows-rerun-refresh.test.ts',
