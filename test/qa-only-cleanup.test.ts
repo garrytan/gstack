@@ -164,10 +164,11 @@ Bun.spawnSync = (...args) => {
 // Census 45122546426 (qa-only-no-fix): cleanup ran 58 s after a headless daemon started, before its first 60 s watchdog
 // tick spawned a terminal agent, and failed on the record that had never been written ("daemon log terminal-agent
 // lines: none"). The same daemon before its first tick settles with Chromium and no terminal.
-test('a real headless daemon settles before its first watchdog tick has started a terminal', async () => {
+test.each(['no-terminal', 'published-mid-cleanup'])('a real headless daemon settles before its first watchdog tick has started a terminal: %s', async scenario => {
   const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qa-tick-'));
   const stateDir = path.join(dir, '.gstack');
   const stateFile = path.join(stateDir, 'browse.json');
+  let restore: (() => void) | undefined;
   const child = Bun.spawn([process.execPath, path.join(ROOT, 'browse/src/server.ts')], {
     cwd: dir, stdout: Bun.file(path.join(dir, 'server.log')), stderr: Bun.file(path.join(dir, 'server-error.log')),
     env: { ...process.env, PATH: path.dirname(process.execPath) + path.delimiter + process.env.PATH,
@@ -178,12 +179,40 @@ test('a real headless daemon settles before its first watchdog tick has started 
     await waitFor(() => fs.existsSync(stateFile) && JSON.parse(fs.readFileSync(stateFile, 'utf8')).chromiumPid !== undefined);
     expect(fs.existsSync(path.join(stateDir, 'terminal-agent-pid'))).toBe(false);
     expect(fs.existsSync(path.join(stateDir, 'terminal-port'))).toBe(false);
-    const { chromiumPid, chromiumStartTime } = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    const { pid, port, chromiumPid, chromiumStartTime } = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    if (scenario === 'published-mid-cleanup') {
+      // The tick fires after cleanup read the missing record and before it signals the daemon.
+      const preload = path.join(dir, 'publish-terminal.ts');
+      fs.writeFileSync(preload, `
+import { spawnTerminalAgent } from ${JSON.stringify(path.join(ROOT, 'browse/src/terminal-agent-control.ts'))};
+const original = Bun.spawnSync;
+let published = false;
+Bun.spawnSync = (...args) => {
+  if (!published && args[0][0] === 'ps') {
+    published = true;
+    const agent = spawnTerminalAgent({ stateFile: ${JSON.stringify(stateFile)}, serverPort: ${port}, ownerPid: ${pid}, cwd: ${JSON.stringify(dir)} });
+    require('node:fs').writeFileSync(${JSON.stringify(path.join(dir, 'published-pid'))}, String(agent));
+  }
+  return original(...args);
+};
+`);
+      const original = Bun.spawn;
+      const spy = spyOn(Bun, 'spawn').mockImplementation(((args: string[], options: any) =>
+        original([args[0], '--preload', preload, ...args.slice(1)], options)) as typeof Bun.spawn);
+      restore = () => spy.mockRestore();
+    }
     await stopQaOnlyBrowser(dir, 4000);
+    restore?.();
     expect([0, 137]).toContain(await child.exited);
     expect(readPidStartTime(chromiumPid) === chromiumStartTime).toBe(false);
-    expect(fs.existsSync(path.join(stateDir, 'terminal-agent-pid'))).toBe(false);
+    if (scenario === 'published-mid-cleanup') {
+      const published = Number(fs.readFileSync(path.join(dir, 'published-pid'), 'utf8'));
+      expect(published).toBeGreaterThan(0);
+      expect(readPidCmdline(published)).not.toContain('terminal-agent');
+    }
+    expect(readAgentRecord(stateDir)).toBeNull();
   } finally {
+    restore?.();
     if (child.exitCode === null) { child.kill('SIGKILL'); await child.exited; }
     fs.rmSync(dir, { recursive: true, force: true });
   }
