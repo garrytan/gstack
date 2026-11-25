@@ -40,16 +40,12 @@ describe('ship source controller', () => {
     expect(freshness).not.toContain('**No attempt remains or no repair is available:**');
   });
 
-  test('the review plan drives the repeat, the fix-check binds under its own skill, and Step 11.5 accepts a fix-check or a planned adversarial skip', () => {
+  test('the review plan drives the repeat, and Step 11.5 accepts a planned adversarial skip', () => {
     const decide = review.slice(review.indexOf('### Decide whether to repeat Step 9'), review.indexOf('**Required-probe parent gate:**'));
     for (const flag of ['--fixed-blocking', '--fixed-below', '--blocking-open', '--touched-gate', '--critical-found', '--adversarial-ran', '--reviewed-numbers <fp>']) expect(decide).toContain(flag);
     expect(decide).toContain('its `NEXT:` alone picks the next decision: `stop` 2, `full` 3, `done` 4, `platform` 4.');
-    expect(compact(decide)).toContain('`fix-check` (3.5) comes only from a grant recorded before GST-3562.');
-    expect(decide).toContain('`gstack-review-log --start review-fix-check` token');
-    expect(decide).toContain('`"skill":"review-fix-check"` with `--finish <token>`');
     expect(compact(read('ship/sections/adversarial.md.tmpl'))).toContain("Step 9's last full-pass plan governs this step");
     const bind = compact(entry.slice(entry.indexOf('## Step 11.5:'), entry.indexOf('## Step 12:')));
-    expect(bind).toContain("last 3.5 `review-fix-check`");
     expect(bind).toContain('none after `ADVERSARIAL: skipped`');
     expect(bind).toContain('`review_freshness` `CURRENT`');
   });

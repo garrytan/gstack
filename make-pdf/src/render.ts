@@ -16,7 +16,7 @@ import { smartypants } from "./smartypants";
 import { DEFAULT_STYLE, printCss, resolveMargins, type PrintCssOptions, type Style } from "./print-css";
 import { swissCoverTitle, swissFieldHeadingLines } from "./style-swiss";
 import { applyImageDirectives } from "./image-policy";
-import { contentHeightInches, contentWidthInches } from "./diagram-prepass";
+import { contentHeightInches, contentWidthInches, DIAGRAM_SLOT_PREFIX } from "./diagram-prepass";
 
 export interface RenderOptions {
   markdown: string;
@@ -420,8 +420,10 @@ function sanitizePass(html: string): string {
  * paragraph, list or quote right after it go in <div class="swiss-keep">,
  * where the CSS pins the h3 to the wrapper's top and the wrapper starts where
  * the text does. min-height keeps a sub-heading longer than its text clear of
- * the next block. (Code, tables, figures and image-only paragraphs need no
- * wrapper: the CSS keeps the h3 in normal flow above them.) Only top-level
+ * the next block. (Code, tables, figures, image-only paragraphs and diagrams,
+ * which are still placeholder paragraphs here, need no wrapper: the CSS keeps
+ * the h3 in normal flow above them.) Each <br> in the heading starts a new
+ * line of that estimate. Only top-level
  * blocks are paired: an h3 inside raw HTML, a quote or a list item is not in
  * the field, and the CSS that positions the wrapper applies only at the top.
  */
@@ -435,8 +437,10 @@ export function keepFieldHeadingsWithText(html: string): string {
     if (html.slice(h3.end, next.start).trim() !== "") continue;
     const text = html.slice(next.start, next.end);
     if (next.tag === "p" && /^<p\b[^>]*>[^<]*<img\b[^>]*>[^<]*<\/p>$/i.test(text)) continue;
+    if (next.tag === "p" && new RegExp(`^<p>\\s*${DIAGRAM_SLOT_PREFIX}[0-9a-f]+-\\d+\\s*</p>$`).test(text)) continue;
     const heading = html.slice(h3.start, h3.end);
-    const minPt = swissFieldHeadingLines(stripTags(heading)) * 13 + 2;
+    const lines = heading.split(/<br\b[^>]*>/i).reduce((n, line) => n + swissFieldHeadingLines(stripTags(line)), 0);
+    const minPt = lines * 13 + 2;
     out.push(html.slice(last, h3.start), `<div class="swiss-keep" style="min-height: ${minPt}pt;">${html.slice(h3.start, next.end)}</div>`);
     last = next.end;
     i++;

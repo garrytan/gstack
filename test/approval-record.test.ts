@@ -88,17 +88,6 @@ describe('gstack-approvals add and render', () => {
     expect(control.err).toContain('pii.phone.e164');
   });
 
-  test("the owner's grant for a stop head whose short sha is all digits records (Free Tests 41667825418, 41766865679)", () => {
-    const cwd = repo(); const state = tmp('appr-state-');
-    const ask = 'Owner grant: one scoped fix-check after round 2 (review_loop_grant 367120488513)';
-    const r = bin(['add', '--ask', ask, '--words', 'do it', '--by', 'GStack Minder', '--scope', 'this /ship invocation'], { cwd, env: { GSTACK_STATE_ROOT: state } });
-    expect(r.status, r.err).toBe(0);
-    const file = /^APPROVAL_RECORDED: a-[0-9a-f]{12} (.*\.jsonl)$/m.exec(r.out)![1]!;
-    expect(fs.readFileSync(file, 'utf8')).toContain('review_loop_grant 367120488513');
-    const control = bin(['add', '--ask', 'Owner grant (review_loop_grant 367120488513), call 367120488513 first', '--words', 'do it', '--by', 'g', '--scope', 's'], { cwd, env: { GSTACK_STATE_ROOT: state } });
-    expect(control.status).toBe(3);
-    expect(control.err).toContain('field ask: pii.phone.e164');
-  });
 
   test('missing fields, bad outcomes and impossible dates are usage errors', () => {
     const cwd = repo(); const state = tmp('appr-state-');
@@ -639,20 +628,10 @@ describe('APPROVAL_RECORD_INVALID names the failed check and no other command (#
     expect(noBy).not.toMatch(/uppercase/);
   });
 
-  test('round-grant: a bad ref is refused for its shape alone; a good ref without --words names --words', () => {
-    const grant = ['round-grant', '--pr', '7', '--head', 'HEAD', '--kind', 'extra-round', '--reason', 'r', '--by', 'Captain'];
-    const bad = split(bin([...grant, '--owner-ref', 'ship-161:x', '--words', 'w'], committed()).err).why;
-    expect(bad).toMatch(/uppercase/);
-    expect(bad).not.toContain('ship-161');
-    expect(bad).not.toContain('--words');
-    const noWords = split(bin([...grant, '--owner-ref', REF], committed()).err).why;
-    expect(noWords).toContain('--words');
-    expect(noWords).not.toMatch(/uppercase/);
-  });
 
-  test('the fix clause of rule, round-grant, lane-exception and gate names no flag of add', () => {
+  test('the fix clause of rule, lane-exception and gate names no flag of add', () => {
     const o = committed();
-    for (const args of [[...RULE, '--words', 'A', '--by', 'owner', '--owner-ref', BAD], ['round-grant'], ['lane-exception'], ['gate']]) {
+    for (const args of [[...RULE, '--words', 'A', '--by', 'owner', '--owner-ref', BAD], ['lane-exception'], ['gate']]) {
       const r = bin(args, o);
       expect([args[0], r.status, r.err]).toEqual([args[0], 2, expect.stringContaining('(APPROVAL_RECORD_INVALID)')]);
       const { fix } = split(r.err);
@@ -664,3 +643,10 @@ describe('APPROVAL_RECORD_INVALID names the failed check and no other command (#
   });
 });
 
+// Value: protects=GST-3562 part 4 removed the round-grant and fix-check clearing modules with every caller; fails_when=either
+//   comes back as a second path that grants rounds or clears fix-checks; seam=the repository tree
+describe('the grant and fix-check modules stay removed (GST-3562 part 4)', () => {
+  test('lib/review-round-grant.ts and lib/fix-check-clearing.ts are gone', () => {
+    for (const f of ['lib/review-round-grant.ts', 'lib/fix-check-clearing.ts']) expect([f, fs.existsSync(path.join(ROOT, f))]).toEqual([f, false]);
+  });
+});

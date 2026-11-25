@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ghArtifactDeps, ghRunDeps, runInventory, type BaseMove, type RunProfile } from '../run-evidence';
-import { ownLinesSame } from '../review-round-grant';
+import { ownLinesSame } from '../own-lines';
 import { classifyDocsOnly } from '../docs-only';
 import { wtreeFingerprint } from '../script-invocation';
 import { resolveBaseBranch } from '../ship-policy';

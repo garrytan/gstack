@@ -1,42 +1,36 @@
 /**
  * The READY tail's last two template gaps (#4529, #4575, #4578): the Attention section printed
  * "<flags against decision-trail row numbers, or No flags>" for the lane to fill, and TRIAL_MERGES listed outside fork PRs such as
- * #4499 as conflicts a lane must resolve. The flags line now comes from the trail-read row's result, and a fork PR is labelled and
- * never fetched or merged.
+ * #4499 as conflicts a lane must resolve. The Attention section now opens with the receipt's risk class (the cross-family trail
+ * read left with the decision trail in GST-3562 part 4), and a fork PR is labelled and never fetched or merged.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { trailReadRow, trialMergeLines } from '../lib/ship-queue';
+import { trialMergeLines } from '../lib/ship-queue';
 import type { ShipReceipt } from '../lib/headless-artifacts';
 import { readyTailLines } from '../lib/ship-receipt';
 
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true }); });
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ready-tail-')); dirs.push(d); return d; };
-const HEADER = 'ts\tphase\tdecision\twhy\tevidence\tresult\n';
-const trail = (rows: string[]) => { const f = path.join(tmp(), 'decisions.tsv'); fs.writeFileSync(f, HEADER + rows.map(r => r + '\n').join('')); return f; };
-const READ = (flags: string) => `2026-11-20T00:01:00Z\ttrail-read\topenai/gpt-6.2-sol (Subagent 4)\trule 27\tflags.md\t${flags}`;
 const GATE = { review_depth: { class: 'gate', risk: [] } } as unknown as ShipReceipt;
+const MONEY = { review_depth: { class: 'code', risk: ['money'] } } as unknown as ShipReceipt;
 const CODE = { review_depth: { class: 'code', risk: [] } } as unknown as ShipReceipt;
-const attention = (r: ShipReceipt, file?: string) => { const l = readyTailLines(r, { trialMerges: ['TRIAL_MERGES: none share a file (0 open PRs checked)'], trailRead: trailReadRow(file) }); return l.slice(l.indexOf('Attention:') + 1); };
+const attention = (r: ShipReceipt | undefined) => { const l = readyTailLines(r, { trialMerges: ['TRIAL_MERGES: none share a file (0 open PRs checked)'] }); return l.slice(l.indexOf('Attention:') + 1); };
 
-describe('the Attention flags line comes from the trail (#4529)', () => {
-  // Value: protects=READY never prints the flags placeholder: a risk-class PR prints the trail-read row's flags against its row number
-  //   and a self-audited PR prints only its opener; fails_when=the placeholder line comes back or a flag is dropped; why_new=lanes
-  //   pasted the placeholder on #4529, #4575 and #4578; seam=trailReadRow and readyTailLines as ready calls them
-  test('a trail-read row\'s flags, or No flags, against its row; no line without a row or on a self-audited PR', () => {
-    expect(attention(GATE, trail([READ('rows 4 and 7: retry claimed without a log')]))).toEqual([
-      'reviewed by openai/gpt-6.2-sol (Subagent 4) (risk class: gate; rule 27 cross-family trail read, trail row 1)',
-      'Flags (trail row 1): rows 4 and 7: retry claimed without a log',
-    ]);
-    for (const none of ['No flags', 'none', '']) expect(attention(GATE, trail([READ(none)]))[1]).toBe('No flags (trail row 1)');
-    expect(attention(GATE)).toHaveLength(1);
-    expect(attention(GATE)[0]).toStartWith('MISSING: cross-family trail read');
-    expect(attention(CODE, trail([READ('row 2')]))).toEqual(['self-audited (not a risk class: no cross-family trail read)']);
-    for (const r of [GATE, CODE]) expect(readyTailLines(r).join('\n')).not.toContain('<flags against');
+describe('the Attention section opens with the risk class and no template line (#4529, GST-3562 part 4)', () => {
+  // Value: protects=READY never prints the flags placeholder or a trail-read requirement: the Attention section is one line naming
+  //   the receipt's risk class, and the lane lists what needs a decision under it; fails_when=the placeholder line or the MISSING
+  //   trail read comes back; why_new=lanes pasted the placeholder on #4529, #4575 and #4578; seam=readyTailLines as ready calls it
+  test('one risk-class line, never a placeholder or a trail-read requirement', () => {
+    expect(attention(GATE)).toEqual(['risk class: gate']);
+    expect(attention(MONEY)).toEqual(['risk class: money']);
+    expect(attention(CODE)).toEqual(['not a risk class']);
+    expect(attention({} as ShipReceipt)).toEqual(['risk class unknown: the receipt records no review_depth']);
+    for (const r of [GATE, CODE]) expect(readyTailLines(r).join('\n')).not.toMatch(/<flags against|trail read|trail-read/);
   });
 });
 

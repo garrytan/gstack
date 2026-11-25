@@ -194,7 +194,7 @@ describe.skipIf(process.platform === 'win32')('runtime roots carry every $GSTACK
       { cwd: tmp, encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: path.join(tmp, 'home-windows') } });
     expect(r.stderr).not.toContain('Cannot find module');
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('--fix-check-prompt');
+    expect(r.stdout).toContain('--post-review');
   });
 
   // Value: protects=the question helper's --check and --signal-keys start from a

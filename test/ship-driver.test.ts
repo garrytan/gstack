@@ -147,7 +147,7 @@ describe('one program per pass (GSTA-167 variant E)', () => {
   test('Phase 2 runs --audit and the reads in its program, and no phase reads TODOS.md or the full diff into the parent', () => {
     const p2 = phase('## 2. Preflight');
     for (const s of ['gstack-ship-preflight --audit --base <base> --out <run dir>', 'writes the diff once (`CONTEXT:`)', '(`TODOS:`)', 'READER: coverage=<needed|none> plan=<needed|none>',
-      'Phase 3 runs neither reader', 'Never read TODOS.md or the full diff into the parent']) expect(p2).toContain(s);
+      'Phase 3 never runs the coverage reader; the plan reader only on `plan=needed`', 'A plan agreed only in conversation reads `plan=none`', 'Never read TODOS.md or the full diff into the parent']) expect(p2).toContain(s);
     expect(phase('## 4. Judgment')).toContain('Steps 8.1, 8.2 and 9.2.1 are skipped');
     expect(phase('## 6. Notes and documentation')).toContain('Step 14 is skipped');
   });
@@ -167,12 +167,13 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     expect(calls).toContain(`One pass with no fixes is ${headings.length + 1} calls: Phases 1-${headings.length} and the report; at most 12`);
   });
 
-  // Value: protects=the ledger records instead of admitting: one note at each program's end with tokens and credits, the reader pair inside the dispatching program, and the cap as the single stop; fails_when=the driver brings back a check per boundary, a reservation, a meter-only call or a handoff (replay 5: 11 meter-only calls at 286k on #34's child), or drops the credits reading;
+  // Value: protects=the ledger records instead of admitting: start and close only (GST-3562 J), the reader pair inside the dispatching program, and the cap as the single stop; fails_when=the driver brings back a check per boundary, a reservation, a meter-only call or a handoff (replay 5: 11 meter-only calls at 286k on #34's child), or drops the credits reading;
   //   why_new=observe mode is new; seam=none; no_claim=the host's counter accuracy
-  test('the budget paragraph runs observe mode: note with --reading and --credits, no check per step, the cap as the one stop', () => {
-    const budget = flat(doc.slice(doc.indexOf('**Budget: observe.**'), doc.indexOf('\n\n', doc.indexOf('**Budget: observe.**'))));
-    for (const s of ['gstack-ship-budget start --mode observe', 'gstack-ship-budget note --step <last step> --reading R --credits C', '`cost.credits`',
-      'No check per step, no reservation, no meter-only call, no handoff', '--dispatched-at <R> --dispatched-credits <C> --readers <n>']) expect(budget).toContain(s);
+  test('the budget paragraph runs start and close only: no note per program, no check per step, the cap as the one stop', () => {
+    const budget = flat(doc.slice(doc.indexOf('**Budget: start and close only.**'), doc.indexOf('\n\n', doc.indexOf('**Budget: start and close only.**'))));
+    for (const s of ['gstack-ship-budget start --mode observe', '`cost.credits`',
+      'No note per program, no check per step, no reservation, no meter-only call, no handoff', '--dispatched-at <R> --dispatched-credits <C> --readers <n>']) expect(budget).toContain(s);
+    expect(doc).not.toContain('gstack-ship-budget note --step <last step>');
     expect(doc).not.toMatch(/check --step|--next dispatch:|--delegate measured/);
     expect(doc).toContain('gstack-ship-budget close --reading R --credits C');
   });
@@ -209,7 +210,7 @@ describe('variant G: the call plan, observe budget, waits and audit readers (GST
     for (const s of ['Returns: ≤32 KB per program; split longer reads at headings, each byte once, before first use',
       'one program runs the failing test, fix, `--tests-only` and Phase 3, each gated', '(`diffBase` RANGE_BASE on a `full` round 2 only, never on the `READ_ONLY:` final review',
       'Unattended, push defers the pre-push offer; else its STOP runs Step 17\'s guard block', 'plus a keep-alive per 200 s waited']) expect(f).toContain(s);
-    expect(flat(doc.slice(doc.indexOf('**Budget: observe.**')))).toContain('--reading R --credits C --record <rec>');
+    expect(flat(doc.slice(doc.indexOf('**Budget: start and close only.**')))).toContain('No note per program');
   });
 
   // Value: protects=a reader counts as settled only once it has run (status done or failed, or a final summary), in the driver, the Capy skill and the budget section, so a poll never closes a batch on a subagent that was just created; fails_when=the settled rule is dropped or lets a bare idle status through (replay 7e #36: the Red Team reservation settled actual=0 because a just-created subagent read idle);

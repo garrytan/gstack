@@ -16,7 +16,6 @@ import { runReceiptFields, type RunEvidence } from "../lib/run-evidence";
 import type { ShipReceipt } from "../lib/headless-artifacts";
 import { foldSections, unfoldSections } from "../lib/pr-body-shape";
 import { buildRow, renderRecord, type ApprovalRow, type StoreLocation } from "../lib/approval-record";
-import { reviewRoundGrantRow } from "../lib/review-round-grant";
 
 interface Call { cmd: string; args: string[]; input?: string }
 
@@ -497,14 +496,14 @@ describe("gstack-post owns the redaction scan", () => {
   });
 
   // Value: protects=a private PR's Approvals table (renderRecord, full mode) posts through pr-body without a pii.phone.e164 confirmation when a
-  //   fix-check grant row's Covers cell names a run id like 507-7192673 (GST-3246, trail-read row 8), while the same digits in that row's
+  //   fix-check grant row recorded before GST-3562 part 4 (an old row still renders) has a Covers cell naming a run id like 507-7192673 (GST-3246, trail-read row 8), while the same digits in that row's
   //   Asked or Exact words cell, in prose, or in a table no Source footer closes still need one; fails_when=every private /ship body with such a
   //   grant needs --confirm, or the exemption reaches past the stop= token of a renderer-shaped table; seam=fake run; no_claim=real gh
   test("a fix-check grant's run id in a rendered Approvals table is no phone number; the same digits anywhere else still are", () => {
     const HEAD = "2294465066182c2f99d64ba0016213463aaa0c14";
     const loc: StoreLocation = { file: "/x", branch: "fix-undo-line", slug: "acme-widget", ephemeral: false };
     const grant = (reason: string, words = "one fix round") => {
-      const row = buildRow({ ...reviewRoundGrantRow(HEAD, 507, "fix-check", reason, { run: "507-7192673", findings: ["p2/outside-voice#3"] }), words, by: "GStack Minder (GSTA-36)" }, loc.branch);
+      const row = buildRow({ scope: `review_round_grant ${HEAD} pr=507 kind=fix-check stop=507-7192673 findings=p2/outside-voice#3`, ask: `review_round_grant fix-check at ${HEAD} for pr 507: ${reason}`, words, by: "GStack Minder (GSTA-36)" }, loc.branch);
       if ("code" in row) throw new Error(row.message);
       return row;
     };

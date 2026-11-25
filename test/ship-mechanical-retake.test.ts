@@ -139,8 +139,7 @@ describe('finish and gstack-review-plan agree at the round cap (GST-1560)', () =
     expect(plan('--pass', '2', '--last', 'full', '--post-review')).toStartWith('NEXT: full (edits after the review bound (Step 16 stage 2.1)');
     expect(plan('--pass', '2', '--last', 'full', '--post-review')).toContain('read-only final review (R51)');
     expect(plan('--pass', '3', '--last', 'full', '--post-review')).toStartWith('NEXT: stop (edits after the review bound (Step 16 stage 2.1)');
-    expect(plan('--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--post-review')).toStartWith('NEXT: stop (edits after the review bound');
-    expect(plan('--pass', '1', '--last', 'full', '--post-review')).toMatch(/^NEXT: (full|fix-check) \(edits after the review bound/);
+    expect(plan('--pass', '1', '--last', 'full', '--post-review')).toStartWith('NEXT: full (edits after the review bound');
     const stage2 = fs.readFileSync(path.join(ROOT, 'ship/SKILL.md.tmpl'), 'utf8').split('### 2. Choose the change route')[1]!.split('### 3.')[0]!;
     expect(stage2).toContain('--post-review');
   });

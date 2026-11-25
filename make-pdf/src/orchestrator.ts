@@ -183,10 +183,9 @@ export async function generate(requested: GenerateOptions): Promise<string> {
 
   // ─── --to html: write the self-contained document, no print round-trip ──
   if (to === "html") {
-    const withScreenLayer = finalHtml.replace(
-      "</style>",
-      `</style>\n<style>\n${screenCss(style)}\n</style>`,
-    );
+    const withScreenLayer = finalHtml
+      .replace(`<meta charset="utf-8">`, `<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">`)
+      .replace("</style>", `</style>\n<style>\n${screenCss(style)}\n</style>`);
     fs.writeFileSync(outputPath, withScreenLayer, "utf8");
     const kb = Math.round(fs.statSync(outputPath).size / 1024);
     progress.done(`${rendered.meta.wordCount} words · ${kb}KB · ${outputPath}`);

@@ -24,6 +24,8 @@ import { SWISS_FIELD_IN, SWISS_MARGINS } from "../../src/style-swiss";
 import { browserAvailable, NO_BROWSER_REASON } from "../../../test/helpers/browser-available";
 
 const FIXTURE = path.resolve(__dirname, "../fixtures/swiss-gate.md");
+const AFTER_H3_FIXTURE = path.resolve(__dirname, "../fixtures/swiss-after-h3.md");
+const BUNDLE = path.resolve(__dirname, "../../../lib/diagram-render/dist/diagram-render.html");
 const ROOT = path.resolve(__dirname, "../../..");
 const PDF_BIN = path.join(ROOT, "make-pdf/dist/pdf");
 const CHILD_TIMEOUT_MS = 60_000;
@@ -63,9 +65,9 @@ function lines(pdf: string): Line[] {
 /** Body lines: inside the page's type area (no running header or footer). */
 const body = (ls: Line[]) => ls.filter((l) => l.y0 > 0.7 * 72 - 1 && l.y1 < l.pageH - 0.85 * 72 + 1);
 
-function render(dir: string, name: string, args: string[]): string {
+function render(dir: string, name: string, args: string[], fixture = FIXTURE): string {
   const out = path.join(dir, `${name}.pdf`);
-  execFileSync(PDF_BIN, ["generate", FIXTURE, out, "--quiet", ...args], { encoding: "utf8", timeout: CHILD_TIMEOUT_MS, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync(PDF_BIN, ["generate", fixture, out, "--quiet", ...args], { encoding: "utf8", timeout: CHILD_TIMEOUT_MS, stdio: ["ignore", "pipe", "pipe"] });
   return out;
 }
 
@@ -181,6 +183,52 @@ describe("swiss layout gate", () => {
       expect(one).toContain("Gate Author");
       expect(one).toContain("2026-11-25");
       expect(page(2)).not.toContain("Gate Author");
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  }, 120000);
+
+  test.skipIf(!avail.ok || !fs.existsSync(BUNDLE))("every block after a sub-heading: diagrams span the full width and no sub-heading overprints", () => {
+    if (!avail.ok) return;
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "make-pdf-swiss-gate-"));
+    try {
+      const all = body(lines(render(d, "after-h3", [], AFTER_H3_FIXTURE)));
+      const find = (t: string) => {
+        const l = all.find((x) => x.text === t);
+        expect({ t, found: !!l }).toEqual({ t, found: true });
+        return l!;
+      };
+
+      for (const labels of [["afterh3alpha", "afterh3beta", "afterh3gamma", "afterh3delta"], ["excalialphanode", "excalibetanode"]]) {
+        const ls = all.filter((l) => labels.some((w) => l.text.includes(w)));
+        expect({ labels, found: ls.length >= labels.length }).toEqual({ labels, found: true });
+        expect({ labels, leftmost: Math.min(...ls.map((l) => l.x0)) < COLUMN_PT - 20 }).toEqual({ labels, leftmost: true });
+      }
+      for (const h of ["Mermaid follows", "Excalidraw follows"]) {
+        const l = find(h);
+        const next = all.filter((x) => x.page === l.page && x.y0 > l.y1 - 1 && x !== l);
+        expect({ h, labelsBelow: next.some((x) => /afterh3alpha|excalialphanode/.test(x.text)) }).toEqual({ h, labelsBelow: true });
+      }
+
+      const landscape = find("Landscape next");
+      const landLabels = all.filter((l) => /landalpha|landbeta|landgamma/.test(l.text));
+      expect(landLabels.length).toBeGreaterThanOrEqual(3);
+      expect({ landscapeHeadingPage: landscape.page }).toEqual({ landscapeHeadingPage: Math.min(...landLabels.map((l) => l.page)) });
+      expect(Math.min(...landLabels.map((l) => l.x0))).toBeLessThan(COLUMN_PT - 20);
+
+      const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(find);
+      for (const day of days) expect({ day: day.text, inField: day.x0 < LEFT_PT + 3 && day.x1 < COLUMN_PT }).toEqual({ day: day.text, inField: true });
+      const closing = find("Closing bar heading");
+      const saturday = days[days.length - 1];
+      expect(saturday.page < closing.page || saturday.y1 < closing.y0).toBe(true);
+
+      const headings = ["Paragraph follows", "List follows", "Ordered list follows", "Quote follows", "Code follows", "Table follows",
+        "Image follows", "Text and image follow", "Mermaid follows", "Excalidraw follows", "Landscape next", "Rule follows", "Raw HTML follows",
+        "Heading follows", "Second heading"].map(find);
+      for (const h of [...headings, ...days]) {
+        const hits = all.filter((x) => x !== h && x.page === h.page && x.x0 < h.x1 - 1 && x.x1 > h.x0 + 1 && x.y0 < h.y1 - 1 && x.y1 > h.y0 + 1);
+        expect({ h: h.text, overprints: hits.map((x) => x.text) }).toEqual({ h: h.text, overprints: [] });
+      }
     } finally {
       fs.rmSync(d, { recursive: true, force: true });
     }

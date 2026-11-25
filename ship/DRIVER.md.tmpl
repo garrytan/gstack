@@ -27,11 +27,10 @@ file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` r
 **Calls.** One pass with no fixes is 9 calls: Phases 1-8 and the report; at most 12 with a STOP's
 section read or a repeat pass, plus a keep-alive per 200 s waited under ~80 min (longer: end the turn on one wait; no 10-15 min polls).
 
-**Budget: observe.** `gstack-ship-budget start --mode observe` only records: each program ends
-with `gstack-ship-budget note --step <last step> --reading R --credits C --record <rec>`, R and C read in it
-(Capy: `cost.tokens`, `cost.credits`). No check per step, no reservation, no meter-only
-call, no handoff; under `--token-cap` a note past the cap prints `verdict=stop`, the one stop check on spend.
-A dispatching program passes `--dispatched-at <R> --dispatched-credits <C> --readers <n>` (`BEFORE`).
+**Budget: start and close only.** `gstack-ship-budget start --mode observe` records the first reading and Step 22's
+`close` the last (R and C from the host; Capy: `cost.tokens`, `cost.credits`). No note per program, no check per step,
+no reservation, no meter-only call, no handoff. The pass's own note keeps the reader pair (`--dispatched-at <R>
+--dispatched-credits <C> --readers <n>`) and, under `--token-cap`, `verdict=stop`: the one stop check on spend.
 
 **Waits.** No call waits past 200 s: a program returns what still runs 200 s after its first line; the next
 call resumes the poll. Lanes, pregate, `finish` run in background; after a restart, rerun the same command. Never end the turn while
@@ -66,7 +65,8 @@ harness: start the eval selector and pre-merge command (detached past 30 min); e
 record `evals: none affected`. Step 6.5 runs only if `gstack-greptile-early detect` finds
 Greptile. Then `gstack-ship-preflight --audit --base <base> --out <run dir>` writes the diff once
 (`CONTEXT:`) and the TODOS.md items on touched paths (`TODOS:`); prints the coverage map,
-plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`; Phase 3 runs neither reader.
+plan candidates and `READER: coverage=<needed|none> plan=<needed|none>`; Phase 3 never runs the coverage reader; the plan reader only on `plan=needed`.
+A plan agreed only in conversation reads `plan=none`: before `--audit`, write it to `.gstack/plans/<branch>.md` naming the branch.
 Never read TODOS.md or the full diff into the parent. A `PERSIST:` hint never replaces Step 9.
 
 ## 3. Audits and review: Steps 7, 8, 9, 9.1, 9.2, 9.2.1
@@ -81,7 +81,7 @@ On `plan=none` Steps 8.1, 8.2 and 9.2.1 are skipped (L). The core checklist, Ste
 9.3, 9.4 and the repeat decision as written (`JUDGMENT: ok` before any fix), fixes and persistence in
 one program. Prints `Pre-Landing Review:`, `Gate edits:`. `NEXT: stop` stops; `full`
 (every round 2): one program runs the failing test, fix, `--tests-only` and Phase 3, each gated (`diffBase` RANGE_BASE on a `full` round 2 only, never
-on the `READ_ONLY:` final review, which reads the whole PR and takes no fix); `fix-check` (only a pre-GST-3562 grant's, deprecated): the pass with `fixCheck: {fix_list, hunks, tests, callers}`; `done` or `voices`: that program runs Step 11 from
+on the `READ_ONLY:` final review, which reads the whole PR and takes no fix); `done` or `voices`: that program runs Step 11 from
 `sections/adversarial.md` as written (above), only the voices the last full-pass plan lists (none:
 `ADVERSARIAL: skipped (review plan)`).
 

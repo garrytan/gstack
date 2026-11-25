@@ -5,7 +5,7 @@
  * base's changes, so a pure base merge still keeps the grant.
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { ownLinesSame } from '../lib/review-round-grant';
+import { ownLinesSame } from '../lib/own-lines';
 import { shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(60_000);

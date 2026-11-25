@@ -8,9 +8,7 @@
  * asks this module when the loop is done and the head has targeted classes the passed --targeted-ran no longer covers.
  * It dispatches one targeted reader on HEAD only when range_base is the commit that read happened on (its targeted
  * patch-id is --targeted-ran), every path the PR's own change moved since, release stamps aside, is docs class and not
- * binary, and that change is not plain docs. With the owner's review_loop_grant for a stop head inside range_base..HEAD
- * (`granted`, checked by the plan before it gets here), a code change since the read takes the same one reader (GST-1607, harness-evals #271: the
- * granted fix round moved the product patch the record names). Anything else keeps `done` with the reason.
+ * binary, and that change is not plain docs. Anything else keeps `done` with the reason.
  */
 import { spawnSync } from './spawn-sync';
 import { comparePath, touchedPaths } from './ship-patch';
@@ -19,7 +17,7 @@ import { docsChangeSince } from './ship-receipt-depth';
 export type TargetedDelta = { state: 'dispatch'; range_base: string; paths: string[] } | { state: 'skip'; reason: string; carried?: true };
 
 /** Whether the change since `rangeBase` (where the targeted reader read the patch `ran`) earns the targeted-only read. */
-export function targetedDelta(root: string, base: string, rangeBase: string, ran: string, granted = false): TargetedDelta {
+export function targetedDelta(root: string, base: string, rangeBase: string, ran: string): TargetedDelta {
   const git = (args: string[], input?: string) => {
     const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
     return r.status === 0 ? r.stdout : null;
@@ -43,7 +41,7 @@ export function targetedDelta(root: string, base: string, rangeBase: string, ran
   if (!paths.length) return skip(`the branch patch is unchanged since range_base ${read.slice(0, 12)}`);
   const change = docsChangeSince(root, read, head, base);
   if (!change) return skip(`git could not build the PR's own change since range_base ${read.slice(0, 12)}`);
-  if (change.verdict === 'code' && !granted) return skip(`the change since range_base ${read.slice(0, 12)} is not docs-only (${change.paths.join(', ')}), so it takes the review loop`);
+  if (change.verdict === 'code') return skip(`the change since range_base ${read.slice(0, 12)} is not docs-only (${change.paths.join(', ')}), so it takes the review loop`);
   if (change.verdict === 'plain') return skip(`the change since range_base ${read.slice(0, 12)} is ${change.paths.length ? 'plain docs' : 'release stamps'}${change.paths.length && change.stamps.length ? ' and release stamps' : ''}, which the targeted record carries (GST-1195, GST-1689)`, true);
   return { state: 'dispatch', range_base: read, paths: [...change.paths] };
 }

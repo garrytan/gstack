@@ -332,7 +332,7 @@ describe('parity with the measured prototype', () => {
     'lib/ship-receipt-prose.ts': 'bin/gstack-ship-receipt imports it (read --check-prose), so it reaches every consumer of the receipt binary',
     'lib/ship-clock.ts': 'G2: bin/gstack-ship-receipt (write --budget-record), lib/ship-budget-cli.ts (note, resume) and lib/ship-phase.ts import it, so it reaches every consumer of the receipt and budget binaries',
     'scripts/resolvers/load-injection.ts': 'GST-3157: the preamble resolvers (generate-preamble-bash, preamble-hoist) and scripts/gen-skill-docs.ts import it, so it reaches every consumer of the generated skills',
-    'lib/fix-check-clearing.ts': 'GST-3260: lib/ship-release.ts (finish), lib/review-evidence.ts (gstack-review-log), lib/review-pass.ts and the receipt and review-plan bins import it, so it reaches every consumer of finish, the review logger, the pass program and receipt write',
+    'lib/review-trailer-clearing.ts': 'GST-3562 part 4: bin/gstack-ship-receipt (write) imports it, so it reaches every consumer of the receipt binary',
     'lib/ship-run-record.ts': 'GST-3260: lib/ruled-notes.ts, lib/gate-dispositions.ts, the preflight, release and receipt libraries and bins, gstack-review-log and gstack-skill-end read or beat the run record, so it reaches every consumer of those guards',
     'lib/default-base.ts': 'GST-511/GST-774: lib/ship-policy.ts (resolveBaseBranch), lib/gate-diff/git.ts, lib/pregate/context.ts, lib/ship-receipt-depth.ts and the review-plan, gate-diff, pregate, docs-candidate and diff-scope bins import or run it, so it reaches every consumer of those readers',
   };

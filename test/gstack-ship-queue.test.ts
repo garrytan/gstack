@@ -790,11 +790,11 @@ describe('printed gate-ahead command (review #3235 P2-1)', () => {
   }, 180_000);
 });
 
-describe('the READY tail ready fills in: TRIAL_MERGES and the cross-family trail read (GST-3200)', () => {
-  // Value: protects=READY carries a computed trial-merge line per open PR sharing a file and a reviewer line read from the trail,
-  //   or MISSING, never a template line a lane can cut; fails_when=ready prints the TRIAL_MERGES or reviewed by <model ...>
-  //   placeholder (three gate-class PRs skipped the rule 27 read on 11-19); seam=bin/gstack-ship-queue ready with a gh shim
-  test('one line per sibling from git merge-tree, and the reviewer from the trail-read row, else MISSING', () => {
+describe('the READY tail ready fills in: TRIAL_MERGES and the risk class (GST-3200)', () => {
+  // Value: protects=READY carries a computed trial-merge line per open PR sharing a file, or MISSING, and its Attention section
+  //   opens with the receipt's risk class, never a template line a lane can cut; fails_when=ready prints the TRIAL_MERGES
+  //   placeholder or an Attention section with no risk class; seam=bin/gstack-ship-queue ready with a gh shim
+  test('one line per sibling from git merge-tree, else MISSING, and Attention opens with the risk class', () => {
     const repo = fixture();
     const sibling = (branch: string, files: Record<string, string>, pr: string) => {
       repo.git('checkout', '-q', 'origin/main', '-b', branch);
@@ -814,21 +814,17 @@ describe('the READY tail ready fills in: TRIAL_MERGES and the cross-family trail
     const list = [{ number: 1, headRefOid: head, files: files('pr-a.txt') }, { number: 2, headRefOid: conflict, files: files('pr-a.txt') }, { number: 3, headRefOid: clean, files: files('pr-a.txt', 'c.txt') }, { number: 4, headRefOid: apart, files: files('d.txt') }];
     const green = { check_runs: [{ status: 'completed', conclusion: 'success' }] };
     const prs = { '1': { headRefOid: head, body: shippedBody('1', head), headRefName: 'pr-a' } };
-    const trail = path.join(repo.root, 'decisions.tsv');
-    fs.writeFileSync(trail, 'ts\tphase\tdecision\twhy\tevidence\tresult\n2026-11-19T00:00:00Z\tstart\trun x opens this trail\tno earlier rows\trun:x\topen\n2026-11-19T00:01:00Z\ttrail-read\topenai/gpt-6.2-sol (Subagent 4)\trule 27\tflags.md\tNo flags\n');
-    const r = queue(repo, ['ready', '--pr', '1', '--pregate', pregate, '--trail', trail], ghQueueShim(repo, { prs, checks: { [head]: green }, list }));
+    const r = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], ghQueueShim(repo, { prs, checks: { [head]: green }, list }));
     expect(r.status, r.err).toBe(EXIT.ok);
     const cleanTree = repo.git('merge-tree', '--write-tree', head, clean);
     expect(r.out.split('\n').filter(l => l.startsWith('TRIAL_MERGES: '))).toEqual([
       `TRIAL_MERGES: #2 ${conflict.slice(0, 12)} shares pr-a.txt: CONFLICT in pr-a.txt; the lane states the resolution`,
       `TRIAL_MERGES: #3 ${clean.slice(0, 12)} shares pr-a.txt: merge-tree clean (tree ${cleanTree.slice(0, 12)})`,
     ]);
-    expect(line(r.out, 'Attention:')).toBe('Attention:');
-    expect(r.out).toContain('\nreviewed by openai/gpt-6.2-sol (Subagent 4) (risk class unknown: the receipt records no review_depth; rule 27 cross-family trail read, trail row 2)\n');
-    expect(r.out).not.toContain('<model on another family>');
+    expect(r.out).toContain('\nAttention:\nrisk class unknown: the receipt records no review_depth\n');
+    expect(r.out).not.toContain('trail');
     const bare = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], ghQueueShim(repo, { prs, checks: { [head]: green } }));
     expect(line(bare.out, 'TRIAL_MERGES: ')).toStartWith('TRIAL_MERGES: MISSING: cannot list the open PRs into main through gh');
-    expect(line(bare.out, 'MISSING: cross-family')).toStartWith('MISSING: cross-family trail read (risk class unknown: the receipt records no review_depth; rule 27): ready got no --trail <decisions.tsv>;');
     const alone = queue(repo, ['ready', '--pr', '1', '--pregate', pregate], ghQueueShim(repo, { prs, checks: { [head]: green }, list: [list[0], list[3]] }));
     expect(line(alone.out, 'TRIAL_MERGES: ')).toBe('TRIAL_MERGES: none share a file (1 open PRs checked)');
   }, 240_000);
