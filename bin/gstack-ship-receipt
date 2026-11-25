@@ -116,7 +116,8 @@ const HELP = `gstack-ship-receipt — the \`\`\`gstack-ship-receipt\`\`\` block 
                                       the lane's Captain decides (STOP_RECORD:, NEXT:); the stopping row is the newest full pass or Step 11
                                       voice, so the stop is the head it read (#4591); it also marks this checkout's run record stopped at
                                       that head and tree. Before a PR exists (no --pr and no --body), only the run record takes the stop
-                                      (pr=none; HARN-138). An unbound read prints STOP_UNBOUND (exit 3) and records nothing
+                                      (pr=none; HARN-138), and a refused run-record write then exits 1 with no STOP_RECORD; a --pr
+                                      or --body with no value is a usage error (exit 2). An unbound read prints STOP_UNBOUND (exit 3) and records nothing
                                       (docs/troubleshooting.md#stop-unbound)
   abandoned --pr <n> | --body <file> --run <id> --by <who> --reason <one line>
                                       gstack-ship-run abandon's PR-body half: a mark:abandoned entry in the runs block (RUN_ABANDON_MARK:)
@@ -1006,7 +1007,9 @@ function cmdStop(rest: string[]): number {
   if (!run || !/^[\w.:-]{1,120}$/.test(run) || !since) { process.stderr.write('gstack-ship-receipt stop: --run <the /ship run id> and --since <REVIEW_SINCE> are required\n'); return EXIT.usage; }
   const repoRoot = git(['rev-parse', '--show-toplevel']);
   if (!repoRoot) { process.stderr.write('gstack-ship-receipt stop: run it inside the git checkout\n'); return EXIT.usage; }
-  const prePr = flag(rest, '--pr') === undefined && flag(rest, '--body') === undefined;
+  const valueless = ['--pr', '--body'].filter(n => rest.includes(n) && (flag(rest, n) ?? '--').startsWith('--'));
+  if (valueless.length) { process.stderr.write(`gstack-ship-receipt stop: ${valueless.join(' and ')} needs a value (--pr <n>, --body <file>); leave both out only before the PR exists\n`); return EXIT.usage; }
+  const prePr = !rest.includes('--pr') && !rest.includes('--body');
   const read = prePr ? undefined : readBody(rest);
   if (read && !read.ok) { process.stderr.write(`gstack-ship-receipt stop: ${read.why}; fix: ${read.fix}\n`); return EXIT.fail; }
   const rows = reviewRows(repoRoot);
@@ -1017,6 +1020,7 @@ function cmdStop(rest: string[]): number {
   const err = read?.ok ? postBody(rest, read.pr, placeRunEntry(read.body, stopMarker({ head: found.head, tree: found.tree, run }))) : null;
   if (err) { process.stderr.write(`gstack-ship-receipt stop: ${err}; nothing recorded\n`); return EXIT.fail; }
   const marked = changeRunRecord(repoRoot, 'stop', run, { stop: { head: found.head, tree: found.tree } });
+  if (!read && !marked.ok) { process.stderr.write(`gstack-ship-receipt stop: the run record refused the stop (${marked.why}); with no PR nothing else holds it, so nothing is recorded\n`); return EXIT.fail; }
   process.stdout.write(`STOP_RECORD: run=${run} head=${found.head} tree=${found.tree}${read ? '' : ' pr=none'}\n${marked.ok ? '' : `RUN_RECORD: not marked stopped (${marked.why})\n`}${read ? '' : `STOP_RECORD: no PR yet, so only this checkout's run record holds the stop; open the PR before the next /gstack-ship run so its rounds count (HARN-138)\n`}NEXT: the lane's Captain decides (R51): ship with the open findings listed as notes (a blocker only as a Ruled note, gstack-approvals rule), park, or keep the fix and run /gstack-ship again for one read-only full review of the final head (docs/troubleshooting.md#pr-round-cap)\n`);
   return EXIT.ok;
 }

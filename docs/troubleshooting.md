@@ -8012,7 +8012,8 @@ or its commit isn't HEAD or under it. It recorded no stop record.
 
 **Fix.** The lane's Captain ships with the open notes listed (a blocker only as
 a ruled note), or parks. A stop before any PR exists records the run's stop and
-prints `pr=none` (HARN-138).
+prints `pr=none` (HARN-138); when the run record refuses that write (another
+run's record, a held lock), it exits 1 and prints no `STOP_RECORD:`.
 
 <a id="ship-run-abandon-refused"></a>
 ### `SHIP_RUN_ABANDON_REFUSED`

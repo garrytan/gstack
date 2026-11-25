@@ -486,7 +486,7 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
   },
   {
     file: 'test/ship-run-hold-release.test.ts',
-    reason: 'drives bin/gstack-ship-receipt, gstack-approvals, gstack-review-log, gstack-review-plan, gstack-review-scope, gstack-ship-run and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts like test/fix-check-clearing.test.ts, and reads /proc for run owners; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
+    reason: 'drives bin/gstack-ship-receipt, gstack-approvals, gstack-review-log, gstack-review-plan, gstack-review-scope, gstack-ship-run and gstack-ship-release (shebangs) through test/helpers/ship-bin-fixture.ts, and reads /proc for run owners; a bin spawn fails on windows-latest the same way (first-bin-spawn failure class of test/ship-uid-sidecar.test.ts)',
   },
   {
     file: 'test/ship-receipt-write-keeps-earlier-runs.test.ts',

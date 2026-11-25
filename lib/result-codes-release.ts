@@ -291,8 +291,8 @@ export const RELEASE_RESULT_CODES = {
   },
   QUEUE_RECEIPT_EXCEPTION_INVALID: {
     anchor: 'queue-receipt-exception-invalid',
-    summary: 'the PR body’s /ship receipt records a documentation exception that is malformed or whose line the body no longer carries verbatim',
-    fix: 'restore the exception line in the PR body word for word, or run /gstack-ship again and record the owner’s acceptance with --docs',
+    summary: 'the PR body’s /ship receipt records a documentation exception that is malformed or whose line the body no longer carries verbatim, or it still records a review-loop exception, which GST-3562 part 4 removed',
+    fix: 'for a documentation exception, restore its line in the PR body word for word, or run /gstack-ship again and record the owner’s acceptance with --docs; for a review-loop exception, run /gstack-ship again for a fresh receipt, with any blocker it shipped recorded as a ruled note (gstack-approvals rule)',
   },
   QUEUE_RECEIPT_TARGETED_MISSING: {
     anchor: 'queue-receipt-targeted-missing',

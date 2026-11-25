@@ -14,6 +14,7 @@ import { EXIT, type ShipReceipt } from '../lib/headless-artifacts';
 import { extractReceipt, renderReceiptBlock } from '../lib/ship-receipt';
 import { bindShippedReceipt, exceptionProblems, receiptDepthAtHead, receiptDepthVerdict } from '../lib/ship-receipt-depth';
 import { bunIsolationArgs } from '../lib/bun-isolation';
+import { RELEASE_RESULT_CODES } from '../lib/result-codes-release';
 import { runScriptSync } from '../lib/script-invocation';
 import { BUMP_NEVER_KEY_VERSION, HISTORY_NO_REWRITE_KEY_VERSION, LAND_MERGE_COMMIT_PATHS_KEY_VERSION, POLICY_KEY_INTRODUCED, TRAIN_GATES_KEY_VERSION } from '../lib/ship-policy';
 import { cmpVersion, parseVersion } from '../lib/version-source';
@@ -231,6 +232,10 @@ describe('the review-loop exception is gone (GST-3562 part 4)', () => {
     const legacy = { review_loop_exception: { accepted_by: 'x', date: '2026-11-01', via: 'y', reason: 'z', second_pass: { head: 'a'.repeat(40), deferred: ['p1/x#1'] } } } as unknown as ShipReceipt;
     expect(exceptionProblems('Review-loop exception: x', legacy)).toEqual(['the receipt records a review-loop exception, which GST-3562 part 4 removed']);
     expect(exceptionProblems('', {} as ShipReceipt)).toEqual([]);
+    const code = RELEASE_RESULT_CODES.QUEUE_RECEIPT_EXCEPTION_INVALID;
+    expect(code.summary).toContain('review-loop exception');
+    expect(code.fix).toContain('review-loop exception');
+    expect(code.fix).toContain('run /gstack-ship again');
   });
 });
 

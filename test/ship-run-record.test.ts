@@ -308,3 +308,31 @@ describe('the round history counts a reused run id once per head (gstack-evals#4
     expect(prReviewHistory(sameHead)).toMatchObject({ rounds: 1, heads: 1 });
   });
 });
+
+describe('a stop before any PR fails when nothing records it (#4826 review)', () => {
+  // Value: protects=a pre-PR stop exits 0 and prints STOP_RECORD only when the run record took it, and a valueless --pr
+  //   is a usage error rather than a silent pre-PR stop; fails_when=a refused run-record write or a bare --pr reads as
+  //   recorded; seam=gstack-ship-receipt stop
+  test('the own run records it; another run\'s record and a bare --pr refuse with no STOP_RECORD', () => {
+    const f = fx({ 'src/x.ts': 'export const x = 1;\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+    expect(preflight(f, 'rx').status).toBe(0);
+    logStoppingReview(f);
+    const since = ['--since', '2000-01-01T00:00:00Z'];
+    const other = run(f, 'gstack-ship-receipt', ['stop', '--run', 'ro', ...since]);
+    expect(other.status, other.stdout).toBe(1);
+    expect(other.stdout).not.toContain('STOP_RECORD:');
+    expect(other.stderr).toContain("the record is run rx's, not ro's");
+    expect(record(f)).toMatchObject({ run: 'rx', state: 'open' });
+    for (const args of [['--pr'], ['--pr', '--run', 'rx'], ['--body']]) {
+      const bare = run(f, 'gstack-ship-receipt', ['stop', ...since, '--run', 'rx', ...args]);
+      expect(bare.status, args.join(' ')).toBe(2);
+      expect(bare.stdout).not.toContain('STOP_RECORD:');
+    }
+    expect(record(f)).toMatchObject({ run: 'rx', state: 'open' });
+    const own = run(f, 'gstack-ship-receipt', ['stop', '--run', 'rx', ...since]);
+    expect(own.status, own.stderr).toBe(0);
+    expect(own.stdout).toContain('STOP_RECORD: run=rx head=' + head(f));
+    expect(own.stdout).toContain(' pr=none');
+    expect(record(f)).toMatchObject({ run: 'rx', state: 'stopped', stop: { head: head(f) } });
+  });
+});
