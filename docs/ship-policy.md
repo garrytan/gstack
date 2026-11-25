@@ -1409,25 +1409,11 @@ checked-out HEAD, when the receipt records `gstack_version` without
 `class` one of the four no-stop defaults. /gstack-ship passes the branch's
 `gstack-no-stop` ledger here ([review-policy.md#no-stop](review-policy.md#no-stop)).
 
-**`review_loop_exception`.** Deprecated with fix-check grants (GST-3562 A; write
-still takes one for a stop before it, and the next release removes it). The owner's acceptance of a stop after a
-fix-check edit under frozen scope (#3559), from `write --review-loop-exception
-<json|@file>`: `{ accepted_by, date, via, reason, fix_check: { head, findings[, files] } }`.
-It needs `--review-loop` with `fix_checks` of 1 or more, a `fix_check.head`
-that is the receipt head or its ancestor, and, with `--body`, the line
-`Review-loop exception: accepted by <owner> <date> via <ref>: <reason> (fix-check at <sha12>, <n> findings)`
-word for word. A stop after the second full pass that left a finding open
-(TRUT-7) takes `second_pass: { head, deferred: [<finding id>] }` in place of
-`fix_check`, with `--review-loop` counting 2 or more passes and 1 or more
-deferred, and the line ends `(second full pass at <sha12>, deferred <ids>)`;
-finish does not take it, since it accepts an open finding, not edits. Otherwise
-[`REVIEW_LOOP_EXCEPTION_INVALID`](troubleshooting.md#review-loop-exception-invalid)
-and nothing is written. The queue checks both owner exceptions the same way
-before READY and train build: the record must parse, the body must still
-carry its line, and the exception's head (the fix-check's or the second
-pass's) must be the bound head or its ancestor (after a carry across rewritten
-history the old commit is off the branch, so that check is skipped), or the receipt is
-[`QUEUE_RECEIPT_EXCEPTION_INVALID`](troubleshooting.md#queue-receipt-exception-invalid).
+**`review_loop_exception`.** Removed in GST-3562 part 4. `write --review-loop-exception`
+refuses with [`REVIEW_LOOP_EXCEPTION_INVALID`](troubleshooting.md#review-loop-exception-invalid)
+and writes nothing: an open finding at the round cap ships only as a
+[ruled note](#ruled-notes). A receipt written before keeps the key, and the
+queue no longer checks it.
 
 **Prose against the receipt.** `gstack-ship-receipt read --pr <n> --check-prose`
 (or `--body <file>`) compares every counter the body quotes with the receipt's
@@ -1809,38 +1795,35 @@ construction:
    failed review.
 3. **Two rounds is the cap** (R51), stepped by the
    [transition table](review-policy.md#transitions); a full pass counts as a
-   round, and /gstack-ship plans neither a fix-check nor a [scoped pass](review-policy.md#scoped-pass): any code change
-   after round 1 gets a full round 2, with no exception (GST-3562 A and part 3). A pass that applied no edits
+   round, and every round 2 is a full pass on the range: any code change after
+   round 1 gets one, with no exception (GST-3562 A and part 3). A pass that applied no edits
    continues to Step 10: the loop ships with its deferred and noted items named in
    the PR body. A blocking finding still open after the last allowed step stops
    the run and names the finding (path, severity, problem) for the lane's Captain
    instead of a third round: the PR ships with its open notes or the Captain rules. A fix applied in the last allowed round gets one read-only
    full review of the final head with no fix round (GST-3562 A); a fix after it
-   stops for the Captain. Fix-check and round grants are deprecated: one recorded
-   before GST-3562 still answers its stop for one release, and the next release
-   removes them.
+   stops for the Captain. There are no fix-check or round grants (GST-3562 part 4).
 
 <a id="what-ends-a-run"></a>
 **What ends a /gstack-ship run (GST-3260).** Preflight opens the run in the checkout's
 run record (`git rev-parse --git-path gstack-ship-run`), and while it is open a
-full preflight, round grants, gate dispositions, lane exceptions and rulings
+full preflight, gate dispositions, lane exceptions and rulings
 without `--owner-ref` stop. Only gstack's commands end it: `finish` removes the
 record (only when the open PR's body names that run), `gstack-ship-receipt stop`
-marks it stopped (it may then record the fix-check grant for its own stop, once
-per run, and a new run's preflight replaces it), `gstack-skill-end` marks it finished on any
+marks it stopped (a new run's preflight replaces it), `gstack-skill-end` marks it finished on any
 outcome, and `gstack-ship-run abandon` ends a run that stopped working, never
 within 60 minutes of its last beat unless the harness process it ran under is
 provably gone (GST-3546). No timer ends a run. A bare marker from an
 older gstack reads as `legacy` and an unreadable record as `unreadable`; both
 block until abandoned. The record guards against mistakes, such as a base merge
-under a run's readers or a run granting itself a round; it is not proof of who
+under a run's readers; it is not proof of who
 the owner is.
 
 <a id="ruled-notes"></a>
 **Ruled notes (GST-1537).** R51's other answer to an open finding is the owner's
 ruling that it ships as a disclosed note, with the note listed. The owner records
 each ruling, one finding per row, through the approval record, outside the lane's
-/gstack-ship run, naming the stop head it ruled at (the commit a `review_loop_grant` names):
+/gstack-ship run, naming the stop head it ruled at:
 
 ```bash
 gstack-approvals rule --finding '<the finding's fingerprint>' --head <stop head> \
@@ -1866,32 +1849,15 @@ message; without it the refusal is `APPROVAL_RULING_RUN_OPEN`. `add` refuses a
 ruling: `ruled`, `action: "ruled"` or any other claim the lane writes on its own
 row is ignored. Step 16's `finish` reads the branch's rulings
 (`lib/ruled-notes.ts`) and prints each as `RULED_NOTE: <fingerprint> at <head12>
-ruled by <who> at <time>: <reason> (approval <id>)`. A ruling closes a finding on
-a `review-fix-check` row finish counts (the newest, or an earlier link of its
-[chain](#fix-check-chain); action `open`, `skipped`, `noted` or `deferred`, not a
-gate finding) when its head lies inside that row's `range_base..commit`, the same
-test a `review_loop_grant` passes. So the order of ruling and fix-check doesn't
-matter, and a ruling made at an earlier /gstack-ship's head closes nothing: its
-`RULED_NOTE:` line ends `(outside this fix-check's range; not applied)`. A granted
-fix-check whose other findings are all below the floor then reads CURRENT and
-counts. That includes the usual order, where the fix-check finds a new CRITICAL,
-logs it `open` with `converged:false` and stops for the owner, and the owner rules
-afterwards: the row's `incomplete` binding still names the one tree it read, so
-once every blocking finding on it is ruled it binds at that tree as a clean read
-(harness-evals#361, GST-2251). A blocking finding the row records `fixed` or
-`auto-fixed` needs no ruling, since a fixed finding cannot be ruled and already
-reads resolved (gbrain#10036, GST-3501). A CRITICAL with no ruling stays open, and while one
-does, finish prints `FIX_CHECK_OPEN: <fingerprints> on the fix-check at <commit12>`
-naming the `gstack-approvals rule` command for each
-([troubleshooting](troubleshooting.md#fix-check-open)). On any stopped review row,
-the final review and the native reader included, `gstack-review-read` names them
-too: its UNVERIFIED reason ends `N finding(s) still need an owner ruling at this
-head: <fingerprint> (<severity>, <action>); …`, ten names at most. A `noted` or
-`deferred` CRITICAL is on that list, because neither action closes a CRITICAL,
-and a gate finding is listed with the `gate_id` its gate disposition needs, since a
-ruling never closes one (harness-evals#498, GST-3267). A review-loop exception is
-not a ruling: it accepts edits after a fix-check, never the fix-check's own
-findings. Nothing ruled is hidden:
+ruled by <who> at <time>: <reason> (approval <id>)`. A blocking finding a row records `fixed` or `auto-fixed` needs no ruling, since a
+fixed finding cannot be ruled and already reads resolved (gbrain#10036, GST-3501).
+On any stopped review row, the final review and the native reader included,
+`gstack-review-read` names the findings that still need one: its UNVERIFIED reason
+ends `N finding(s) still need an owner ruling at this head: <fingerprint>
+(<severity>, <action>); …`, ten names at most. A `noted` or `deferred` CRITICAL is on
+that list, because neither action closes a CRITICAL, and a gate finding is listed
+with the `gate_id` its gate disposition needs, since a ruling never closes one
+(harness-evals#498, GST-3267). Nothing ruled is hidden:
 `gstack-approvals rulings` prints one `Ruled note: …` line per ruling for the
 Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
@@ -2268,69 +2234,12 @@ that doesn't carry each of those lines word for word.
 STOP tells the lane to plan the inserted Step 9 with `gstack-review-plan
 --post-review` (plus `--pass` and `--last` as the loop left
 them). Edits after the review bound plan as a fix to a gate-class path, never
-as a note. The exception is a range after the last fix-check whose edits are
-only release stamps and docs (`docsChangeSince`): it plans `NEXT: done`, or
-`NEXT: targeted` for a docs claim on a targeted-class diff, with no grant
-([review-policy.md](review-policy.md#transitions), GST-1702). Below the round cap that's a pass on the range (a fix-check under
-the lean panel before GST-3562; a full pass on the range since). At the cap it gets
-one read-only full review of the whole PR diff (GST-3562 A), never `done`; any
-other edit after review costs the next round. The rest of this paragraph and the
-chain below serve only grants recorded before GST-3562 (deprecated, removed next
-release). When the last step was a
-fix-check, pass `--range-base` at that fix-check's commit: a new grant at a
-stop head after it plans the next link of the chain below (GST-1676), and the
-last link's own grant is refused. So `finish` never asks for a step the
-planner refuses. In the loop, a fix-check that stops is answered the same way:
-a new grant naming that fix-check's commit (`--range-base`, the stop it
-answers) plans one more fix-check, the next link of the chain, however many
-fix-checks ran before (GST-1681, GEVA-363's third round). The previous link's
-grant is refused: it names an earlier stop head, or it was recorded before a
-later logged fix-check (a post-review link's grant names the commit its
-fix-check read). A grant at any other commit plans nothing: one grant, one link.
+as a note. Below the round cap that's a full pass on the range. At the cap it
+gets one read-only full review of the whole PR diff (GST-3562 A), never `done`;
+any other edit after review costs the next round.
 
-<a id="fix-check-chain"></a>**Chained fix-checks (GST-1627).** A second granted
-fix-check after the first one (a merge resolution, say) logs its row with
-`range_base` at the first fix-check's commit. finish used to read only the newest
-row and refuse any range that didn't start at the reviewed tree, so the later
-fix-check unbound the earlier one and lanes logged a synthetic combined row
-(#4063: fc3 at 265d868, then fc4 over the merge). finish now walks back from the
-newest row: while a row's `range_base` doesn't hold the reviewed tree, the link
-before it is the newest earlier row whose commit is that `range_base`. The chain
-counts only when it reaches a row whose `range_base` holds the reviewed tree,
-every link is a committed read with its own approved `review_loop_grant`, and
-the newest link is clean. An earlier link that found issues (logged
-`converged:false`, as review-army.md requires) still links when it finished its
-read bound to its own commit, its findings account for its counts, and every
-open or blocking finding names a file it read (GBRA-386, GST-1973): it counts
-no path itself, a path its findings name counts only through a clean link
-after it, and the line marks it `(found issues)`. A link's grant may name any
-stop head inside its `range_base..commit`, its own commit included: the post-review flow grants
-each fix-check at the commit it reads, so link 1's stop head is link 2's
-`range_base` (founderstar#634, GST-1676). Grants are assigned newest link
-first and a grant counts for one link only, so one grant never covers two
-fix-checks: a lone grant naming that boundary goes to the newer link and leaves
-the older one ungranted. A path counts as `fix_checked` when some clean link's
-range touched it and it is unchanged since that link (or its patch against the
-base is still the one that link read). The line reads `FIX_CHECK: reviewed <paths>
-(fix-check chain of <n> from <range_base12>: at <commit12> grant <id>; …)`. A
-`range_base` no earlier row ends at is a gap and refuses with the single-row
-reason (`range_base <sha12> does not hold the reviewed tree`); a link that is
-stale or ungranted refuses with its reason and `; fix-check at <sha12>, link <k>
-of <n>`. Either way nothing in the chain counts.
-
-<a id="fix-check-docs-bridge"></a>One gap is not a gap: the oldest link's `range_base` may follow the reviewed
-tree's commit by commits that change only authored docs or release metadata,
-such as the Step 14.5 docs commit (harness-evals#361, GST-2294). finish walks
-`range_base`'s first parents back to the nearest commit holding the reviewed tree
-and accepts the range when every commit after it is a single-parent commit whose
-every path it routes as docs or release metadata, printing
-`FIX_CHECK_DOCS_BRIDGE: range_base <sha12> follows the reviewed commit <sha12> by
-docs or release metadata only (<commits>)`. Those docs still take the docs route
-and its recheck. A code or test commit in between, a merge, a `range_base` the
-reviewed commit descends from, and a `range_base` on another branch still refuse.
-Pass `--reviewed-tree` as the tree the bound review read, never the fix-check's
-own tree: with the fix-check's tree, `range_base` sits before the "reviewed"
-commit and finish refuses (#4267, #4270).
+<a id="fix-check-chain"></a><a id="fix-check-docs-bridge"></a>**Chained fix-checks** (GST-1627) and
+their docs bridge were removed with fix-checks and their grants in GST-3562 part 4.
 
 <a id="test-code"></a>
 <a id="uid-sidecar"></a>
@@ -2470,7 +2379,7 @@ base. finish takes it when the branch contains it and a base commit holds its
 change outside release metadata and changelog fragments (a release folds every
 fragment on the base), found as the carry finds a landed parent, and
 prints `REVIEWED_BASE: stack parent <sha12> landed on origin/<base> at <sha12>`.
-The route, a granted fix-check's sides, the scoped-review packet and the docs
+The route, the scoped-review packet and the docs
 carry then compare each commit's patch from that parent, so the parent's and the
 base's edits route as `base=`. The route also reads every path the branch ships
 against the base, changed since review or not, and judges every shipped path's
@@ -3024,7 +2933,7 @@ body plain: they become main's history.
   the green run for your head when the merge commit's parents are a commit on
   main and then your pushed head, and your pull request's own added and
   removed lines in that merge are byte-identical to your head's, at the same
-  places (the zero-context patch-id and hunk positions `lib/review-round-grant.ts`
+  places (the zero-context patch-id and hunk positions `lib/own-lines.ts`
   `ownLinesSame` compares for a base-only merge of a reviewed head). Main may
   have changed other files, or other parts of the files you changed, but no
   line you changed and none next to one. The `CI_CARRY:` receipt

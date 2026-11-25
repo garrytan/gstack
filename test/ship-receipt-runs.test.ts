@@ -25,8 +25,8 @@ describe('receipt runs block', () => {
     expect(body.match(/## Summary/g)!.length).toBe(1);
   });
 
-  test('a fence inside a recorded reason never closes the runs block (adversarial p-voices #1)', () => {
-    const withReason = (head: string) => orderReceipt({ ...receipt(head, { fix_checks: 1 }), review_loop_exception: { accepted_by: 'Garry', date: '2026-11-03', via: 'x', reason: 'the \x60\x60\x60retry\x60\x60\x60 block is fine', fix_check: { head, findings: 0 } } });
+  test('a fence inside a recorded field never closes the runs block (adversarial p-voices #1)', () => {
+    const withReason = (head: string) => orderReceipt({ ...receipt(head), run: 'run \x60\x60\x60retry\x60\x60\x60 1' });
     let body = placeReceipt('## Summary\nprose\n', withReason('b'.repeat(40)));
     body = placeReceipt(body, withReason('c'.repeat(40)));
     body = placeReceipt(body, withReason('d'.repeat(40)));
@@ -49,18 +49,18 @@ describe('receipt runs block', () => {
 describe('READY tail (E1: the ready output is the whole READY)', () => {
   const depth = (cls: 'docs' | 'code' | 'gate', risk?: Array<'money' | 'auth' | 'secret' | 'security' | 'data'>) =>
     ({ depth: 'full' as const, class: cls, runtime_lines: 10, rules: 'r', base: 'b', registry: null, gate_scan: { tagged: 0, head: 'h' }, reasons: [], ...(risk ? { risk } : {}) });
-  test('a risk-class receipt asks for the cross-family read; any other PR is self-audited', () => {
-    expect(readyTailLines({ ...receipt('f'.repeat(40)), review_depth: depth('gate') })[3]).toStartWith('MISSING: cross-family trail read (risk class: gate; rule 27): ready did not look for one;');
-    expect(readyTailLines({ ...receipt('f'.repeat(40)), review_depth: depth('gate') }, { trialMerges: ['TRIAL_MERGES: none share a file (3 open PRs checked)'], trailRead: { row: 7, reader: 'openai/gpt-6.2-sol' } }).slice(1, 4)).toEqual(['TRIAL_MERGES: none share a file (3 open PRs checked)', 'Attention:', 'reviewed by openai/gpt-6.2-sol (risk class: gate; rule 27 cross-family trail read, trail row 7)']);
-    expect(readyTailLines({ ...receipt('f'.repeat(40)), review_depth: depth('code', ['money']) })[3]).toContain('risk class: money');
-    expect(readyTailLines({ ...receipt('f'.repeat(40)), review_depth: depth('docs') })[3]).toBe('self-audited (not a risk class: no cross-family trail read)');
+  test('the Attention section opens with the receipt risk class; no cross-family trail read is asked for (GST-3562 part 4)', () => {
+    expect(readyTailLines({ ...receipt('f'.repeat(40)), review_depth: depth('gate') })[3]).toBe('risk class: gate');
+    expect(readyTailLines({ ...receipt('f'.repeat(40)), review_depth: depth('gate') }, { trialMerges: ['TRIAL_MERGES: none share a file (3 open PRs checked)'] }).slice(1, 4)).toEqual(['TRIAL_MERGES: none share a file (3 open PRs checked)', 'Attention:', 'risk class: gate']);
+    expect(readyTailLines({ ...receipt('f'.repeat(40)), review_depth: depth('code', ['money']) })[3]).toBe('risk class: money');
+    expect(readyTailLines({ ...receipt('f'.repeat(40)), review_depth: depth('docs') })[3]).toBe('not a risk class');
   });
   test('the review loop line carries fixed, unrecorded and unbound from the receipt', () => {
     const lines = readyTailLines(receipt('f'.repeat(40), { passes: 2, blocking_found: 3, fixed: 2, unrecorded: 1, unbound: 1 }));
     expect(lines[0]).toBe('REVIEW_LOOP: passes=2 blocking_found=3 deferred=0 noted=0 fixed=2 unrecorded=1 unbound=1');
     expect(lines.slice(1, 3)).toEqual([expect.stringMatching(/^TRIAL_MERGES: /), 'Attention:']);
     expect(readyTailLines(undefined)[0]).toBe('REVIEW_LOOP: none in the receipt');
-    expect(readyTailLines(receipt('f'.repeat(40)))[3]).toStartWith('MISSING: cross-family trail read (risk class unknown: the receipt records no review_depth; rule 27)');
+    expect(readyTailLines(receipt('f'.repeat(40)))[3]).toBe('risk class unknown: the receipt records no review_depth');
   });
 });
 

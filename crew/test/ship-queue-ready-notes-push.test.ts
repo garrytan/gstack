@@ -83,11 +83,11 @@ describe('ready refuses a READY note that never reached origin', () => {
   }, 120_000);
 });
 
-describe('ready under a train policy reads --trail and trial-merges non-ASCII paths (GST-3200 follow-up)', () => {
-  // Value: protects=gstack's own policy declares a train block, so its READY goes through the train route, which must carry
-  //   --trail and compare sibling paths that git would C-quote; fails_when=the train route drops --trail and prints MISSING, or
-  //   a sibling sharing café.txt reads as none share a file; seam=bin/gstack-ship-queue ready --no-screen with the train gh shim
-  test('the trail-read row names the reviewer and a sibling sharing café.txt is trial-merged', () => {
+describe('ready under a train policy trial-merges non-ASCII paths (GST-3200 follow-up)', () => {
+  // Value: protects=gstack's own policy declares a train block, so its READY goes through the train route, which must compare
+  //   sibling paths that git would C-quote and ask for no cross-family trail read (GST-3562 part 4); fails_when=a sibling sharing
+  //   café.txt reads as none share a file, or the READY asks for a trail read; seam=bin/gstack-ship-queue ready --no-screen with the train gh shim
+  test('a sibling sharing café.txt is trial-merged and no trail read is asked for', () => {
     const fx = trainFixture();
     fixtures.push(fx);
     const sibling = openPr(fx, '2', { file: 'café.txt', text: 'from #2\n', changelog: false });
@@ -96,11 +96,9 @@ describe('ready under a train policy reads --trail and trial-merges non-ASCII pa
     const tree = runBin(fx.repo, 'gstack-wtree', []).out.trim();
     const pregate = path.join(fx.repo.root, 'pregate.json');
     fs.writeFileSync(pregate, JSON.stringify({ schema_version: 1, tree, head, verdict: 'pass', checks: FULL_CHECKS }));
-    const trail = path.join(fx.repo.root, 'decisions.tsv');
-    fs.writeFileSync(trail, 'ts\tphase\tdecision\twhy\tevidence\tresult\n2026-11-19T00:00:00Z\tstart\trun x opens this trail\tno earlier rows\trun:x\topen\n2026-11-19T00:01:00Z\ttrail-read\topenai/gpt-6.2-sol (Subagent 4)\trule 27\tflags.md\tNo flags\n');
-    const r = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen', '--trail', trail]);
-    expect(r.out).toContain('reviewed by openai/gpt-6.2-sol (Subagent 4) (');
-    expect(r.out).toContain('trail row 2)');
+    const r = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']);
+    expect(r.out).not.toContain('trail read');
+    expect(r.out).toContain('Attention:');
     expect(line(r.out, 'TRIAL_MERGES: ')).toStartWith(`TRIAL_MERGES: #2 ${sibling.slice(0, 12)} shares café.txt: `);
   }, 120_000);
 });

@@ -180,11 +180,11 @@ describe('GST-3562 A no-loss replay across panels, prior rounds, round grants, t
       const { kind } = asMainBeforeGst3562(input, planReview(input));
       if (kind) kinds[`${name}:${kind}`] = (kinds[`${name}:${kind}`] ?? 0) + 1;
     }
-    expect(kinds).toEqual({ 'docs:a': 4134, 'docs:b': 6336, 'docs:c': 576, 'docs:d': 1086, 'docs:e': 576, 'docs:f': 2784, 'tests:a': 4134, 'tests:b': 6336, 'tests:c': 576, 'tests:d': 1086, 'tests:e': 576, 'tests:f': 2784, 'code:a': 3984, 'code:b': 6336, 'code:c': 576, 'code:d': 1056, 'code:e': 576, 'code:f': 3456, 'risk:a': 2664, 'risk:b': 6624, 'risk:c': 336, 'risk:d': 456, 'risk:e': 1152, 'risk:f': 3456, 'mixed:a': 3984, 'mixed:b': 6336, 'mixed:c': 576, 'mixed:d': 1056, 'mixed:e': 576, 'mixed:f': 3456 });
+    expect(kinds).toEqual({ 'docs:a': 1596, 'docs:b': 5472, 'docs:c': 288, 'docs:d': 564, 'docs:e': 288, 'docs:f': 2784, 'docs:h': 33084, 'tests:a': 1596, 'tests:b': 5472, 'tests:c': 288, 'tests:d': 564, 'tests:e': 288, 'tests:f': 2784, 'tests:h': 33084, 'code:a': 1536, 'code:b': 5472, 'code:c': 288, 'code:d': 552, 'code:e': 288, 'code:f': 3456, 'code:h': 33624, 'risk:a': 1032, 'risk:b': 5616, 'risk:c': 168, 'risk:d': 312, 'risk:e': 576, 'risk:f': 3456, 'risk:h': 33336, 'mixed:a': 1536, 'mixed:b': 5472, 'mixed:c': 288, 'mixed:d': 552, 'mixed:e': 288, 'mixed:f': 3456, 'mixed:h': 33624 });
   }, 60_000);
   test('the three corners keep the one full-effort reader main\'s fix-check was', () => {
     const bot = { id: 'r1', head: HEAD, reviewer: 'capy-ai[bot]' };
-    for (const panel of ['off', 'risk'] as const) for (const extra of [{}, { priorFull: 1, roundGrant: 'g-1' }, { priorFull: 2, roundGrant: 'g-1' }]) for (const platform of ['off', 'on'] as const) {
+    for (const panel of ['off', 'risk'] as const) for (const extra of [{}, { priorFull: 1 }]) for (const platform of ['off', 'on'] as const) {
       const p = planReview(base({ paths: ['docs/a.md'], history: { fullPasses: 1, last: 'full', fixedBlocking: true, ...extra }, shape: lean({ panel, platform, platformReview: platform === 'on' ? bot : null }) }));
       expect([panel, extra, platform, p.next.step, roles(p)]).toEqual([panel, extra, platform, 'full', ['red-team:red-team:full:-']]);
     }
@@ -309,12 +309,6 @@ describe('R65 lean loop: one fix round, never more than 2 rounds', () => {
     expect(p('old').next.step).toBe('full');
     expect(roles(p('old'))).toContain('outside-voice:outside-voice (numbers changed)');
     expect(roles(p(numbers.fingerprint))).not.toContain('outside-voice:outside-voice (numbers changed)');
-  });
-  test('a fix-check blocker stops for the owner; a recorded grant adds one fix-check, never two', () => {
-    expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 1 }), 'full').step).toBe('stop');
-    expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 1, granted: 'apr_1' }), 'full').step).toBe('fix-check');
-    expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, fixChecks: 2, granted: 'apr_1' }), 'full').step).toBe('stop');
-    expect(nextStep(h({ last: 'fix-check', fixedBlocking: true, granted: 'apr_1' }), 'full').step).toBe('stop');
   });
   test('planReview marks the loop lean and round 2 dispatches the one full-effort reader with the merged brief, never a fix-check (GST-3562 A)', () => {
     const p = planReview(base({ paths: ['lib/billing.ts'], history: { fullPasses: 1, last: 'full', fixedBlocking: true }, shape: lean({ panel: 'off' }) }));

@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { EXIT } from '../lib/headless-artifacts';
 import { extractReceipt, renderReceiptBlock } from '../lib/ship-receipt';
-import { bindShippedReceipt, receiptDepthAtHead, receiptDepthVerdict, reviewLoopExceptionLine } from '../lib/ship-receipt-depth';
+import { bindShippedReceipt, receiptDepthAtHead, receiptDepthVerdict } from '../lib/ship-receipt-depth';
 import { bunIsolationArgs } from '../lib/bun-isolation';
 import { runScriptSync } from '../lib/script-invocation';
 import { BUMP_NEVER_KEY_VERSION, HISTORY_NO_REWRITE_KEY_VERSION, LAND_MERGE_COMMIT_PATHS_KEY_VERSION, POLICY_KEY_INTRODUCED, TRAIN_GATES_KEY_VERSION } from '../lib/ship-policy';
@@ -209,80 +209,20 @@ describe('carry and the review depth', () => {
   }, 90_000);
 });
 
-describe('the review-loop exception (#3559)', () => {
-  // Value: protects=an accepted stop after a fix-check is a structured record the queue checks, not prose under REVIEW_LOOP;
-  // fails_when=write accepts it without a fix-check, with a foreign head or without the body line, or the queue ignores a
-  // body that dropped the line; seam=bindShippedReceipt
-  test('write refuses an exception with no fix-check, a foreign head or no body line, records it otherwise, and the queue checks the line', () => {
+describe('the review-loop exception is gone (GST-3562 part 4)', () => {
+  // Value: protects=an open finding at the round cap reaches a receipt only as a Ruled note, never through the retired
+  //   review_loop_exception; fails_when=write records an exception in either form; seam=gstack-ship-receipt write; no_claim=ruled notes
+  test('write refuses --review-loop-exception in both forms and writes no receipt', () => {
     const repo = makeFixtureRepo(); repos.push(repo);
     const head = commit(repo, { 'lib/util.js': lines(3) });
     const body = path.join(repo.root, 'body.md');
-    const exception = { accepted_by: 'Garry', date: '2026-10-28', via: 'GSTA-147 relay', reason: 'fix-check edit is a comment; scope frozen', fix_check: { head, findings: 1 } };
-    const arg = (e: unknown) => ['--review-loop-exception', JSON.stringify(e)];
-    const loop = (n: number) => ['--review-loop', JSON.stringify({ passes: 2, blocking_found: 1, deferred: 0, fix_checks: n })];
     fs.writeFileSync(body, '## What changed\n');
-    for (const [extra, why] of [
-      [[...arg(exception)], 'needs --review-loop with fix_checks >= 1'],
-      [[...arg(exception), ...loop(0)], 'needs --review-loop with fix_checks >= 1'],
-      [[...arg({ ...exception, fix_check: { head: 'a'.repeat(40), findings: 1 } }), ...loop(1)], 'is not ' + head.slice(0, 12) + ' or an ancestor of it'],
-      [[...arg({ ...exception, extra: 1 }), ...loop(1)], 'unknown key "extra"'],
-      [[...arg(exception), ...loop(1)], 'does not carry the exception line verbatim'],
-    ] as Array<[string[], string]>) {
-      const out = writeReceipt(repo, body, extra);
-      expect(out.status).toBe(EXIT.fail);
-      expect(out.err).toContain('(REVIEW_LOOP_EXCEPTION_INVALID;');
-      expect(out.err).toContain(why);
+    const base = { accepted_by: 'Garry', date: '2026-10-28', via: 'GSTA-147 relay', reason: 'ships as a note' };
+    for (const e of [{ ...base, fix_check: { head, findings: 1 } }, { ...base, second_pass: { head, deferred: ['specialist#3'] } }]) {
+      const out = writeReceipt(repo, body, ['--review-loop-exception', JSON.stringify(e), '--review-loop', JSON.stringify({ passes: 2, blocking_found: 1, deferred: 1, scope: 'frozen' })]);
+      expect([out.status, out.err.includes('(REVIEW_LOOP_EXCEPTION_INVALID'), out.err.includes('Ruled')]).toEqual([EXIT.usage, true, true]);
     }
     expect(extractReceipt(fs.readFileSync(body, 'utf8')).found).toBe(false);
-    const line = reviewLoopExceptionLine(exception);
-    expect(line).toBe(`Review-loop exception: accepted by Garry 2026-10-28 via GSTA-147 relay: fix-check edit is a comment; scope frozen (fix-check at ${head.slice(0, 12)}, 1 finding)`);
-    fs.writeFileSync(body, `## What changed\n\n${line}\n`);
-    expect(writeReceipt(repo, body, [...arg(exception), ...loop(1)]).status).toBe(EXIT.ok);
-    expect(receiptIn(body).review_loop_exception).toEqual(exception);
-    expect(bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8'), '7', [head]).ok).toBe(true);
-    const dropped = bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8').replace(line, ''), '7', [head]);
-    expect(!dropped.ok && dropped.code).toBe('QUEUE_RECEIPT_EXCEPTION_INVALID');
-    expect(!dropped.ok && dropped.message).toContain('does not carry the review-loop exception line verbatim');
-    const foreign = { ...exception, fix_check: { head: 'f'.repeat(40), findings: 1 } };
-    const forged = rewrite(body, x => { x.review_loop_exception = foreign; }).replace(line, reviewLoopExceptionLine(foreign));
-    const offBranch = bindShippedReceipt(repo.work, 'origin/main', forged, '7', [head]);
-    expect(!offBranch.ok && offBranch.code).toBe('QUEUE_RECEIPT_EXCEPTION_INVALID');
-    expect(!offBranch.ok && offBranch.message).toContain('is not the receipt head or an ancestor of it');
-  }, 90_000);
-});
-
-describe('the review-loop exception after the second full pass (TRUT-7, truther#1169)', () => {
-  // Value: protects=an owner who accepts an open finding under the two-round cap has a receipt path when /ship stopped after the
-  //   second full pass (passes=2 blocking_found=1 deferred=1, no fix-check); fails_when=write refuses that stop, accepts one with
-  //   fewer than two passes, no deferred finding, no finding id, both stop kinds or no body line, or the queue ignores the line;
-  //   seam=gstack-ship-receipt write and bindShippedReceipt; no_claim=finish's routing
-  test('write records it with the deferred finding named by id; a stop that is neither kind is still refused', () => {
-    const repo = makeFixtureRepo(); repos.push(repo);
-    const head = commit(repo, { 'lib/util.js': lines(3) });
-    const body = path.join(repo.root, 'body.md');
-    const exception = { accepted_by: 'TRUT-1', date: '2026-11-03', via: 'TRUT-7 relay', reason: 'the open finding ships as a note under the two-round cap', second_pass: { head, deferred: ['specialist#3'] } };
-    const arg = (e: unknown) => ['--review-loop-exception', JSON.stringify(e)];
-    const loop = (passes: number, deferred: number) => ['--review-loop', JSON.stringify({ passes, blocking_found: 1, deferred, noted: 2, fixed: 2, scope: 'frozen' })];
-    fs.writeFileSync(body, '## What changed\n');
-    for (const [extra, why] of [
-      [[...arg(exception), ...loop(1, 1)], 'passes >= 2'],
-      [[...arg(exception), ...loop(2, 0)], 'deferred >= 1'],
-      [[...arg({ ...exception, second_pass: { head, deferred: [] } }), ...loop(2, 1)], 'second_pass.deferred must name'],
-      [[...arg({ ...exception, fix_check: { head, findings: 1 } }), ...loop(2, 1)], 'exactly one of fix_check or second_pass'],
-      [[...arg({ ...exception, second_pass: { head: 'a'.repeat(40), deferred: ['specialist#3'] } }), ...loop(2, 1)], 'is not ' + head.slice(0, 12) + ' or an ancestor of it'],
-      [[...arg(exception), ...loop(2, 1)], 'does not carry the exception line verbatim'],
-    ] as Array<[string[], string]>) {
-      const out = writeReceipt(repo, body, extra);
-      expect([why, out.status, out.err.includes('(REVIEW_LOOP_EXCEPTION_INVALID;'), out.err.includes(why)]).toEqual([why, EXIT.fail, true, true]);
-    }
-    const line = reviewLoopExceptionLine(exception as never);
-    expect(line).toBe(`Review-loop exception: accepted by TRUT-1 2026-11-03 via TRUT-7 relay: the open finding ships as a note under the two-round cap (second full pass at ${head.slice(0, 12)}, deferred specialist#3)`);
-    fs.writeFileSync(body, `## What changed\n\n${line}\n`);
-    expect(writeReceipt(repo, body, [...arg(exception), ...loop(2, 1)]).status).toBe(EXIT.ok);
-    expect(receiptIn(body).review_loop_exception).toEqual(exception);
-    expect(bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8'), '7', [head]).ok).toBe(true);
-    const dropped = bindShippedReceipt(repo.work, 'origin/main', fs.readFileSync(body, 'utf8').replace(line, ''), '7', [head]);
-    expect(!dropped.ok && dropped.code).toBe('QUEUE_RECEIPT_EXCEPTION_INVALID');
   }, 90_000);
 });
 

@@ -248,8 +248,7 @@ A Step 5 red-base pause adds `--base-red <pause file>` (a conditional receipt th
 refuses, `QUEUE_RECEIPT_CONDITIONAL`). `--docs` reads the record Step 14.5 saved (`{status, scope[, exception]}`): the
 receipt carries it as `docs`, and a `blocked` status without the owner's exception,
 or a body missing the exception line, is `DOCS_AUDIT_BLOCKED` with nothing written.
-`--review-loop-exception` (an owner's acceptance of a stop after a fix-check edit) is deprecated with fix-check grants and goes
-in the next release; write still takes one recorded before GST-3562. After the round cap, a blocker goes to the lane's Captain,
+There is no review-loop exception (GST-3562 part 4). After the round cap, a blocker goes to the lane's Captain,
 whose ruling is a ruled note (below); never a prose line under `REVIEW_LOOP:`.
 A finding the owner rules a disclosed note instead of a fix is closed only by the owner's
 `gstack-approvals rule`, recorded outside this run, never by this run or a review-log field

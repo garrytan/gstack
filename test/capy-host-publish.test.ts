@@ -118,7 +118,7 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     expect(fs.readFileSync(file(out.stdout), 'utf8')).not.toContain('"run":"r2"');
   });
 
-  test('gstack-ship-receipt stop and claim hand their body edits off too', () => {
+  test('gstack-ship-receipt stop hands its body edit off too', () => {
     const r = capyRepo();
     const start = r.run('gstack-review-log', ['--start', 'review']);
     expect(start.status, start.stderr).toBe(0);
@@ -129,13 +129,6 @@ describe('on Capy, /ship calls no gh write (GST-3183)', () => {
     expect(stop.stdout).toContain('STOP_RECORD: run=ro head=' + r.head());
     expect(handedOff(stop.stdout)[0]!.body).toContain('"mark":"stop"');
     expect(destinations(stop.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'fx/fx' }]);
-    const g = /APPROVAL_RECORDED: (a-[0-9a-f]{12})/.exec(r.run('gstack-approvals', ['round-grant', '--pr', '7', '--head', r.head(), '--kind', 'extra-round', '--reason', 'x', '--by', 'Captain GStack Minder']).stdout)?.[1];
-    expect(g).toBeDefined();
-    const claim = r.run('gstack-ship-receipt', ['claim', '--pr', '7', '--run', 'r1', '--grant', g!]);
-    expect(claim.status, claim.stderr).toBe(0);
-    expect(claim.stdout).toContain('GRANT_CLAIMED: grant=' + g);
-    expect(handedOff(claim.stdout)[0]!.body).toContain('"mark":"grant"');
-    expect(destinations(claim.stdout)).toEqual([{ op: 'pr-body', target: '7', repo: 'fx/fx' }]);
     expect(r.gh.writes()).toEqual([]);
   });
 

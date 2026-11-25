@@ -145,11 +145,9 @@ describe('route (F1: the merge head gets a full review; a re-check is advice onl
     expect(reviewRoute({ full: 1 })).toMatchObject({ route: 'final', reason: expect.stringContaining('round 2 of 2') });
   });
 
-  test('at the cap a new head gets one read-only full review; an extra-round grant buys a round with its fix round', () => {
+  test('at the cap a new head gets one read-only full review', () => {
     expect(reviewRoute({ full: 2 })).toMatchObject({ route: 'read-only', reason: expect.stringContaining('no fix round') });
     expect(reviewRoute({ full: 3 }).route).toBe('read-only');
-    expect(reviewRoute({ full: 2 }, { grant: 'a-1' })).toMatchObject({ route: 'final', reason: expect.stringContaining('a-1') });
-    expect(reviewRoute({ full: 3 }, { grant: 'a-1' }).route).toBe('read-only');
   });
 
   test('a re-check carry from an old receipt adds no full round, so it never moves the route', () => {

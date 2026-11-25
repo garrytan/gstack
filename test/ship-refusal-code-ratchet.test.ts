@@ -10,7 +10,7 @@ import * as path from 'node:path';
 const ROOT = path.resolve(import.meta.dir, '..');
 const LIST = path.join(ROOT, 'test', 'fixtures', 'ship-refusal-codes.json');
 const BASELINE_MAX = 131;
-const SOURCES = /^(lib\/(ship-|review-|fix-check-clearing|pr-review-history|approval-record|ci-carry|tree-receipt|restamp)[^/]*\.ts|lib\/pregate\/.*\.ts|crew\/lib\/ship-[^/]*\.ts|bin\/gstack-(ship-[a-z-]+|review-[a-z-]+|pregate|approvals|ci-carry|tree-receipt|restamp))$/;
+const SOURCES = /^(lib\/(ship-|review-|review-trailer-clearing|pr-review-history|approval-record|ci-carry|tree-receipt|restamp)[^/]*\.ts|lib\/pregate\/.*\.ts|crew\/lib\/ship-[^/]*\.ts|bin\/gstack-(ship-[a-z-]+|review-[a-z-]+|pregate|approvals|ci-carry|tree-receipt|restamp))$/;
 
 function walk(dir: string): string[] {
   return fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]);

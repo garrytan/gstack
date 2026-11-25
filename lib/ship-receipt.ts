@@ -226,27 +226,22 @@ export function receiptSummaryLine(r: ShipReceipt): string {
   return `SHIP_RECEIPT: ${oneLine(parts.join(' '))}`;
 }
 
-/** A risk-class PR (R51): the receipt's review depth has class gate or a risk class. Only these get the cross-family trail read. */
+/** A risk-class PR (R51): the receipt's review depth has class gate or a risk class. */
 export const riskClassReceipt = (r: ShipReceipt | undefined) => r?.review_depth?.class === 'gate' || !!r?.review_depth?.risk?.length;
 
-/** What ready found for the READY tail: its TRIAL_MERGES lines and the decision trail's cross-family read, or why there is none. */
-export interface ReadyTail { trialMerges: string[]; trailRead: { row: number; reader: string; flags?: string } | { missing: string } }
+/** What ready found for the READY tail: its TRIAL_MERGES lines. */
+export interface ReadyTail { trialMerges: string[] }
 
 /**
  * The rest of the READY block (GSTA-258 E1: the ready output is the whole READY): the receipt's review loop, ready's trial
- * merges, and the Attention section, whose opening line follows the receipt's risk class and the trail's cross-family read
- * (docs/unattended.md): a risk-class PR with no trail-read row prints MISSING instead of a line to fill in. Its flags line is the
- * trail-read row's result, and with no such row there is none: the lane lists its own audit's flags, never a template line.
+ * merges, and the Attention section, which opens with the receipt's risk class; the lane lists what needs a decision under it.
  */
-export function readyTailLines(r: ShipReceipt | undefined, t: ReadyTail = { trialMerges: [], trailRead: { missing: 'ready did not look for one' } }): string[] {
+export function readyTailLines(r: ShipReceipt | undefined, t: ReadyTail = { trialMerges: [] }): string[] {
   const loop = parseReviewLoop(r?.review_loop);
   const opt = (k: keyof ReviewLoopReceipt) => (loop?.[k] ? ` ${k}=${loop[k]}` : '');
-  const risk = riskClassReceipt(r);
-  const legacy = !!r && !r.review_depth;
-  const cls = legacy ? 'risk class unknown: the receipt records no review_depth' : `risk class: ${oneLine([r?.review_depth?.class === 'gate' ? 'gate' : '', ...(r?.review_depth?.risk ?? [])].filter(Boolean).join(', '))}`;
-  const reviewer = !legacy && !risk ? 'self-audited (not a risk class: no cross-family trail read)'
-    : 'row' in t.trailRead ? `reviewed by ${oneLine(t.trailRead.reader)} (${cls}; rule 27 cross-family trail read, trail row ${t.trailRead.row})`
-    : `MISSING: cross-family trail read (${cls}; rule 27): ${oneLine(t.trailRead.missing)}; have a reader on another model family read the trail and transcript, record it with gstack-decision-trail <trail> trail-read "<reader model>" <why> <evidence> <flags>, then rerun ready with --trail <trail>`;
+  const cls = r && !r.review_depth ? 'risk class unknown: the receipt records no review_depth'
+    : riskClassReceipt(r) ? `risk class: ${oneLine([r?.review_depth?.class === 'gate' ? 'gate' : '', ...(r?.review_depth?.risk ?? [])].filter(Boolean).join(', '))}`
+    : 'not a risk class';
   return [
     loop ? `REVIEW_LOOP: passes=${loop.passes} blocking_found=${loop.blocking_found} deferred=${loop.deferred} noted=${loop.noted ?? 0} fixed=${loop.fixed ?? 0}${opt('unrecorded')}${opt('unbound')}${opt('fix_checks')}` : 'REVIEW_LOOP: none in the receipt',
     ...(r?.ruled_notes ?? []).map(n => `RULED_NOTE: ${oneLine(ruledNoteText(n))}`),
@@ -254,8 +249,7 @@ export function readyTailLines(r: ShipReceipt | undefined, t: ReadyTail = { tria
     ...laneExceptionBodyLines(r?.ci_carried).map(l => `TEST_LANE_EXCEPTION: ${oneLine(l.slice('Test-lane exception: '.length))}`),
     ...(t.trialMerges.length ? t.trialMerges : ['TRIAL_MERGES: MISSING: ready did not check the open PRs that share a file (rule 14)']),
     'Attention:',
-    reviewer,
-    ...((legacy || risk) && 'row' in t.trailRead ? [/^(none|no flags?)?\.?$/i.test(t.trailRead.flags?.trim() ?? '') ? `No flags (trail row ${t.trailRead.row})` : `Flags (trail row ${t.trailRead.row}): ${oneLine(t.trailRead.flags!)}`] : []),
+    cls,
   ];
 }
 

@@ -106,32 +106,12 @@ describe('gstack-no-stop record: the ledger, the grant and the receipt', () => {
   fs.mkdirSync(path.dirname(reviewLog), { recursive: true });
   fs.writeFileSync(reviewLog, JSON.stringify({ skill: 'review', commit_full: base }) + '\n');
 
-  test('a docs-only round-2 fix records the class, prints the grant, and the ledger is a valid receipt no_stop', () => {
-    fs.writeFileSync(path.join(work, 'docs', 'guide.md'), 'new wording\n');
-    git('commit', '-qam', 'docs fix');
-    const narrow = run('record', '--class', 'scoped-fix-check', '--range-base', 'HEAD~0', '--reason', 'r', '--evidence', 'e');
-    expect(narrow.status).toBe(3);
-    expect(narrow.stderr).toContain('is not the commit the last review pass read');
-    const r = run('record', '--class', 'scoped-fix-check', '--range-base', base, '--reason', 'round-2 fix reworded docs/guide.md', '--evidence', `commit ${git('rev-parse', 'HEAD').slice(0, 12)}`);
-    expect(r.status, r.stderr).toBe(0);
-    expect(r.stdout).toMatch(/^NO_STOP: scoped-fix-check recorded \(docs-only fix in docs\/guide\.md\)$/m);
-    expect(r.stdout).toMatch(/^GRANT: \S+$/m);
-    expect(r.stdout).toContain(`--range-base ${base}`);
-    const file = r.stdout.match(/^NO_STOP_FILE: (.+)$/m)![1]!;
-    const rows = JSON.parse(fs.readFileSync(file, 'utf8'));
-    expect(rows).toEqual([{ class: 'scoped-fix-check', reason: 'round-2 fix reworded docs/guide.md', evidence: expect.stringMatching(/^commit /) }]);
-    const approvals = spawnSync('bun', [...bunIsolationArgs(), path.join(ROOT, 'bin', 'gstack-approvals'), 'list', '--json'], { cwd: work, encoding: 'utf8', timeout: 60_000, env });
-    const grant = r.stdout.match(/^GRANT: (\S+)$/m)![1];
-    expect(JSON.parse(approvals.stdout).rows ?? JSON.parse(approvals.stdout)).toEqual(expect.arrayContaining([expect.objectContaining({ id: grant, outcome: 'approved', by: 'gstack no-stop default (K1)', scope: `review_loop_grant ${git('rev-parse', 'HEAD')}` })]));
-    const receipt = { schema_version: 1, pr: 1, head: 'e'.repeat(40), version: '1.0.0.0', base: 'main', gate: {}, no_stop: rows };
-    expect(validateReceipt(receipt as any).filter(e => /no_stop/.test(String(e)))).toEqual([]);
-  });
 
-  test('a second scoped fix-check and a code fix both stop for the owner (exit 3) and leave the ledger alone', () => {
+  test('a scoped fix-check (removed in GST-3562 part 4) and a code fix both stop (exit 3) and leave the ledger alone', () => {
     const before = run('list', '--json');
     const second = run('record', '--class', 'scoped-fix-check', '--range-base', base, '--reason', 'again', '--evidence', 'commit x');
     expect(second.status).toBe(3);
-    expect(second.stderr).toMatch(/^NO_STOP: refused scoped-fix-check \(one scoped-fix-check per branch is recorded already; a second goes to the owner\); stop for the owner$/m);
+    expect(second.stderr).toMatch(/^NO_STOP: refused scoped-fix-check \(removed with fix-check grants, GST-3562 part 4/m);
     fs.writeFileSync(path.join(work, 'lib.ts'), 'export const a = 2;\n');
     git('commit', '-qam', 'code fix');
     const code = run('record', '--class', 'test-timeout-fix', '--range-base', 'HEAD~1', '--reason', 'r', '--evidence', 'e');
@@ -140,15 +120,6 @@ describe('gstack-no-stop record: the ledger, the grant and the receipt', () => {
     expect(run('list', '--json').stdout).toBe(before.stdout);
   });
 
-  test('a checkout with an empty ledger still sees the branch\'s K1 grant in the approval record and stops', () => {
-    const file = JSON.parse(run('list', '--json').stdout).file as string;
-    const saved = fs.readFileSync(file, 'utf8');
-    fs.rmSync(file);
-    const r = run('record', '--class', 'scoped-fix-check', '--range-base', base, '--reason', 'again', '--evidence', 'commit x');
-    fs.writeFileSync(file, saved);
-    expect(r.status).toBe(3);
-    expect(r.stderr).toContain('the approval record already holds this branch\'s K1 grant');
-  });
 
   test('a class outside the four stops, and the range-based classes need --range-base', () => {
     expect(run('record', '--class', 'merge-anyway', '--reason', 'r', '--evidence', 'e').status).toBe(3);

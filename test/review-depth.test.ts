@@ -56,12 +56,10 @@ describe('nextStep: the transition table', () => {
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBlocking: true, touchedGate: true })).toMatchObject(readOnly);
     expect(nextStep({ fullPasses: FULL_PASS_CAP + 1, last: 'full', fixedBlocking: true })).toMatchObject({ step: 'stop', reason: expect.stringContaining("a fix followed the read-only final review: the lane's Captain decides") });
   });
-  test('below-floor fixes in round 2 get the read-only full review unless a light diff\'s fixes change no runtime lines; after a fix-check they finish with notes', () => {
+  test('below-floor fixes in round 2 get the read-only full review unless a light diff\'s fixes change no runtime lines', () => {
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBelow: true })).toMatchObject(readOnly);
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBelow: true, rangeRuntimeLines: 0 }, 'light')).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
     expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', fixedBelow: true, rangeRuntimeLines: 0 }, 'standard')).toMatchObject(readOnly);
-    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBelow: true })).toMatchObject({ step: 'done', reason: expect.stringContaining('notes') });
-    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBelow: true, fixedBlocking: true }).step).toBe('stop');
   });
   test('a light pass 1 whose below-floor fixes change no runtime lines is done; a runtime fix or a deeper diff gets the full pass on the range (GST-3562 A)', () => {
     expect(nextStep({ fullPasses: 1, last: 'full', fixedBelow: true, rangeRuntimeLines: 0 }, 'light').step).toBe('done');
@@ -71,23 +69,18 @@ describe('nextStep: the transition table', () => {
   });
   test('a blocker open at the cap stops', () => expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'full', blockingOpen: true }).step).toBe('stop'));
   test('a blocker open with no fix stops', () => expect(nextStep({ fullPasses: 1, last: 'full', blockingOpen: true }).step).toBe('stop'));
-  test('a fix-check that finds a blocker stops, never a third full pass', () => {
-    expect(nextStep({ fullPasses: 1, last: 'fix-check', blockingOpen: true }).step).toBe('stop');
-    expect(nextStep({ fullPasses: 2, last: 'fix-check', fixedBlocking: true }).step).toBe('stop');
-  });
-  test('a clean fix-check is done', () => expect(nextStep({ fullPasses: 1, last: 'fix-check' }).step).toBe('done'));
 });
 
-// Value: protects=on gate class Step 11's adversarial, outside and targeted voices run before any Captain or owner exit the round cap reaches (since GST-3562 A a round-2 fix first gets the read-only full review, which dispatches them), and a recorded owner grant dispatches its one scoped fix-check after round 2, once; fails_when=a gate-class stop at the cap comes before Step 11 (C6-36 after-opus: next=stop, no voice ran), or a recorded grant still stops (C6-36 after-opus-grant: the lane hand-dispatched the fix-check);
-//   why_new=GST-967; seam=nextStep, planReview; no_claim=the voices' or the fix-check's verdicts
-describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a recorded grant runs its fix-check', () => {
+// Value: protects=on gate class Step 11's adversarial, outside and targeted voices run before any Captain or owner exit the round cap reaches (since GST-3562 A a round-2 fix first gets the read-only full review, which dispatches them); fails_when=a gate-class stop at the cap comes before Step 11 (C6-36 after-opus: next=stop, no voice ran);
+//   why_new=GST-967; seam=nextStep, planReview; no_claim=the voices' verdicts
+describe('GST-967: the round cap limits fix rounds, not the gate-class voices', () => {
   const capStop = { fullPasses: FULL_PASS_CAP, last: 'full', fixedBlocking: true } as const;
   // GST-3562 A: a blocker fixed in round 2 now gets one read-only full review of the final head, so the Captain stop moves to a fix
   //   after that review (readOnlyStop); a blocker left open and a fix-check's blocker still stop at round 2.
   const readOnlyStop = { ...capStop, fullPasses: FULL_PASS_CAP + 1 };
   test('a gate-class blocker stop at the cap runs Step 11\'s voices before the Captain or owner stop, then stops', () => {
     expect(nextStep({ ...readOnlyStop, gate: true })).toMatchObject({ step: 'voices', reason: expect.stringContaining("Step 11's voices") });
-    for (const o of [{ fullPasses: FULL_PASS_CAP, blockingOpen: true }, { fixedBlocking: false, fixedBelow: true, touchedGate: true }, { fullPasses: 1, last: 'fix-check' as const }, { fullPasses: 1, blockingOpen: true }]) expect(nextStep({ ...readOnlyStop, gate: true, ...o }).step).toBe('voices');
+    for (const o of [{ fullPasses: FULL_PASS_CAP, blockingOpen: true }, { fixedBlocking: false, fixedBelow: true, touchedGate: true }, { fullPasses: 1, blockingOpen: true }]) expect(nextStep({ ...readOnlyStop, gate: true, ...o }).step).toBe('voices');
     expect(nextStep({ ...readOnlyStop, gate: true, adversarialRan: true }).step).toBe('stop');
     expect(nextStep(readOnlyStop).step).toBe('stop');
     expect(nextStep({ ...capStop, gate: true })).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
@@ -101,105 +94,42 @@ describe('GST-967: the round cap limits fix rounds, not the gate-class voices; a
     expect([v.class, v.next.step, roles(v)]).toEqual(['gate', 'voices', ['adversarial-native:adversarial:full', 'outside-voice:outside-voice:host', 'targeted:targeted:full']]);
     expect(planReview(base({ gateTagged: 1, adversarialRan: true, targeted: { classes: ['gate'] }, history: after })).next.step).toBe('stop');
   });
-  // GST-3562 A: a grant no longer replaces the read-only full review a round-2 fix gets (R51), so it changes nothing there or
-  //   after that review; only the one fix-check after a round-2 fix-check (GEVA-223, below) still answers a grant.
-  test('a recorded grant after a round-2 full pass changes nothing: the fix gets the read-only full review, and a fix after it stops', () => {
-    const g = { ...capStop, granted: 'a-feb4aba31633' };
-    expect(nextStep(g)).toEqual(nextStep(capStop));
-    expect(nextStep(g)).toMatchObject({ step: 'full', reason: expect.stringContaining('read-only final review (R51)') });
-    expect(roles(planReview(base({ history: g })))).not.toContain('fix-check:fix-check:full');
-    for (const o of [{ gate: true }, { gate: true, adversarialRan: true }, { fixedBlocking: false, fixedBelow: true, touchedGate: true }, { fullPasses: FULL_PASS_CAP + 1 }, { fullPasses: FULL_PASS_CAP + 1, gate: true, adversarialRan: true }, { priorFull: 1 }])
-      expect([o, nextStep({ ...g, ...o })]).toEqual([o, nextStep({ ...capStop, ...o })]);
-    expect(nextStep({ fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-1' }).step).toBe('stop');
-    expect(nextStep({ ...g, blockingOpen: true }).step).toBe('stop');
-    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', granted: 'a-1' }).step).toBe('done');
-    expect(nextStep({ fullPasses: FULL_PASS_CAP, last: 'fix-check', fixedBlocking: true, granted: 'a-1' }).step).toBe('stop');
-  });
-  // Value: protects=a recorded grant gets its one fix-check when round 2 was itself a fix-check (GEVA-223), without restating
-  //   history as a full pass; fails_when=the planner prints stop despite the grant, runs a second granted fix-check, or grants
-  //   one with a blocker open; seam=nextStep; no_claim=the CLI's grant binding to the stop head
-  test('a recorded grant after a round-2 fix-check runs its one fix-check, and never a second (GEVA-223)', () => {
-    const h = { fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-a17f3fd0a47a', fixChecks: 1 } as const;
-    expect(nextStep(h)).toMatchObject({ step: 'fix-check', reason: expect.stringContaining('a-a17f3fd0a47a') });
-    expect(nextStep({ ...h, fixedBlocking: false, touchedGate: true }).step).toBe('fix-check');
-    expect(nextStep({ ...h, gate: true }).step).toBe('voices');
-    expect(nextStep({ ...h, gate: true, adversarialRan: true }).step).toBe('fix-check');
-    for (const o of [{ fixChecks: 2 }, { fixChecks: undefined }, { blockingOpen: true }, { granted: undefined }, { fullPasses: FULL_PASS_CAP }]) expect([o, nextStep({ ...h, ...o }).step]).toEqual([o, 'stop']);
-  });
-  // Value: protects=after a fix-check, edits after the review bound (--post-review) with a new recorded grant plan one more fix-check,
-  //   the next link of finish's chain, in either panel and after Step 11 on gate class; without a grant, with a blocker open, or
-  //   outside --post-review it stays a stop; fails_when=the planner tells the lane to get a grant and then ignores it (GST-1676);
-  //   seam=nextStep; no_claim=the CLI's binding of the grant to a stop head after the last fix-check's commit
-  test('a new grant after a fix-check plans the next chained fix-check for edits after the review bound (GST-1676)', () => {
-    const h = { fullPasses: FULL_PASS_CAP, last: 'fix-check', touchedGate: true, fixedBelow: false, granted: 'a-060fed2b73ee', fixChecks: 2, postReview: true } as const;
-    expect(nextStep(h)).toMatchObject({ step: 'fix-check', reason: expect.stringContaining('a-060fed2b73ee') });
-    expect(nextStep({ ...h, lean: true }).step).toBe('fix-check');
-    expect(nextStep({ ...h, fullPasses: 1, fixChecks: 1 }).step).toBe('fix-check');
-    expect(nextStep({ ...h, gate: true }).step).toBe('voices');
-    expect(nextStep({ ...h, gate: true, adversarialRan: true }).step).toBe('fix-check');
-    for (const o of [{ granted: undefined }, { blockingOpen: true }, { postReview: false }, { postReview: undefined }]) expect([o, nextStep({ ...h, ...o }).step]).toEqual([o, 'stop']);
-    expect(nextStep({ ...h, last: 'full', fullPasses: 1, fixedBelow: true }).step).toBe('full');
-  });
-  // Value: protects=in the loop, a grant the CLI bound to the last fix-check's own stop head (`chained`) plans one more fix-check
-  //   after any number of fix-checks (GEVA-363's third round), after Step 11 on gate class; without that binding a fix-check still
-  //   never earns another; fails_when=the planner prints stop for a new grant (GST-1681) or plans one for an unbound grant;
-  //   seam=nextStep; no_claim=the CLI's binding (test/review-plan-cli.test.ts)
-  test('a new grant bound to the last fix-check\'s stop plans the next chained fix-check in the loop (GST-1681)', () => {
-    const h = { fullPasses: 1, last: 'fix-check', fixedBlocking: true, granted: 'a-5214be46db1e', fixChecks: 2, chained: true } as const;
-    expect(nextStep(h)).toMatchObject({ step: 'fix-check', reason: expect.stringContaining('a-5214be46db1e') });
-    expect(nextStep({ ...h, lean: true }).step).toBe('fix-check');
-    expect(nextStep({ ...h, fullPasses: FULL_PASS_CAP }).step).toBe('fix-check');
-    expect(nextStep({ ...h, gate: true }).step).toBe('voices');
-    expect(nextStep({ ...h, gate: true, adversarialRan: true }).step).toBe('fix-check');
-    for (const o of [{ chained: false }, { chained: undefined }, { granted: undefined }, { blockingOpen: true }]) expect([o, nextStep({ ...h, ...o }).step]).toEqual([o, 'stop']);
-    expect(nextStep({ ...h, fixedBlocking: false }).step).toBe('done');
-  });
   test('docs/review-policy.md\'s transitions table and rule 3 say both', () => {
     const doc = fs.readFileSync(path.join(ROOT, 'docs', 'review-policy.md'), 'utf8');
-    const table = doc.slice(doc.indexOf('<a id="transitions"></a>'), doc.indexOf('A **fix-check** is one reviewer'));
+    const table = doc.slice(doc.indexOf('<a id="transitions"></a>'), doc.indexOf('<a id="scoped-pass"></a>'));
     expect(table).toContain("| a stop (any row above) on gate class before Step 11's voices ran | Step 11's voices (adversarial, outside, targeted), then ask again with `--adversarial-ran` |");
-    expect(table).toContain('| the stop after a fix-check (granted before GST-3562) that was the run\'s only one, with the owner\'s recorded grant (`--grant <approval id>`) | one more scoped fix-check, after Step 11 on gate class, until a later release removes it; a grant after a round-2 full pass buys nothing, because the read-only full review replaces it |');
+    expect(table).not.toContain('granted before GST-3562');
     const rule3 = doc.slice(doc.indexOf('3. **Two rounds is the cap**'), doc.indexOf('<a id="transitions"></a>')).replace(/\s+/g, ' ');
     expect(rule3).toContain("The cap limits fix rounds, not Step 11's voices");
     expect(rule3).toContain('/gstack-ship plans no fix-check (GST-3562 A)');
-    expect(rule3).toContain('Owner grants of a fix-check');
-    expect(rule3).toContain('are deprecated');
+    expect(rule3).toContain('Owner grants of a fix-check and round grants are gone (GST-3562 part 4)');
   });
 });
 
 /**
  * GST-967's safety property, as a permanent invariant over the transitions table (Captain, 2026-11-02: the invariant is the
  * gate, a reader the second check). Every state: passes 0-3, each last step, every mix of the four fix flags, gate class or
- * not, Step 11 run or not, grant recorded or not.
+ * not, Step 11 run or not. Grants left the table in GST-3562 part 4.
  */
-describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices; a recorded grant always gets its fix-check', () => {
-  // Value: protects=a gate-class plan never stops (the exit where the owner may ship with open notes) before Step 11's adversarial, outside and targeted voices ran, voices is planned only then and dispatches all three, and a recorded grant turns only the stop after the one round-2 fix-check (GEVA-223) into exactly one fix-check, after Step 11 on gate class, while changing nothing else, so it never repeats and never replaces GST-3562 A's read-only full review; fails_when=any state breaks one of those, so a later edit to nextStep cannot fail open;
+describe('GST-967 invariant: no gate-class owner exit before Step 11\'s voices', () => {
+  // Value: protects=a gate-class plan never stops (the exit where the owner may ship with open notes) before Step 11's adversarial, outside and targeted voices ran, and voices is planned only then and dispatches all three
   //   why_new=GST-967 (three earlier fixes failed open and a reviewer caught each after the fact); seam=nextStep, planReview; no_claim=the parent following NEXT
   test('every state of the table holds the property', () => {
-    let states = 0, voices = 0, grants = 0;
-    for (const fullPasses of [0, 1, 2, 3]) for (const last of ['none', 'full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++)
+    let states = 0, voices = 0;
+    for (const fullPasses of [0, 1, 2, 3]) for (const last of ['none', 'full'] as const) for (let bits = 0; bits < 16; bits++)
       for (const gate of [false, true]) for (const adversarialRan of [false, true]) {
         const h = { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8), gate, adversarialRan };
-        for (const fixChecks of [0, 1]) {
-          const plain = nextStep({ ...h, fixChecks }), granted = nextStep({ ...h, fixChecks, granted: 'a-1' });
-          const ungatedStop = nextStep({ ...h, fixChecks, gate: false }).step === 'stop';
-          states++;
-          for (const n of [plain, granted]) {
-            if (gate && !adversarialRan) expect(n.step).not.toBe('stop');
-            if (n.step === 'voices') expect([gate, adversarialRan, ungatedStop]).toEqual([true, false, true]);
-          }
-          if (plain.step === 'voices') voices++;
-          const owed = ungatedStop && !h.blockingOpen && last === 'fix-check' && fullPasses === FULL_PASS_CAP - 1 && fixChecks === 1 && (!gate || adversarialRan);
-          if (owed) grants++;
-          expect([granted.step === 'fix-check' && plain.step !== 'fix-check', granted.step === plain.step]).toEqual([owed, !owed]);
-          if (owed) expect(granted.reason).toContain('a-1');
-        }
+        const n = nextStep(h);
+        const ungatedStop = nextStep({ ...h, gate: false }).step === 'stop';
+        states++;
+        if (gate && !adversarialRan) expect(n.step).not.toBe('stop');
+        if (n.step === 'voices') { voices++; expect([gate, adversarialRan, ungatedStop]).toEqual([true, false, true]); }
       }
-    expect(states).toBe(4 * 3 * 16 * 2 * 2 * 2);
-    expect([voices > 0, grants > 0]).toEqual([true, true]);
+    expect(states).toBe(4 * 2 * 16 * 2 * 2);
+    expect(voices > 0).toBe(true);
     const gatePlan = (o: Partial<PlanInput>) => planReview(base({ gateTagged: 1, targeted: { classes: ['gate'] }, ...o }));
-    for (const fullPasses of [1, 2]) for (const last of ['full', 'fix-check'] as const) for (let bits = 0; bits < 16; bits++) {
-      const p = gatePlan({ history: { fullPasses, last, fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8), granted: bits & 1 ? 'a-1' : undefined } });
+    for (const fullPasses of [1, 2]) for (let bits = 0; bits < 16; bits++) {
+      const p = gatePlan({ history: { fullPasses, last: 'full', fixedBlocking: !!(bits & 1), fixedBelow: !!(bits & 2), blockingOpen: !!(bits & 4), touchedGate: !!(bits & 8) } });
       expect(p.next.step).not.toBe('stop');
       if (p.next.step === 'voices') expect(p.dispatches.map(d => d.role)).toEqual(['adversarial-native', 'outside-voice', 'targeted']);
     }
@@ -249,9 +179,10 @@ const R51_CASES = 28;
  * grid case with main's transition table at 0408128, checks that every case the branch changes is an allowed kind, and reads it
  * back as main's plan before the GST-3187 and R51 adapters run. On this grid: (a) 20 fix-checks become a full pass on the
  * range, (d) 10 cases main left done with an unread below-floor fix get their review, and (e) 60 stops (or voices before a stop)
- * on a blocker fixed or a gate edit at the cap become one read-only full review of the final head.
+ * on a blocker fixed or a gate edit at the cap become one read-only full review of the final head; (h) the 480 cases whose last
+ * step was a fix-check are histories gstack-review-plan no longer accepts (GST-3562 part 4) and read back as main's plan.
  */
-const GST3562_967_CASES = { a: 20, d: 10, e: 60 };
+const GST3562_967_CASES = { a: 20, d: 10, e: 60, h: 480 };
 const MAIN_SECTIONS = '0608589f33d7cc47f27ccf98538d1c76edc1a475075b419de12c76ba9c433518';
 describe('GST-967 dispatch-superset no-loss check', () => {
   // Value: protects=the no-loss rule for review-depth changes: GST-967 drops, renames and re-efforts no reviewer main dispatches on any grid case, changes no brief body, and GST-3562 A changes only the kinds its replay allows; fails_when=a non-stop plan changes outside those kinds, a voices step appears off gate class or after Step 11, it dispatches anything but the three voices, or a brief body moves;
@@ -332,9 +263,10 @@ const MAIN_972_PLANS = '798e56faf8a44c182b77e1638b9a80c554a5d727bb56a84786b1c115
  * merge. A replaces narrow re-checks with full rounds…"): both grids, the real paths (0) and the stand-ins (1), go through
  * asMainBeforeGst3562 first, which checks each changed step is an allowed kind and plans it with main's table at 0408128, so this
  * check still compares only the GST-972 class and depth moves. Per grid: (a) 16 fix-checks become a full pass on the range,
- * (d) 8 unread below-floor fixes get their review, (e) 48 cap stops become one read-only full review.
+ * (d) 8 unread below-floor fixes get their review, (e) 48 cap stops become one read-only full review, (h) 384 fix-check histories
+ * are retired inputs (GST-3562 part 4).
  */
-const GST3562_972_CASES = { '0:a': 16, '0:d': 8, '0:e': 48, '1:a': 16, '1:d': 8, '1:e': 48 };
+const GST3562_972_CASES = { '0:a': 16, '0:d': 8, '0:e': 48, '0:h': 384, '1:a': 16, '1:d': 8, '1:e': 48, '1:h': 384 };
 describe('GST-972 follow-up no-loss check', () => {
   // Value: protects=the no-loss rule for review-depth changes: the GST-972 follow-up drops no reviewer main dispatched and lowers no class, depth or effort beyond the named Red Team split; fails_when=a stand-in stops matching main's plans, a reader disappears, a class or depth falls, or an effort falls anywhere else;
   //   why_new=GST-972 follow-up; seam=planReview; no_claim=what the added readers find (they only add coverage)

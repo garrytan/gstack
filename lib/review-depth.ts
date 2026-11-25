@@ -372,8 +372,8 @@ export function scanNumbers(added: Record<string, readonly string[]>): NumbersRe
 export interface History {
   /** Full review passes already run in this invocation (0 before pass 1). */
   fullPasses: number;
-  /** The step that just finished; none before pass 1. */
-  last: 'none' | 'full';
+  /** The step that just finished; none before pass 1. 'fix-check' is replay-only, like the fields at the end. */
+  last: 'none' | 'full' | 'fix-check';
   /** The finished step fixed at least one blocking finding. */
   fixedBlocking?: boolean;
   /** The finished step fixed findings below the floor (pass 1 only fixes those). */
@@ -397,6 +397,16 @@ export interface History {
   priorRounds?: number;
   /** The full review rounds among them (--prior-full): the PR cap compares these plus this run's full passes with FULL_PASS_CAP, so a run's own fix rounds stay as the in-run table plans them. */
   priorFull?: number;
+  /**
+   * Replay-only (GST-3562 part 4): the fix-check and grant history main's frozen table at 0408128 reads
+   * (test/fixtures/review-depth-main) for the no-loss replays. gstack-review-plan refuses the flags that set them and nextStep
+   * ignores them.
+   */
+  granted?: string;
+  fixChecks?: number;
+  chained?: boolean;
+  roundGrant?: string;
+  grantedStop?: string;
 }
 /**
  * keepReader (GST-3562 A): this step stands where main's table planned a fix-check, or is the read-only final review, so its

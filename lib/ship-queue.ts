@@ -32,7 +32,7 @@ import { CHECKS, pregateMirrorPath, readPregateFile, verifyPregate, PREGATE_OUT_
 import { exceptionConsumerProblem, flakyExceptionLines } from './pregate/flaky-exception';
 import { ensureTmpExcluded, restamp, versionAtRef } from './restamp';
 import type { ResultCodeName } from './result-codes';
-import { extractReceipt, readyTailLines, type ReadyTail } from './ship-receipt';
+import { extractReceipt, readyTailLines } from './ship-receipt';
 import { bindShippedReceipt } from './ship-receipt-depth';
 import { isUnavailable, loadPolicyFromBase, type LoadedPolicy } from './ship-policy';
 import { finishPlanLine, readyPlan } from './plan-record';
@@ -340,18 +340,7 @@ export function trialMergeLines(ctx: QueueContext, pr: string, head: string, cha
   });
 }
 
-/** The newest row of a decision trail (gstack-decision-trail) whose phase is trail-read: its row number, the reader it names and its result, the reader's flags. */
-export function trailReadRow(file: string | undefined): ReadyTail['trailRead'] {
-  if (!file) return { missing: 'ready got no --trail <decisions.tsv>' };
-  let text: string;
-  try { text = fs.readFileSync(file, 'utf8'); } catch (e: any) { return { missing: `cannot read --trail ${file} (${e?.code ?? 'unreadable'})` }; }
-  const rows = text.split('\n').slice(1).filter(Boolean).map(l => l.split('\t'));
-  for (let i = rows.length - 1; i >= 0; i--) if (rows[i]![1]?.trim().toLowerCase() === 'trail-read' && rows[i]![2]?.trim()) return { row: i + 1, reader: rows[i]![2]!.trim(), flags: rows[i]![5]?.trim() ?? '' };
-  return { missing: `${file} has no trail-read row` };
-}
-
-/** READY: one block, identifiers first, about the exact pushed PR head. */
-export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gateExit?: number; gateLog?: string; trail?: string }): StepOutput {
+export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gateExit?: number; gateLog?: string }): StepOutput {
   const run = PREGATE_OUT_REL;
   const unfetched = refreshBase(ctx);
   if (unfetched) return fail(unfetched, [], run);
@@ -426,7 +415,7 @@ export function ready(ctx: QueueContext, o: { pr: string; pregate?: string; gate
     ...(receipt.depthLine ? [receipt.depthLine] : []),
     ...(receipt.targetedLine ? [receipt.targetedLine] : []),
     ...(gates?.lines ?? []),
-    ...readyTailLines(receipt.ok ? { ...receipt.receipt, gate_dispositions: undefined } : undefined, { trialMerges: trials, trailRead: trailReadRow(o.trail) }),
+    ...readyTailLines(receipt.ok ? { ...receipt.receipt, gate_dispositions: undefined } : undefined, { trialMerges: trials }),
   ];
   const gate = policy.policy.full_e2e ? gateEvidence(ctx, o.pr, head, attempt, o.gateExit, o.gateLog) : null;
   if (gate) lines.push(gate.line);

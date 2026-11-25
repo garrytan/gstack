@@ -362,7 +362,7 @@ export function writeExcludeBinds(root: string, base: string, head: string, revi
     const index = path.join(gitDir, `gstack-receipt-${process.pid}-${randomBytes(4).toString('hex')}.index`);
     const env = { ...process.env, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'gstack-ship-receipt', GIT_AUTHOR_EMAIL: 'ship-receipt@gstack.local', GIT_COMMITTER_NAME: 'gstack-ship-receipt', GIT_COMMITTER_EMAIL: 'ship-receipt@gstack.local', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' };
     const run = (args: string[], input?: string) => { const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, input, timeout: 60_000 }); return { ok: r.status === 0, out: (r.stdout ?? '').trim() }; };
-    const treeEntry = (rev: string, p: string) => run(['ls-tree', '-z', '--full-tree', rev, '--', p]).out.split('\0').find(l => l.endsWith(`\t${p}`));
+    const treeEntry = (rev: string, p: string) => run(['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', rev, '--', p]).out.split('\0').find(l => l.endsWith(`\t${p}`));
     let reset: string;
     const befores = new Map<string, string | null>();
     try {

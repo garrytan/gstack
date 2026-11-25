@@ -1,0 +1,10 @@
+### Removed
+
+- **/gstack-ship no longer has round grants, fix-check grants or the review-loop exception: after two review rounds a blocker ships only as an owner's ruled note, or the PR parks.** These paths were deprecated last release (fix-checks gave way to full second rounds) and kept breaking: four PRs in one day tried to repair the grant path. `gstack-approvals round-grant` and `gstack-ship-receipt claim` are gone. `gstack-review-plan` refuses `--grant`, `--round-grant`, `--stop`, `--fix-checks`, `--fix-check-prompt` and `--last fix-check`, and `gstack-ship-receipt write` and `gstack-ship-release finish` refuse `--review-loop-exception`; each refusal names the replacement. `gstack-no-stop` no longer records a scoped fix-check. Receipts written before keep their old fields, and the queue no longer checks them.
+- **`gstack-ship-queue ready` no longer asks for a cross-family read of the decision trail.** It caught one finding in 17 reads, one the second-model reviewer had already raised. The READY's Attention section now opens with the receipt's risk class, and `--trail` is gone. `gstack-decision-trail` stays for runs that keep a trail.
+
+### Fixed
+
+- **`gstack-ship-receipt stop` works before a PR exists.** An unattended run that stopped at round 2 with no PR (harness-evals#592) had nowhere to write its stop. Without `--pr` it now records the stop in the run record and prints `pr=none`.
+- **Receipt checks read a path with `*` or `?` in its name as that file.** The receipt's carry and depth checks passed paths to `git ls-tree` as patterns, so such a file could match others. They now pass `--literal-pathspecs`.
+- **The /gstack-ship driver records spend at start and close only,** with no budget note after every program; the review pass's own note keeps the cap check. The driver also says that a plan agreed only in conversation must be written to a file the audit can find, or the run reads it as `plan=none` and skips the plan-completion reader (the last release's note said unattended runs skip that reader; that holds only for runs with no plan).

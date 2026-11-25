@@ -133,9 +133,9 @@ const MAIN_1350_PLANS = 'bafc2b5329237dbb994ab85d5ee0a696e7bd479615f81206c9b4ce7
  * asMainBeforeGst3562 (test/helpers/gst3562-replay.ts) first, which checks each changed step is an allowed kind and plans it with
  * main's table at 0408128, so this check still compares only the GST-1350 class and depth moves. Per grid: (a) 44 fix-checks
  * become a full pass on the range, (d) 22 unread below-floor fixes get their review, (e) 132 cap stops become one read-only full
- * review of the final head.
+ * review of the final head, (h) 1056 fix-check histories are retired inputs (GST-3562 part 4).
  */
-const GST3562_1350_CASES = { '0:a': 44, '0:d': 22, '0:e': 132, '1:a': 44, '1:d': 22, '1:e': 132 };
+const GST3562_1350_CASES = { '0:a': 44, '0:d': 22, '0:e': 132, '0:h': 1056, '1:a': 44, '1:d': 22, '1:e': 132, '1:h': 1056 };
 describe('GST-1350 no-loss check', () => {
   // Value: protects=the no-loss rule for review-depth changes: narrowing the token name drops readers only on benign token files;
   //   fails_when=a stand-in stops matching main's plans, a token file with a secret or a secrets, credentials or key file loses a

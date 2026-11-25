@@ -121,45 +121,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     }
   }, 240_000);
 
-  test('decision 3.5 runs in the program: one fix-check reader whose prompt is the render CLI brief byte for byte, sent and collected', async () => {
-    const { dir, env } = repo();
-    const out = path.join(dir, '.state/run/fc');
-    const files = path.join(dir, '.state/fc');
-    fs.mkdirSync(files, { recursive: true });
-    const fc: Record<string, string> = {};
-    for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n'], ['callers', 'none\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
-    const planFlags = legacyGrantFlags(dir, env);
-    const missing = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fc0'), pass: 'x19fc0', planFlags });
-    expect(missing).toContain('STOP: gstack-review-dispatch pass exited');
-    expect(missing).toContain('the plan dispatches a fix-check: pass needs --fix-list, --hunks and --tests');
-    const h = host(dir, env);
-    const res = await runPass(h, { base: 'main', out, pass: 'x19fc', planFlags, fixCheck: fc, logStart: ['review-fix-check'] });
-    expect(res).toMatch(/REVIEW_LOG_START: review-fix-check token=\S+/);
-    expect(res).toContain('NEXT: judge (Phase 4)');
-    expect(h.creates.map(c => c.title)).toEqual(['ship x19fc fix-check']);
-    const cli = bin(dir, env, ['render', '--role', 'fix-check', '--out', path.join(dir, '.state/cli'), '--fix-list', fc.fix_list!, '--hunks', fc.hunks!, '--tests', fc.tests!, '--callers', fc.callers!]);
-    expect(cli.status).toBe(0);
-    expect(h.creates[0]!.prompt).toBe(fs.readFileSync(path.join(dir, '.state/cli/fix-check.prompt.md'), 'utf8'));
-    expect(h.creates[0]!.prompt).toContain('You are the fix-check reviewer');
-    const v = bin(dir, env, ['verify', '--ledger', path.join(out, 'review-ledger.jsonl')]).stdout;
-    expect(v).toMatch(/^BRIEF fix-check MATCH rendered=(\w+) sent=\1$/m);
-    expect(v).toMatch(/^OUTPUT fix-check MATCH /m);
-  }, 240_000);
 
-  // Value: protects=decision 3.5's fix-check takes a review-fix-check start token even when the parent passes the Capy skill's
-  //   logStart ["review"], so its row is never a pass and a review_loop_exception can follow it; fails_when=the fix-check pass logs a
-  //   review start; why_new=ggstack#52 (GST-1031): a scoped fix-check logged as review counted as a second pass; seam=the pass program;
-  //   no_claim=what the parent writes in the row
-  test('a fix-check pass given logStart ["review"] takes the review-fix-check start', async () => {
-    const { dir, env } = repo();
-    const files = path.join(dir, '.state/fc');
-    fs.mkdirSync(files, { recursive: true });
-    const fc: Record<string, string> = {};
-    for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
-    const res = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/fcr'), pass: 'x52fc', planFlags: legacyGrantFlags(dir, env), fixCheck: fc, logStart: ['review'] });
-    expect(res).toMatch(/REVIEW_LOG_START: review-fix-check token=\S+/);
-    expect(res).not.toMatch(/REVIEW_LOG_START: review token=/);
-  }, 240_000);
 
   test('Step 11 records one start per row it logs, even when two rows share a skill (native and outside adversarial-review)', async () => {
     const { dir, env } = repo();
@@ -195,25 +157,6 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(h.creates.find(c => c.title === 'ship x21p2 red-team')!.prompt).toContain('DIFF_BASE=' + rangeBase);
   }, 240_000);
 
-  // Value: protects=the pass program dispatches the owner's granted fix-check from the plan, as decision 3.5 runs any fix-check, instead of PASS: none; fails_when=a recorded grant still prints PASS: none next=stop and the lane renders, sends and collects the fix-check by hand (C6-36 after-opus-grant);
-  //   why_new=GST-967; seam=the pass program; no_claim=the fix-check reviewer's verdict
-  test('GST-967: a recorded grant after the round-2 fix-check runs its one scoped fix-check through the program (GST-3562 A: a grant after a round-2 full pass buys none)', async () => {
-    const { dir, env } = repo();
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
-    const add = spawnSync(path.join(BIN, 'gstack-approvals'), ['add', '--ask', `Owner grant: one scoped fix-check after round 2 (review_loop_grant ${head.slice(0, 12)})`, '--words', 'one scoped fix-check after round 2', '--by', 'GStack Minder', '--scope', 'this /ship invocation', '--json'], { cwd: dir, env: { ...env, GSTACK_APPROVALS_MIRROR: '0' }, encoding: 'utf8', timeout: 60_000 });
-    expect(add.status, add.stderr).toBe(0);
-    const id = JSON.parse(add.stdout).added[0] as string;
-    const files = path.join(dir, '.state/gfc');
-    fs.mkdirSync(files, { recursive: true });
-    const fc: Record<string, string> = {};
-    for (const [k, v] of [['fix_list', '1. src/a.ts: guard v80\n'], ['hunks', 'diff --git a/src/a.ts b/src/a.ts\n+export const v81 = 81;\n'], ['tests', 'bun test: 3 pass, 0 fail\n'], ['callers', 'none\n']]) { fc[k] = path.join(files, k + '.txt'); fs.writeFileSync(fc[k]!, v!); }
-    const h = host(dir, env);
-    const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/gfc'), pass: 'x30gfc', planFlags: ['--pass', '1', '--last', 'fix-check', '--fix-checks', '1', '--fixed-blocking', '--range-base', head, '--grant', id], fixCheck: fc, logStart: ['review-fix-check'] });
-    expect(res).not.toContain('PASS: none');
-    expect(res).toContain(`NEXT: fix-check (the owner's grant ${id}`);
-    expect(h.creates.map(c => c.title)).toEqual(['ship x30gfc fix-check']);
-    expect(res).toContain('NEXT: judge (Phase 4)');
-  }, 240_000);
 
   // Value: protects=the Capy pass program runs the full round 2 that replaced the scoped pass with no fix-check files, plans no fix-check and dispatches the Red Team in the manifest (GST-3562 part 3); fails_when=the program stops the round for missing files, plans a fix-check, or leaves the Red Team out;
   //   why_new=#3670 Step 11 (adversarial 1, red team 1), re-scoped to GST-3562 part 3's full round 2; seam=none; no_claim=what the readers find
