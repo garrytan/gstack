@@ -173,7 +173,7 @@ describe("blocks after a swiss sub-heading", () => {
 
   test("only paragraphs, lists and quotes pair with the sub-heading before them", () => {
     const { extraction, html } = rendered();
-    expect(extraction.fences.map((f) => f.lang)).toEqual(["mermaid", "excalidraw"]);
+    expect(extraction.fences.map((f) => f.lang)).toEqual(["mermaid", "excalidraw", "mermaid"]);
     expect(wrapped(html)).toEqual([
       "Paragraph follows",
       "List follows",
@@ -204,6 +204,7 @@ describe("blocks after a swiss sub-heading", () => {
     expect(out.hasLandscape).toBe(true);
     expect(out.html).toMatch(/<h3>Mermaid follows<\/h3>\s*<div class="page-wide"[^>]*>\s*<figure class="diagram"/);
     for (const keep of out.html.match(/<div class="swiss-keep"[\s\S]*?<\/div>/g) ?? []) expect(keep).not.toContain("page-wide");
+    expect(printCss()).toMatch(/\.chapter > h3:has\(\+ \.page-wide\) \{[^}]*page: wide;/);
   });
 
   test("explicit <br> line breaks in a sub-heading count toward its height", () => {

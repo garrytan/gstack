@@ -210,6 +210,12 @@ describe("swiss layout gate", () => {
         expect({ h, labelsBelow: next.some((x) => /afterh3alpha|excalialphanode/.test(x.text)) }).toEqual({ h, labelsBelow: true });
       }
 
+      const landscape = find("Landscape next");
+      const landLabels = all.filter((l) => /landalpha|landbeta|landgamma/.test(l.text));
+      expect(landLabels.length).toBeGreaterThanOrEqual(3);
+      expect({ landscapeHeadingPage: landscape.page }).toEqual({ landscapeHeadingPage: Math.min(...landLabels.map((l) => l.page)) });
+      expect(Math.min(...landLabels.map((l) => l.x0))).toBeLessThan(COLUMN_PT - 20);
+
       const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(find);
       for (const day of days) expect({ day: day.text, inField: day.x0 < LEFT_PT + 3 && day.x1 < COLUMN_PT }).toEqual({ day: day.text, inField: true });
       const closing = find("Closing bar heading");
@@ -217,7 +223,7 @@ describe("swiss layout gate", () => {
       expect(saturday.page < closing.page || saturday.y1 < closing.y0).toBe(true);
 
       const headings = ["Paragraph follows", "List follows", "Ordered list follows", "Quote follows", "Code follows", "Table follows",
-        "Image follows", "Text and image follow", "Mermaid follows", "Excalidraw follows", "Rule follows", "Raw HTML follows",
+        "Image follows", "Text and image follow", "Mermaid follows", "Excalidraw follows", "Landscape next", "Rule follows", "Raw HTML follows",
         "Heading follows", "Second heading"].map(find);
       for (const h of [...headings, ...days]) {
         const hits = all.filter((x) => x !== h && x.page === h.page && x.x0 < h.x1 - 1 && x.x1 > h.x0 + 1 && x.y0 < h.y1 - 1 && x.y1 > h.y0 + 1);
