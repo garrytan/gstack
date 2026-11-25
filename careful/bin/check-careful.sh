@@ -296,8 +296,9 @@ _careful_worktrees() {
 # An absolute delete target strictly inside a worktree of the session's own
 # repository, checked on disk (#4827). Never a glob, a quote, a variable, a ..
 # or a symlink; never a .git entry or anything in the git folder; never a
-# worktree's root, the session folder or a folder holding one of them. Only a
-# plain rm or unlink grants it (_WT_GRANT), and only when every statement in
+# worktree's root, the session folder or a folder holding one of them. Only an
+# rm whose every option is one of -f -i -I -v -d (or their long names), or an
+# unlink, grants it (_WT_GRANT), and only when every statement in
 # the command is one (_WT_SOLO): the disk is read before the command runs, so
 # nothing else in it, before or beside the delete, may move a folder or make a
 # link.
@@ -408,7 +409,7 @@ _careful_cd() {
 }
 
 _careful_rm() {
-  local k="$1" t rec=0 late=0 nt=0 first=1 q="" cp=1
+  local k="$1" t rec=0 late=0 nt=0 first=1 q="" cp=1 plain=1
   local tg=()
   # rm opening a quoted string (trap 'rm -rf "$T"' EXIT) ends where it closes.
   case "${RW[$((k - 1))]}" in \'*) q="'" ;; \"*) q='"' ;; esac
@@ -427,6 +428,10 @@ _careful_rm() {
     # recursive rm leads with its flags, as the original family required.
     if [ "$first" -eq 1 ]; then first=0; case "$t" in -*) ;; *) [ "$cp" -eq 1 ] || rec=2 ;; esac; fi
     case "$t" in
+      --|--force|--verbose|--dir|--interactive|--interactive=*) ;;
+      --*|-*[!fivdI]*) plain=0 ;;
+    esac
+    case "$t" in
       --recursive) late=1; [ "$rec" -eq 2 ] || rec=1 ;;
       -*) case "${t#-}" in *[!a-zA-Z]*|'') ;; *[rR]*) late=1; [ "$rec" -eq 2 ] || rec=1 ;; esac ;;
       [0-9]'>'*|[0-9]'<'*|'>'*|'<'*) ;;
@@ -442,7 +447,7 @@ _careful_rm() {
     if [ "$rec" -eq 1 ]; then
       _careful_rm_safe "$t" || _RM_UNSAFE=1
     fi
-    if [ "$rec" -eq 0 ]; then _WT_GRANT=1; fi
+    if [ "$rec" -eq 0 ] && [ "$plain" -eq 1 ]; then _WT_GRANT=1; fi
     if [ "$_OUTSIDE" -eq 0 ] && _careful_outside "$t"; then _OUTSIDE=1; fi
     _WT_GRANT=0
   done
