@@ -223,14 +223,14 @@ describe('ready under a train policy: the screen choice', () => {
     const none = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']);
     expect(none.status).toBe(EXIT.refused);
     expect(none.out).toContain('SHIP_RECEIPT: none in the PR body');
-    expect(none.err).toMatch(/PR #1's body carries no ship receipt; fix: run \/ship on the branch .*there is no flag to skip this \(QUEUE_RECEIPT_MISSING\)/);
+    expect(none.err).toMatch(/PR #1's body carries no ship receipt; fix: run \/gstack-ship on the branch .*there is no flag to skip this \(QUEUE_RECEIPT_MISSING\)/);
     expect(next(none.out)).toBe('NEXT: fix the refusal, then gstack-ship-queue ready --pr 1 --screen|--no-screen');
     const other = 'd'.repeat(40);
     setPrBody(fx, '1', shippedBody('1', other));
     const stale = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']);
     expect(stale.status).toBe(EXIT.refused);
     expect(stale.out).toContain(`SHIP_RECEIPT: pr=1 head=dddddddddddd version=- base=main`);
-    expect(stale.err).toMatch(new RegExp(`PR #1's ship receipt is for dddddddddddd, not the head ${head.slice(0, 12)} being merged; fix: rerun /ship .*\\(QUEUE_RECEIPT_STALE\\)`));
+    expect(stale.err).toMatch(new RegExp(`PR #1's ship receipt is for dddddddddddd, not the head ${head.slice(0, 12)} being merged; fix: rerun /gstack-ship .*\\(QUEUE_RECEIPT_STALE\\)`));
     setPrBody(fx, '1', shippedBody('2', head));
     expect(queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']).err).toMatch(/PR #1's ship receipt names pr=2, not this PR.*\(QUEUE_RECEIPT_STALE\)/);
     expect(fs.existsSync(path.join(fx.state, 'ship-queue', 'ready'))).toBe(false);
@@ -573,7 +573,7 @@ describe('train build', () => {
     for (const args of [['--dry-run'], []]) {
       const r = queue(fx, ['train', 'build', '--prs', `1@${h1},2@${h2}`, ...args]);
       expect(r.status).toBe(EXIT.refused);
-      expect(r.err).toMatch(/PR #2's body carries no ship receipt; fix: run \/ship on the branch .*\(QUEUE_RECEIPT_MISSING\)/);
+      expect(r.err).toMatch(/PR #2's body carries no ship receipt; fix: run \/gstack-ship on the branch .*\(QUEUE_RECEIPT_MISSING\)/);
       expect(r.out).toContain('SHIP_RECEIPT: none in the PR body');
       expect(next(r.out)).toBe("NEXT: #2's lane runs /ship, then gstack-ship-queue ready --pr 2 --screen|--no-screen; then gstack-ship-queue train build --prs <pins>");
       expect(result(r.out)).toBe('GSTACK_RESULT: skill=ship-queue status=refused run=none');
