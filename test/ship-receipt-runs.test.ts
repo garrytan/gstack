@@ -92,4 +92,17 @@ describe('no_stop receipt field (K1)', () => {
       expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.no_stop).toEqual([{ class: 'pregate-flake-rerun', reason: 'r', evidence: 'run 1' }]);
     } finally { cleanup(repo); }
   });
+
+  // Value: protects=write leaves out a retired scoped-fix-check row as gstack-no-stop (checkNoStop) refuses one (#4829 notes);
+  //   fails_when=the receipt records a scoped-fix-check no-stop; seam=none (the real bin on a fixture repo); no_claim=the gh round trip
+  test('write drops a scoped-fix-check row from --no-stop, as gstack-no-stop refuses one', () => {
+    const repo = makeFixtureRepo();
+    try {
+      const body = path.join(repo.root, 'body.md');
+      const rows = JSON.stringify([{ class: 'scoped-fix-check', reason: 'r', evidence: 'commit abc' }, { class: 'pregate-flake-rerun', reason: 'r', evidence: 'run 1' }]);
+      const w = runBin(repo, 'gstack-ship-receipt', ['write', '--pr', '9', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--no-stop', rows, '--body', body]);
+      expect([w.status, w.err], w.out).toEqual([EXIT.ok, expect.stringContaining('NO_STOP: dropped "scoped-fix-check"')]);
+      expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt!.no_stop).toEqual([{ class: 'pregate-flake-rerun', reason: 'r', evidence: 'run 1' }]);
+    } finally { cleanup(repo); }
+  });
 });

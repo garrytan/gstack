@@ -282,6 +282,10 @@ the same workflow replaced it; a run cancelled before any job is not counted.
 An unreadable list is unknown, never green. `gstack-pr-wait`, `gstack-ci-gate`
 and the release cut read CI through the same helper (`lib/ci-head-checks.ts`),
 on top of what they read before, so none of them calls such a head green.
+The one row they drop from before is a cancelled run that a newer run of the
+same check replaced while that run passed or still runs, which `ci:` already
+judges by that newer run (`gstack-pr-wait`, #4807); any other older red run
+still gates.
 
 When a check counts as passing only because a newer run from another check
 suite replaced a red one (a branch-only `free-tests.yml` dispatch beside the red

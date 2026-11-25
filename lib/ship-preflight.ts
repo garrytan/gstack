@@ -221,7 +221,15 @@ function depsInstall(root: string): string | null {
   try { pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return null; }
   const has = (f: string) => fs.existsSync(path.join(root, f));
   if (!Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).length || has('node_modules') || has('.pnp.cjs') || has('.pnp.loader.mjs') || has('.pnp.js')) return null;
-  return has('bun.lock') || has('bun.lockb') ? 'bun install --frozen-lockfile' : has('pnpm-lock.yaml') ? 'pnpm install --frozen-lockfile' : has('yarn.lock') ? 'yarn install --frozen-lockfile' : has('package-lock.json') || has('npm-shrinkwrap.json') ? 'npm ci' : 'bun install';
+  return has('bun.lock') || has('bun.lockb') ? 'bun install --frozen-lockfile' : has('pnpm-lock.yaml') ? 'pnpm install --frozen-lockfile' : has('yarn.lock') ? 'yarn install --frozen-lockfile' : has('npm-shrinkwrap.json') ? npmCi(root, 'npm-shrinkwrap.json') : has('package-lock.json') ? npmCi(root, 'package-lock.json') : 'bun install';
+}
+
+/** npm ci, with a note naming npm's allow-git setting when the lockfile resolves a package from git, which npm 12 refuses by default (#4815). */
+function npmCi(root: string, lock: string): string {
+  let text = '';
+  try { text = fs.readFileSync(path.join(root, lock), 'utf8'); } catch { /* plain npm ci */ }
+  if (!/"(?:resolved|version)"\s*:\s*"(?:git\+|git:\/\/|github:)/.test(text)) return 'npm ci';
+  return `npm ci (${lock} resolves a package from git, which npm 12 and later install only when npm's allow-git setting permits it: add --allow-git=all if you trust that source)`;
 }
 
 async function tests(cwd: string, base: string, list: { label: string; command: string }[], policyFrom: string, timeout: string | undefined, step: { seconds: number; source: string }, run: { concurrency: number; line: string; hold: boolean; testsOnly: boolean }, r: Report): Promise<void> {
