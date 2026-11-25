@@ -246,6 +246,23 @@ function firstStructuredAssessment(stream: string): unknown {
   throw Error('Floor assessment returned no accepted structured output');
 }
 
+/** The logged stream keeps the assessment alone: StructuredOutput calls, their results and the CLI's
+ * result event, never the init event, other text or any other tool's output. */
+function assessmentEvents(stream: string): string {
+  const calls = new Set<string>();
+  return stream.split('\n').flatMap(line => {
+    let event: { type?: string; message?: { content?: Array<{ type?: string; id?: string; name?: string; tool_use_id?: string }> } };
+    try { event = JSON.parse(line); } catch { return []; }
+    if (event?.type === 'result') return [line];
+    if (event?.type !== 'assistant' && event?.type !== 'user') return [];
+    const content = (event.message?.content ?? []).filter(block => {
+      if (event.type === 'assistant' && block.type === 'tool_use' && block.name === 'StructuredOutput' && block.id) return calls.add(block.id);
+      return event.type === 'user' && block.type === 'tool_result' && calls.has(block.tool_use_id ?? '');
+    });
+    return content.length ? [JSON.stringify({ ...event, message: { ...event.message, content } })] : [];
+  }).join('\n');
+}
+
 /** Same warmup CLI and prompt as the replaced waiting-state judge, with no tools; the answer arrives as validated structured output.
  * The original case deadline bounds each call; complete input is never truncated. */
 export function judgePlanFloorReview(input: PlanFloorReview, opts: {
@@ -264,16 +281,18 @@ export function judgePlanFloorReview(input: PlanFloorReview, opts: {
   }
   try {
     const result = (opts.invoke ?? spawnSync)(opts.binary,
-      ['-p', '--model', opts.model, '--max-turns', '2', '--tools', '', '--output-format', 'stream-json', '--verbose',
-        '--json-schema', PLAN_FLOOR_ASSESSMENT_SCHEMA],
+      ['-p', '--model', opts.model, '--max-turns', '2', '--tools', '',
+        '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disallowedTools', 'mcp__*',
+        '--output-format', 'stream-json', '--verbose', '--json-schema', PLAN_FLOOR_ASSESSMENT_SCHEMA],
       { input: prompt, stdio: ['pipe', 'pipe', 'pipe'], timeout: Math.min(PLAN_FLOOR_ASSESSMENT_CAP_MS, remaining), encoding: 'utf8' });
-    Object.assign(diagnostic, { rawOutput: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), status: result.status });
-    const turnLimit = result.status === 1 && diagnostic.rawOutput.split('\n').some(line => {
+    const stdout = String(result.stdout ?? '');
+    Object.assign(diagnostic, { rawOutput: assessmentEvents(stdout), stderr: String(result.stderr ?? ''), status: result.status });
+    const turnLimit = result.status === 1 && stdout.split('\n').some(line => {
       try { const event = JSON.parse(line); return event.type === 'result' && event.subtype === 'error_max_turns'; } catch { return false; }
     });
     if (result.error || (result.status !== 0 && !turnLimit) || Date.now() >= opts.deadlineAt)
       throw Error(`Floor assessment did not complete: ${result.error?.message ?? `exit ${result.status}`} ${String(result.stderr ?? '').slice(-3000)}`.trim());
-    const assessment = resolvePlanFloorCitations(input, firstStructuredAssessment(diagnostic.rawOutput));
+    const assessment = resolvePlanFloorCitations(input, firstStructuredAssessment(stdout));
     console.log(JSON.stringify({ ...diagnostic, assessment }));
     return assessment;
   } catch (error) {

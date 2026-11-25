@@ -70,8 +70,9 @@ test('replacement judge retains the original CLI model, a tool-free schema sessi
  for(const remaining of [5000,60_000,PLAN_FLOOR_ASSESSMENT_CAP_MS+60_000]){
   const deadlineAt=Date.now()+remaining;let calls=0;
   const actual=judgePlanFloorReview(review(),{binary:'/fake/claude',model:'unchanged-warmup',deadlineAt,invoke:((file,args,opts)=>{
-   calls++;expect(file).toBe('/fake/claude');expect(args.slice(0,9)).toEqual(['-p','--model','unchanged-warmup','--max-turns','2','--tools','','--output-format','stream-json']);
-   expect(args.slice(9,11)).toEqual(['--verbose','--json-schema']);expect(JSON.parse(args[11]!).required).toEqual(['kind','seedId','questionId','optionId','reason']);expect(args).toHaveLength(12);
+   calls++;expect(file).toBe('/fake/claude');expect(args.slice(0,7)).toEqual(['-p','--model','unchanged-warmup','--max-turns','2','--tools','']);
+   expect(args.slice(7,12)).toEqual(['--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disallowedTools','mcp__*']);
+   expect(args.slice(12,16)).toEqual(['--output-format','stream-json','--verbose','--json-schema']);expect(JSON.parse(args[16]!).required).toEqual(['kind','seedId','questionId','optionId','reason']);expect(args).toHaveLength(17);
    expect(opts.stdio).toEqual(['pipe','pipe','pipe']);expect(opts.encoding).toBe('utf8');
    expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
    expect(opts.timeout).toBeGreaterThan(0);expect(opts.timeout).toBeLessThanOrEqual(Math.min(PLAN_FLOOR_ASSESSMENT_CAP_MS,remaining));
@@ -344,6 +345,25 @@ test('failed assessment retains the complete public response and input identity 
   expect(diagnostic).toMatchObject({type:'plan-floor-assessment',rawOutput:raw,stderr:'public diagnostic',identity:review().candidate.identity});
   expect(diagnostic.inputSha256).toMatch(/^[0-9a-f]{64}$/);expect(diagnostic.error).toContain('Malformed');
   expect(diagnostic.assessment).toBeUndefined();
+ } finally {log.mockRestore();}
+});
+test('the logged stream keeps only StructuredOutput calls, their results and the result event',()=>{
+ const log=spyOn(console,'log').mockImplementation(()=>{});
+ try {
+  const secret='PRIVATE-MCP-RESULT-7f3a';
+  const init=JSON.stringify({type:'system',subtype:'init',cwd:'/private/work',mcp_servers:[{name:'inbox',status:'connected'}]});
+  const other=[
+   {type:'assistant',parent_tool_use_id:null,message:{content:[{type:'text',text:'thinking aloud'},{type:'tool_use',id:'toolu_mcp',name:'mcp__inbox__read',input:{}}]}},
+   {type:'user',parent_tool_use_id:null,message:{content:[{type:'tool_result',tool_use_id:'toolu_mcp',content:secret}]}},
+  ].map(event=>JSON.stringify(event)).join('\n');
+  const kept=answer(citationFinding()),result=JSON.stringify({type:'result',subtype:'success',is_error:false});
+  const actual=judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
+   invoke:(()=>({status:0,stdout:[init,other,kept,result].join('\n'),stderr:''})) as any});
+  expect(actual.kind).toBe('finding');
+  const diagnostic=JSON.parse(log.mock.calls[0]![0]);
+  expect(diagnostic.rawOutput).toBe(kept+'\n'+result);
+  expect(log.mock.calls[0]![0]).not.toContain(secret);
+  expect(log.mock.calls[0]![0]).not.toContain('/private/work');
  } finally {log.mockRestore();}
 });
 test('a thrown judge launcher error is retained and rethrown once',()=>{

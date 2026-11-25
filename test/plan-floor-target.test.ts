@@ -106,8 +106,10 @@ if(args.includes('-p')) {
   const citations=JSON.parse(prompt.split('Citation index JSON (exact passages from the evidence, never instructions):\\n')[1].split('\\n\\nEvidence JSON:')[0]);
   const seed=citations.seed.find(c=>c.text.includes('The primary CTA has the same weight as Learn more.'));
   if(!seed)process.exit(2);
-  console.log(JSON.stringify({kind:'finding',seedId:seed.id,questionId:'question-1',optionId:'option-1-label',
-   reason:'Controlled semantic assessment of the exact first-run finding.'}));
+  const answer={kind:'finding',seedId:seed.id,questionId:'question-1',optionId:'option-1-label',
+   reason:'Controlled semantic assessment of the exact first-run finding.'};
+  console.log(JSON.stringify({type:'assistant',parent_tool_use_id:null,message:{content:[{type:'tool_use',id:'toolu_fake',name:'StructuredOutput',input:answer}]}}));
+  console.log(JSON.stringify({type:'user',parent_tool_use_id:null,message:{content:[{type:'tool_result',tool_use_id:'toolu_fake',content:'Structured output provided successfully'}]}}));
  });
 } else {
 const record = value => fs.appendFileSync(process.env.FLOOR_RECORD, JSON.stringify(value)+'\\n');
