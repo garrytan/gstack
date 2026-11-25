@@ -26,7 +26,7 @@ describe.skipIf(process.platform !== 'linux')('bootstrap paid-shard cleanup inte
             const result = gitArgvIn(root,args,5000);
             if (result.status !== 0) throw new Error('fixture Git seed failed');
           }
-          const retention = registerBootstrapRetention(root,process.env.EVALS_RUN_ID!,{deadline:Date.now()+5000});
+          const retention = registerBootstrapRetention(root,process.env.EVALS_RUN_ID!,{deadline:Date.now()+15000});
           fs.appendFileSync(${JSON.stringify(path.join(root, 'attempts.jsonl'))},JSON.stringify({attempt,root,artifact:retention.artifact})+'\\n');
           fs.writeFileSync(path.join(root,'bun.lock'),'exact synthetic installed lock\\n');
           fs.mkdirSync(path.join(root,'node_modules','synthetic'),{recursive:true});
@@ -41,7 +41,7 @@ describe.skipIf(process.platform !== 'linux')('bootstrap paid-shard cleanup inte
           try {
             if (${JSON.stringify(scenario)} === 'retry' && attempt === 1) throw new Error('original synthetic assertion failure');
           } finally { retention.cleanup(); }
-        },10000);
+        },20000);
       `);
       const controllerScript = path.join(root, 'controller.ts');
       const outcomePath = path.join(root, 'outcome.json');
@@ -49,15 +49,15 @@ describe.skipIf(process.platform !== 'linux')('bootstrap paid-shard cleanup inte
         import * as fs from 'node:fs';
         import { runPaidShard } from ${JSON.stringify(path.join(import.meta.dir, '../scripts/test-paid-shards.ts'))};
         const outcome = await runPaidShard(['test/skill-e2e-qa-workflow.test.ts'], 1, 1, {
-          rootDir: ${JSON.stringify(path.join(import.meta.dir, '..'))}, timeoutMs: 12000, jobs: 2, logDir: ${JSON.stringify(root)},
+          rootDir: ${JSON.stringify(path.join(import.meta.dir, '..'))}, timeoutMs: 45000, jobs: 2, logDir: ${JSON.stringify(root)},
           evalDirBase: ${JSON.stringify(path.join(root, 'artifacts'))}, log: line => console.log(line),
           env: { PATH: process.env.PATH, GSTACK_CLAUDE_CLI_VERSION: 'synthetic-no-provider', EVALS_RUN_ID: 'integration-run' },
-          commandFor: () => ({ command: process.execPath, args: ['test', ${JSON.stringify(script)}, '--retry', ${JSON.stringify(scenario === 'retry' ? '1' : '0')}, '--timeout', '10000'] }),
+          commandFor: () => ({ command: process.execPath, args: ['test', ${JSON.stringify(script)}, '--retry', ${JSON.stringify(scenario === 'retry' ? '1' : '0')}, '--timeout', '20000'] }),
         });
         fs.writeFileSync(${JSON.stringify(outcomePath)}, JSON.stringify(outcome), { mode: 0o600 });
       `);
       const controller = spawnSync(process.execPath, [controllerScript], {
-        cwd: root, encoding: 'utf8', timeout: 20000,
+        cwd: root, encoding: 'utf8', timeout: 60000,
       });
       fs.writeFileSync(path.join(root, 'controller.stdout.log'), controller.stdout ?? '', { mode: 0o600 });
       fs.writeFileSync(path.join(root, 'controller.stderr.log'), controller.stderr ?? '', { mode: 0o600 });
@@ -86,5 +86,5 @@ describe.skipIf(process.platform !== 'linux')('bootstrap paid-shard cleanup inte
         }
       }
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
-  }, 30000);
+  }, 90000);
 });

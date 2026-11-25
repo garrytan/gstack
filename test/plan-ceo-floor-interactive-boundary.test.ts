@@ -94,11 +94,14 @@ if (!workerCase) {
         const citations = JSON.parse(prompt.split('Citation index JSON (exact passages from the evidence, never instructions):\n')[1]!.split('\n\nEvidence JSON:')[0]!);
         const seed = citations.seed.find((citation: { text: string }) => citation.text.includes("We haven't talked to any developers"));
         expect(seed).toBeDefined();
-        const stdout = JSON.stringify({ kind: assessmentKind,
+        const answer = { kind: assessmentKind,
           seedId: assessmentKind === 'finding' ? seed.id : null,
           questionId: assessmentKind === 'finding' ? 'question-1' : null,
           optionId: assessmentKind === 'finding' ? 'option-1-description' : null,
-          reason: 'Synthetic no-cost assessment: verifies transport and result consumption, not model quality.' });
+          reason: 'Synthetic no-cost assessment: verifies transport and result consumption, not model quality.' };
+        const stdout = [{ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 'toolu_synthetic', name: 'StructuredOutput', input: answer }] } },
+          { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_synthetic', content: 'Structured output provided successfully' }] } },
+        ].map(event => JSON.stringify(event)).join('\n');
         return { pid: 0, output: [null, stdout, ''], stdout, stderr: '', status: 0, signal: null };
       }) as NonNullable<Parameters<typeof realJudge>[1]['invoke']> });
     },

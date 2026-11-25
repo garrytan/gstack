@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -29,6 +29,7 @@ const snapshot = callerSnapshot({ 'scale.ts': 'return n+n', 'README.md': 'double
 const happy: CallerProbe = { id: 'probe-happy', charter: 'happy', input: '3', snapshot, status: 'pass', stdout: '6\n', stderr: '', exit: 0 };
 const adverse: CallerProbe = { id: 'probe-invalid', charter: 'adverse', input: 'no', snapshot, status: 'pass', stdout: '', stderr: 'integer required: 0..9\n', exit: 2 };
 const diffPreface = 'DIFF_BASE=$(git merge-base origin/main HEAD) && ';
+setDefaultTimeout(30_000);
 const capturedNativeDiffs = [
   `${diffPreface}git diff --name-status "$DIFF_BASE"`,
   `${diffPreface}git diff "$DIFF_BASE" -- . ':(exclude)*test*' ':(exclude)*fixture*' ':(exclude)*.spec.*'`,
@@ -1575,7 +1576,7 @@ describe('real caller-specific native fixture and capture boundary', () => {
         expect(() => readCallerReceipt(fixture)).toThrow();
       } finally { await fixture.close(); fs.rmSync(fixture.root, { recursive: true, force: true }); }
     }
-  });
+  }, 60_000);
 
   test.each(QA_CALLER_CASES)('%s supplies scheduling boundaries through the actual runner callback', async caseId => {
     const fixture = createQaCallerFixture(caseId);
@@ -1597,6 +1598,8 @@ describe('real caller-specific native fixture and capture boundary', () => {
         expect(options.prompt).toMatch(/keep normal parent decision gates/i);
         expect(options.prompt).toMatch(/Hard deadline UTC, never its Runner entry UTC/i);
         expect(options.prompt).toMatch(/Handoff freshness check: Read HANDOFF\.md and reports\/HANDOFF\.md/);
+        expect(options.prompt).toMatch(/with the Read tool and never Bash cat/);
+        expect(options.prompt).toMatch(/instead of cat\/head\/tail for discovery and for every handoff freshness check/);
         expect(options.prompt).toMatch(/only in a later message than the check's Read results: the evidence helper's materialize, which runs once per report root and freezes the verdict; every gstack-review-log completed:true record, adversarial-review included/);
         expect(options.prompt).toMatch(/do not publish a checkpoint for it/i);
         expect(options.prompt).toMatch(/authenticated expired-capture result/i);

@@ -14,6 +14,12 @@ const review = ():PlanFloorReview=>({seed:FORCING_FLOOR_CEO,candidate:{transport
 const finding=()=>({kind:'finding',seedQuote:"We haven't talked to any developers",questionQuote:'Should we test that premise before launch?',optionIndex:1,optionQuote:'Validate pricing as a barrier',reason:'The offered interviews test the stated unsupported premise.'});
 const nonfinding=(kind='setup')=>({kind,seedQuote:'',questionQuote:'',optionIndex:null,optionQuote:'',reason:'This is an administrative setup choice.'});
 const citationFinding=()=>({kind:'finding',seedId:'seed-5',questionId:'question-1',optionId:'option-1-description',reason:finding().reason});
+type StreamCall={input:unknown;result?:string;isError?:boolean;id?:string};
+const stream=(...calls:StreamCall[])=>calls.flatMap((call,i)=>{const id=call.id??`toolu_${i}`;return [
+ {type:'assistant',parent_tool_use_id:null,message:{content:[{type:'tool_use',id,name:'StructuredOutput',input:call.input}]}},
+ {type:'user',parent_tool_use_id:null,message:{content:[{type:'tool_result',tool_use_id:id,content:call.result??'Structured output provided successfully',...(call.isError?{is_error:true}:{})}]}},
+];}).map(event=>JSON.stringify(event)).join('\n');
+const answer=(value:unknown)=>stream({input:value});
 
 test('complete native payload and seed reach the assessor without a fabricated answer',()=>{
  const input=review(),prompt=buildPlanFloorReviewPrompt(input);
@@ -59,16 +65,18 @@ test('large complete input is preserved; over-limit input is rejected without in
  expect(()=>judgePlanFloorReview(input,{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,invoke:(()=>{calls++;throw Error('must not execute');}) as any})).toThrow();
  expect(calls).toBe(0);
 });
-test('replacement judge retains the original CLI model, one turn, measured cap and absolute case deadline',()=>{
+test('replacement judge retains the original CLI model, a tool-free schema session, measured cap and absolute case deadline',()=>{
  expect(PLAN_FLOOR_ASSESSMENT_CAP_MS).toBeGreaterThan(30_000);
  for(const remaining of [5000,60_000,PLAN_FLOOR_ASSESSMENT_CAP_MS+60_000]){
   const deadlineAt=Date.now()+remaining;let calls=0;
   const actual=judgePlanFloorReview(review(),{binary:'/fake/claude',model:'unchanged-warmup',deadlineAt,invoke:((file,args,opts)=>{
-   calls++;expect(file).toBe('/fake/claude');expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1']);
+   calls++;expect(file).toBe('/fake/claude');expect(args.slice(0,7)).toEqual(['-p','--model','unchanged-warmup','--max-turns','2','--tools','']);
+   expect(args.slice(7,12)).toEqual(['--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disallowedTools','mcp__*']);
+   expect(args.slice(12,16)).toEqual(['--output-format','stream-json','--verbose','--json-schema']);expect(JSON.parse(args[16]!).required).toEqual(['kind','seedId','questionId','optionId','reason']);expect(args).toHaveLength(17);
    expect(opts.stdio).toEqual(['pipe','pipe','pipe']);expect(opts.encoding).toBe('utf8');
    expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
    expect(opts.timeout).toBeGreaterThan(0);expect(opts.timeout).toBeLessThanOrEqual(Math.min(PLAN_FLOOR_ASSESSMENT_CAP_MS,remaining));
-   return {status:0,stdout:JSON.stringify(citationFinding()),stderr:''};
+   return {status:0,stdout:answer(citationFinding()),stderr:''};
   }) as any});expect(calls).toBe(1);expect(actual.kind).toBe('finding');
  }
 });
@@ -76,7 +84,7 @@ test.each([
  ['nonzero',{status:1,stdout:'',stderr:'real stderr detail'}],
  ['runner error',{status:null,error:Error('runner failed'),stdout:'',stderr:''}],
  ['invalid JSON',{status:0,stdout:'waiting',stderr:''}],
- ['missing evidence',{status:0,stdout:JSON.stringify({...finding(),seedQuote:''}),stderr:''}],
+ ['missing evidence',{status:0,stdout:answer({...finding(),seedQuote:''}),stderr:''}],
 ] as const)('%s retains an explicit failure',(_label,result)=>{
  expect(()=>judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,invoke:(()=>result) as any})).toThrow();
 });
@@ -119,7 +127,7 @@ test.each([
 ] as const)('narrative confirmation with %s is left to the assessor',(_label,change)=>{
  const input=capturedNarrative();change((input.candidate as any).question);let calls=0;
  const actual=judgePlanFloorReview(input,{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
-  invoke:(()=>{calls++;return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Adversarial narrative control requires assessment.'}),stderr:''};}) as any});
+  invoke:(()=>{calls++;return {status:0,stdout:answer({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Adversarial narrative control requires assessment.'}),stderr:''};}) as any});
  expect(calls).toBe(1);expect(actual.kind).toBe('uncertain');
 });
 test('DX TTHW target question is a seeded finding without launching the assessor',()=>{
@@ -153,7 +161,7 @@ test('DX TTHW target question is a seeded finding without launching the assessor
 });
 test('captured Opus "time-to-first-SDK-call target" questions and the template wording are seeded findings without the assessor',()=>{
  const noLaunch=(input:PlanFloorReview)=>{let calls=0;const actual=judgePlanFloorReview(input,{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
-  invoke:(()=>{calls++;return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Assessor launched.'}),stderr:''};}) as any});return {actual,calls};};
+  invoke:(()=>{calls++;return {status:0,stdout:answer({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Assessor launched.'}),stderr:''};}) as any});return {actual,calls};};
  expect(sdkCallTarget.captures).toHaveLength(2);
  for (const capture of sdkCallTarget.captures) {
   const {actual,calls}=noLaunch(structuredClone(capture.review) as PlanFloorReview);
@@ -208,7 +216,7 @@ test.each([
 ] as const)('first-call context retains the %s boundary',(_label,change)=>{
  const input=firstSdkCallReview();change((input.candidate as any).question);let calls=0;
  const actual=judgePlanFloorReview(input,{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
-  invoke:(()=>{calls++;return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Adversarial first-call control requires assessment.'}),stderr:''};}) as any});
+  invoke:(()=>{calls++;return {status:0,stdout:answer({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Adversarial first-call control requires assessment.'}),stderr:''};}) as any});
  expect(calls).toBe(1);expect(actual.kind).toBe('uncertain');
 });
 test.each([
@@ -239,13 +247,13 @@ test.each([
  const input=tthwReview(),q=(input.candidate as any).question;
  q.question=q.question.replace('this journey','this quickstart');change(q);let calls=0;
  const actual=judgePlanFloorReview(input,{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
-  invoke:(()=>{calls++;return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Adversarial control requires assessment.'}),stderr:''};}) as any});
+  invoke:(()=>{calls++;return {status:0,stdout:answer({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Adversarial control requires assessment.'}),stderr:''};}) as any});
  expect(calls).toBe(1);expect(actual.kind).toBe('uncertain');
 });
 test('a current TTHW choice without the owned seed evidence is not deterministic',()=>{
  const input=tthwReview();input.seed='A different plan: add dark mode to the dashboard.';let calls=0;
  const actual=judgePlanFloorReview(input,{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
-  invoke:(()=>{calls++;return {status:0,stdout:JSON.stringify({kind:'unrelated',seedId:null,questionId:null,optionId:null,reason:'Different seed.'}),stderr:''};}) as any});
+  invoke:(()=>{calls++;return {status:0,stdout:answer({kind:'unrelated',seedId:null,questionId:null,optionId:null,reason:'Different seed.'}),stderr:''};}) as any});
  expect(calls).toBe(1);expect(actual.kind).toBe('unrelated');
 });
 
@@ -294,10 +302,42 @@ test('prose citations resolve only complete owned passages and retain null optio
  expect(assessment.optionIndex).toBeNull();
  expect(()=>resolvePlanFloorCitations(input,citationFinding())).toThrow();
 });
+const capturedFreeText='{"kind":"finding","seedId":"seed-9","questionId":"question-1","optionId":"option-1-label","reason":"The seed states the plan\'s premise is unvalidated (no developer conversations about whether price is a barrier), and the question asks whether to launch on intuition or first check that price is the blocker, offering a validate-first remedy.","}\n';
+test('free text such as run 45586644143\'s malformed reply is never the assessment; the accepted structured call is',()=>{
+ expect(()=>JSON.parse(capturedFreeText)).toThrow('Unterminated string');
+ const log=spyOn(console,'log').mockImplementation(()=>{});
+ try {
+  const text=JSON.stringify({type:'assistant',message:{content:[{type:'text',text:capturedFreeText}]}});
+  const run=(stdout:string)=>judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
+   invoke:(()=>({status:0,stdout,stderr:''})) as any});
+  expect(run(text+'\n'+answer(citationFinding())).kind).toBe('finding');
+  expect(()=>run(text)).toThrow('no accepted structured output');
+ } finally {log.mockRestore();}
+});
+test('the first structured call the CLI accepted is the assessment',()=>{
+ const log=spyOn(console,'log').mockImplementation(()=>{});
+ try {
+  const run=(...calls:StreamCall[])=>judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
+   invoke:(()=>({status:0,stdout:stream(...calls),stderr:''})) as any});
+  const placeholder={kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Placeholder'};
+  const rejected={input:{...citationFinding(),metadata:{}},isError:true,result:"Output does not match required schema: root: must NOT have additional properties ('metadata' is not allowed)"};
+  expect(run({input:citationFinding()},{input:placeholder}).kind).toBe('finding');
+  expect(run(rejected,{input:citationFinding()}).kind).toBe('finding');
+  expect(run(rejected,{input:placeholder}).kind).toBe('uncertain');
+  expect(()=>run(rejected)).toThrow('no accepted structured output');
+  const limit=JSON.stringify({type:'result',subtype:'error_max_turns',is_error:true});
+  const exit=(status:number,stdout:string)=>judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
+   invoke:(()=>({status,stdout,stderr:''})) as any});
+  expect(exit(1,stream(rejected,{input:citationFinding()})+'\n'+limit).kind).toBe('finding');
+  expect(()=>exit(1,stream(rejected)+'\n'+limit)).toThrow('no accepted structured output');
+  expect(()=>exit(1,stream({input:citationFinding()}))).toThrow('did not complete');
+  expect(()=>exit(2,stream({input:citationFinding()})+'\n'+limit)).toThrow('did not complete');
+ } finally {log.mockRestore();}
+});
 test('failed assessment retains the complete public response and input identity before throwing',()=>{
  const log=spyOn(console,'log').mockImplementation(()=>{});
  try {
-  const raw='```json\n{"kind":"finding","seedId":"wrong"}\n```';
+  const raw=answer({kind:'finding',seedId:'wrong'});
   expect(()=>judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30000,
    invoke:(()=>({status:0,stdout:raw,stderr:'public diagnostic'})) as any})).toThrow();
   expect(log).toHaveBeenCalledTimes(1);
@@ -305,6 +345,25 @@ test('failed assessment retains the complete public response and input identity 
   expect(diagnostic).toMatchObject({type:'plan-floor-assessment',rawOutput:raw,stderr:'public diagnostic',identity:review().candidate.identity});
   expect(diagnostic.inputSha256).toMatch(/^[0-9a-f]{64}$/);expect(diagnostic.error).toContain('Malformed');
   expect(diagnostic.assessment).toBeUndefined();
+ } finally {log.mockRestore();}
+});
+test('the logged stream keeps only StructuredOutput calls, their results and the result event',()=>{
+ const log=spyOn(console,'log').mockImplementation(()=>{});
+ try {
+  const secret='PRIVATE-MCP-RESULT-7f3a';
+  const init=JSON.stringify({type:'system',subtype:'init',cwd:'/private/work',mcp_servers:[{name:'inbox',status:'connected'}]});
+  const other=[
+   {type:'assistant',parent_tool_use_id:null,message:{content:[{type:'text',text:'thinking aloud'},{type:'tool_use',id:'toolu_mcp',name:'mcp__inbox__read',input:{}}]}},
+   {type:'user',parent_tool_use_id:null,message:{content:[{type:'tool_result',tool_use_id:'toolu_mcp',content:secret}]}},
+  ].map(event=>JSON.stringify(event)).join('\n');
+  const kept=answer(citationFinding()),result=JSON.stringify({type:'result',subtype:'success',is_error:false});
+  const actual=judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
+   invoke:(()=>({status:0,stdout:[init,other,kept,result].join('\n'),stderr:''})) as any});
+  expect(actual.kind).toBe('finding');
+  const diagnostic=JSON.parse(log.mock.calls[0]![0]);
+  expect(diagnostic.rawOutput).toBe(kept+'\n'+result);
+  expect(log.mock.calls[0]![0]).not.toContain(secret);
+  expect(log.mock.calls[0]![0]).not.toContain('/private/work');
  } finally {log.mockRestore();}
 });
 test('a thrown judge launcher error is retained and rethrown once',()=>{
