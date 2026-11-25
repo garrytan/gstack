@@ -417,16 +417,28 @@ function sanitizePass(html: string): string {
  * paragraph, list or quote right after it go in <div class="swiss-keep">,
  * where the CSS pins the h3 to the wrapper's top and the wrapper starts where
  * the text does. min-height keeps a sub-heading longer than its text clear of
- * the next block. (Code, tables and figures need no wrapper: the CSS keeps the
- * h3 in normal flow above them.)
+ * the next block. (Code, tables, figures and image-only paragraphs need no
+ * wrapper: the CSS keeps the h3 in normal flow above them.) Only an h3 at the
+ * top level of the body is wrapped; one inside a quote, list item, table or
+ * details block is not in the field, and the CSS that positions the wrapper
+ * only applies at the top level.
  */
 export function keepFieldHeadingsWithText(html: string): string {
   const out: string[] = [];
   const h3 = /<h3\b[^>]*>(?:(?!<\/h3>)[\s\S])*<\/h3>/g;
+  const container = /<(\/?)(blockquote|li|table|details|figure|aside)\b[^>]*>/gi;
+  let depth = 0;
+  let scanned = 0;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = h3.exec(html)) !== null) {
+    container.lastIndex = scanned;
+    let c: RegExpExecArray | null;
+    while ((c = container.exec(html)) !== null && c.index < m.index) depth += c[1] ? -1 : 1;
+    scanned = m.index;
+    if (depth > 0) continue;
     const after = html.slice(h3.lastIndex);
+    if (/^\s*<p\b[^>]*>[^<]*<img\b[^>]*>[^<]*<\/p>/i.test(after)) continue;
     const open = after.match(/^\s*<(p|ul|ol|blockquote)\b/);
     const end = open ? closingIndex(after, open[1]) : -1;
     if (end < 0) continue;

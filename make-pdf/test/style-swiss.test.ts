@@ -110,6 +110,19 @@ describe("swiss field headings stay with their text", () => {
     const html = "<h3>A</h3><pre>x</pre><h3>B</h3><table><tr><td>1</td></tr></table><h3>C</h3><h3>D</h3><figure></figure>";
     expect(keepFieldHeadingsWithText(html)).toBe(html);
   });
+  test("an h3 before an image-only paragraph gets no wrapper, so the image keeps the full width", () => {
+    const html = '<h3>Shot</h3><p><img src="x.png" alt="x"></p><h3>Caption</h3><p>see <img src="y.png"> here</p>';
+    expect(keepFieldHeadingsWithText(html)).toBe(html);
+  });
+  test("an h3 inside a quote, list item, table or details block gets no wrapper", () => {
+    const html = "<blockquote><h3>Q</h3><p>quoted</p></blockquote><ul><li><h3>L</h3><p>item</p></li></ul>" +
+      "<table><tr><td><h3>T</h3><p>cell</p></td></tr></table><details><h3>D</h3><p>more</p></details>";
+    expect(keepFieldHeadingsWithText(html)).toBe(html);
+    expect(keepFieldHeadingsWithText(html + "<h3>Top</h3><p>body</p>")).toBe(
+      html + '<div class="swiss-keep" style="min-height: 15pt;"><h3>Top</h3><p>body</p></div>',
+    );
+    expect(render({ markdown: "# Doc\n\n> ### Quoted heading\n>\n> Quoted paragraph." }).html).not.toContain('<div class="swiss-keep"');
+  });
   test("a long sub-heading reserves more lines than a short one", () => {
     expect(swissFieldHeadingLines("Example")).toBe(1);
     expect(swissFieldHeadingLines("A long left-field sub-heading that wraps over several lines in the narrow field")).toBeGreaterThanOrEqual(4);
