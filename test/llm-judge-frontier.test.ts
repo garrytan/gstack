@@ -247,7 +247,7 @@ describe('frontier Claude judge compatibility', () => {
     ] } as never);
     expect((await armJudge('ticket', '+ requested change')).over_engineering).toBe(0);
     const request = create.mock.calls[0][0];
-    expect(request.model).toBe('claude-fable-5-2');
+    expect(request.model).toBe('claude-fable-5-1');
     expect(request).not.toHaveProperty('temperature');
     expect(request.output_config).toEqual({ format: { type: 'json_schema', schema: ARM_JUDGE_SCHEMA } });
   });
