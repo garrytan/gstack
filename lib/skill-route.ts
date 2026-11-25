@@ -527,18 +527,64 @@ export function bugReport(prompt: string): boolean {
 
 export type RouteDecision =
   | { route: RouteCandidate; routes: RouteCandidate[]; candidates: RouteCandidate[] }
-  | { route: null; reason: 'slash-command' | 'skill-mention' | 'agent-message' | 'empty' | 'below-threshold'; candidates: RouteCandidate[] };
+  | { route: null; reason: 'slash-command' | 'skill-mention' | 'agent-message' | 'empty' | 'mention' | 'below-threshold'; candidates: RouteCandidate[] };
 
 /**
- * The wrappers Claude Code puts around a turn no person typed: a message from another session (`<cross-session-message from=…>`)
- * and a background agent's or command's hand-back (`<task-notification>`). UserPromptSubmit fires for both, and its payload has no
- * field that tells them from a typed prompt (anthropics/claude-code#94675), so the wrapper is the sign (#4423).
+ * The wrappers Claude Code puts around a turn no person typed: a message from another session (`<cross-session-message from=…>`),
+ * a background agent's or command's hand-back (`<task-notification>`), and a subagent's hand-back, which arrives under the line
+ * `Another Claude session sent a message:` in an `<agent-message from=…>` block (#4801). UserPromptSubmit fires for all of them,
+ * and its payload has no field that tells them from a typed prompt (anthropics/claude-code#94675), so the wrapper is the sign (#4423).
  */
-const AGENT_MESSAGE = /^<(?:cross-session-message|task-notification)[\s>]/;
+const AGENT_HEADER = 'Another Claude session sent a message:';
+const AGENT_TAG = /^<(cross-session-message|task-notification|agent-message)[\s>]/;
+
+export type PromptKind = 'typed' | 'agent-message' | 'cross-session-message' | 'task-notification';
+
+/** Who sent the prompt, read from its wrapper at the start: a person (typed) or an agent (the wrapper's tag). The hook logs it as kind=. */
+export function promptKind(prompt: string): PromptKind {
+  const trimmed = prompt.trim();
+  const rest = trimmed.startsWith(AGENT_HEADER) ? trimmed.slice(AGENT_HEADER.length).trimStart() : trimmed;
+  const tag = AGENT_TAG.exec(rest)?.[1] as PromptKind | undefined;
+  return tag ?? (rest === trimmed ? 'typed' : 'agent-message');
+}
+
+/**
+ * A request for the work, not a mention of it (#4802). A trigger that is only a noun phrase (every word a content word: "code
+ * review", "pre-landing review"), or a trigger's words side by side in another order ("pr review" for "review this pr"), names the
+ * work without asking for it: "even mentioning code review triggers it" holds the phrase. Such a match routes only when a sentence
+ * that holds it asks (ASK_CUE: please, can you, let's, I need, or a request verb first, as in "do a code review"), opens with the
+ * trigger as a command does ("fix lint errors in src": the phrase, then nothing or an object word), or says nothing else ("code
+ * review", "pr review?").
+ */
+const nounPhrase = (trigger: string) => words(trigger).every(w => !STOPWORDS.has(w));
+function reordered(seq: string[], content: string[]): boolean {
+  const want = new Set(content);
+  return content.length > 1 && seq.some((_, i) => {
+    const run = seq.slice(i, i + content.length);
+    return run.length === content.length && new Set(run).size === want.size && run.every(w => want.has(w)) && run.some((w, k) => w !== content[k]);
+  });
+}
+const ASK_CUE = new RegExp(String.raw`\bplease\b|\b(?:can|could|would|will) (?:you|we)\b|\blet'?s\b|\b(?:i|we) (?:really )?(?:need|want|would like)\b`
+  + String.raw`|\b(?:i|we)'d like\b|^(?:(?:ok(?:ay)?|now|then|so|and|also|hey|hi|first|next),? )*(?:do|run|give|start|begin|perform|get|kick off|request)\b`);
+const THANKS = new Set(['thanks', 'thank', 'thx', 'pls', 'plz']);
+const OBJECT_WORDS = new Set(['in', 'on', 'for', 'of', 'at', 'to', 'from', 'with', 'across', 'this', 'that', 'these', 'those', 'the', 'a', 'an',
+  'my', 'our', 'your', 'it', 'all', 'please', 'now', 'before', 'after']);
+function asksForWork(window: string, trigger: string): boolean {
+  const want = new Set(contentTokens(trigger));
+  const lead = tokens(trigger);
+  return window.split(/[.!?;]+(?:\s|$)|\n+/).some(raw => {
+    const sentence = lowered(raw).trim();
+    const content = contentTokens(sentence);
+    const said = words(sentence);
+    const command = lead.every((w, k) => said[k] !== undefined && concept(stem(said[k])) === w)
+      && (said.length === lead.length || OBJECT_WORDS.has(said[lead.length]));
+    return content.some(w => want.has(w)) && (command || ASK_CUE.test(sentence) || content.every(w => want.has(w) || THANKS.has(w)));
+  });
+}
 
 /**
  * A prompt that already names a command is never routed: `/` on both hosts, and Codex's `$skill` mention there. Nor is a message
- * another agent or session sent (AGENT_MESSAGE): it reports work, and asks the person's session for nothing. Another installed
+ * another agent or session sent (promptKind): it reports work, and asks the person's session for nothing. Another installed
  * skill's trigger that claims bug reports (claimsBugReports) routes nothing. A report of a defect is not a request to find bugs, so /review and /qa are not named for it unless it holds one of their triggers'
  * words in order and never asks for a fix (holdsWords: "review my PR, the login page is broken") (GSTA-759: three long reports
  * that said "test the site" or "find" and "broken" went to /qa); "test the site and fix what you find" reports no defect. Any
@@ -550,7 +596,7 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
   if (!trimmed) return { route: null, reason: 'empty', candidates: [] };
   if (trimmed.startsWith('/')) return { route: null, reason: 'slash-command', candidates: [] };
   if (host === 'codex' && trimmed.startsWith('$')) return { route: null, reason: 'skill-mention', candidates: [] };
-  if (AGENT_MESSAGE.test(trimmed)) return { route: null, reason: 'agent-message', candidates: [] };
+  if (promptKind(trimmed) !== 'typed') return { route: null, reason: 'agent-message', candidates: [] };
   const routed = skills.filter(isRouted).map(s => isGstackSkill(s) ? s : { ...s, triggers: s.triggers.filter(t => !claimsBugReports(t)) });
   const candidates = scorePrompt(prompt, routed);
   const window = promptWindow(splitCode(prompt).prose);
@@ -558,9 +604,13 @@ export function routePrompt(prompt: string, skills: InstalledSkill[], threshold 
     && routed.some(s => isGstackSkill(s) && ['review', 'qa'].includes(baseName(s.name)) && s.triggers.some(t => holdsWords(window, t)));
   const defect = reportSigns(prompt).defect;
   const findsOnly = (c: RouteCandidate) => !asks() && defect && c.gstack && ['review', 'qa'].includes(baseName(c.skill));
-  const routes = candidates.filter((c, i) => c.score >= threshold && !findsOnly(c) && candidates.findIndex(o => o.skill === c.skill) === i)
+  const seq = tokens(window);
+  const mentionOnly = (c: RouteCandidate) => (nounPhrase(c.trigger) || reordered(seq, contentTokens(c.trigger))) && !asksForWork(window, c.trigger);
+  const routes = candidates.filter((c, i) => c.score >= threshold && !findsOnly(c) && !mentionOnly(c) && candidates.findIndex(o => o.skill === c.skill) === i)
     .slice(0, MAX_ROUTES);
-  return routes.length ? { route: routes[0], routes, candidates } : { route: null, reason: 'below-threshold', candidates };
+  if (routes.length) return { route: routes[0], routes, candidates };
+  const mention = candidates.some(c => c.score >= threshold && !findsOnly(c) && mentionOnly(c));
+  return { route: null, reason: mention ? 'mention' : 'below-threshold', candidates };
 }
 
 export type HintVariant = 'name' | 'step' | 'contract';
