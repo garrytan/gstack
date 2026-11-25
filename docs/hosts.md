@@ -205,8 +205,8 @@ its startup prompt or in `/hooks`: see
 [Codex hooks](skill-routing-and-contracts.md#codex).
 
 **Plan-review and implementation tiers.** Plan workflows use an independent
-`frontier` reviewer: Fable 5.1 from Codex, or GPT-6 Astra from Claude Code.
-Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.1 Sol.
+`frontier` reviewer: Fable 5.2 from Codex, or GPT-6.2 Astra from Claude Code.
+Implementation handoffs recommend the `smart` tier: Opus 5.5 or GPT-6.2 Sol.
 Choose a different tier, pin either provider's model, or use `host` mode to
 preserve native model settings. The read-only `gstack-models` command explains
 the effective choices; changing these settings does not require regenerating
