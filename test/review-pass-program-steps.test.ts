@@ -38,7 +38,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     h.tools.thread.get = async () => { const r = await get(); last = r.cost.tokens; return r; };
     const out = path.join(dir, '.state/run/p1');
     const base = { base: 'main', out, pass: 'x17p1', planFlags: ['--depth-floor', 'full'], record: rec, jam: 'jam_test' };
-    expect(await runPass(h, { ...base, step: '9' })).toContain('NEXT: judge (Phase 4)');
+    expect(await runPass(h, { ...base, step: '9' })).toContain('NEXT: voices (');
     const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
     const res = await runPass(h, { ...base, step: '11', stage: 'voices', models });
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
@@ -53,7 +53,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const base = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x11p1', planFlags: ['--depth-floor', 'full'] };
     expect(await runPass(h, { ...base, laneModel: undefined })).toMatch(/STOP: specialist\S* runs at effort=medium, which needs input.laneModel/);
     expect(h.creates).toHaveLength(0);
-    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    expect(await runPass(h, base)).toContain('NEXT: voices (');
     const m = JSON.parse(fs.readFileSync(path.join(base.out, 'pass-manifest.json'), 'utf8')) as Manifest;
     for (const r of m.readers.filter(x => x.stage !== 'voices')) {
       const want = r.effort === 'medium' ? { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'medium' } : undefined;
@@ -81,7 +81,7 @@ describe('Capy pass program (fake host, real bins)', () => {
       if (got.length) expect(res.lastIndexOf('PART_END: ')).toBeLessThan(res.lastIndexOf('\nNEXT: '));
       ids.push(...got);
     }
-    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(res).toContain('NEXT: voices (');
     expect(ids.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids[0]).toBe('plan-8.1-8.2');
@@ -98,7 +98,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const res = await runPass(h, { base: 'main', out, pass: 'x13p1', cwd: dir, planFlags: ['--depth-floor', 'full'],
       extras: [{ name: 'plan', prompt_file: path.join(out, 'plan.prompt.md'), model: { model_id: 'anthropic/claude-haiku-5-5', reasoning_mode: 'low' } }] });
     expect(res).not.toContain('STOP:');
-    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(res).toContain('NEXT: voices (');
     expect(h.creates.find(c => c.title === 'ship x13p1 audit/plan')!.prompt).toBe(withWorkspace('Plan completion brief', fs.realpathSync(dir)));
   }, 180_000);
 
@@ -166,7 +166,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env);
     const base = { base: 'main', out, pass: 'x20p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
+    expect(await runPass(h, base)).toContain('NEXT: voices (');
     const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
     const res = await runPass(h, { ...base, stage: 'voices', models, logStart: ['adversarial-review', 'adversarial-review'] });
     const starts = res.split('\n').filter(l => l.startsWith('REVIEW_LOG_START: adversarial-review'));
@@ -185,7 +185,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(sh('echo "export const fix = 1;" >> src/a.ts && git commit -qam fix').status).toBe(0);
     const out = path.join(dir, '.state/run/p2');
     const h = host(dir, env);
-    expect(await runPass(h, { base: 'main', out, pass: 'x21p2', diffBase: rangeBase, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
+    expect(await runPass(h, { base: 'main', out, pass: 'x21p2', diffBase: rangeBase, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: voices (');
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8'));
     expect(m.diff_base).toBe(rangeBase);
     const spec = m.readers.find((r: { role?: string }) => r.role === 'specialist-batched');
@@ -272,10 +272,10 @@ describe('Capy pass program (fake host, real bins)', () => {
     const big = host(dir, env, { output: () => 'x'.repeat(15_900) + '\nNO FINDINGS' });
     const res = await runPass(big, { base: 'main', out, pass: 'x23p1', planFlags: ['--depth-floor', 'full'] });
     expect(res.length).toBeLessThanOrEqual(32000);
-    expect(res.trimEnd().split('\n').at(-1)).toBe('NEXT: judge (Phase 4)');
+    expect(res.trimEnd().split('\n').at(-1)).toStartWith('NEXT: voices (');
     const odd = await runPass(host(dir, env), { base: 'main', out: path.join(dir, '.state/run/deep/p1'), pass: 'x23p2', planFlags: ['--depth-floor', 'full'] });
     expect(odd).toMatch(/^PARTS: skipped \(/m);
-    expect(odd.trimEnd().split('\n').at(-1)).toBe('NEXT: judge (Phase 4)');
+    expect(odd.trimEnd().split('\n').at(-1)).toStartWith('NEXT: voices (');
   }, 240_000);
 
   test('a plan with no reviewer pass dispatches nothing and passes NEXT through', async () => {

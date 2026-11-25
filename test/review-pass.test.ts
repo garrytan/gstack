@@ -10,7 +10,7 @@ import { promptHash } from '../lib/review-brief';
 import { CHUNK_CHARS, chunkCount, chunkOf, markReader, renderStage, specialistFindings, type Manifest } from '../lib/review-pass';
 import { FIXTURE_MARKER } from '../lib/fixture-marker';
 import { SPECIALISTS } from '../lib/review-depth';
-import { ROOT, BIN, texts, SHA, spec, tmp, manifest, collectAll, writeManifestFile, repo, treeLine, host, PROGRAM, AsyncFunction, runPass, bin } from './helpers/review-pass-harness';
+import { ROOT, BIN, texts, SHA, spec, tmp, manifest, collectAll, writeManifestFile, repo, treeLine, host, PROGRAM, AsyncFunction, runPass, bin, cleanReply } from './helpers/review-pass-harness';
 
 describe('pass manifest', () => {
   test('stages follow the plan: specialists, Red Team, voices; batched light depth keeps its checklists and exclusions; a fix-check needs its files', () => {
@@ -231,7 +231,7 @@ describe('the Capy skill loader', () => {
     expect(res.split('\n')[0]).toBe('PROGRAM: v1 sha256=' + promptHash(PROGRAM) + ' bytes=' + Buffer.byteLength(PROGRAM));
     expect(res).toMatch(/REVIEW_LOG_START: review token=\S+/);
     expect(res).toMatch(/NOTE: \S+ used=\d+ credits=\S+ readers=\d+/);
-    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(res).toContain('NEXT: voices (');
     expect(h.creates.length).toBeGreaterThan(0);
   }, 180_000);
 });
@@ -346,7 +346,7 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     made.push(dir);
     const out = path.join(dir, '.state/run/p1');
     const beam = path.join(dir, '.state/BEAM');
-    const h = host(dir, env, { output: t => { if (t === 'ship f1p1 specialist-batched') { clone(beam); return 'High: src/a.ts:3 SEALED-QUOTE leaked from the clone'; } return 'NO FINDINGS'; } });
+    const h = host(dir, env, { output: t => { if (t === 'ship f1p1 specialist-batched') { clone(beam); return 'High: src/a.ts:3 SEALED-QUOTE leaked from the clone'; } return cleanReply(t); } });
     const blocked = await runPass(h, { base: 'main', out, pass: 'f1p1', planFlags: ['--depth-floor', 'full'] });
     expect(blocked).toContain('FETCH_VIOLATION: stage=specialists attempt=1 kind=repo path=' + "'" + fs.realpathSync(beam) + "'");
     expect(blocked).toContain('KEEP: ' + "'" + fs.realpathSync(beam) + "'");
@@ -355,7 +355,7 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(h.creates.map(c => c.title)).not.toContain('ship f1p1 specialist-batched#2');
     fs.rmSync(beam, { recursive: true, force: true });
     const res = await runPass(h, { base: 'main', out, pass: 'f1p1', planFlags: ['--depth-floor', 'full'] });
-    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(res).toContain('NEXT: voices (');
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
     const first = m.readers.find(r => r.reader === 'specialist-batched')!;
     expect(first.superseded_by).toBe('specialist-batched#2');
@@ -365,6 +365,9 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(h.creates.find(c => c.title === 'ship f1p1 red-team')!.prompt).not.toContain('SEALED-QUOTE');
     expect(res).not.toContain('SEALED-QUOTE');
     expect(m.sweeps?.specialists).toMatchObject({ attempt: 2, end: { verdict: 'clean' } });
+    let voices = '';
+    for (let i = 0; i < 6 && !voices.includes('NEXT: judge the voices'); i++) voices = await runPass(h, { base: 'main', out, pass: 'f1p1', planFlags: ['--depth-floor', 'full'], stage: 'voices', models: { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } } });
+    expect(voices).toContain('NEXT: judge the voices');
     expect(bin(dir, env, ['judge', '--ledger', m.ledger, '--merged', m.merged, '--judged', path.join(out, 'judged.jsonl')]).status).toBe(0);
     const v = bin(dir, env, ['verify', '--ledger', m.ledger]);
     expect(v.stdout).toMatch(/^FETCH f1p1\/specialists#1 RESOLVED found=1/m);
@@ -514,7 +517,7 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(blocked).not.toMatch(/^FETCH_(VIOLATION|RERUN_BLOCKED): .*(gst-left|ship-bin-left)/m);
     fs.rmSync(beam, { recursive: true, force: true });
     const res = await runPass(h, input);
-    expect(res).toContain('NEXT: judge (Phase 4)');
+    expect(res).toContain('NEXT: voices (');
     expect(res).not.toContain('FETCH_RERUN_BLOCKED');
     expect([fs.existsSync(fixture), fs.existsSync(shipBin)]).toEqual([true, true]);
   }, 240_000);

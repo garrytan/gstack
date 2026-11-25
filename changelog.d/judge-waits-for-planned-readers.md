@@ -1,0 +1,3 @@
+### Fixed
+
+- **/ship no longer judges a review pass before its second-model readers have run.** The review program used to print `NEXT: judge (Phase 4)` as soon as the first readers finished, even with the pass's adversarial and second-model readers still waiting, so a lane could judge and fix without them and only meet their findings on the last read-only pass, with no fix round left (gskills#54). The program now prints `NEXT: voices (<readers>)` naming the readers still owed, and `gstack-review-dispatch judge` refuses with `JUDGMENT_REFUSED` while any reader the pass dispatched has not settled.

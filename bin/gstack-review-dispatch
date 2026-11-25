@@ -651,6 +651,13 @@ function main(): number {
     const merged = flag('--merged');
     const judged = flag('--judged');
     if (!merged || !judged) { process.stderr.write('gstack-review-dispatch judge: needs --merged <file> and --judged <file>\n'); return EXIT.usage; }
+    const mf = manifestPath(path.dirname(path.resolve(ledger)));
+    const pm = fs.existsSync(mf) ? readManifest(mf) : null;
+    const owed = pm?.readers.filter(r => !r.superseded_by && r.state !== 'collected' && r.state !== 'failed') ?? [];
+    if (owed.length) {
+      process.stderr.write(`JUDGMENT_REFUSED: pass ${pm!.pass} still owes ${owed.map(r => `${r.reader} (${r.state})`).join(', ')}: run the pass program again until every reader it dispatched settles (stage "voices" for Step 11's readers), then judge the whole pass\n`);
+      return EXIT.refused;
+    }
     const lines = readJsonl<MergedLine>(merged);
     const nothing = !lines.length && !fs.existsSync(judged);
     if (lines.length && !fs.existsSync(judged)) {
