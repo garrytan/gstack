@@ -45,7 +45,7 @@ test('linked owned state cannot redirect cleanup to a sibling', async () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test.each(['ack-only', 'replaced-state', 'terminal-mismatch', 'chromium-mismatch', 'missing-terminal', 'unrecorded-terminal', 'blocked-identity'])('cleanup refuses unconfirmed settlement: %s', async scenario => {
+test.each(['ack-only', 'replaced-state', 'terminal-mismatch', 'chromium-mismatch', 'missing-terminal', 'unrecorded-terminal', 'unlisted-agents', 'blocked-identity'])('cleanup refuses unconfirmed settlement: %s', async scenario => {
   const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qa-clean-'));
   const stateDir = path.join(dir, '.gstack');
   fs.mkdirSync(stateDir);
@@ -94,6 +94,17 @@ fs.writeFileSync(${JSON.stringify(path.join(dir, 'port'))}, String(server.port))
       stray = Bun.spawn([process.execPath, '-e', 'setInterval(() => {}, 1000)', 'browse/src/terminal-agent.ts', '--agent-gen=unrecorded'], { cwd: dir });
       await waitFor(() => /terminal-agent/.test(readPidCmdline(stray!.pid)));
     }
+    if (scenario === 'unlisted-agents') {
+      expect(stopAgentByRecord(agent!, 300)).toBe(true);
+      for (const file of [agentFile, path.join(stateDir, 'terminal-port')]) fs.rmSync(file, { force: true });
+      const bin = path.join(dir, 'bin');
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, 'pgrep'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+      const original = Bun.spawn;
+      const spy = spyOn(Bun, 'spawn').mockImplementation(((args: string[], options: any) =>
+        original(args, { ...options, env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH } })) as typeof Bun.spawn);
+      restore = () => spy.mockRestore();
+    }
     if (scenario === 'missing-terminal') {
       fs.unlinkSync(agentFile);
       fs.writeFileSync(path.join(stateDir, 'browse-daemon.log'), '[browse] terminal-agent exit remains unconfirmed: fixture\n');
@@ -125,6 +136,7 @@ Bun.spawnSync = (...args) => {
       'terminal-mismatch': 'terminal ownership is unconfirmed', 'chromium-mismatch': 'Chromium ownership is unconfirmed',
       'missing-terminal': /terminal identity is unavailable \(record absent; terminal-port .*daemon log terminal-agent lines: \[browse\] terminal-agent exit remains unconfirmed: fixture\)/,
       'unrecorded-terminal': new RegExp(`terminal identity is unavailable \\(record absent; terminal-port absent; running fixture agents: ${stray?.pid}; daemon ${daemon.pid} alive`),
+      'unlisted-agents': 'terminal agent identities are unavailable',
       'blocked-identity': 'owned worker settlement deadline exceeded' };
     await expect(stopQaOnlyBrowser(dir, 1000)).rejects.toThrow(errors[scenario]);
     expect(performance.now() - started).toBeLessThan(2000);
