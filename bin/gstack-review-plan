@@ -205,7 +205,7 @@ function main(): number {
       const ruled = [...(routed?.ruled.keys() ?? [])].sort();
       const excluded = new Set([...(active?.excluded ?? []), ...ruled]);
       const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', own]), gateTagged: gateTagsOf(['--commit', own]), ...riskPaths, ...(excluded.size ? { excluded } : {}) });
-      ruledAll = !!commit.paths.length && ruled.length === commit.paths.length;
+      ruledAll = !range.errors.length && !!commit.paths.length && ruled.length === commit.paths.length;
       fixRange = ruledAll ? { base: rangeBase, runtime_lines: 0, ruled }
         : range.errors.length ? unread([...range.errors.slice(0, 5).map(e => `${e.code} ${e.input}`), ...(range.errors.length > 5 ? [`+${range.errors.length - 5} more`] : [])].join('; '))
         : !commit.paths.length ? unread('the fix range is empty: commit the fix after the range base (a base merge alone is not the PR\'s own change)')
