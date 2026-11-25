@@ -85,8 +85,10 @@ export function readFragments(cwd: string, treeish: string | null, dir: string, 
   const shown = exclude && changelog ? readHistoryFile(cwd, exclude, changelog) : null;
   const released = shown !== null ? parseChangelog(shown.replace(/\r\n/g, '\n')).sections.filter(s => !s.unreleased).map(s => s.lines) : [];
   const isReleased = (body: string) => {
-    const want = body.split('\n');
-    return released.some(lines => lines.some((_, i) => want.every((w, k) => lines[i + k] === w)));
+    const at = (lines: string[], want: string[]) => lines.some((_, i) => want.every((w, k) => lines[i + k] === w));
+    const parts = subsections(body.split('\n')).map(p => ({ name: p.name, run: trimBlank(p.run, true) })).filter(p => p.run.length);
+    if (!parts.length) return released.some(lines => at(lines, body.split('\n')));
+    return released.some(lines => { const own = subsections(lines); return parts.every(({ name, run }) => (name ? own.filter(p => p.name === name).some(p => at(p.run, run)) : at(lines, run))); });
   };
   const fragments: Fragment[] = [];
   const errors: FragmentError[] = [];
@@ -117,26 +119,62 @@ export function effectiveBump(level: Bump, fragments: readonly Fragment[]): Bump
   return fragments.reduce<Bump>((acc, f) => (f.bump && BUMP_RANK[f.bump] > BUMP_RANK[acc] ? f.bump : acc), level);
 }
 
+/** Lines with blank lines dropped from the end, and from the start too when `start` is set. */
+function trimBlank(lines: string[], start: boolean): string[] {
+  const out = [...lines];
+  while (out.length && !out[out.length - 1]!.trim()) out.pop();
+  while (start && out.length && !out[0]!.trim()) out.shift();
+  return out;
+}
+
+/** A fragment body cut at its `### ` subsection headings, never inside a fenced block: each part's heading ('' before the first) and its lines as written. */
+function subsections(lines: readonly string[]): Array<{ name: string; run: string[] }> {
+  const parts: Array<{ name: string; run: string[] }> = [{ name: '', run: [] }];
+  let fence: string | null = null;
+  for (const line of lines) {
+    const open = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+    if (fence === null && open) fence = open;
+    else if (fence !== null && close && close[0] === fence[0] && close.length >= fence.length) fence = null;
+    else if (fence === null && /^###\s+\S/.test(line)) { parts.push({ name: line.trim(), run: [] }); continue; }
+    parts[parts.length - 1]!.run.push(line);
+  }
+  return parts;
+}
+
 /**
  * Put the fragment bodies, in path order, into the CHANGELOG's `[Unreleased]` section (created at the
  * top when absent), so the existing re-heading moves fragments and a legacy entry together under one
- * version. Returns the text unchanged when there are no fragments.
+ * version. Same-named `### ` subsections merge into one (#4785: two fragments each brought
+ * "### For contributors"): the fragments' unheaded entries come first, then each subsection once in the
+ * order it first appears, its entries in fold order, then any legacy `[Unreleased]` text as it stood
+ * (crew/scripts/release-notes.ts reads the fragments' changes first). Every other line is copied as
+ * written. Returns the text unchanged when there are no fragments.
  */
 export function foldIntoUnreleased(text: string, fragments: readonly Fragment[]): string {
   if (!fragments.length) return text;
   const parsed = parseChangelog(text);
-  const bodies = fragments.map(f => f.body).join('\n\n');
   const unreleased = parsed.sections.find(s => s.unreleased);
   const lines = text.replace(/\r\n/g, '\n').split('\n');
-  if (unreleased) {
-    const own = lines.slice(unreleased.start + 1, unreleased.end);
-    while (own.length && !own[0]!.trim()) own.shift();
-    while (own.length && !own[own.length - 1]!.trim()) own.pop();
-    const merged = [lines[unreleased.start]!, '', ...bodies.split('\n'), ...(own.length ? ['', ...own] : []), ''];
-    return [...lines.slice(0, unreleased.start), ...merged, ...lines.slice(unreleased.end)].join('\n');
+  const own = trimBlank(unreleased ? lines.slice(unreleased.start + 1, unreleased.end) : [], true);
+  const groups = new Map<string, string[][]>([['', []]]);
+  for (const f of fragments) for (const { name, run } of subsections(f.body.split('\n'))) {
+    if (!groups.has(name)) groups.set(name, []);
+    const runs = groups.get(name)!;
+    const kept = trimBlank(run, !name || runs.length > 0);
+    if (kept.some(l => l.trim())) runs.push(kept);
   }
+  const section: string[] = [];
+  for (const [name, runs] of groups) {
+    if (!name && !runs.length) continue;
+    if (section.length) section.push('');
+    if (name) section.push(name);
+    runs.forEach((r, i) => section.push(...(i ? ['', ...r] : r)));
+  }
+  if (own.length) section.push('', ...own);
+  if (unreleased) return [...lines.slice(0, unreleased.start), lines[unreleased.start]!, '', ...section, '', ...lines.slice(unreleased.end)].join('\n');
   const at = parsed.sections[0]?.start ?? lines.length;
   const head = lines.slice(0, at);
   while (head.length && !head[head.length - 1]!.trim()) head.pop();
-  return [...head, ...(head.length ? [''] : []), '## [Unreleased]', '', ...bodies.split('\n'), '', ...lines.slice(at)].join('\n');
+  return [...head, ...(head.length ? [''] : []), '## [Unreleased]', '', ...section, '', ...lines.slice(at)].join('\n');
 }
