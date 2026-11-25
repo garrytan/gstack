@@ -52,7 +52,7 @@ describe('the screen verdict comes from the run', () => {
     expect(line(again.out, 'SCREEN_VERDICT:')).toBe('SCREEN_VERDICT: #1 run 100 RED red=judge-voice-tone flaky=c-flaky (verdict RED, reconcile exit 1, run concluded failure, flaky 1)');
     expect(line(again.out, 'FLAKY:')).toBe('FLAKY: c-flaky rule FLAKY: failed in slice 2, passed on its one rerun');
     expect(again.err).toMatch(/the screen recorded for [0-9a-f]{12} \(run 100\) is RED on judge-voice-tone; this head is not READY under any screen choice; fix: .*\(QUEUE_SCREEN_RED\)/);
-    expect(next(again.out)).toBe('NEXT: repair, push a new head, run /ship, then gstack-ship-queue ready --pr 1 --screen');
+    expect(next(again.out)).toBe('NEXT: repair, push a new head, run /gstack-ship, then gstack-ship-queue ready --pr 1 --screen');
     expect(receiptOf(fx, '1', head).screen.verdict).toMatchObject({ outcome: 'RED', run: 100, red: ['judge-voice-tone'], flaky: ['c-flaky'] });
     const noScreen = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']);
     expect([noScreen.status, noScreen.err]).toEqual([EXIT.refused, expect.stringContaining('(QUEUE_SCREEN_RED)')]);
@@ -198,7 +198,7 @@ describe('#3465: the screen is planned on a scratch merge when GitHub\'s merge r
     const conflict = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--screen']);
     expect(conflict.status).toBe(EXIT.refused);
     expect(conflict.err).toMatch(/#1 conflicts with main@[0-9a-f]{12} beyond the CHANGELOG and the stamp files \(pr-1\.txt\); GitHub's merge ref lags too \(origin has no refs\/pull\/1\/merge\).*\(QUEUE_SCREEN_STALE_REF\)/);
-    expect(next(conflict.out)).toBe('NEXT: resolve the conflict with main, push, run /ship, then gstack-ship-queue ready --pr 1 --screen');
+    expect(next(conflict.out)).toBe('NEXT: resolve the conflict with main, push, run /gstack-ship, then gstack-ship-queue ready --pr 1 --screen');
     expect(dispatches(fx, 'evals.yml').length).toBe(1);
     const main2 = repo.git('rev-parse', 'origin/main');
     expect(line(conflict.out, 'BASE_OVERLAP:')).toBe(`BASE_OVERLAP: main moved to ${main2.slice(0, 7)} and touches files in this PR: CHANGELOG.md, pr-1.txt; the train's merge onto main conflicts beyond the CHANGELOG and the stamp files (pr-1.txt)`);
@@ -207,7 +207,7 @@ describe('#3465: the screen is planned on a scratch merge when GitHub\'s merge r
     const noScreen = queue(fx, ['ready', '--pr', '1', '--pregate', pregate, '--no-screen']);
     expect(noScreen.status).toBe(EXIT.refused);
     expect(noScreen.err).toMatch(new RegExp(`#1 conflicts with main@${main2.slice(0, 12)} beyond the CHANGELOG and the stamp files \\(pr-1\\.txt\\); the train would stop at this PR.*\\(QUEUE_TRAIN_CONFLICT\\)`));
-    expect(next(noScreen.out)).toBe('NEXT: report the conflict to the controller; on its word merge main into the pin (never rebase), resolve, push, run /ship, then gstack-ship-queue ready --pr 1 --screen|--no-screen');
+    expect(next(noScreen.out)).toBe('NEXT: report the conflict to the controller; on its word merge main into the pin (never rebase), resolve, push, run /gstack-ship, then gstack-ship-queue ready --pr 1 --screen|--no-screen');
     expect(fs.existsSync(path.join(fx.state, 'ship-queue', 'ready', repoKey(fx), `1-${head}.json`))).toBe(true);
   }, 120_000);
 });
