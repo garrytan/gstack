@@ -1597,6 +1597,8 @@ describe('real caller-specific native fixture and capture boundary', () => {
         expect(options.prompt).toMatch(/keep normal parent decision gates/i);
         expect(options.prompt).toMatch(/Hard deadline UTC, never its Runner entry UTC/i);
         expect(options.prompt).toMatch(/Handoff freshness check: Read HANDOFF\.md and reports\/HANDOFF\.md/);
+        expect(options.prompt).toMatch(/with the Read tool and never Bash cat/);
+        expect(options.prompt).toMatch(/instead of cat\/head\/tail for discovery and for every handoff freshness check/);
         expect(options.prompt).toMatch(/only in a later message than the check's Read results: the evidence helper's materialize, which runs once per report root and freezes the verdict; every gstack-review-log completed:true record, adversarial-review included/);
         expect(options.prompt).toMatch(/do not publish a checkpoint for it/i);
         expect(options.prompt).toMatch(/authenticated expired-capture result/i);

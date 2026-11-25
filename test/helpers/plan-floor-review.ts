@@ -212,7 +212,40 @@ function deterministicPlanFloorFinding(input: PlanFloorReview): PlanFloorAssessm
  * max 31.3s, so the old 30s cap cut the tail. 90s is about 3x p95. */
 export const PLAN_FLOOR_ASSESSMENT_CAP_MS = 90_000;
 
-/** Same warmup CLI and one turn as the replaced waiting-state judge.
+/** The CLI validates StructuredOutput against this schema, so a stray glyph in
+ * free text (runs 45524715090 and 45586644143 ended `"reason":"…","}`) cannot
+ * reach the parser. resolvePlanFloorCitations still checks every key and ID. */
+const PLAN_FLOOR_ASSESSMENT_SCHEMA = JSON.stringify({
+  type: 'object', additionalProperties: false, required: ['kind', 'seedId', 'questionId', 'optionId', 'reason'],
+  properties: {
+    kind: { type: 'string', enum: ['finding', 'setup', 'unrelated', 'uncertain'] },
+    seedId: { type: ['string', 'null'] }, questionId: { type: ['string', 'null'] }, optionId: { type: ['string', 'null'] },
+    reason: { type: 'string' },
+  },
+});
+
+/** The first StructuredOutput call the CLI accepted is the assessment. A call
+ * the CLI rejects (an extra "metadata" key in a local replay) is no assessment,
+ * so the second turn lets the model resend the same answer in the schema. The
+ * CLI's own result keeps the last call, and the model can call it again after
+ * committing (a local replay saw a second call replace a finding with "Placeholder"). */
+function firstStructuredAssessment(stream: string): unknown {
+  const calls = new Map<string, unknown>();
+  for (const line of stream.split('\n')) {
+    if (!line.trim()) continue;
+    const event = JSON.parse(line) as { type?: string;
+      message?: { content?: Array<{ type?: string; id?: string; name?: string; input?: unknown; tool_use_id?: string; is_error?: boolean }> } };
+    for (const block of event.message?.content ?? []) {
+      if (event.type === 'assistant' && block.type === 'tool_use' && block.name === 'StructuredOutput' && block.id)
+        calls.set(block.id, block.input);
+      if (event.type === 'user' && block.type === 'tool_result' && !block.is_error && calls.has(block.tool_use_id ?? ''))
+        return calls.get(block.tool_use_id!);
+    }
+  }
+  throw Error('Floor assessment returned no accepted structured output');
+}
+
+/** Same warmup CLI and prompt as the replaced waiting-state judge, with no tools; the answer arrives as validated structured output.
  * The original case deadline bounds each call; complete input is never truncated. */
 export function judgePlanFloorReview(input: PlanFloorReview, opts: {
   binary: string; model: string; deadlineAt: number;
@@ -230,13 +263,13 @@ export function judgePlanFloorReview(input: PlanFloorReview, opts: {
   }
   try {
     const result = (opts.invoke ?? spawnSync)(opts.binary,
-      ['-p', '--model', opts.model, '--max-turns', '1'],
+      ['-p', '--model', opts.model, '--max-turns', '2', '--tools', '', '--output-format', 'stream-json', '--verbose',
+        '--json-schema', PLAN_FLOOR_ASSESSMENT_SCHEMA],
       { input: prompt, stdio: ['pipe', 'pipe', 'pipe'], timeout: Math.min(PLAN_FLOOR_ASSESSMENT_CAP_MS, remaining), encoding: 'utf8' });
     Object.assign(diagnostic, { rawOutput: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), status: result.status });
     if (result.error || result.status !== 0 || Date.now() >= opts.deadlineAt)
       throw Error(`Floor assessment did not complete: ${result.error?.message ?? `exit ${result.status}`} ${String(result.stderr ?? '').slice(-3000)}`.trim());
-    const output = diagnostic.rawOutput.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, '$1');
-    const assessment = resolvePlanFloorCitations(input, JSON.parse(output));
+    const assessment = resolvePlanFloorCitations(input, firstStructuredAssessment(diagnostic.rawOutput));
     console.log(JSON.stringify({ ...diagnostic, assessment }));
     return assessment;
   } catch (error) {

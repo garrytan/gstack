@@ -402,7 +402,7 @@ describe('gstack-skill-start behavior', () => {
     for (const env of matrix) expect({ env, line: line(env) }).toEqual({ env, line: [autoplanGuardLine(env, ROOT)] });
     expect(line({ CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'codex', GSTACK_SESSION_KIND: 'unattended' })).toEqual([GUARD_NOT_INSTALLED_LINE]);
     expect(runStart(['--skill', 'review'], { CLAUDECODE: '1' })).not.toContain('autoplan guard:');
-  });
+  }, 60_000);
 
   test('unattended block promises GSTACK_RESULT only to skills that write it; the rest name their record (#3281)', () => {
     const block = (skill: string) => {

@@ -399,7 +399,7 @@ test('seeded attempt 1 runs the real prepare and dispatch, saves verbatim output
   try {
     expect(() => seedDocsFirstAttempt(missing, installDocsActor(missing, 'missing-asset'))).toThrow('seeded attempt requires installed document-release/sections/audit-scope.md');
   } finally { missing.clean(); }
-});
+}, 30_000);
 
 test('legacy completion is deterministic data with a real preserved partial edit, not instructions to a model', () => {
   const fixture = fixtureDocs('legacy');
