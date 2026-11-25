@@ -55,9 +55,9 @@ bun --no-env-file --config=/dev/null ~/.claude/skills/gstack/lib/redact-audit-lo
 ### Phase 4.5b: Fail-closed redaction (PRECEDES dispatch)
 
 The scan covers ~30 secret/PII/legal patterns across 3 tiers (HIGH credentials
-block; MEDIUM PII/legal/internal confirm via AskUserQuestion; LOW surfaces). Full
-taxonomy: `lib/redact-patterns.ts` or `/cso`. Run it on the EXACT spec bytes
-before dispatching to the outside reviewer:
+block; MEDIUM PII/legal/internal confirm via AskUserQuestion; LOW surfaces).
+Full taxonomy: `lib/redact-patterns.ts`. Run it on the EXACT spec bytes before
+dispatching to the outside reviewer:
 
 #### Redaction scan — pre-codex (the spec body)
 

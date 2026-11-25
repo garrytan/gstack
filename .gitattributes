@@ -32,7 +32,6 @@ bin/*        text eol=lf
 # copies an older checkout already left with CRLF.
 **/bin/*                           text eol=lf
 hosts/*/hooks/*                    text eol=lf
-lib/cso/images/*                   text eol=lf
 scripts/app/*                      text eol=lf
 browse/test/fixtures/mock-claude/* text eol=lf
 

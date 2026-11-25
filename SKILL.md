@@ -233,7 +233,6 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - User asks to upgrade gstack → invoke `/gstack-upgrade`
 - User asks to save progress, checkpoint, "save my work" → invoke `/context-save`
 - User asks to resume, restore, "where was I" → invoke `/context-restore`
-- User asks about security, OWASP, vulnerabilities, "is this secure" → invoke `/cso`
 - User asks to make a PDF, document, publication → invoke `/make-pdf`
 - User asks to pull data off a web page, "grab the table from", "extract the prices" → invoke `/scrape`
 - User asks to launch a real browser for QA, "open the browser" → invoke `/open-gstack-browser` (fallback browser; on Aside the tabs are already visible)
@@ -252,7 +251,6 @@ Generic “second opinion”, “outside review”, or “cross-model review” 
 - Voice trigger "compare models", "model shootout", "which model is best" → invoke `/benchmark-models`
 - Voice trigger "open the browser", "look at this page" → invoke `/browse`
 - Voice trigger "code x", "code ex", "get another opinion" → invoke `/codex`
-- Voice trigger "see-so", "see so", "security review", "security check", "vulnerability scan", "run security" → invoke `/cso`
 - Voice trigger "build the design", "code the mockup", "make it real" → invoke `/design-html`
 - Voice trigger "dx audit", "test the developer experience", "try the onboarding", "developer experience test" → invoke `/devex-review`
 - Voice trigger "upgrade the tools", "update the tools", "gee stack upgrade", "g stack upgrade" → invoke `/gstack-upgrade`

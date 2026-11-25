@@ -613,11 +613,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'retro':             ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'bin/gstack-retro-metrics', 'lib/retro-friction.ts', 'retro/**', 'test/skill-e2e-retro.test.ts'],
   'retro-base-branch': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'bin/gstack-retro-metrics', 'lib/retro-friction.ts', 'retro/**', 'test/skill-e2e-retro.test.ts'],
 
-  // CSO
-  'cso-full-audit':   ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'cso/**', 'lib/cso/**', 'lib/redact-engine.ts', 'lib/redact-patterns.ts',   'test/skill-e2e-cso.test.ts', 'test/helpers/cso-e2e-report.ts'],
-  'cso-diff-mode':    ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'cso/**', 'lib/cso/**', 'lib/redact-engine.ts', 'lib/redact-patterns.ts',   'test/skill-e2e-cso.test.ts', 'test/helpers/cso-e2e-report.ts'],
-  'cso-infra-scope':  ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'cso/**', 'lib/cso/**', 'lib/redact-engine.ts', 'lib/redact-patterns.ts',   'test/skill-e2e-cso.test.ts', 'test/helpers/cso-e2e-report.ts'],
-
   // Learnings
   'write-skill-add-lesson': ['write-skill/**', 'bin/gstack-skill-bill', 'lib/skill-bill.ts', 'lib/context-bill.ts', 'test/skill-e2e-write-skill.test.ts'],
   'learnings-show': ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts', 'test/skill-e2e-learnings.test.ts'],
@@ -1077,7 +1072,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/arm-benchmark-harness.ts',
     'test/helpers/providers/gateway.ts',
     'test/helpers/providers/claude.ts',
-    'test/helpers/providers/claude-stream.ts',
     'test/helpers/providers/types.ts',
     'test/helpers/pricing.ts',
     'lib/pricing.ts',
@@ -1091,7 +1085,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/arm-benchmark-harness.ts',
     'test/helpers/providers/gateway.ts',
     'test/helpers/providers/claude.ts',
-    'test/helpers/providers/claude-stream.ts',
     'test/helpers/providers/types.ts',
     'test/helpers/pricing.ts',
     'lib/pricing.ts',
@@ -1105,7 +1098,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/arm-benchmark-harness.ts',
     'test/helpers/providers/gateway.ts',
     'test/helpers/providers/claude.ts',
-    'test/helpers/providers/claude-stream.ts',
     'test/helpers/providers/types.ts',
     'test/helpers/pricing.ts',
     'lib/pricing.ts',
@@ -1119,7 +1111,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/arm-benchmark-harness.ts',
     'test/helpers/providers/gateway.ts',
     'test/helpers/providers/claude.ts',
-    'test/helpers/providers/claude-stream.ts',
     'test/helpers/providers/types.ts',
     'test/helpers/pricing.ts',
     'lib/pricing.ts',
@@ -1133,7 +1124,6 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/arm-benchmark-harness.ts',
     'test/helpers/providers/gateway.ts',
     'test/helpers/providers/claude.ts',
-    'test/helpers/providers/claude-stream.ts',
     'test/helpers/providers/types.ts',
     'test/helpers/pricing.ts',
     'lib/pricing.ts',
@@ -1432,11 +1422,6 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
   // Retro — gate for cheap branch detection, periodic for full Opus retro
   'retro': 'periodic',
   'retro-base-branch': 'gate',
-
-  // CSO — gate for security guardrails, periodic for quality
-  'cso-full-audit': 'periodic',  // D2a demotion 2026-08: 250s/$0.57 full audit; cso targeted tests stay gate
-  'cso-diff-mode': 'gate',
-  'cso-infra-scope': 'periodic',
 
   // Learnings — gate (functional guardrail: seeded learnings must appear)
   'learnings-show': 'gate',
@@ -1799,9 +1784,6 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'docsync-spawned': 'rule',
   'retro': 'rule',
   'retro-base-branch': 'rule',
-  'cso-full-audit': 'rule',
-  'cso-diff-mode': 'rule',
-  'cso-infra-scope': 'rule',
   'learnings-show': 'rule',
   'write-skill-add-lesson': 'rule',
   // GSTA-228 planning wave.

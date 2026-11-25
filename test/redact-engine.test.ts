@@ -410,7 +410,7 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
     }
   });
   // #2912 — a line that READS a secret from the environment holds no secret;
-  // it must not fire (and so must not be masked or withhold a /cso source file).
+  // it must not fire (and so must not be masked or withhold a source file).
   test("env.kv skips exact environment reads (#2912)", () => {
     for (const line of [
       'api_key=os.environ["AGENTOPS_API_KEY"]',

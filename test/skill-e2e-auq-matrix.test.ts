@@ -24,8 +24,6 @@
  * choices) are intentionally OUT of this matrix; Layer 0 covers their format
  * spec, and a fixture can't fairly trigger their AUQ.
  *
- * CSO is intentionally absent: its private startup omits the shared AUQ block,
- * and its dedicated E2E grades evidence, reporting, and proof behavior.
  * Run a subset in the foreground with AUQ_MATRIX_ONLY="plan-eng-review,spec".
  */
 import { test } from 'bun:test';

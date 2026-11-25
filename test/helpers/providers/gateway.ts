@@ -66,7 +66,7 @@ export class GatewayAdapter implements ProviderAdapter {
   constructor(readonly name: GatewayName, private readonly source: NodeJS.ProcessEnv = process.env) {
     this.model = GATEWAY_MODELS[name];
     this.harness = new ClaudeAdapter({
-      environment: opts => gatewayEnvironment(this.model, claudeExecEnvironment(opts, this.source)),
+      environment: () => gatewayEnvironment(this.model, claudeExecEnvironment(this.source)),
       strict: true,
     });
   }
@@ -82,9 +82,6 @@ export class GatewayAdapter implements ProviderAdapter {
   }
 
   async run(opts: RunOpts): Promise<RunResult> {
-    if (opts.csoProducer) {
-      return { output: '', tokens: { input: 0, output: 0 }, durationMs: 0, toolCalls: 0, modelUsed: this.model, error: { code: 'unknown', reason: 'gateway providers do not run CSO producers' } };
-    }
     const result = await this.harness.run({ ...opts, model: this.model, extraArgs: [...(opts.extraArgs ?? []), '--setting-sources', ''] });
     const foreign = foreignModels(this.model, result.modelsBilled);
     if (!result.error && foreign.length) {

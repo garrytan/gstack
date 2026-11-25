@@ -30,9 +30,7 @@ bun run typecheck:test   # expect "test typecheck ratchet: N known diagnostics, 
 entries in `tsconfig.json`) and must stay at zero errors. `typecheck:test` holds test code to the
 committed `scripts/typecheck-test-baseline.json`: a new or repeated diagnostic fails and names
 the file, TS code and message; fixing diagnostics also fails until you lock the smaller allowance
-in with `bun run typecheck:test --write-baseline`. Editing `lib/cso/*.ts`? Run
-`bun run format:cso` before committing; CI runs `format:cso:check`. All three run in the required
-`free-tests` check.
+in with `bun run typecheck:test --write-baseline`. Both run in the required `free-tests` check.
 
 Now edit any `SKILL.md`, invoke it in Claude Code (e.g. `/review`), and see your changes live. When you're done developing:
 

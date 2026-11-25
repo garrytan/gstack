@@ -331,7 +331,7 @@ keep it, fix the method, or cut it, and say which plainly. A cut, like any
 attempt that fails or is shelved, gets a short write-up before it closes
 (docs/shelved-attempt.md).
 
-Safety and security guards (careful, freeze, guard, unfreeze, cso) stay on
+Safety and security guards (careful, freeze, guard, unfreeze) stay on
 their stated reason: they stop the rare bad run that an average score can't see.
 
 Measure the biggest parts first, the ones that load the most on the most runs.

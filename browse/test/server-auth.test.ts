@@ -77,7 +77,7 @@ describe('Server auth security', () => {
     }
   });
 
-  // Test 1c: newtab must check domain restrictions (CSO finding #5)
+  // Test 1c: newtab must check domain restrictions (security audit finding #5)
   // Domain check for newtab is now unified with goto in the scope check section:
   // (command === 'goto' || command === 'newtab') && args[0] → checkDomain
   test('newtab enforces domain restrictions', () => {

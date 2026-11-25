@@ -6,7 +6,7 @@
  * Chain: GSTACK_STATE_ROOT → GSTACK_HOME → GSTACK_STATE_DIR → CLAUDE_PLUGIN_DATA
  * (only when CLAUDE_PLUGIN_ROOT contains "gstack") → $HOME/.gstack → .gstack.
  * Enforced by test/state-root-ratchet.test.ts. Replaces the hand-rolled chains
- * formerly in browse/src/config.ts and lib/cso/state.ts. Docs: docs/state-root.md.
+ * formerly in browse/src/config.ts and the removed /cso helper. Docs: docs/state-root.md.
  */
 import * as fs from 'node:fs';
 

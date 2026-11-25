@@ -85,7 +85,6 @@ const DESTRUCTIVE_PATTERNS: RegExp[] = [
  * inherently high-stakes.
  */
 const ONE_WAY_SKILL_CATEGORIES = new Set<string>([
-  'cso:approval', // security-audit findings
   'land-and-deploy:approval', // anything /land-and-deploy asks
 ]);
 

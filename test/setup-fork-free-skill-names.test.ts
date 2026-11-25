@@ -18,7 +18,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SRC = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
 const HELPER = path.join(ROOT, 'bin/gstack-skill-name.sh');
 const SHIMMED = ['grep', 'sed', 'tr', 'basename'];
-const SKILLS = ['qa', 'review', 'ship', 'office-hours', 'investigate', 'land-and-deploy', 'retro', 'cso'];
+const SKILLS = ['qa', 'review', 'ship', 'office-hours', 'investigate', 'land-and-deploy', 'retro', 'benchmark'];
 
 function extractFn(name: string): string {
   const start = SETUP_SRC.indexOf(`\n${name}() {`);

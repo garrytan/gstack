@@ -10,7 +10,8 @@ make-pdf/dist/
 !lib/diagram-render/dist/
 !lib/diagram-render/dist/**
 bin/gstack-global-discover*
-# Compiled CSO launcher, helper, and watchdog.
+# Build outputs of the removed /cso helper. An upgraded checkout keeps them
+# until ./setup deletes them; ignoring them keeps that checkout clean meanwhile.
 bin/gstack-cso-launcher
 bin/gstack-cso-launcher.exe
 bin/gstack-cso-core
@@ -23,6 +24,7 @@ bin/.gstack-cso-generation.lock
 bin/.gstack-cso-generation
 bin/.gstack-cso-build-result
 bin/.gstack-cso-build.log
+bin/.gstack-cso-evaluation
 lib/cso/images/gstack-cso-verifier
 lib/cso/images/gstack-cso-preparation
 .gstack/*

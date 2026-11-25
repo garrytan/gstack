@@ -486,7 +486,6 @@ describe('setup --team / --no-team / -q', () => {
 [ "$1 $2" = '--no-env-file --config=/dev/null' ] && shift 2
 case "$*" in
   'install --production --frozen-lockfile') exit 0 ;;
-  'build --help') echo 'Fixture Bun has no CSO compile flags'; exit 0 ;;
   *'/bin/gstack-migrate-claude-code --install-dir '*)
     [[ "$#" -eq 5 && "$2" = --install-dir && "$4" = --skills-dir ]] || exit 90
     exit 0 ;;

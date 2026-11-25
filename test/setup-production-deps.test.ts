@@ -673,7 +673,7 @@ describe('setup and runtime need only production dependencies', () => {
   });
 
   test('the dev toolchain stays out of the user install', () => {
-    for (const name of ['@anthropic-ai/claude-agent-sdk', 'typescript', 'prettier', '@types/bun']) {
+    for (const name of ['@anthropic-ai/claude-agent-sdk', 'typescript', '@types/bun']) {
       expect(PKG.devDependencies).toHaveProperty([name]);
       expect(PKG.dependencies).not.toHaveProperty([name]);
     }

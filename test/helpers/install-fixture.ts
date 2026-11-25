@@ -8,7 +8,7 @@
  * node_modules symlink to its main checkout, which git lists as untracked
  * because .gitignore's `node_modules/` matches only directories. Binaries are stubbed and `bun run build` is refused, so setup
  * runs its real registration path without compiling (GSTACK_SKIP_PLAYWRIGHT,
- * GSTACK_SETUP_SKIP_CSO_BUILD, GSTACK_SKIP_FONTS). Every write the test makes
+ * GSTACK_SKIP_FONTS). Every write the test makes
  * goes through `put` or the `fixture*Sync` wrappers, which refuse paths
  * outside the fixture roots.
  *
@@ -183,7 +183,7 @@ esac
   const env: Record<string, string> = {
     PATH: `${commands}:${process.env.PATH}`, HOME: home, USERPROFILE: home,
     TMPDIR: dir, TMP: dir, TEMP: dir, LANG: 'C.UTF-8',
-    GSTACK_SKIP_PLAYWRIGHT: '1', GSTACK_SETUP_SKIP_CSO_BUILD: '1', GSTACK_SKIP_FONTS: '1',
+    GSTACK_SKIP_PLAYWRIGHT: '1', GSTACK_SKIP_FONTS: '1',
     GSTACK_SKIP_COREUTILS: '1', GSTACK_SKIP_ASIDE: '1',
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: join(tmpdir(), 'gstack-install-fixture-bun-cache'),
   };
@@ -251,7 +251,6 @@ export function fixture(layout: string) {
   write(join(commands, 'bun'), `#!/usr/bin/env bash
 case "$*" in
   'install --production --frozen-lockfile') exit 0 ;;
-  'build --help') echo 'Fixture Bun has no CSO compile flags'; exit 0 ;;
   'run build') echo 'Unexpected build in registration fixture' >&2; exit 90 ;;
   *) exec ${quote(process.execPath)} "$@" ;;
 esac

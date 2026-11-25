@@ -517,7 +517,7 @@ describe("pii.wallet: a bc1 address needs the bech32 alphabet and checksum (Free
     "pii.wallet",
     "MEDIUM",
     [
-      // The sha the CSO history range printed as <REDACTED-pii.wallet>..<REDACTED-pii.wallet>; it holds 1 and b, outside bech32's alphabet.
+      // The sha a git history range printed as <REDACTED-pii.wallet>..<REDACTED-pii.wallet>; it holds 1 and b, outside bech32's alphabet.
       "bc1f7576f1eaf9d548ddb6f742b85ec11b4a3e79..bc1f7576f1eaf9d548ddb6f742b85ec11b4a3e79",
       // A sha inside the alphabet (no 1 or b after the prefix) fails the checksum.
       "commit bc1f7576f2eaf9d548ddf6f742c85ec22d4a3e79",

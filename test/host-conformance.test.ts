@@ -146,13 +146,6 @@ describe.skipIf(process.platform === 'win32')('host conformance kit', () => {
           if (existsSync(md)) expect(readSkillStartup(md), `${host}/${name} carries Claude paths`).not.toContain('~/.claude/skills/gstack');
         }
       }
-      // #2906: /cso skips the shared preamble, so it names its launcher by the
-      // host's literal install path; that path must reach this install's bin/.
-      const cso = ['cso', 'gstack-cso'].find(n => existsSync(join(dest, n, 'SKILL.md')));
-      expect(cso, `${host} cso skill`).toBeDefined();
-      const launcher = readFileSync(join(dest, cso!, 'SKILL.md'), 'utf8').match(/Use `([^`]+)\/gstack-cso-launcher\[\.exe\]`/);
-      expect(launcher, `${host} cso names its launcher`).not.toBeNull();
-      expect(realpathSync(launcher![1].replace(/^~(?=\/)/, f.home)), `${host} cso launcher dir`).toBe(realpathSync(join(src, 'bin')));
       const rows = registryRows(f);
       expect(rows.map(row => [row[0], row[1], row[3], row[5], row[6]])).toEqual([[host, 'global', dest, realpathSync(src), readFileSync(join(src, 'VERSION'), 'utf8').trim()]]);
       expect(r.stdout + r.stderr).toMatch(new RegExp(`Install summary:[\\s\\S]*\\b${host}\\s+\\S+\\s+global\\s+installed`));
@@ -481,7 +474,6 @@ describe.skipIf(process.platform === 'win32')('host conformance kit', () => {
     expect(claude).toContain(`\n${src}/bin/gstack-skill-start --skill "review" --model "claude"\n`);
     const codex = readFileSync(join(codexHome, 'skills/gstack-review/SKILL.md'), 'utf8');
     expect(codex).toContain(`GSTACK_ROOT="${codexHome}/skills/gstack"`);
-    expect(readFileSync(join(codexHome, 'skills/gstack-cso/SKILL.md'), 'utf8')).toContain(`Use \`${codexHome}/skills/gstack/bin/gstack-cso-launcher[.exe]\``);
     expect(realpathSync(join(codexHome, 'skills/gstack/bin'))).toBe(realpathSync(join(src, 'bin')));
     const rows = registryRows(f);
     expect(rows.map(r => [r[0], r[8].startsWith(join(f.home, '.gstack/render/installs/'))]).sort()).toEqual([['claude', true], ['codex', true]]);

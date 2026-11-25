@@ -28,7 +28,7 @@ describe('ubicloud free-suite runner', () => {
   test('setup performs the CI job’s build steps', () => {
     const setup = read('scripts/ubicloud/setup-free-suite.sh');
     for (const command of ['bun install --frozen-lockfile', 'bun run gen:skill-docs --host all', 'bun run vendor:xterm',
-      'bash browse/scripts/build-node-server.sh', 'bun run build:gates', 'bun run build:cso']) {
+      'bash browse/scripts/build-node-server.sh', 'bun run build:gates']) {
       expect(freeSuite.some(step => step.run?.includes(command))).toBe(true);
       expect(setup).toContain(command);
     }

@@ -350,8 +350,6 @@ jobs:
         run: bun run typecheck
       - name: Test-code type-debt ratchet
         run: bun run typecheck:test
-      - name: CSO source formatting
-        run: bun run format:cso:check
 
   # Capy machines install GSTACK_BUN_DEFAULT (bin/gstack-bun-version.sh) when
   # no project pin decides, above the 1.4.2 minimum every other lane pins, so
@@ -494,8 +492,6 @@ jobs:
         run: bash browse/scripts/build-node-server.sh
       - name: Build gate binaries (make-pdf e2e gates)
         run: bun run build:gates
-      - name: Build trusted CSO helper used by free contract tests
-        run: bun run build:cso
       - name: Run the quick free tier on the install-default Bun
         env:
           GSTACK_FREE_RETRY_FLAKY: "1"
@@ -723,9 +719,6 @@ jobs:
       # need exactly these three artifacts.
       - name: Build gate binaries (make-pdf e2e gates)
         run: bun run build:gates
-
-      - name: Build trusted CSO helper used by free contract tests
-        run: bun run build:cso
 
       # Runner sizing: the suite runs one test at a time, so a shard needs RAM
       # and disk more than cores. Sample both while it runs and report the peak.

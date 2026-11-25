@@ -35,7 +35,7 @@
       "estimatedMs": 247902
     },
     {
-      "file": "test/skill-e2e-cso.test.ts",
+      "file": "test/skill-e2e-shared-libs-periodic.test.ts",
       "slice": 1,
       "status": "planned",
       "estimatedMs": 253498

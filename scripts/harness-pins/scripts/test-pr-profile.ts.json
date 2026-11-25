@@ -1,1 +1,1 @@
-{"blob":"10f92d323fc94589f184ad00fd1228f1372b5470","since":8,"nonBehavioral":"Removes the four deleted /cso workflows from the PR-profile path list; no remaining case's selection, trials or verdict changes"}
+{"blob":"10f92d323fc94589f184ad00fd1228f1372b5470","since":8,"nonBehavioral":"Removes the deleted /cso cases and test file from the paid case and PR-profile lists; no remaining case's selection, trials or verdict changes"}

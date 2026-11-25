@@ -6,7 +6,6 @@
  * sibling's. These resolvers render that rule once:
  *
  *   {{SIDEWAYS_SWEEP}}          review Step 4: sweep + the forced-CRITICAL list
- *   {{SIDEWAYS_SWEEP:cso}}      /cso Phase 12: the sibling sweep only (D2: nothing else)
  *   {{FLAKE_FIX_NUMBER:review}} a test-only flake fix needs P(fail | regression) before and after
  *
  * `undeclaredBehaviorLines()` is the Scope Check addition the plan-completion
@@ -24,10 +23,7 @@ export function forcedCriticalPhrase(): string {
   return 'data loss, a trust-boundary bypass or uncapped spend';
 }
 
-export function generateSidewaysSweep(_ctx: TemplateContext, args?: string[]): string {
-  if (args?.[0] === 'cso') {
-    return 'After supporting a finding, grep its pattern at every other in-scope ingress, command and call site; severity follows the worst sibling.';
-  }
+export function generateSidewaysSweep(_ctx: TemplateContext, _args?: string[]): string {
   return `**Sideways sweep (every finding; reads code OUTSIDE the diff).** Grep the finding's pattern at every other ingress, command and call site, Read each match and rate severity on the worst sibling; a new enum value, status, tier or type constant is traced through every consumer the same way (checklist: Sideways sweep). ${forcedCriticalPhrase().replace(/^d/, 'D')} is forced CRITICAL: no lane, specialist, dedup or saved decision downgrades it. Keep findings anchored to changed code.`;
 }
 

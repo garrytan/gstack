@@ -4,8 +4,8 @@
  * Git for Windows checks out with core.autocrlf=true. A tracked script with no
  * `eol` rule is written with CRLF there, and a Linux bash reading that
  * checkout (a synced tree, WSL, a bind mount) fails on `set -o pipefail\r`.
- * `bin/*` is anchored at the root, so nested bin/ dirs, the hook shims, the
- * CSO image scripts and the app launcher had no rule. This pins the rules for
+ * `bin/*` is anchored at the root, so nested bin/ dirs, the hook shims and
+ * the app launcher had no rule. This pins the rules for
  * every tracked file that starts with `#!`, and keeps the broad patterns from
  * marking a binary file as text.
  */
@@ -58,7 +58,6 @@ describe('.gitattributes eol rules (#3110)', () => {
       'plan-ceo-review/bin/mode-handoff-hook',
       'hosts/claude/hooks/timeline-stop-hook',
       'browse/bin/remote-slug',
-      'lib/cso/images/entrypoint',
       'scripts/app/gstack-browser',
       'browse/test/fixtures/mock-claude/claude',
     ];

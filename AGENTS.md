@@ -59,7 +59,6 @@ CLIs (`gstack-ios-qa-daemon`, `gstack-ios-qa-mint`, `gstack-ios-qa-regen`) are i
 | `/runaway-stopper` | operational + memory |
 | `/benchmark-models` | operational + memory |
 | `/eval-plan` | operational + memory |
-| `/cso` | operational + memory |
 | `/setup-gbrain` | operational + memory |
 | `/sync-gbrain` | operational + memory |
 | `/browse` | browser |
@@ -217,7 +216,6 @@ When fixing failures or preparing `/gstack-ship`, follow this order:
 bun install              # install dependencies
 bun run typecheck        # strict tsc over product code; must report zero errors
 bun run typecheck:test   # test-code type-debt ratchet (new diagnostics fail; --write-baseline locks in fixes)
-bun run format:cso       # format lib/cso/*.ts (format:cso:check is the CI gate)
 bun run test:quick       # fast measured free subset for edit feedback (not acceptance)
 bun run test             # complete free suite via the strict shard runner (no API spend)
 bun run eval:bg:pr       # changed live probes + selected judges; dispatches CI when HEAD is clean and pushed, else runs locally
@@ -248,11 +246,6 @@ Support tiers (full: macOS, Linux; minimal: Windows, Gemini models) are in
   MSYS today; native PowerShell support is a future expansion. The `bin/gstack-paths`
   helper resolves state roots through `CLAUDE_PLUGIN_DATA` / `GSTACK_HOME` so plugin
   installs work on every platform.
-- **CSO native helper**: `/cso` additionally needs Bun's four
-  `--no-compile-autoload-*` flags and a native toolchain (static-capable C on
-  Linux, Xcode command-line tools on macOS, or VS 2022 C++ Build Tools on
-  Windows). Setup installs everything else and leaves `/cso` explicitly
-  unavailable when that optional toolchain is absent.
 - **Browser and renderer**: the browser skills, `/make-pdf`, and `/diagram` drive
   the Aside browser first, which is macOS 15+ only. On Linux and Windows (or a
   Mac with Aside closed) the readiness check says so once and the same skills use

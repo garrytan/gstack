@@ -74,7 +74,7 @@ Inventory of every setup side effect, by phase (line numbers are approximate):
 
 | Phase | Writes | Scope |
 |---|---|---|
-| Build | `browse/dist`, `design/dist`, `make-pdf/dist`, `bin/gstack-cso-*` in the source checkout | source |
+| Build | `browse/dist`, `design/dist`, `make-pdf/dist` in the source checkout | source |
 | Hosts record | `.gstack-installed-hosts` in the source checkout: every host setup installed from it, additive (#1694) | source |
 | Generation | renders for the recorded hosts only (`.agents/`, `.kiro/`, `.factory/`, `.opencode/`, `.cursor/`, `.copilot/`, `.agy/`, `.gemini-cli/`) in the source checkout; `gstack-patch-names` rewrites Claude `name:` fields in place | source |
 | Render prune | renders of hosts the record does not name: links into the checkout removed, generated files moved to `$GSTACK_STATE_ROOT/backups/host-renders/<ts>-<id>/`, other files kept | source / state root |

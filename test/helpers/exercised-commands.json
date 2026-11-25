@@ -696,15 +696,6 @@
       "costUsd": 0,
       "costRuns": 91
     },
-    "cso-diff-mode": {
-      "observations": 157,
-      "withCommands": 157,
-      "commands": [
-        "design/dist/design"
-      ],
-      "costUsd": 1.5371,
-      "costRuns": 91
-    },
     "design-review-detector-shim": {
       "observations": 174,
       "withCommands": 174,

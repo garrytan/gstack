@@ -47,7 +47,6 @@ const skillSaveMap: Record<string, SkillSaveMeta> = {
   'plan-devex-review':    { slugPrefix: 'devex-reviews',   title: 'Devex Review',    tag: 'devex-review' },
   'retro':                { slugPrefix: 'retros',          title: 'Retro',           tag: 'retro' },
   'ship':                 { slugPrefix: 'releases',        title: 'Release',         tag: 'release' },
-  'cso':                  { slugPrefix: 'security-audits', title: 'Security Audit',  tag: 'security-audit' },
   'design-consultation':  { slugPrefix: 'design-systems',  title: 'Design System',   tag: 'design-system' },
 };
 

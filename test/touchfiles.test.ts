@@ -111,26 +111,6 @@ describe('selectTests', () => {
     },
   );
 
-  test.each(['lib/cso/cli.ts', 'lib/cso/state.ts'])(
-    'CSO runtime and report regressions select all three audit cases: %s', (file) => {
-      const result = selectTests([file], E2E_TOUCHFILES);
-      expect(result.reason).toBe('diff');
-      expect(result.selected.sort()).toEqual(['cso-diff-mode', 'cso-full-audit', 'cso-infra-scope']);
-      expect(E2E_TIERS['cso-diff-mode']).toBe('gate');
-      expect(E2E_TIERS['cso-full-audit']).toBe('periodic');
-      expect(E2E_TIERS['cso-infra-scope']).toBe('periodic');
-    },
-  );
-
-  test.each(['lib/redact-engine.ts', 'lib/redact-patterns.ts'])(
-    'shared redaction changes retain CSO audit consumers: %s', (file) => {
-      const result = selectTests([file], E2E_TOUCHFILES);
-      for (const id of ['cso-diff-mode', 'cso-full-audit', 'cso-infra-scope']) {
-        expect(result.selected).toContain(id);
-      }
-    },
-  );
-
   test('testing resolver source selects the same E2E consumers as its generated content', () => {
     const consumers = [
       ['plan-eng-review/sections/review-sections.md', 'TEST_COVERAGE_AUDIT_PLAN'],
@@ -306,7 +286,6 @@ describe('selectTests', () => {
     expect(result.selected).toContain('journey-ideation');
     // Should NOT include tests that don't depend on it
     expect(result.selected).not.toContain('retro');
-    expect(result.selected).not.toContain('cso-full-audit');
   });
 
   test.each(['test/helpers/ceo-finding-fixture.ts'])('mode input dependency selects its periodic eval: %s', file => {

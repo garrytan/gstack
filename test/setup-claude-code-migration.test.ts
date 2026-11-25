@@ -74,12 +74,11 @@ esac
 if [ "$1" = run ] && [ "$2" = build ]; then
   printf 'build\\n' >> "$FIXTURE_EVENTS"
   "$FIXTURE_REAL_BUN" run scripts/gen-skill-docs.ts --host all
-  for target in browse/dist/browse design/dist/design make-pdf/dist/pdf bin/gstack-cso-core bin/gstack-cso-launcher bin/gstack-cso-watchdog; do
+  for target in browse/dist/browse design/dist/design make-pdf/dist/pdf; do
     mkdir -p "$(dirname "$target")"
     printf '#!/usr/bin/env bash\\nexit 0\\n' > "$target"
     chmod +x "$target"
   done
-  printf '%064d\\n' 0 > bin/.gstack-cso-generation
   printf 'complete\\n' > browse/dist/.build-complete
   exit 0
 fi

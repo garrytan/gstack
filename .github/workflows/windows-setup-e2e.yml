@@ -10,9 +10,7 @@ name: Windows Setup E2E
 # text (the runtime root has no node_modules, so this is the checkout-bundle
 # path from #3026, and the piped-stdin path from #3039). Every compiled
 # binary must answer the side-effect-free --version that setup's Smart App
-# Control probe runs (#2595). Last, two forced CSO failures: fatal under
-# GSTACK_STRICT_BUILD=1, and a completed setup with the failure reported
-# under GSTACK_STRICT_BUILD=0 (#3071). Git Bash path spelling (#3088,
+# Control probe runs (#2595). Git Bash path spelling (#3088,
 # #3100): the hook check passes on this checkout, /gstack-upgrade's checkout
 # guard passes at its root, and an install stuck on a release whose checker
 # had the false positive recovers with the documented
@@ -48,8 +46,6 @@ on:
       - 'package.json'
       - 'bun.lock'
       - 'scripts/build.sh'
-      - 'scripts/build-cso.sh'
-      - 'scripts/build-cso-windows.ps1'
       - 'scripts/write-version-files.sh'
       - 'scripts/windows-held-install-fixture.sh'
       - 'setup'
@@ -130,7 +126,7 @@ jobs:
           TRUNK_DISABLE_TELEMETRY: 'true'
         with:
           token: ${{ env.TRUNK_API_TOKEN }}
-          job-keys: windows-setup,windows-setup-recovery,windows-setup-cso,held-install-journey,held-install-trial,held-install-later-release
+          job-keys: windows-setup,windows-setup-recovery,held-install-journey,held-install-trial,held-install-later-release
           github-token: ''
           enable-annotation: 'true'
 
@@ -169,8 +165,6 @@ jobs:
           package.json
           bun.lock
           scripts/build.sh
-          scripts/build-cso.sh
-          scripts/build-cso-windows.ps1
           scripts/write-version-files.sh
           scripts/windows-held-install-fixture.sh
           setup
@@ -282,7 +276,6 @@ jobs:
         shell: bash
         env:
           GSTACK_SKIP_PLAYWRIGHT: '1'
-          GSTACK_STRICT_BUILD: '1'
 
       - name: Verify binaries exist (with .exe extension on Windows)
         run: |
@@ -334,7 +327,7 @@ jobs:
           set -euo pipefail
           E2E_HOME="$RUNNER_TEMP/gstack-e2e-home"
           mkdir -p "$E2E_HOME"
-          HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")" GSTACK_STRICT_BUILD=1 ./setup --host codex
+          HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")" ./setup --host codex
           ROOT="$E2E_HOME/.codex/skills/gstack"
           test -f "$ROOT/.source-path" || (echo "MISSING: $ROOT/.source-path" && exit 1)
           test ! -e "$ROOT/node_modules" || (echo "UNEXPECTED: $ROOT/node_modules (the journey must exercise the copy without it)" && exit 1)
@@ -355,7 +348,7 @@ jobs:
           E2E_HOME="$RUNNER_TEMP/gstack-ps1-home"
           mkdir -p "$E2E_HOME"
           set +e
-          OUT=$(HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")" GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_STRICT_BUILD=0 \
+          OUT=$(HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")" GSTACK_SKIP_PLAYWRIGHT=1 \
             powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(cygpath -w "$SPACED/setup.ps1")" --host codex 2>&1)
           CODE=$?
           set -e
@@ -494,78 +487,6 @@ jobs:
           test "$CODE" -eq 0 || (echo "the documented recovery exited $CODE" && exit 1)
           ! echo "$OUT" | grep -q 'refusing to register hooks' || (echo "setup still refused hooks after the recovery" && exit 1)
           test "$(git -C "$INSTALL" rev-parse HEAD)" != "$STUCK" || (echo "the recovery did not move the checkout" && exit 1)
-        shell: bash
-
-  windows-setup-cso:
-    # The two forced-CSO-failure cases run on their own runner beside
-    # windows-setup (GST-3303), after the same strict build they followed there.
-    needs: windows-scope
-    if: needs.windows-scope.outputs.install == 'true'
-    runs-on: windows-latest
-    timeout-minutes: 35
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.2
-
-      - name: Configure git identity
-        run: |
-          git config --global user.email "windows-setup-e2e@gstack.test"
-          git config --global user.name "Windows Setup E2E"
-          git config --global init.defaultBranch main
-        shell: bash
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-        shell: bash
-
-      - name: Run bun run build (the previously-broken path)
-        # This is the regression gate. Bun's Windows shell parser rejected
-        # multiple constructs the old inline build chain used; the wave
-        # moved the build to scripts/build.sh. If this step fails on
-        # Windows, the build chain regressed.
-        run: bun run build
-        shell: bash
-        env:
-          GSTACK_SKIP_PLAYWRIGHT: '1'
-          GSTACK_STRICT_BUILD: '1'
-
-      - name: A forced CSO failure is fatal under GSTACK_STRICT_BUILD=1 (#3071)
-        run: |
-          set -uo pipefail
-          rm -f browse/dist/.build-complete
-          set +e
-          GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_STRICT_BUILD=1 GSTACK_CSO_BUILD_TESTING=1 GSTACK_CSO_BUILD_TEST_FAIL_AFTER=core bun run build > strict.log 2>&1
-          CODE=$?
-          set -e
-          tail -n 20 strict.log
-          test "$CODE" -ne 0 || (echo "strict build passed despite the injected CSO failure" && exit 1)
-          grep -q 'GSTACK_STRICT_BUILD=1 makes it fatal' strict.log || (echo "strict failure lacks its message" && exit 1)
-        shell: bash
-
-      - name: A forced CSO publish failure still completes setup (#3071)
-        run: |
-          set -euo pipefail
-          E2E_HOME="$RUNNER_TEMP/gstack-e2e-cso-fail"
-          mkdir -p "$E2E_HOME"
-          rm -f browse/dist/.build-complete
-          set +e
-          OUT=$(HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")" GSTACK_SKIP_PLAYWRIGHT=1 GSTACK_STRICT_BUILD=0 \
-            GSTACK_CSO_BUILD_TESTING=1 GSTACK_CSO_BUILD_TEST_FAIL_AFTER=publish-core ./setup --host codex 2>&1)
-          CODE=$?
-          set -e
-          echo "$OUT" | tail -n 40
-          test "$CODE" -eq 0 || (echo "setup exited $CODE after an optional CSO failure" && exit 1)
-          echo "$OUT" | grep -qE 'CSO publish step failed \(exit 86\).*previous CSO kept|CSO unavailable: the native helper.s publish step failed' || (echo "setup did not report the CSO publish failure" && exit 1)
-          grep -q '^result=failed' bin/.gstack-cso-build-result
-          grep -q '^stage=publish' bin/.gstack-cso-build-result
-          test -f browse/dist/.build-complete || (echo "the build stopped at CSO" && exit 1)
-          DOCTOR=$(HOME="$E2E_HOME" bash bin/gstack-doctor 2>&1 || true)
-          echo "$DOCTOR"
-          echo "$DOCTOR" | grep -qE '^warn +cso +' || (echo "doctor did not report the CSO failure" && exit 1)
         shell: bash
 
   held-install-journey:

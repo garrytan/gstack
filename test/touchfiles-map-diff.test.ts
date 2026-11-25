@@ -162,7 +162,6 @@ describe('selectTests map-diff wiring', () => {
     expect(result.selected).toContain('browse-basic'); // from map-diff
     expect(result.selected).toContain('retro');        // from pattern match
     expect(result.selected).toContain('retro-base-branch');
-    expect(result.selected).not.toContain('cso-full-audit');
     expect(result.reason).toBe('map-diff');
   });
 

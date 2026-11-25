@@ -43,8 +43,6 @@
     "lib/claude-code-migration.ts",
     "lib/code-intelligence/gbrain-adapter.ts",
     "lib/code-intelligence/graphify-adapter.ts",
-    "lib/cso/preparation-container.ts",
-    "lib/cso/windows-docker.ts",
     "lib/gbrain-guards.ts",
     "lib/gbrain-sources.ts",
     "lib/harness-register.ts",

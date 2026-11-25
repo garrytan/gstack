@@ -10,7 +10,6 @@ afterAll(cleanupSeed);
 const stubBun = (f: ReturnType<typeof makeFixture>) => put(join(f.commands, 'bun'), `#!/usr/bin/env bash
 case "$*" in
   install|'install --production --frozen-lockfile') exit 0 ;;
-  'build --help') echo 'Fixture Bun has no CSO compile flags'; exit 0 ;;
   'run build') echo 'Unexpected build in a dev-setup fixture' >&2; exit 90 ;;
   *) exec '${process.execPath}' "$@" ;;
 esac

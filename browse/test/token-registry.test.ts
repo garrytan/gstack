@@ -570,8 +570,8 @@ describe('token-registry', () => {
     });
   });
 
-  // ─── CSO Fix #4: Input validation ──────────────────────────────
-  describe('Input validation (CSO finding #4)', () => {
+  // ─── Security audit fix #4: Input validation ──────────────────────────────
+  describe('Input validation (security audit finding #4)', () => {
     it('rejects invalid scope values', () => {
       expect(() => createToken({
         clientId: 'test-invalid-scope',

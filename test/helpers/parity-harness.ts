@@ -13,7 +13,7 @@
  *
  * Why a separate harness from skill-size-budget.test.ts: that one enforces
  * size discipline only. This module supports content invariants per skill
- * family (e.g., cso must preserve OWASP/STRIDE; plan-ceo must preserve
+ * family (e.g., plan-ceo must preserve
  * mode-selection phrasing) so future compression can't silently strip
  * load-bearing prose even when size stays within ratio.
  */
@@ -211,7 +211,6 @@ export function runParityChecks(opts: {
  * from the size-budget / static / behavioral guards.
  */
 const MONOLITH_INVARIANTS: ParityInvariant[] = [
-  // cso is now carved — its invariant is generated from CARVE_GUARDS below.
   // review, codex, land-and-deploy (w1), autoplan (w2), qa (w3) carved in token-reduction Phase 4
   // wave 1 (v1.69.x branch) — their invariants generate from CARVE_GUARDS too.
 ];
@@ -231,9 +230,7 @@ const CARVED_INVARIANTS: ParityInvariant[] = Object.values(CARVE_GUARDS).map((g)
   maxSkeletonBytes: g.maxSkeletonBytes,
   minBytes: g.minUnionBytes,
   mustContain: g.mustContain,
-  // CSO's helper trust boundary requires its private startup; demanding the
-  // shared Preamble here would silently reintroduce conflicting policy.
-  mustHaveHeadings: g.skill === 'cso' ? [] : ['## Preamble'],
+  mustHaveHeadings: ['## Preamble'],
   ...(g.sizeLedger ? { sizeLedger: g.sizeLedger } : { maxSizeRatio: g.maxSizeRatio ?? 1.05 }),
 }));
 

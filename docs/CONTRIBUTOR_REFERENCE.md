@@ -125,7 +125,7 @@ determined leaker (a CHANGELOG line that does would fail a hostile screenshotter
   is the opt-in git hook.
 - **Skill docs are generated** from `scripts/resolvers/redact-doc.ts`
   (`{{REDACT_INVOCATION_BLOCK:<sink>}}`) so /spec,
-  /cso, /gstack-ship, /document-release, /document-generate never drift from the engine.
+  /gstack-ship, /document-release, /document-generate never drift from the engine.
 - **Scan-at-sink:** always scan the EXACT bytes that will be sent — write to a
   temp file, scan that file, pass the SAME file to `gh`/`git`. Never scan a string
   then re-render (that reopens a scan-vs-send gap).

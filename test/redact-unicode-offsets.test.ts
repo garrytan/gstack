@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as path from "node:path";
 import { applyRedactions, normalizeWithMap, redactFindingSpans, scan } from "../lib/redact-engine";
-import { redact, sanitizeForJson } from "../lib/cso/process";
 
 const secret = ["8Fk2pQ9vXz4wL7mN", "3rT6yB1cD5eG0hJq"].join("");
 
@@ -28,8 +27,6 @@ describe("normalized redaction offsets use UTF-16 units", () => {
       expect(redactFindingSpans(input)).toBe(expected);
       expect(scan(input).findings.map(({ id, line, col }) => ({ id, line, col })))
         .toEqual([{ id: "env.kv", line: 2, col: 13 }]);
-      expect(redact(input)).toBe(expected);
-      expect(sanitizeForJson({ output: input })).toEqual({ output: expected });
     });
   }
 

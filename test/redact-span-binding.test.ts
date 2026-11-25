@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { redactFindingSpans, scan } from "../lib/redact-engine";
-import { redact, sanitizeForJson } from "../lib/cso/process";
 
 const secret = ["8Fk2pQ9vXz4wL7mN", "3rT6yB1cD5eG0hJq"].join("");
 const marker = "<REDACTED-env.kv>";
@@ -62,11 +61,5 @@ describe("redaction binds each finding to its original span", () => {
     expect(redactFindingSpans(`Authorization: Bearer ${jwt}`)).toMatch(/^Authorization: Bearer <REDACTED-[a-z.+]+>$/);
     expect(redactFindingSpans("-----BEGIN " + "PRIVATE KEY-----\nbody")).toBeNull();
     expect(redactFindingSpans(`DB_PASSWORD=${secret}`, { maxBytes: 10 })).toBeNull();
-  });
-
-  test("CSO process and JSON output use the exact span, without dropping safe context", () => {
-    const input = `DB_PASSWORD=${secret}\nOTHER_API_KEY="your-api-key-here"`;
-    expect(redact(input)).toBe(`DB_PASSWORD=${marker}\nOTHER_API_KEY="your-api-key-here"`);
-    expect(sanitizeForJson({ output: input })).toEqual({ output: `DB_PASSWORD=${marker}\nOTHER_API_KEY="your-api-key-here"` });
   });
 });

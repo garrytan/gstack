@@ -28,7 +28,7 @@ When asked for coding work, pick the dispatch tier:
 
 **HEAVY:** needs a specific gstack methodology
 → sessions_spawn(runtime: "acp", prompt: "Load gstack. Run /qa https://...")
-  Skills: /cso, /review, /qa, /gstack-ship, /design-review, /benchmark, /gstack-upgrade
+  Skills: /review, /qa, /gstack-ship, /design-review, /benchmark, /gstack-upgrade
 
 **FULL:** build a complete feature, multi-day scope, needs planning + review
 → sessions_spawn(runtime: "acp", prompt: "<gstack-full content>\n\n<task>")
@@ -45,7 +45,7 @@ When asked for coding work, pick the dispatch tier:
 
 - Can it be done in <10 lines of code? → **SIMPLE**
 - Does it touch multiple files but the approach is obvious? → **MEDIUM**
-- Does the user name a specific skill (/cso, /review, /qa)? → **HEAVY**
+- Does the user name a specific skill (/review, /qa)? → **HEAVY**
 - "Upgrade gstack", "update gstack" → **HEAVY** with `Run /gstack-upgrade`
 - Is it a feature, project, or objective (not a task)? → **FULL**
 - Does the user want to PLAN something without implementing yet? → **PLAN**

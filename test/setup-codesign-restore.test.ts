@@ -9,7 +9,7 @@ import { runBashScript } from './helpers/bash-script';
 // the design binary is SIGKILLed at launch (exit 137). The real block runs on
 // any OS with uname/codesign/otool stubbed on PATH.
 const setup = fs.readFileSync(path.resolve(import.meta.dir, '../setup'), 'utf8');
-const start = setup.indexOf('  if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then\n    # CSO artifacts');
+const start = setup.indexOf('  if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then\n    # B4 (#1254)');
 const end = setup.indexOf('\n  fi\n', setup.indexOf('    done', start));
 const block = setup.slice(start, end + 5);
 const BINS = ['browse/dist/browse', 'browse/dist/find-browse', 'design/dist/design', 'make-pdf/dist/pdf', 'bin/gstack-global-discover'];

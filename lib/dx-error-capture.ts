@@ -307,7 +307,7 @@ interface Released {
   tally: Tally; scanComplete: boolean;
 }
 
-/** Full-buffer redaction first, then every assembled view re-scanned (the lib/cso/process.ts spliceRedaction invariant), then truncation. */
+/** Full-buffer redaction first, then every assembled view re-scanned, then truncation. */
 function release(chunks: Chunk[], overflow: Record<Stream, boolean>, literals: string[], maxBytes: number): Released {
   const withheld: Record<Stream, string | null> = { stdout: null, stderr: null };
   const tally: Tally = { secret: new Map(), other: new Map() };

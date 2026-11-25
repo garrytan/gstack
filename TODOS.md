@@ -83,8 +83,6 @@ The 158 older open issues were re-checked against main 5cb5e1c (v1.91.83.0). Of 
   - #1060: tracked as "Quote-aware masking in `check-careful.sh`" under the Oct 8 safety hooks follow-ups. **Priority:** P3.
 - **Sessions**
   - #1651 part B: tracked under the office-hours and timeline follow-ups above. **Priority:** P3.
-- **/cso**
-  - #2993: tracked under the /cso capacity follow-ups above. **Priority:** P2.
 - **Dependency security ledgers** (not code defects; keep open until the trigger)
   - `.osv-scanner.toml` ignores katex 0.16.47 in lib/diagram-render (GHSA-238p-pmpm-9mq7, low) until 2027-01-31. The fix (0.18.2) is outside mermaid 11's range; when mermaid-js/mermaid#8388 ships, override katex, rebuild the bundle and drop the ignore. **Effort:** S. **Priority:** P3.
   - #2753 residual: html-to-docx 1.8.0 bundles its own image-size 1.x, which the package.json override cannot reach. `make-pdf --to docx` never hands it ICNS bytes (make-pdf/src/docx-images.ts), but with `--allow-network` html-to-docx downloads remote images and sizes them itself. Inline remote images before the guard for docx, or replace html-to-docx. Revisit 2026-12-15. **Effort:** M. **Priority:** P2.
@@ -181,31 +179,6 @@ Left open by the iPad and route-drop release, each with its reason.
   hook would let gesture-driven apps route `/tap` and `/swipe` to their own
   handlers. **Effort:** M. **Priority:** P3.
 
-### P1/P2: /cso capacity follow-ups (filed 2026-10-08)
-
-Left open by v1.91.42.0, which lifted the snapshot file-count ceiling.
-
-- **Tracked symlinks refuse the whole /cso run** — `capture()` failed closed on
-  any tracked symlink ("Symlink or special source file"). 5 of 8 mid-size OSS
-  repos measured for v1.91.42.0 stopped there (django, rails, terraform, grafana,
-  vscode; 1-10 symlinks each, mostly test fixtures). Decided on 2026-11-20 by
-  GStack Minder in #4567: /cso records each link by its target string, or notes that the target was withheld when it matches a secret pattern and never
-  dereferences it. **Effort:** M. **Priority:** P1.
-- **64 MiB aggregate source cap (#2993)** — files over 1 MiB are withheld from
-  the audit but still read and counted. Stream-hash them without counting
-  toward the cap, report them as unread coverage, and add an admission estimate
-  to `doctor`. grafana (211 MiB) and vscode (540 MiB) hit it once symlinks are
-  out of the way. A `GSTACK_CSO_SNAPSHOT_MAX_BYTES` knob was deferred with it.
-  **Effort:** L. **Priority:** P2.
-- **`inspect` prints the whole public manifest** — about 2.8 MB of stdout for
-  5,000 files, more than an agent's tool output keeps. The skill reads paths
-  from it, so trimming it is a skill-contract change with evals.
-  **Effort:** M. **Priority:** P2.
-- **Repair bundles carry every transformation** — `lib/cso/verification.ts`
-  binds the full transformation list into a 1 MiB immutable bundle. Only
-  runtime verification writes bundles, and no qualified runtime catalog exists
-  yet. **Effort:** M. **Priority:** P3.
-
 ### P2/P3: iOS QA fix-wave follow-ups (filed 2026-10-07, v1.91.38.0)
 
 Left open by the iPad and route-drop release, each with its reason.
@@ -275,10 +248,6 @@ Left open by the Oct 7 wave (docs/designs/FOLLOWUP_WAVE_2026_10_07.md), each wit
   per-file hold. **Effort:** L. **Priority:** P3.
 - **Timed novice install journey** — measure a fresh install to a first skill
   run, end to end. Deferred: outside a fix wave. **Effort:** M. **Priority:** P3.
-- **Native Windows Docker transport for /cso (#3028)** — `lib/cso/docker.ts`
-  accepts only `unix:///` endpoints, so /cso on Windows reports "static
-  assessment only" even with a trusted `docker.exe`. Add named-pipe transport
-  with the same trust checks. **Effort:** L. **Priority:** P2.
 
 ### P2/P3: reliability follow-ups deferrals (filed 2026-10-04, v1.91.30.0)
 
@@ -404,13 +373,6 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
   of compiling, or a signed launcher. **Needs:** Garry's code-signing account
   and certificate decision; a Windows 11 machine with Smart App Control on to
   verify. **Effort:** L. **Priority:** P2.
-- **Find what deletes the staged CSO files during publish on #3071's machine** —
-  PR C1 made the failure non-fatal, cleared the parent's EXIT trap before the
-  native publisher `exec`, and records the outcome, but the root cause is
-  unproven (one reporter; `windows-latest` CI publishes fine). Ask for
-  `bin/.gstack-cso-build.log`, `bash -x scripts/build-cso.sh` and a Process
-  Monitor trace of the stage directory. **Effort:** M (needs the reporter's
-  machine). **Priority:** P3.
 - **Verify the Smart App Control error text on a real SAC machine** — the
   launch probe (`bin/gstack-launch-probe.sh`) classifies exit 126/127 and
   application-control messages as blocked from reporters' captures; nobody has
@@ -973,7 +935,7 @@ wave"). Each was explicitly deferred with rationale, not dropped:
   landed in v1.67), #2446 (Cua), #2448 (tiered outside voice), #2412 (lens
   layer), #2241 (/grok), #2507 (pi host), #2298 (Kimi host), #2438+#2436
   (gbrain doc-sync pair, ordered), #2442 (portable skill roots), #2534
-  (gbrain MCP routing), #2535 (outside voice for /investigate,/cso,/devex),
+  (gbrain MCP routing), #2535 (outside voice for /investigate,/devex),
   #2576 (fast-ship rework — re-evaluate against v1.66's CI speedup),
   #2580 (land-and-deploy CI tiers — human-gate UX needs maintainer call).
 
@@ -1476,7 +1438,6 @@ bugs it found and left alone because fixing them changes behavior:
 - `bin/gstack-memory-ingest.ts` (2,674 lines; `ingestPass` is ~600 lines).
 - `scripts/resolvers/design.ts` `generateDesignMethodology` (503 lines).
 - `browse/src/browser-manager.ts` (2,143 lines) and `browse/src/cli.ts` (2,018 lines).
-- `lib/cso/*` dense one-line style.
 - Browse root-token denials disagree: some routes answer 401 `Unauthorized`,
   others 403 `Root token required`. The route table's per-kind denial map
   (`browse/src/routes/table.ts`) pins today's split.
@@ -1489,9 +1450,6 @@ bugs it found and left alone because fixing them changes behavior:
 - Claude Code plugin-mode state (a pointer from `~/.gstack` to
   `CLAUDE_PLUGIN_DATA`, plus merge, `--explain` and uninstall participation),
   deferred by the W1 evidence gate: no official plugin distribution exists.
-- The CSO native launchers (`lib/cso/launcher*.c`) pass only `HOME`,
-  `GSTACK_HOME` and `CLAUDE_PLUGIN_*` to the core, so `/cso` ignores an
-  exported `GSTACK_STATE_ROOT` / `GSTACK_STATE_DIR`. Needs a native rebuild.
 - TODOS.md itself (4,500+ lines) needs restructuring.
 
 **Effort:** M per item. **Priority:** P3.
@@ -3894,7 +3852,7 @@ Deferred from plan: /home/user/.capy/drive/captain-gstack-minder/plans/GSTA-165.
 
 **What:** Add `useWorktree?: boolean` option to `runSkillTest()` so any Claude E2E test can opt into worktree mode for full repo context instead of tmpdir fixtures.
 
-**Why:** Some Claude E2E tests (CSO audit, review-sql-injection) create minimal fake repos but would produce more realistic results with full repo context. The infrastructure exists (`describeWithWorktree()` in e2e-helpers.ts) — this extends it to the session-runner level.
+**Why:** Some Claude E2E tests (review-sql-injection) create minimal fake repos but would produce more realistic results with full repo context. The infrastructure exists (`describeWithWorktree()` in e2e-helpers.ts) — this extends it to the session-runner level.
 
 **Context:** WorktreeManager shipped in v0.11.12.0. Currently only Gemini/Codex tests use worktrees. Claude tests use planted-bug fixture repos which are correct for their purpose, but new tests that want real repo context can use `describeWithWorktree()` today. This TODO is about making it even easier via a flag on `runSkillTest()`.
 

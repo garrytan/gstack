@@ -33,9 +33,8 @@ export interface CarveStaticInvariants {
   mustStayInSkeleton: string[];
   /**
    * Substrings that MUST appear in the skeleton BEFORE the first STOP-Read
-   * (earliest-use, codex #6). For cso: mode-dispatch directives (## Arguments,
-   * ## Mode Resolution) must be resolved before any section is read — a dispatch
-   * directive stranded after the STOP can't govern which sections to read.
+   * (earliest-use, codex #6): a mode-dispatch directive stranded after the
+   * STOP can't govern which sections to read.
    * Empty/undefined = skip (most skills).
    */
   mustPrecedeStop?: string[];
@@ -422,47 +421,6 @@ do not launch the downstream skill or open a browser.`,
     // 1.0834 (2026-09-30). + named design-direction defaults to avoid in the native
     // subagent prompt (s02 H4a); measured 1.0911 (2026-10-02).
     maxSizeRatio: 1.1776, // GST-3654 (2026-11-24, Garry "Do it" on B1): /ship installs as /gstack-ship because Claude Code keeps the name ship for its own built-in (#4775), so each line that names it grows by 7 bytes; was 1.1774. Before that: GSTA-803 (2026-11-22, Captain GStack Minder ruling D1): user-reported fix #4366, the Aside probe reports a closed app; #3924 changes only the /codex skill; was 1.1763. Before that: GST-3157 (2026-11-19, Garry "Do it" on I1): Claude Code skills load the shared preamble and the start output at load time; was 1.1719. GST-2756 (2026-11-15, Garry's "Do it" to the ask-once and open-every-file habits): two Ground Rules lines (ask each question once and carry it as one waiting line; open every handed-over file and remove placeholders), +276 bytes; measured 1.1719 (before: 1.1688). Before that: GST-2753 (2026-11-15, Garry's "Do it" to moving the never-print-secrets rule into gstack): the shared Ground Rules preamble section (never print a whole environment, git config or process table; wait on CI with one gstack-pr-wait call), +614 bytes; measured 1.1688 (before: 1.1623). Before that: + v1.91.19.0 wave: design --version probe (B4), taste-profile load (F3), verdict-form outside voice (INV-1), plus v1.91.17.0's round accounting and board/approval blocks (#3022) merged in; measured 100,446 / 90,375 = 1.1114 (2026-10-03). + Oct 6 fix wave A3/CEO-12: free text reaches commands only through agent-written mktemp files (mktemp block, write rule, path rebuild and refusal at each posting, prompt and brief site); measured 103,384 / 90,375 = 1.1439 (2026-10-06). + Oct 7 wave B6: Aside rules 1, 4, 6 and 7 (offer a target-origin tab before openTab, a second sign-in wall means a tab- or URL-bound session, no early-return hint, fast [ok without the sentinel is an abort); measured 103,576 / 90,375 = 1.1461 (2026-10-07). + Oct 7 wave B3: the Codex probe runs as a command (select-model capture lines, check-sandbox/probe-model/run-with-timeout subcommands) instead of being sourced; measured 103,522 / 90,375 = 1.1455 (2026-10-07). Both merged: measured 103,726 / 90,375 = 1.1477 (2026-10-07). + Oct 7 wave guard (CEO-20): conditional `run_in_background` request plus the background-run recovery at each foreground dispatch site; measured 103,466 / 90,375 = 1.1449 (2026-10-07). Merged with the guard area: measured 103,804 / 90,375 = 1.1486 (2026-10-07). + Honest Work wave merged (W2/W3 gate integrity in review/ship, W4 kernel + DONE line in every tier-2+ skill, W5/W7 in spec/ship): re-measured on the integrated tree (2026-10-10). + GSTA-96 shared-preamble hoist (owner-approved raise, Garry 2026-10-25: "do it"): the union now holds sections/preamble.md, so a fresh invocation reads the pointer plus the shared file; measured 105,039 / 90,375 = 1.1623 (2026-10-25). Before: 1.16.
-  },
-  cso: {
-    skill: 'cso',
-    expectedSections: ['audit-phases.md'],
-    requiredReads: ['audit-phases.md'],
-    scenario:
-      'Run a security audit on this repository in --owasp mode (OWASP Top 10 only). Resolve the mode, do the Phase 0 stack detection and Phase 1 attack-surface census, then run the scoped audit phases and produce the findings report. Skip any step that needs network access.',
-    staticInvariants: {
-      // Dispatch, trusted execution, evidence/proof, reporting and recovery stay always loaded.
-      mustStayInSkeleton: [
-        '## Arguments',
-        '## Mode Resolution',
-        '### Phase 0',
-        '### Phase 1',
-        '### Phase 12',
-        '### Phase 13',
-        '### Phase 14',
-        '**Private startup.**',
-        'CSO evidence rubric',
-        'identical security assertion',
-      ],
-      // Earliest-use: mode must be resolvable before any section is read (codex #6).
-      mustPrecedeStop: ['## Arguments', '## Mode Resolution'],
-      // Scope-dependent audit detail moved to the section.
-      mustMoveToSection: [
-        '### Phase 2: Secrets Archaeology',
-        '### Phase 9: OWASP Top 10 Assessment',
-        '### Phase 10: STRIDE Threat Model',
-      ],
-      gateAfterStop: undefined,
-    },
-    // v3 requires a trusted helper and private state, absent from generic prompt fixtures.
-    // The full-audit E2E asserts actual section loading alongside report/proof behavior.
-    behavioral: 'external',
-    externalTest: 'test/skill-e2e-cso.test.ts',
-    maxSkeletonBytes: 18_900, // + Oct 10 multi-agent wave PR D2 (sideways review): Phase 12's root-cause-variants sentence becomes the sibling sweep (severity follows the worst sibling), two neighbouring phrases tightened to offset most of it; measured skeleton 18,044 (2026-10-10). + Oct 26 harness lane F (TRUT 5/6, FOUN 13): the environment-hygiene paragraph (set/unset checks only; no env, printenv, set -x, bare set/export, export $(...) in a fence) and the tooling-error paragraph (bounded retries, then not assessed with the command, exit code and stderr tail; never a quiet partial), both in the always-loaded startup block because they govern every helper call; measured skeleton 18,843 (2026-10-26).
-    minUnionBytes: 30_000, // v3 deliberately removes the shared export/startup preamble.
-    mustContain: ['OWASP', 'STRIDE', 'daily', 'comprehensive', 'verif'],
-    // Existing baseline comparison remains an upper bound; absolute limits above
-    // preserve the compact controller and its complete domain reference.
-    maxSizeRatio: 1.08,
   },
   // ── Token-reduction Phase 4 wave 1 (v1.69.x branch) ──────────────────────
   review: {

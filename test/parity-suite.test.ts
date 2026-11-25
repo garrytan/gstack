@@ -7,7 +7,7 @@
  *
  * Baseline rebased v1.57.7.0 → v1.64.1.0: two parallel v1.64 waves (the
  * code-smell fix wave and main's #2571) each added shared-preamble prose,
- * pushing document-release / design-consultation / cso past their ratios on
+ * pushing document-release / design-consultation past their ratios on
  * the v1.57.7.0 anchor. The v1.64.1.0 baseline captures current UNION sizes
  * (skeleton + sections/*.md, matching what the harness measures) so the
  * per-skill ratios still catch future bloat.

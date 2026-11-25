@@ -44,7 +44,7 @@ OpenClaw decides at spawn time which tier of gstack support to use:
 
 - Can it be done in <10 lines of code? -> **Simple**
 - Does it touch multiple files but the approach is obvious? -> **Medium**
-- Does the user name a specific skill (/cso, /review, /qa)? -> **Heavy**
+- Does the user name a specific skill (/review, /qa)? -> **Heavy**
 - Is it a feature, project, or objective (not a task)? -> **Full**
 - Does the user want to PLAN something for Claude Code without implementing yet? -> **Plan**
 
@@ -166,7 +166,7 @@ repo's `.claude/settings.json` env block, direnv, a CI wrapper) could set
 its confirmation gates to auto-choose. When the env override drives the
 classification, the preamble emits a loud `SPAWNED_OVERRIDE: env` status line
 so the transcript shows WHY the session is spawned — audit
-`.claude/settings.json` env blocks in untrusted repos (/cso covers this).
+`.claude/settings.json` env blocks in untrusted repos.
 
 ## Installation
 
