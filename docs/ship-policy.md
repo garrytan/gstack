@@ -1953,6 +1953,10 @@ a path git cannot read (`git ls-tree` fails) or holds under another spelling (a
 filename that is not UTF-8 reaches finish with a replacement character), and a
 deleted path, never match, so a ruling cannot clear them. A ruling that does not
 clear its path prints `RULED_EDIT_REFUSED: <path> (<why>; …)` and finish stops.
+A gate-class path, and a test the gate scan promotes to a behavior change, can be
+ruled like any other: the ruling is the owner's call on that exact edit. The stop
+line lists only the PR's own edits since the final review, never a path only a
+base merge moved, and names deletions apart, because a deletion cannot be ruled.
 One ruling never covers another path, and a path edited again after its ruling
 stops finish again, even when a later commit restores the ruled bytes. A path with
 whitespace cannot be ruled, so an edit there keeps the fix and runs /ship again.
