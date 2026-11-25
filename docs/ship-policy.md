@@ -1934,6 +1934,14 @@ ruled note, so it prints as `RULED_NOTE:`, marked `(no RULED_EDIT at this head; 
 applied)` when it cleared no path, the receipt records it and the PR body lists its
 `Ruled note:` line.
 
+`gstack-review-plan --range-base` reads the same rulings the same way (GST-3814):
+it prints `RULED_EDIT:` for each cleared path and `RULED_EDIT_REFUSED:` for each
+that did not clear, and when every path the fix range changed is cleared and the
+gate scan tags no other path in it, `FIX_RANGE:` reports `runtime_lines=0 ruled=<n>`
+and the range plans as no fix instead of asking for every voice again. A PR with
+targeted classes still gets one targeted reader on HEAD when no targeted record
+covers the ruled bytes; that read is not a review round.
+
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier
 version in its edit history, and a ruled, dispositioned, deferred or noted

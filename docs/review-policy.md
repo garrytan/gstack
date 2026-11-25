@@ -279,7 +279,7 @@ applies no edits is its exit too.
 <a id="no-stop"></a>
 ### No-stop defaults (K1)
 
-Four routine stops don't wait for a Captain. /gstack-ship and /autoplan record each one
+Three routine stops don't wait for a Captain (the retired `scoped-fix-check` row below is refused). /gstack-ship and /autoplan record each one
 as `{class, reason, evidence}` in the receipt's `no_stop` field and keep going.
 `gstack-no-stop record` (`lib/no-stop.ts`) checks each case before it records it.
 When a case doesn't qualify, it prints `NO_STOP: refused` and exits 3, and that
