@@ -532,13 +532,14 @@ function runStages(o: RestampOptions, plan: Plan, staging: string, since: string
  * lost its slot and merged the base). Then a stamp-form mention of the base
  * version on a line the branch added is its own tentative stamp, stale now,
  * and moves; the same version on a line the base already carries is the
- * base's release and stays. The detail names both counts per file.
+ * base's release and stays. The detail names both counts per file. Under changelog_fragments the CHANGELOG is never
+ * rewritten here, even as a stamp file: the changelog stage heads the new section, and folded prose stays as written (GBRA-784).
  */
 function rewriteStampPaths(o: RestampOptions, plan: Plan, staging: string, since: string, sp: StageRecord): void {
   const stampGlobs = [...plan.policy.stamp_paths, ...plan.policy.stamp_files];
   const templates = plan.policy.stamp_patterns;
   if (stampGlobs.length === 0) { sp.status = 'skipped'; sp.detail = 'no stamp_paths in policy'; return; }
-  const files = git(staging, ['ls-files', '-z']).out.split('\0').filter(f => f && matchesAny(stampGlobs, f));
+  const files = git(staging, ['ls-files', '-z']).out.split('\0').filter(f => f && matchesAny(stampGlobs, f) && !(plan.policy.changelog_fragments && f === plan.policy.changelog));
   for (const rel of files) {
     const why = assertInsideRoot(staging, rel);
     if (why) throw new Refusal('POLICY_CONTAINMENT', `${why}; nothing written`);

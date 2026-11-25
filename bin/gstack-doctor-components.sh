@@ -452,6 +452,7 @@ gstack_result_anchor() {
     PREREG_NO_GSTACK_ARM) printf '%s' 'prereg-no-gstack-arm' ;;
     EVAL_REPORT_NO_GSTACK_ROW) printf '%s' 'eval-report-no-gstack-row' ;;
     EVAL_JUDGE_UNCHECKED) printf '%s' 'eval-judge-unchecked' ;;
+    EVAL_REPORT_THIRD_MODEL_UNNAMED) printf '%s' 'eval-report-third-model-unnamed' ;;
     EVAL_REPORT_UNPLANTED_ZERO) printf '%s' 'eval-report-unplanted-zero' ;;
     EVAL_REPORT_NO_ANSWER_ONLY) printf '%s' 'eval-report-no-answer-only' ;;
     EVAL_QUICK_LOOK_NO_NUMBER) printf '%s' 'eval-quick-look-no-number' ;;

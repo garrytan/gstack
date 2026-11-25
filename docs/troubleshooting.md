@@ -5424,15 +5424,39 @@ that are all one class (agreement is undefined), a repeated id, or a Cohen's
 kappa between the hand labels and the judge below the preregistered bar (at
 least 0.6). With `per-arm: yes` in `## Scoring`, it also refuses a label row
 with no `arm`, rows naming an arm not in `## Arms`, an arm with no rows, or
-any arm whose own kappa is below the bar (its `JUDGE_ARM:` line). Until it
-passes, the judge's numbers do not count.
+any arm whose own kappa is below the bar (its `JUDGE_ARM:` line). When
+`labels-by:` names a third-family model (R126, code judges only), it also
+refuses a missing `--anchors` file, anchor ids or expected answers that
+don't hash to the plan's `anchors-digest:`, an anchor count other than the
+frozen `anchors:` count, an anchor id that is also a label row, or fewer
+right answers than `anchor-pass:` (its `JUDGE_ANCHORS:` line). Until it passes,
+the judge's numbers do not count.
 
 **Fix.** Label outputs by hand from development or calibration rows, never
 held-out ones, as JSONL rows `{"id", "human", "judge"}` (plus `"arm"` with
 `per-arm: yes`), covering every kind of output the judge scores and every
-arm, and pass the file with `--labels`. A judge below
+arm, and pass the file with `--labels`. For a judge that grades code, the
+labels may come from the third-family `labels-by:` model instead: pass its
+answers on the frozen known-answer anchors as `{"id", "expected", "label"}`
+rows with `--anchors`. A labeller that misses its pass line is replaced by
+another third family or by people; its labels never count. A judge below
 its bar is replaced or its prompt fixed and relabelled; the bar is not
 lowered. The rule is in
+[docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks).
+
+<a id="eval-report-third-model-unnamed"></a>
+### `EVAL_REPORT_THIRD_MODEL_UNNAMED`
+
+**Meaning.** The preregistration's `## Scoring` has `labels-by:` naming a
+model, so the judge was checked against labels a third-family model made
+(R126), and the results file does not say so. A reader who sees "the judge
+agreed with its labels" assumes people made them.
+
+**Fix.** Add the line `judge checked against <model>, a third model, not
+against people` to the results file, with the `labels-by:` model (for
+example `judge checked against google/gemini-4-neon, a third model, not
+against people`). `judge --check` prints the exact line as
+`JUDGE_RESULTS_LINE:`. The rule is in
 [docs/TESTING_INTERNALS.md](TESTING_INTERNALS.md#result-checks).
 
 <a id="eval-report-unplanted-zero"></a>
