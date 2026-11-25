@@ -8180,10 +8180,10 @@ attempt of each check suite as `gstack-ship-queue ready` does: a failed check
 whose rerun attempt created no jobs (GitHub's default list then hides it) and a
 workflow run that failed before creating any job (`check failed: <workflow>
 (run <id>, no jobs)`) block `green`, and a rerun that passed clears its
-failure. `gstack-pr-wait` also leaves out a cancelled run that a newer passing
-run of the same check replaced (a workflow with `concurrency:
-cancel-in-progress`), as `ready` does; a failed run beside a newer pass still
-blocks. A check the base
+failure. `gstack-pr-wait` also judges a check by its newer run when that run
+replaced a cancelled one (a workflow with `concurrency: cancel-in-progress`):
+passing, or pending while it runs, as `ready` does; a failed run beside a newer
+pass still blocks. A check the base
 branch requires (rulesets and classic branch protection) counts as pending
 until it appears. `--exclude <check,...>` leaves a named non-required check
 out of the verdict, as `gstack-ci-gate --exclude` does: it neither holds

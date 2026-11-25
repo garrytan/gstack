@@ -190,10 +190,10 @@ describe('REST replies parse from recorded fixtures', () => {
   });
 
   // Value: protects=gstack-pr-wait agrees with gstack-ship-queue ready on a cancelled run that a newer passing run of the same app and
-  //   check name replaced (concurrency: cancel-in-progress), and every other duplicate keeps the worst bucket (#4807, exGeni's repro);
-  //   fails_when=the replaced cancel blocks with PR_WAIT_BLOCKED, or a cancel that is newest, a failure, or another app's pass stops
+  //   check name replaced (concurrency: cancel-in-progress), pending while that run is still going, and every other duplicate keeps
+  //   the worst bucket (#4807, exGeni's repro); fails_when=the replaced cancel blocks with PR_WAIT_BLOCKED, or a cancel that is newest, a failure, or another app's pass stops
   //   gating; seam=fetchChecks over the shared REST fake; no_claim=the CLI exit
-  test("fetchChecks drops a cancelled run that a newer passing run of the same check replaced, and nothing else (#4807)", () => {
+  test("fetchChecks drops a cancelled run that a newer passing or running run of the same check replaced, and nothing else (#4807)", () => {
     const app = { id: 15368 };
     const run = (id: number, suite: number, conclusion: string, done: string, appId = app): Record<string, unknown> =>
       ({ id, name: 'title-check', status: 'completed', conclusion, completed_at: done, check_suite: { id: suite }, app: appId });
@@ -203,7 +203,7 @@ describe('REST replies parse from recorded fixtures', () => {
     expect(bucketClass(bucket([run(1, 100, 'failure', '2026-01-01T10:00:10Z'), run(2, 200, 'success', '2026-01-01T10:00:50Z')]))).toBe('fail');
     expect(bucketClass(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:10Z'), run(2, 200, 'success', '2026-01-01T10:00:50Z', { id: 99 })]))).toBe('fail');
     expect(bucketClass(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:10Z'), run(2, 200, 'failure', '2026-01-01T10:00:50Z')]))).toBe('fail');
-    expect(bucketClass(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:10Z'), { ...run(2, 200, 'success', '2026-01-01T10:00:50Z'), status: 'in_progress', conclusion: null, completed_at: null }]))).toBe('fail');
+    expect(bucketClass(bucket([run(1, 100, 'cancelled', '2026-01-01T10:00:10Z'), { ...run(2, 200, 'success', '2026-01-01T10:00:50Z'), status: 'in_progress', conclusion: null, completed_at: null }]))).toBe('pending');
   });
 });
 

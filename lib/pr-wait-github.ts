@@ -185,7 +185,7 @@ function restList(env: GhEnv, path: string, key: string): unknown[] {
  * head as gstack-ship-queue ready reads it (lib/ci-head-checks.ts: a failed
  * check whose rerun attempt created no jobs, a workflow run that failed with
  * no jobs), duplicates collapsed to the worst bucket. A cancelled run that a
- * newer passing run of the same app and check name replaced is left out first,
+ * newer passing or still-running run of the same app and check name replaced is left out first,
  * as that reader leaves it out (replacedCancels, #4807). An unknown read is a
  * transient GhError, so the poll loop tries again.
  */

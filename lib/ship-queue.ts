@@ -161,16 +161,17 @@ const suiteOf = (r: Record<string, unknown>) => String((r.check_suite as { id?: 
 const PASSING = ['success', 'skipped', 'neutral'];
 
 /**
- * The cancelled runs latestRunPerName judges by a newer passing run of the same app and check name, such as a
- * pull_request run that concurrency: cancel-in-progress cancelled when the next run on the same head started (#4807).
- * gstack-pr-wait leaves these out before keeping the worst bucket per name; every other older run still gates there.
+ * The cancelled runs latestRunPerName judges by a newer run of the same app and check name that passed or is still
+ * running, such as a pull_request run that concurrency: cancel-in-progress cancelled when the next run on the same head
+ * started (#4807). gstack-pr-wait leaves these out before keeping the worst bucket per name, so the check reads as that
+ * newer run (pass or pending), as ready reads it; every other older run still gates there.
  */
 export function replacedCancels<T extends CheckRun & { conclusion?: unknown }>(runs: T[]): Set<T> {
   const winners = new Map(latestRunPerName(runs).map(r => [checkKey(r), r] as const).filter(([k]) => k !== null));
   return new Set(runs.filter(r => {
     const key = checkKey(r);
     const by = key === null ? undefined : winners.get(key);
-    return r.status === 'completed' && r.conclusion === 'cancelled' && !!by && by !== r && by.status === 'completed' && PASSING.includes(String(by.conclusion));
+    return r.status === 'completed' && r.conclusion === 'cancelled' && !!by && by !== r && (by.status !== 'completed' || PASSING.includes(String(by.conclusion)));
   }));
 }
 
