@@ -79,13 +79,6 @@ RUN python3 -m venv /tmp/gstack-ci-venv \
     && /tmp/gstack-ci-venv/bin/python -m pip --version \
     && rm -rf /tmp/gstack-ci-venv
 
-# Direct builds produce the trusted CSO launcher and watchdog. Check the exact
-# static-C capability here so the cached eval image cannot reach a slice without it.
-RUN printf 'int main(void) { return 0; }\n' > /tmp/gstack-cso-cc-probe.c \
-    && cc -std=c11 -static /tmp/gstack-cso-cc-probe.c -o /tmp/gstack-cso-cc-probe \
-    && /tmp/gstack-cso-cc-probe \
-    && rm -f /tmp/gstack-cso-cc-probe.c /tmp/gstack-cso-cc-probe
-
 # GitHub CLI
 RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \

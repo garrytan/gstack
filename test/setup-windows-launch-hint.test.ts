@@ -22,9 +22,9 @@ afterEach(() => { for (const t of tmps.splice(0)) fs.rmSync(t, { recursive: true
 const temp = (prefix: string) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); tmps.push(d); return d; };
 const stub = (dir: string, name: string, body: string) => fs.writeFileSync(path.join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 
-test('setup runs the launch summary only on Windows, after the CSO summary', () => {
+test('setup runs the launch summary only on Windows, after the install summary', () => {
   const call = setup.indexOf('if [ "$IS_WINDOWS" -eq 1 ]; then\n  _windows_launch_summary\nfi');
-  expect(call).toBeGreaterThan(setup.indexOf('# ─── CSO native-helper summary'));
+  expect(call).toBeGreaterThan(setup.indexOf('\n_setup_print_summary\n'));
 });
 
 describe.skipIf(process.platform === 'win32')('setup: Windows Smart App Control hint (#2595)', () => {

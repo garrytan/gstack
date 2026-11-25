@@ -25,10 +25,10 @@ async function router(host: 'claude' | 'codex', disabledSkills?: string[]) {
 describe('C8: disabled skills leave the rendered router', () => {
   for (const host of ['claude', 'codex'] as const) {
     test(`${host}: routing rules drop disabled skills and keep the other side of an "A or B" rule`, async () => {
-      const text = await router(host, ['retro', 'gstack-cso', '/careful', 'gstack-upgrade']);
-      expect(text).toContain('Disabled on this install (never invoke or suggest them): `/retro`, `/cso`, `/careful`.');
+      const text = await router(host, ['retro', 'gstack-health', '/careful', 'gstack-upgrade']);
+      expect(text).toContain('Disabled on this install (never invoke or suggest them): `/retro`, `/health`, `/careful`.');
       expect(text).not.toMatch(/→ invoke `\/retro`/);
-      expect(text).not.toMatch(/→ invoke `\/cso`/);
+      expect(text).not.toMatch(/→ invoke `\/health`/);
       expect(text).toContain('careful mode → invoke `/guard`');
       expect(text).toContain('→ invoke `/gstack-upgrade`');
       expect(text).toContain('→ invoke `/gstack-ship`');

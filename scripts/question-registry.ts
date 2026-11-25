@@ -480,26 +480,6 @@ export const QUESTIONS = {
   },
 
   // -----------------------------------------------------------------------
-  // /cso — security audit
-  // -----------------------------------------------------------------------
-  'cso-global-scan-approval': {
-    id: 'cso-global-scan-approval',
-    skill: 'cso',
-    category: 'approval',
-    door_type: 'one-way',
-    options: ['accept', 'deny'],
-    description: "Run a global security scan? (Scans files outside this branch.)",
-  },
-  'cso-finding-fix': {
-    id: 'cso-finding-fix',
-    skill: 'cso',
-    category: 'approval',
-    door_type: 'one-way',
-    options: ['fix-now', 'defer', 'accept-risk'],
-    description: "Security finding — fix, defer to TODOs, or accept the risk?",
-  },
-
-  // -----------------------------------------------------------------------
   // /gstack-upgrade — version upgrade
   // -----------------------------------------------------------------------
   'gstack-upgrade-inline': {

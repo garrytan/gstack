@@ -43,7 +43,6 @@ const ADAPTER_ONLY: readonly string[] = [
   'context-recovery-artifacts',
   'context-restore-loads-latest',
   'context-save-writes-file',
-  'cso-diff-mode',
   'design-review-detector-shim',
   'design-review-detector-shim-dom',
   'design-review-plugin-handoff',

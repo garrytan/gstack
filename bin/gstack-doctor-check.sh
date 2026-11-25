@@ -232,16 +232,6 @@ _dc_check_browser() {
   fi
 }
 
-_dc_check_cso() {
-  local file="$SRC/bin/.gstack-cso-build-result" reason=""
-  if [ -x "$SRC/bin/gstack-cso-launcher$EXE" ] && [ -x "$SRC/bin/gstack-cso-core$EXE" ]; then
-    _dc_row PASS cso "native helper built"
-    return
-  fi
-  [ -f "$file" ] && reason=$(sed -n 's/^reason=//p' "$file" 2>/dev/null | clamp ' -~' 100)
-  _dc_fail_or_skip cso "native helper not built${reason:+ ($reason)}" "cd $SRC && ./setup (it names any missing build prerequisite)" COMPONENT_MISSING "optional; toolchain absent or helper not built${reason:+: $reason}"
-}
-
 # _dc_check_helpers — the read-only helpers `--for review-voice` certifies
 # (GSTACK_DOCTOR_HELPERS): each one's `--help` loads its module graph with the
 # Bun first on PATH, bounded by timeout when present. Checked only when required.
@@ -673,7 +663,6 @@ gstack_doctor_check() {
       codex-cli) _dc_check_codex_cli ;;
       browse-bundle) _dc_check_browse_bundle ;;
       browser) _dc_check_browser ;;
-      cso) _dc_check_cso ;;
       helpers) _dc_check_helpers ;;
       runtime) _dc_check_runtime ;;
       pins) _dc_check_pins ;;

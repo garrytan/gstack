@@ -83,6 +83,5 @@ describe('doctor component table', () => {
     expect(SKILL_REQUIREMENTS.autoplan.optional).toContain('codex-cli');
     expect(SKILL_REQUIREMENTS.browse.requires).toContain('browser');
     expect(SKILL_REQUIREMENTS.codex.requires).toContain('codex-cli');
-    expect(SKILL_REQUIREMENTS.cso.requires).toContain('cso');
   });
 });

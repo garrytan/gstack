@@ -72,13 +72,13 @@
     },
     {
       "files": [
-        "test/skill-e2e-cso.test.ts"
+        "test/skill-e2e-shared-libs-periodic.test.ts"
       ],
       "status": "passed",
       "exitCode": 0,
       "elapsedMs": 293156,
-      "executedTests": 3,
-      "skippedTests": 1,
+      "executedTests": 2,
+      "skippedTests": 0,
       "budget": {
         "timeoutMs": 1800000,
         "source": "default",

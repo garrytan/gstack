@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="2" assertions="0" failures="0" skipped="1" time="205.007532719">
+  <testsuite name="test/skill-e2e-retro.test.ts" file="test/skill-e2e-retro.test.ts" tests="2" assertions="0" failures="0" skipped="1" time="205.005012252">
+    <testsuite name="Base branch detection" file="test/skill-e2e-retro.test.ts" line="67" tests="1" assertions="0" failures="0" skipped="0" time="204.971">
+      <testcase name="retro-base-branch" classname="Base branch detection" time="204.97188" file="test/skill-e2e-retro.test.ts" line="80" assertions="0" />
+    </testsuite>
+    <testsuite name="Retro E2E" file="test/skill-e2e-retro.test.ts" line="143" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="retro" classname="Retro E2E" time="0" file="test/skill-e2e-retro.test.ts" line="191" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>

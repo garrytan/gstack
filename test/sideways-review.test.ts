@@ -1,10 +1,10 @@
 /**
- * Plan D2: review and cso look sideways. Pins the tokens, not the prose: the
+ * Plan D2: review looks sideways. Pins the tokens, not the prose: the
  * sideways sweep and the forced-CRITICAL list reach review Step 4 and the
  * checklist, the flake-fix number reaches review and investigate from one
  * resolver, the review-mode Scope Check carries `Diff read` and `Undeclared
- * behavior changes`, /cso adopts the sibling sweep and nothing else, and ship's
- * byte-pinned plan-completion section is untouched.
+ * behavior changes`, and ship's byte-pinned plan-completion section is
+ * untouched.
  */
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
@@ -29,12 +29,6 @@ describe('sideways resolver', () => {
     expect(review).toContain('worst sibling');
     expect(review).toContain('forced CRITICAL');
     for (const cls of FORCED_CRITICAL) expect(review.toLowerCase()).toContain(cls);
-  });
-  test('the cso variant is the sibling sweep and nothing else', () => {
-    const cso = generateSidewaysSweep(ctx, ['cso']);
-    expect(cso).toContain('worst sibling');
-    expect(cso).not.toMatch(/CRITICAL|data loss|uncapped/);
-    expect(cso.split('\n').length).toBe(1);
   });
   test('the flake-fix number is one rule in two sizes', () => {
     for (const variant of [['review'], ['investigate']]) {
@@ -83,15 +77,5 @@ describe('rendered review', () => {
     for (const rel of ['ship/sections/plan-completion.md', 'ship/SKILL.md']) {
       expect(read(rel)).not.toContain('Undeclared behavior changes');
     }
-  });
-});
-
-describe('rendered cso', () => {
-  test('Phase 12 adopts the sibling sweep and keeps its own severity vocabulary', () => {
-    const skill = read('cso/SKILL.md');
-    const phase12 = between(skill, '### Phase 12', '### Phase 13');
-    expect(phase12).toContain('severity follows the worst sibling');
-    expect(phase12).not.toContain('root-cause variants');
-    expect(phase12).not.toMatch(/forced CRITICAL|Forced-CRITICAL/);
   });
 });

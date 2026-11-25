@@ -2,7 +2,8 @@
  * Retired skills: no host registers them, and setup and gstack-relink treat
  * each as a disabled skill that config cannot re-enable (GSTACK_RETIRED_SKILLS),
  * so an existing gstack-owned entry is removed on the next setup or upgrade and
- * a user's own same-name skill stays. /investigate is retired (GST-1717).
+ * a user's own same-name skill stays. /investigate is retired (GST-1717), and
+ * so is /cso (GST-3920).
  * /plan-eng-review was retired in GST-1698 and came back in GST-2726: every host
  * registers it again, and external hosts still carry its methodology beside
  * gstack-autoplan/SKILL.md as plan-eng-review.md for /autoplan's eng phase.
@@ -24,7 +25,7 @@ test('setup and gstack-relink retire the same skills as the generator', () => {
   const r = spawnSync('bash', ['-c', '. "$1" && printf %s "$GSTACK_RETIRED_SKILLS"', '_', REGISTRY], { encoding: 'utf8', timeout: 10_000 });
   expect(r.status, r.stderr).toBe(0);
   expect(r.stdout.split(/\s+/).filter(Boolean)).toEqual(RETIRED_SKILLS);
-  expect(RETIRED_SKILLS.join(' ')).toBe('investigate verify');
+  expect(RETIRED_SKILLS.join(' ')).toBe('investigate verify cso');
 });
 
 describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () => {
@@ -64,6 +65,23 @@ describe('gstack-relink after an upgrade removed /investigate (GST-1717)', () =>
     expect(fs.lstatSync(path.join(skills, 'investigate'), { throwIfNoEntry: false })).toBeUndefined();
     expect(fs.lstatSync(path.join(skills, 'gstack-investigate'), { throwIfNoEntry: false })).toBeUndefined();
     expect(fs.existsSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(true); // ship installs as gstack-ship (#4775)
+  });
+
+  test('the dangling cso and gstack-cso entries are removed, and a user\'s own cso skill stays (GST-3920)', () => {
+    fs.mkdirSync(path.join(skills, 'cso'));
+    fs.symlinkSync(path.join(install, 'cso', 'SKILL.md'), path.join(skills, 'cso', 'SKILL.md'));
+    fs.symlinkSync(path.join(install, 'cso'), path.join(skills, 'gstack-cso'));
+    const r = relink();
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.lstatSync(path.join(skills, 'cso'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(fs.lstatSync(path.join(skills, 'gstack-cso'), { throwIfNoEntry: false })).toBeUndefined();
+
+    fs.mkdirSync(path.join(skills, 'cso'));
+    const own = '---\nname: cso\ndescription: mine\n---\nmy own security review\n';
+    fs.writeFileSync(path.join(skills, 'cso', 'SKILL.md'), own);
+    const again = relink();
+    expect(again.status, again.stderr).toBe(0);
+    expect(fs.readFileSync(path.join(skills, 'cso', 'SKILL.md'), 'utf8')).toBe(own);
   });
 
   test("a user's own investigate skill is left alone", () => {

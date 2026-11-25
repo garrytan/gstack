@@ -1,5 +1,3 @@
-import * as path from 'node:path';
-
 /**
  * Provider adapter interface — uniform contract for Claude, GPT, Gemini.
  *
@@ -20,19 +18,6 @@ export interface RunOpts {
   model?: string;
   /** Extra flags per-provider (escape hatch for rare cases). Prefer staying generic. */
   extraArgs?: string[];
-  /** Producer-only execution policy. Omit to preserve each adapter's defaults. */
-  csoProducer?: {
-    /** The one explicit state directory exposed outside the source worktree. */
-    stateDirectory: string;
-    /** Exact validated per-cell source root. Providers may grant only this path read-only. */
-    sourceDirectory: string;
-    /** Absolute immutable launcher path admitted by the producer. */
-    helperLauncher: string;
-    /** Exact adjacent generation manifest read by the launcher. */
-    helperGeneration: string;
-    /** Exact provider command whose bytes/version are bound into the receipt. */
-    providerCommand: { executable: string; argsPrefix: string[] };
-  };
 }
 
 export interface TokenUsage {
@@ -51,14 +36,6 @@ export type RunError =
   | 'binary_missing' // CLI not found on PATH.
   | 'unknown';   // Catch-all with reason populated.
 
-export interface ToolTimelineEntry {
-  atMs: number;
-  /** Set when the call's tool_result arrived; absent for a call still running when the stream ended. */
-  endMs?: number;
-  tool: string;
-  agent: 'main' | 'subagent';
-}
-
 export interface RunResult {
   /** Provider's textual output for the prompt. */
   output: string;
@@ -68,8 +45,6 @@ export interface RunResult {
   durationMs: number;
   /** Count of tool/function calls made during the run (0 if unsupported). */
   toolCalls: number;
-  /** Tool calls in start order: name, start and end offsets from run start, and thread; no inputs or outputs. Unset if unsupported. */
-  toolTimeline?: ToolTimelineEntry[];
   /** Actual model ID the provider reports using (may be a variant of the family). */
   modelUsed: string;
   /** Every model the CLI billed during the run (Claude CLI `modelUsage` keys). Unset if unreported. */
@@ -85,89 +60,6 @@ export interface AvailabilityCheck {
 }
 
 export type Family = 'claude' | 'gpt' | 'gemini';
-
-export const CSO_PRODUCER_SHELL_ENV = [
-  'PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ',
-  'GSTACK_HOME', 'GSTACK_SESSION_KIND', 'GSTACK_HEADLESS',
-] as const;
-const CSO_AUTH_ENV: Record<Family, readonly string[]> = {
-  claude: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'],
-  gpt: ['OPENAI_API_KEY'],
-  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'],
-};
-
-export function validateCsoProducerStateDirectory(stateDirectory: string): string {
-  if (!path.isAbsolute(stateDirectory) || path.normalize(stateDirectory) !== stateDirectory) {
-    throw new Error('CSO producer state directory must be an absolute normalized path');
-  }
-  return stateDirectory;
-}
-
-export function csoProducerStateDirectory(opts: RunOpts): string | undefined {
-  if (!opts.csoProducer) return undefined;
-  csoProducerHelperLauncher(opts);
-  csoProducerHelperGeneration(opts);
-  csoProducerSourceDirectory(opts);
-  csoProducerProviderCommand(opts);
-  return validateCsoProducerStateDirectory(opts.csoProducer.stateDirectory);
-}
-
-export function csoProducerSourceDirectory(opts: RunOpts): string | undefined {
-  if (!opts.csoProducer) return undefined;
-  return validateCsoProducerStateDirectory(opts.csoProducer.sourceDirectory);
-}
-
-export function csoProducerHelperHome(opts: RunOpts): string | undefined {
-  const stateDirectory = csoProducerStateDirectory(opts);
-  return stateDirectory ? path.join(stateDirectory, 'cso-home') : undefined;
-}
-
-export function csoProducerProviderCommand(opts: RunOpts): { executable: string; argsPrefix: string[] } | undefined {
-  if (!opts.csoProducer) return undefined;
-  const command = opts.csoProducer.providerCommand;
-  if (!command || !path.isAbsolute(command.executable) || path.normalize(command.executable) !== command.executable ||
-      !Array.isArray(command.argsPrefix) || command.argsPrefix.some(value => typeof value !== 'string' || value.includes('\0'))) {
-    throw new Error('CSO producer provider command must be an absolute normalized trusted path');
-  }
-  return { executable: command.executable, argsPrefix: [...command.argsPrefix] };
-}
-
-export function csoProducerHelperLauncher(opts: RunOpts): string | undefined {
-  if (!opts.csoProducer) return undefined;
-  const launcher = opts.csoProducer.helperLauncher;
-  if (typeof launcher !== 'string') throw new Error('CSO producer helper launcher must be an absolute normalized trusted path');
-  const suffix = process.platform === 'win32' ? '.exe' : '';
-  if (!path.isAbsolute(launcher) || path.normalize(launcher) !== launcher || path.basename(launcher) !== `gstack-cso-launcher${suffix}` ||
-      !/^[A-Za-z0-9_./:\\-]+$/.test(launcher)) {
-    throw new Error('CSO producer helper launcher must be an absolute normalized trusted path');
-  }
-  return launcher;
-}
-
-export function csoProducerHelperGeneration(opts: RunOpts): string | undefined {
-  if (!opts.csoProducer) return undefined;
-  const generation = opts.csoProducer.helperGeneration;
-  const launcher = csoProducerHelperLauncher(opts);
-  if (typeof generation !== 'string' || !path.isAbsolute(generation) || path.normalize(generation) !== generation ||
-      path.basename(generation) !== '.gstack-cso-generation' || path.dirname(generation) !== path.dirname(launcher!) ||
-      !/^[A-Za-z0-9_./:\\-]+$/.test(generation)) {
-    throw new Error('CSO producer helper generation must be the exact adjacent absolute normalized trusted path');
-  }
-  return generation;
-}
-
-/** Copy only execution inputs needed by the selected producer host. */
-export function csoProducerChildEnvironment(
-  family: Family,
-  source: NodeJS.ProcessEnv = process.env,
-): Record<string, string> {
-  const output: Record<string, string> = {};
-  for (const key of [...CSO_PRODUCER_SHELL_ENV, ...CSO_AUTH_ENV[family]]) {
-    const value = source[key];
-    if (typeof value === 'string' && !value.includes('\0')) output[key] = value;
-  }
-  return output;
-}
 
 export interface ProviderAdapter {
   /** Stable name used in output tables and config (e.g., 'claude', 'gpt', 'gemini'). */

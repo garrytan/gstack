@@ -4,11 +4,11 @@
 # freshness test is test/doctor-components.test.ts. Sourced by
 # bin/gstack-doctor-check.sh; Bash 3.2 builtins only.
 
-GSTACK_DOCTOR_COMPONENTS="claude codex patch codex-cli browse-bundle browser cso helpers runtime pins state-root privacy cores revision floor wrapper"
+GSTACK_DOCTOR_COMPONENTS="claude codex patch codex-cli browse-bundle browser helpers runtime pins state-root privacy cores revision floor wrapper"
 GSTACK_DOCTOR_CORE="runtime pins state-root privacy cores revision floor wrapper"
 GSTACK_DOCTOR_HOSTS="claude codex"
-GSTACK_DOCTOR_OPTIONAL="codex-cli cso"
-GSTACK_DOCTOR_SKILLS="autoplan plan-ceo-review plan-eng-review plan-design-review plan-devex-review plan-tune office-hours spec review ship codex cso browse qa qa-only design-review design-consultation design-html design-motion devex-review scrape skillify canary benchmark make-pdf diagram pair-agent open-gstack-browser setup-browser-cookies connect-chrome land-and-deploy benchmark-models captain careful claude-code context-restore context-save design-shotgun deslop-shared-libs document-generate document-release eval-plan freeze gstack-upgrade guard health ios-clean ios-design-review ios-fix ios-qa ios-sync landing-report learn write-skill modernize retro runaway-stopper setup-deploy setup-gbrain sync-gbrain test-audit ubicloud unfreeze build-check review-voice"
+GSTACK_DOCTOR_OPTIONAL="codex-cli"
+GSTACK_DOCTOR_SKILLS="autoplan plan-ceo-review plan-eng-review plan-design-review plan-devex-review plan-tune office-hours spec review ship codex browse qa qa-only design-review design-consultation design-html design-motion devex-review scrape skillify canary benchmark make-pdf diagram pair-agent open-gstack-browser setup-browser-cookies connect-chrome land-and-deploy benchmark-models captain careful claude-code context-restore context-save design-shotgun deslop-shared-libs document-generate document-release eval-plan freeze gstack-upgrade guard health ios-clean ios-design-review ios-fix ios-qa ios-sync landing-report learn write-skill modernize retro runaway-stopper setup-deploy setup-gbrain sync-gbrain test-audit ubicloud unfreeze build-check review-voice"
 GSTACK_BROWSER_LAZY_REASON="lazy; gstack-browser-ensure installs on first use"
 GSTACK_DOCTOR_HELPERS="gstack-pregate gstack-plan-reality gstack-artifact gstack-autoplan"
 GSTACK_DOCTOR_NOT_NEEDED="none"
@@ -25,7 +25,6 @@ gstack_doctor_component_title() {
     codex-cli) printf '%s' 'Codex CLI (outside voice)' ;;
     browse-bundle) printf '%s' 'browse bundle' ;;
     browser) printf '%s' 'Chromium launch and render' ;;
-    cso) printf '%s' 'CSO native helper' ;;
     helpers) printf '%s' 'read-only helpers (gstack-pregate sealed, gstack-plan-reality, gstack-artifact, gstack-autoplan reads)' ;;
     runtime) printf '%s' 'gstack runtime (Bun)' ;;
     pins) printf '%s' 'project pins' ;;
@@ -48,7 +47,6 @@ gstack_doctor_component_kind() {
     codex-cli) printf '%s' 'optional' ;;
     browse-bundle) printf '%s' 'component' ;;
     browser) printf '%s' 'component' ;;
-    cso) printf '%s' 'optional' ;;
     helpers) printf '%s' 'component' ;;
     runtime) printf '%s' 'core' ;;
     pins) printf '%s' 'core' ;;
@@ -67,7 +65,6 @@ gstack_doctor_skill_requires() {
   case "$1" in
     autoplan|plan-ceo-review|plan-eng-review|plan-design-review|plan-devex-review|plan-tune|office-hours|spec|review|ship) printf '%s' 'claude codex patch' ;;
     codex) printf '%s' 'claude codex patch codex-cli' ;;
-    cso) printf '%s' 'claude cso' ;;
     browse|qa|qa-only|design-review|design-consultation|design-html|design-motion|devex-review|scrape|skillify|canary|benchmark|make-pdf|diagram|pair-agent|open-gstack-browser|setup-browser-cookies|connect-chrome|land-and-deploy) printf '%s' 'claude codex patch browse-bundle browser' ;;
     benchmark-models|captain|careful|claude-code|context-restore|context-save|design-shotgun|deslop-shared-libs|document-generate|document-release|eval-plan|freeze|gstack-upgrade|guard|health|ios-clean|ios-design-review|ios-fix|ios-qa|ios-sync|landing-report|learn|write-skill|modernize|retro|runaway-stopper|setup-deploy|setup-gbrain|sync-gbrain|test-audit|ubicloud|unfreeze|build-check) printf '%s' 'claude' ;;
     review-voice) printf '%s' 'helpers' ;;
@@ -80,7 +77,6 @@ gstack_doctor_skill_optional() {
   case "$1" in
     autoplan|plan-ceo-review|plan-eng-review|plan-design-review|plan-devex-review|plan-tune|office-hours|spec|review|ship) printf '%s' 'codex-cli' ;;
     codex) printf '%s' '' ;;
-    cso) printf '%s' '' ;;
     browse|qa|qa-only|design-review|design-consultation|design-html|design-motion|devex-review|scrape|skillify|canary|benchmark|make-pdf|diagram|pair-agent|open-gstack-browser|setup-browser-cookies|connect-chrome|land-and-deploy) printf '%s' 'codex-cli' ;;
     benchmark-models|captain|careful|claude-code|context-restore|context-save|design-shotgun|deslop-shared-libs|document-generate|document-release|eval-plan|freeze|gstack-upgrade|guard|health|ios-clean|ios-design-review|ios-fix|ios-qa|ios-sync|landing-report|learn|write-skill|modernize|retro|runaway-stopper|setup-deploy|setup-gbrain|sync-gbrain|test-audit|ubicloud|unfreeze|build-check) printf '%s' '' ;;
     review-voice) printf '%s' '' ;;

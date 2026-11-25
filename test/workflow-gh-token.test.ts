@@ -34,14 +34,14 @@ export function tokenlessGhSteps(file: string, document: any): string[] {
 describe('workflow gh token', () => {
   test('no workflow step runs gh without GH_TOKEN or GITHUB_TOKEN in scope', () => {
     const files = fs.readdirSync(WORKFLOWS).filter(name => /\.ya?ml$/.test(name));
-    expect(files).toContain('cso-runtime-promote.yml');
+    expect(files).toContain('weekly-release.yml');
     const missing = files.flatMap(file => tokenlessGhSteps(file, Bun.YAML.parse(fs.readFileSync(path.join(WORKFLOWS, file), 'utf8'))));
     expect(missing).toEqual([]);
   });
 
   test('the scanner flags the promote run 39691485727 shape and accepts every scope that supplies a token', () => {
     const step = (env?: Record<string, string>) => ({ name: 'candidate', env, run: 'set -e\nx="$(jq -r .a f)"\ngh api "repos/$R/compare/$a...$b" > out.json' });
-    expect(tokenlessGhSteps('w.yml', { jobs: { propose: { steps: [step({ CSO_QUALIFICATION_RUN: '1' })] } } })).toEqual(['w.yml:propose:candidate']);
+    expect(tokenlessGhSteps('w.yml', { jobs: { propose: { steps: [step({ QUALIFICATION_RUN: '1' })] } } })).toEqual(['w.yml:propose:candidate']);
     expect(tokenlessGhSteps('w.yml', { jobs: { propose: { steps: [step({ GH_TOKEN: '${{ github.token }}' })] } } })).toEqual([]);
     expect(tokenlessGhSteps('w.yml', { jobs: { propose: { env: { GITHUB_TOKEN: 't' }, steps: [step()] } } })).toEqual([]);
     expect(tokenlessGhSteps('w.yml', { env: { GH_TOKEN: 't' }, jobs: { propose: { steps: [step()] } } })).toEqual([]);

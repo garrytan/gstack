@@ -9,7 +9,10 @@
  * The periodic fixture is re-shaped to the current case shards: qa-workflow runs
  * as its qa-fix-loop case shard (its three gate-tier siblings become sibling
  * deselections) and the review carve runs as a case of the consolidated
- * test/carve-section-loading.test.ts.
+ * test/carve-section-loading.test.ts. With /cso removed (GST-3920), its
+ * multi-case shard is re-shaped to test/skill-e2e-shared-libs-periodic.test.ts
+ * (two in-lane cases) in the periodic fixture and test/skill-e2e-retro.test.ts
+ * (one gate case, one periodic sibling) in the gate fixture.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
@@ -48,15 +51,15 @@ describe('census attribution from the 2026-10-03 artifacts', () => {
     expect(r.status, r.out).toBe(0);
     expect(r.out).toContain('  rule 7/7 · behavior 0/0 · judge 0/0 · quarantined 0 (0 failing the lane)');
     expect(r.out).toContain('  SKIPPED 0 · INFRA 0 · INCOMPLETE 0 · unattributed 0 · ACTION REQUIRED 0');
-    expect(r.out).toContain(`deselected testcases, zero credit (21):`);
+    expect(r.out).toContain(`deselected testcases, zero credit (20):`);
     expect(r.out).toContain(`    13  ${DESELECTION_REASONS.sibling}`);
-    expect(r.out).toContain('     4  gate-tier case (this lane runs periodic)');
+    expect(r.out).toContain('     3  gate-tier case (this lane runs periodic)');
     expect(r.out).toContain(`     4  ${DESELECTION_REASONS.hook}`);
     expect(r.out).toContain('  ⚠ test/skill-e2e-test-value.test.ts (3 skipped — 3 gate-tier case (this lane runs periodic))');
     expect(r.out).not.toContain('UNATTRIBUTED');
     expect(r.history.map(record => `${record.case}:${record.outcome}`).sort()).toEqual([
       'benchmark-providers-live:passed', 'carve-section-loading-review:passed', 'codex-recommendation-substance:passed',
-      'cso-full-audit:passed', 'cso-infra-scope:passed', 'design-consultation-core:passed', 'qa-fix-loop:passed',
+      'design-consultation-core:passed', 'qa-fix-loop:passed', 'shared-libs-plan-callers:passed', 'shared-libs-pr-coverage:passed',
     ]);
     expect(r.history.find(record => record.case === 'benchmark-providers-live')).toMatchObject({ file: 'test/skill-e2e-benchmark-providers.test.ts', source: 'junit' });
     expect(r.history.filter(record => record.file === 'test/skill-e2e-design.test.ts'))
@@ -69,29 +72,29 @@ describe('census attribution from the 2026-10-03 artifacts', () => {
     expect(r.status, r.out).toBe(0);
     expect(r.out).toContain('  rule 2/2 · behavior 0/0 · judge 0/0 · quarantined 0 (0 failing the lane)');
     expect(r.out).toContain('  SKIPPED 0 · INFRA 0 · INCOMPLETE 0 · unattributed 0 · ACTION REQUIRED 0');
-    expect(r.out).toContain('    16  periodic-tier case (this lane runs gate)');
+    expect(r.out).toContain('    15  periodic-tier case (this lane runs gate)');
     expect(r.out).toContain(`     2  ${DESELECTION_REASONS.hook}`);
     expect(r.out).toContain(`  ⚠ test/skill-e2e-qa-bugs.test.ts (5 skipped — 2 ${DESELECTION_REASONS.hook}; 3 periodic-tier case (this lane runs gate))`);
-    expect(r.history.map(record => `${record.case}:${record.outcome}`).sort()).toEqual(['cso-diff-mode:passed', 'plan-mode-no-op:passed']);
+    expect(r.history.map(record => `${record.case}:${record.outcome}`).sort()).toEqual(['plan-mode-no-op:passed', 'retro-base-branch:passed']);
   });
 
   test('a selected in-lane case that skipped is SKIPPED with its reason; an unattributable testcase is listed by name', () => {
     const r = report('periodic', dir => {
       const qa = junit(dir, 'skill-e2e-qa-workflow--qa-fix-loop');
       fs.writeFileSync(qa, fs.readFileSync(qa, 'utf8').replace(/(<testcase name="qa-fix-loop"[^>]*?) \/>/, '$1><skipped /></testcase>'));
-      const cso = junit(dir, 'skill-e2e-cso');
-      fs.writeFileSync(cso, fs.readFileSync(cso, 'utf8').replace(/<\/testsuite>(\r?\n)<\/testsuites>/,
-        '<testcase name="an unlabeled helper" classname="CSO v3" time="1" file="test/skill-e2e-cso.test.ts" line="9" />$1</testsuite>$1</testsuites>'));
+      const libs = junit(dir, 'skill-e2e-shared-libs-periodic');
+      fs.writeFileSync(libs, fs.readFileSync(libs, 'utf8').replace(/<\/testsuite>(\r?\n)<\/testsuites>/,
+        '<testcase name="an unlabeled helper" classname="/deslop-shared-libs periodic" time="1" file="test/skill-e2e-shared-libs-periodic.test.ts" line="9" />$1</testsuite>$1</testsuites>'));
     });
     expect(r.status, r.out).toBe(0);
     expect(r.out).toContain('  SKIPPED 1 · INFRA 0 · INCOMPLETE 0 · unattributed 1 · ACTION REQUIRED 0');
     expect(r.out).toContain(`[test:paid]   ◌ qa-fix-loop  test/skill-e2e-qa-workflow.test.ts#qa-fix-loop (qa-fix-loop): ${RUNTIME_SKIP_REASON}`);
-    expect(r.out).toContain('[test:paid]   ? test/skill-e2e-cso.test.ts :: an unlabeled helper (passed)');
+    expect(r.out).toContain('[test:paid]   ? test/skill-e2e-shared-libs-periodic.test.ts :: an unlabeled helper (passed)');
     const summary = fs.readFileSync(path.join(r.dir, 'report-summary.md'), 'utf8');
     expect(summary).toContain('**Skipped, deselected and unattributed testcases**');
-    expect(summary).toContain('? test/skill-e2e-cso.test.ts :: an unlabeled helper (passed)');
+    expect(summary).toContain('? test/skill-e2e-shared-libs-periodic.test.ts :: an unlabeled helper (passed)');
     const collector = JSON.parse(fs.readFileSync(path.join(r.dir, 'collector-outcomes.json'), 'utf8'));
-    expect(collector.census.unattributed).toEqual(['test/skill-e2e-cso.test.ts :: an unlabeled helper (passed)']);
+    expect(collector.census.unattributed).toEqual(['test/skill-e2e-shared-libs-periodic.test.ts :: an unlabeled helper (passed)']);
     expect(collector.census.skipped).toHaveLength(1);
     expect(collector.verdict.counts).toMatchObject({ skipped: 1, unattributed: 1 });
   });
@@ -114,12 +117,12 @@ describe('a case shard\'s result records are its one case\'s cost (2026-10-26 tr
   });
 
   test('a multi-case shard whose records carry display labels keeps those trials cost-unknown instead of guessing', () => {
-    const r = report('periodic', dir => results(dir, 'skill-e2e-cso',
-      [{ name: '/cso full audit', suite: 'cso', tier: 'e2e', passed: true, duration_ms: 1000, cost_usd: 0.5 },
-        { name: 'cso-infra-scope', suite: 'cso', tier: 'e2e', passed: true, duration_ms: 1000, cost_usd: 0.25 }]));
-    expect(r.history.find(record => record.case === 'cso-full-audit')).toMatchObject({ cost_usd: 0, cost_known: false });
-    expect(r.history.find(record => record.case === 'cso-infra-scope')).toMatchObject({ cost_usd: 0.25 });
-    expect(r.history.find(record => record.case === 'cso-infra-scope').cost_known).toBeUndefined();
+    const r = report('periodic', dir => results(dir, 'skill-e2e-shared-libs-periodic',
+      [{ name: '/deslop-shared-libs pr coverage', suite: 'shared-libs', tier: 'e2e', passed: true, duration_ms: 1000, cost_usd: 0.5 },
+        { name: 'shared-libs-plan-callers', suite: 'shared-libs', tier: 'e2e', passed: true, duration_ms: 1000, cost_usd: 0.25 }]));
+    expect(r.history.find(record => record.case === 'shared-libs-pr-coverage')).toMatchObject({ cost_usd: 0, cost_known: false });
+    expect(r.history.find(record => record.case === 'shared-libs-plan-callers')).toMatchObject({ cost_usd: 0.25 });
+    expect(r.history.find(record => record.case === 'shared-libs-plan-callers').cost_known).toBeUndefined();
     expect(collector(r.dir).verdict.costUsd).toBe(0.75);
   });
 
@@ -139,8 +142,8 @@ describe('a case shard\'s result records are its one case\'s cost (2026-10-26 tr
 
   test('a billed session\'s cost is already in its collector total, so the verdict never adds it again (Codex host, unbound label record)', () => {
     const r = report('periodic', dir => {
-      results(dir, 'skill-e2e-cso', [{ name: '/cso full audit', suite: 'cso', tier: 'e2e', passed: true, duration_ms: 1, cost_usd: 0.5 }]);
-      fs.writeFileSync(path.join(shard(dir, 'skill-e2e-cso'), 'session-ledger.jsonl'),
+      results(dir, 'skill-e2e-shared-libs-periodic', [{ name: '/deslop-shared-libs pr coverage', suite: 'shared-libs', tier: 'e2e', passed: true, duration_ms: 1, cost_usd: 0.5 }]);
+      fs.writeFileSync(path.join(shard(dir, 'skill-e2e-shared-libs-periodic'), 'session-ledger.jsonl'),
         JSON.stringify({ key: 'k', runner: 'codex', started_at: 't', elapsed_ms: 1, end: 'completed', billed: true, cost_usd: 0.5 }) + '\n');
     });
     expect(collector(r.dir).verdict.costUsd).toBe(0.5);

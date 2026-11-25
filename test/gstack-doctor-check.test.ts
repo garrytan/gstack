@@ -52,7 +52,6 @@ describe('gstack-doctor --check', () => {
     expect(r.rows.patch.status).toBe('PASS');
     expect(r.rows['codex-cli'].status).toBe('PASS');
     expect(r.rows.browser).toEqual({ status: 'SKIP', rest: '(lazy; gstack-browser-ensure installs on first use)' });
-    expect(r.rows.cso.status).toBe('SKIP');
     expect(r.trailer).toBe(`gstack: ok ${VERSION} for=installed-hosts:claude,codex`);
     expect(r.trailers).toBe(1);
     expect(r.rows.runtime.rest).toContain('floor 1.3.3, supported minimum 1.4.2');
@@ -313,16 +312,6 @@ describe('gstack-doctor --check', () => {
     expect(row(f, ['--for', 'autoplan']).rows.browser.status).toBe('SKIP');
   });
 
-  test('cso: optional by default (SKIP, never silent), required by --for cso', () => {
-    const f = makeFixture();
-    expect(row(f, []).rows.cso).toEqual({ status: 'SKIP', rest: '(optional; toolchain absent or helper not built)' });
-    const r = row(f, ['--for', 'cso']);
-    expect(r.rows.cso.status).toBe('FAIL');
-    expect(r.trailer).toBe('gstack: fail cso');
-    for (const name of ['gstack-cso-launcher', 'gstack-cso-core']) write(path.join(f.root, 'bin', name + EXE), '#!/bin/sh\necho cso\n', 0o755);
-    expect(row(f, ['--for', 'cso']).rows.cso.status).toBe('PASS');
-  });
-
   test('state root: GSTACK_EPHEMERAL=1 reports durable=no in --check (PASS) and warns in the dashboard', () => {
     const f = makeFixture();
     const r = row(f, [], { GSTACK_EPHEMERAL: '1' });
@@ -349,7 +338,7 @@ describe('gstack-doctor --check', () => {
     expect(json.ok).toBe(false);
     expect(json.failed).toEqual(['runtime']);
     expect(json.required).toEqual(['claude', 'codex', 'patch', 'runtime', 'pins', 'state-root', 'privacy', 'cores', 'revision', 'floor', 'wrapper']);
-    expect(json.rows.map((x: { id: string }) => x.id)).toEqual(['claude', 'codex', 'patch', 'codex-cli', 'browse-bundle', 'browser', 'cso', 'helpers', 'runtime', 'pins', 'state-root', 'privacy', 'cores', 'revision', 'floor', 'wrapper']);
+    expect(json.rows.map((x: { id: string }) => x.id)).toEqual(['claude', 'codex', 'patch', 'codex-cli', 'browse-bundle', 'browser', 'helpers', 'runtime', 'pins', 'state-root', 'privacy', 'cores', 'revision', 'floor', 'wrapper']);
     const runtime = json.rows.find((x: { id: string }) => x.id === 'runtime');
     expect(runtime.status).toBe('FAIL');
     expect(runtime.code).toBe('RUNTIME_BELOW_MINIMUM');

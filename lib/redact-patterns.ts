@@ -3,7 +3,7 @@
  *
  * Single source of truth shared by `lib/redact-engine.ts`, `bin/gstack-redact`,
  * `bin/gstack-redact-prepush`, and (via `scripts/resolvers/redact-doc.ts`) the
- * generated SKILL.md docs for /spec, /ship, /cso, /document-release, and
+ * generated SKILL.md docs for /spec, /ship, /document-release, and
  * /document-generate.
  *
  * Design notes (locked in /plan-eng-review + two Codex passes):
@@ -175,7 +175,7 @@ function looksLikeWallet(span: string): boolean {
 /**
  * A bc1 address is bech32 (BIP 173) or bech32m (BIP 350): `bc`, the separator `1`, then data from a 32-letter alphabet
  * with no `1`, `b`, `i` or `o`, ending in a six-letter checksum. A git sha that starts with `bc1` read as a wallet and
- * was redacted out of `<sha>..<sha>` (Free Tests 41715139988, test/cso-cli.test.ts); the alphabet in the regex refuses
+ * was redacted out of `<sha>..<sha>` (Free Tests 41715139988); the alphabet in the regex refuses
  * most such shas, and the checksum, which a random string passes about once in 500 million tries, refuses the rest. Every real
  * address carries a valid checksum, so none is lost.
  */

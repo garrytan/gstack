@@ -162,8 +162,6 @@ describe('one-way door safety', () => {
       'review-sql-safety',                 // SQL injection path
       'review-llm-trust-boundary',         // LLM trust boundary
       'review-gate-disposition',           // gate edit disposition: never-ask/AUTO_DECIDE must not waive it
-      'cso-global-scan-approval',          // scans outside branch
-      'cso-finding-fix',                   // security finding
       'land-and-deploy-merge-confirm',     // actual merge
       'land-and-deploy-rollback',          // rollback decision
       'plan-ceo-review-premise-revise',    // changing agreed premise
@@ -202,7 +200,6 @@ describe('registry breadth', () => {
       'plan-devex-review',
       'qa',
       'land-and-deploy',
-      'cso',
     ];
     for (const skill of highVolume) {
       expect(stats.by_skill[skill] ?? 0).toBeGreaterThan(0);
@@ -523,8 +520,7 @@ describe('one-way-doors classifier', () => {
     }
   });
 
-  test('skill-category fallback fires for cso:approval and land-and-deploy:approval', () => {
-    expect(isOneWayDoor({ skill: 'cso', category: 'approval' })).toBe(true);
+  test('skill-category fallback fires for land-and-deploy:approval', () => {
     expect(isOneWayDoor({ skill: 'land-and-deploy', category: 'approval' })).toBe(true);
   });
 
@@ -545,8 +541,7 @@ describe('one-way-doors classifier', () => {
     expect(DESTRUCTIVE_PATTERN_LIST.length).toBeGreaterThan(15);
   });
 
-  test('skill-category set covers security + deploy', () => {
-    expect(ONE_WAY_SKILL_CATEGORY_SET.has('cso:approval')).toBe(true);
+  test('skill-category set covers deploy', () => {
     expect(ONE_WAY_SKILL_CATEGORY_SET.has('land-and-deploy:approval')).toBe(true);
   });
 });

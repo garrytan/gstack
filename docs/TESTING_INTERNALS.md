@@ -1030,7 +1030,7 @@ checkout to it: tracked files, untracked files that are not ignored, and
 `scripts/ubicloud/setup-free-suite.sh`, which mirrors the `free-suite` CI job
 (same Bun pin, Playwright Chromium with its setuid sandbox helper, Xvfb,
 poppler, emoji fonts, zsh for the bash+zsh portability arms (#2669), generated
-host outputs, gate binaries, and the CSO helper), and runs `xvfb-run -a bun run test:free` with `GSTACK_EXPECT_BINARIES=1`
+host outputs and gate binaries), and runs `xvfb-run -a bun run test:free` with `GSTACK_EXPECT_BINARIES=1`
 and `GSTACK_FREE_RETRY_FLAKY=1`. Shard logs are copied to
 `.context/ubicloud/<timestamp>/`, and the VM is destroyed on every exit path.
 The exit status is the suite's. `--diagnostic` instead runs /gstack-ship's free-shard
@@ -1039,7 +1039,7 @@ with `GSTACK_FREE_RETRY_FLAKY=0`.
 
 A stock Ubuntu 24.04 VM differs from a GitHub-hosted runner in three ways that
 the scripts correct: the login umask is `002` (group-writable directories fail
-the CSO private-state checks), AppArmor blocks the unprivileged user
+the permission checks in the code under test), AppArmor blocks the unprivileged user
 namespaces Chromium's sandbox needs, and `python3-venv` is absent (required by
 the Python runner tests).
 
@@ -1769,7 +1769,7 @@ only, <workflow>)":
 | `free-tests.yml` | `free-suite`, `macos-named-regressions` |
 | `windows-smoke.yml` | `windows-smoke` |
 | `windows-scoped-tests.yml` | `windows-scoped-shard` |
-| `windows-setup-e2e.yml` | `windows-setup`, `windows-setup-recovery`, `windows-setup-cso`, `held-install-journey`, `held-install-trial`, `held-install-later-release` |
+| `windows-setup-e2e.yml` | `windows-setup`, `windows-setup-recovery`, `held-install-journey`, `held-install-trial`, `held-install-later-release` |
 | `quality-gate.yml` | `quality` |
 | `evals.yml` | `build-image`, `eval-slices` |
 

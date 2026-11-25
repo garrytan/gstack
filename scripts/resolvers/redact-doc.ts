@@ -3,7 +3,7 @@
  *
  *   {{REDACT_TAXONOMY_TABLE}}            → markdown table of the 3-tier taxonomy,
  *                                          derived from lib/redact-patterns so /spec
- *                                          and /cso never drift from the engine.
+ *                                          never drifts from the engine.
  *   {{REDACT_INVOCATION_BLOCK:<sink>}}   → the canonical scan-at-sink bash + prose
  *                                          for one enforcement point. <sink> is a
  *                                          hyphenated label: pre-codex, pre-archive,

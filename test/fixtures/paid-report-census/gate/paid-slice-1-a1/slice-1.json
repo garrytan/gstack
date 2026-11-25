@@ -27,13 +27,13 @@
     },
     {
       "files": [
-        "test/skill-e2e-cso.test.ts"
+        "test/skill-e2e-retro.test.ts"
       ],
       "status": "passed",
       "exitCode": 0,
       "elapsedMs": 205014,
-      "executedTests": 3,
-      "skippedTests": 2,
+      "executedTests": 2,
+      "skippedTests": 1,
       "budget": {
         "timeoutMs": 1800000,
         "source": "default",

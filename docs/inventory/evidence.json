@@ -78,12 +78,6 @@
       "plan": "none",
       "seed": "GEVA-2, 2026-11-02: context-save: untested (never measured)"
     },
-    "cso": {
-      "status": "safety",
-      "grandfathered": true,
-      "reason": "security: supported security findings with explicit coverage; kept on its security reason (GEVA-2 marks it exempt; GStack Minder may reclassify it)",
-      "seed": "GEVA-2, 2026-11-02: cso: exempt (security audit skill, treated as exempt; GStack Minder may reclassify)"
-    },
     "design-consultation": {
       "status": "untested",
       "grandfathered": true,

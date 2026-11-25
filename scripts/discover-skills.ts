@@ -15,10 +15,12 @@ const SKIP = new Set(['node_modules', '.git', 'dist']);
  * install's gstack-owned entry. investigate was cut after a no-gain eval and
  * its source is gone (GST-1717). verify is now build-check (#4593): the old
  * name hid Claude Code's built-in /verify, so an upgrade removes gstack's old
- * entry and leaves a user's own verify skill. setup and gstack-relink read the same list
- * from GSTACK_RETIRED_SKILLS in bin/gstack-install-registry.sh.
+ * entry and leaves a user's own verify skill. cso was cut after a plain security
+ * audit request found more than it did (GST-3920), and its source is gone.
+ * setup and gstack-relink read the same list from GSTACK_RETIRED_SKILLS in
+ * bin/gstack-install-registry.sh.
  */
-export const RETIRED_SKILLS = ['investigate', 'verify'];
+export const RETIRED_SKILLS = ['investigate', 'verify', 'cso'];
 
 /**
  * Old skill name → new name. A user's disabled_skills entry under the old name

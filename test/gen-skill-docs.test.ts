@@ -421,8 +421,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('tier 2+ skills contain ELI10 simplification rules (AskUserQuestion format)', () => {
-    // Root SKILL.md is tier 1 and CSO intentionally uses a private startup with
-    // no shared PREAMBLE. Check a regular tier 2+ PREAMBLE consumer instead.
+    // Root SKILL.md is tier 1. Check a regular tier 2+ PREAMBLE consumer instead.
     // v1.7.0.0 Pros/Cons format uses "ELI10 (ALWAYS)" rather than "Simplify (ELI10".
     const content = readSkillStartup(path.join(ROOT, 'review', 'SKILL.md'));
     expect(content).toContain('ELI10');
@@ -4399,8 +4398,6 @@ describe('LEARNINGS_LOG resolver', () => {
 });
 
 describe('CONFIDENCE_CALIBRATION resolver', () => {
-  // CSO owns a distinct evidence rubric; the shared numerical confidence
-  // resolver would conflict with that contract and its private startup.
   const CONFIDENCE_SKILLS = ['review', 'ship', 'plan-eng-review'];
 
   for (const skill of CONFIDENCE_SKILLS) {
@@ -4506,9 +4503,9 @@ describe('voice-triggers processing', () => {
   };
 
   test('extractVoiceTriggers parses valid YAML list', () => {
-    const content = `---\nname: cso\ndescription: |\n  Security audit.\nvoice-triggers:\n  - "see-so"\n  - "security review"\n---\nBody`;
+    const content = `---\nname: qa\ndescription: |\n  QA testing.\nvoice-triggers:\n  - "quality check"\n  - "run QA"\n---\nBody`;
     const triggers = extractVoiceTriggers(content);
-    expect(triggers).toEqual(['see-so', 'security review']);
+    expect(triggers).toEqual(['quality check', 'run QA']);
   });
 
   test('extractVoiceTriggers returns [] when no field present', () => {
@@ -4517,13 +4514,13 @@ describe('voice-triggers processing', () => {
   });
 
   test('processVoiceTriggers appends voice triggers to description', () => {
-    const content = `---\nname: cso\ndescription: |\n  Security audit. (gstack)\nvoice-triggers:\n  - "see-so"\n  - "security review"\n---\nBody`;
+    const content = `---\nname: qa\ndescription: |\n  QA testing. (gstack)\nvoice-triggers:\n  - "quality check"\n  - "run QA"\n---\nBody`;
     const result = processVoiceTriggers(content);
-    expect(result).toContain('Voice triggers (speech-to-text aliases): "see-so", "security review".');
+    expect(result).toContain('Voice triggers (speech-to-text aliases): "quality check", "run QA".');
   });
 
   test('processVoiceTriggers strips voice-triggers field from output', () => {
-    const content = `---\nname: cso\ndescription: |\n  Security audit. (gstack)\nvoice-triggers:\n  - "see-so"\n---\nBody`;
+    const content = `---\nname: qa\ndescription: |\n  QA testing. (gstack)\nvoice-triggers:\n  - "quality check"\n---\nBody`;
     const result = processVoiceTriggers(content);
     expect(result).not.toContain('voice-triggers:');
   });
@@ -4533,11 +4530,11 @@ describe('voice-triggers processing', () => {
     expect(processVoiceTriggers(content)).toBe(content);
   });
 
-  test('CSO voice triggers fold into the full description', () => {
-    // The Claude catalog trim drops this line from cso/SKILL.md; full-mode and
+  test('QA voice triggers fold into the full description', () => {
+    // The Claude catalog trim drops this line from qa/SKILL.md; full-mode and
     // other-host renders still carry it.
-    const content = processVoiceTriggers(fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md.tmpl'), 'utf-8'));
-    expect(content).toContain('"see-so"');
+    const content = processVoiceTriggers(fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md.tmpl'), 'utf-8'));
+    expect(content).toContain('"run QA"');
     expect(content).toContain('Voice triggers (speech-to-text aliases):');
   });
 
@@ -4556,34 +4553,11 @@ describe('voice-triggers processing', () => {
     expect(routed).toBeGreaterThan(0);
   });
 
-  test('generated CSO SKILL.md does NOT contain raw voice-triggers field', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+  test('generated QA SKILL.md does NOT contain raw voice-triggers field', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
     const fmEnd = content.indexOf('\n---', 4);
     const frontmatter = content.slice(0, fmEnd);
     expect(frontmatter).not.toContain('voice-triggers:');
-  });
-
-  test('generated Claude CSO skill preauthorizes only the trusted launcher', () => {
-    const expected = [
-      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher *)',
-      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher.exe *)',
-    ];
-    for (const file of ['cso/SKILL.md.tmpl', 'cso/SKILL.md']) {
-      const content = fs.readFileSync(path.join(ROOT, file), 'utf-8');
-      const fmEnd = content.indexOf('\n---', 4);
-      const frontmatter = Bun.YAML.parse(content.slice(4, fmEnd)) as Record<string, unknown>;
-      expect(frontmatter['allowed-tools'], file).toEqual(expected);
-    }
-  });
-
-  test('generated CSO host variants retain challenge fallback and host-containment disclosure', () => {
-    const claude = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
-    const codex = fs.readFileSync(path.join(EXTERNAL_OUT, '.agents', 'skills', 'gstack-cso', 'SKILL.md'), 'utf-8');
-    for (const content of [claude, codex]) {
-      expect(content).toContain('sequential challenge; independent agent unavailable');
-      expectMentions(content, [['does not','containment','sandbox']], 'content');
-      expectMentions(content, [['do not','independent','reviewer']], 'content');
-    }
   });
 
   // Gen-time-only keys: interactive + benefits-from are read from the .tmpl by

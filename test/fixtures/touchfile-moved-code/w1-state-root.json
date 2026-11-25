@@ -24,14 +24,6 @@
       ],
       "llmJudge": []
     },
-    "lib/cso/state.ts": {
-      "e2e": [
-        "cso-diff-mode",
-        "cso-full-audit",
-        "cso-infra-scope"
-      ],
-      "llmJudge": []
-    },
     "bin/gstack-paths": {
       "e2e": [
         "plan-design-with-ui-scope"
@@ -70,8 +62,7 @@
   },
   "modules": {
     "lib/state-root.ts": [
-      "browse/src/config.ts",
-      "lib/cso/state.ts"
+      "browse/src/config.ts"
     ],
     "bin/gstack-state-root.sh": [
       "bin/gstack-paths",

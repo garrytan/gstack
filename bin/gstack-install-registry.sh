@@ -350,9 +350,10 @@ gstack_disabled_normalize() {
 # disabled_skills says; an existing gstack-owned entry is removed like a
 # disabled one. investigate's source is gone (GST-1717), and its old entries
 # are still removed. verify is now build-check (#4593): its old gstack-owned
-# entry would hide Claude Code's built-in /verify. Same list as RETIRED_SKILLS in scripts/discover-skills.ts
-# (test/retired-skills.test.ts).
-GSTACK_RETIRED_SKILLS="investigate verify"
+# entry would hide Claude Code's built-in /verify. cso's source is gone
+# (GST-3920), and its old entries are still removed. Same list as
+# RETIRED_SKILLS in scripts/discover-skills.ts (test/retired-skills.test.ts).
+GSTACK_RETIRED_SKILLS="investigate verify cso"
 
 # GSTACK_RENAMED_SKILLS — old:new skill names. A user's disabled_skills entry
 # under an old name still turns off the skill's new name (#4593). Same map as

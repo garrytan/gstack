@@ -1,19 +1,17 @@
-// Split from test/gstack-doctor.test.ts: launch/CSO rows, launch Bun, wrapper drift, rescue refs and Windows bash.
+// Split from test/gstack-doctor.test.ts: launch rows, launch Bun, wrapper drift, rescue refs and Windows bash.
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { useDoctorCleanup, REPO, BROWSE_BIN, EXE, OTHER_BINS, write, script, bashPath, makeFixture, doctor, type Fixture } from './helpers/doctor-fixture';
+import { useDoctorCleanup, REPO, BROWSE_BIN, OTHER_BINS, write, script, bashPath, makeFixture, doctor, type Fixture } from './helpers/doctor-fixture';
 
 useDoctorCleanup();
 
-// #2595/#2124 and #3071: compiled binaries by launch state, and CSO from the
-// build-result record. A blocked binary is simulated by the application-control
-// message reporters captured (#2595), which works on every OS.
-describe('gstack-doctor launch and CSO rows', () => {
+// #2595/#2124: compiled binaries by launch state. A blocked binary is simulated
+// by the application-control message reporters captured (#2595), which works
+// on every OS.
+describe('gstack-doctor launch rows', () => {
   const BLOCKED = `#!/bin/sh\necho "Program 'x.exe' failed to run: An Application Control policy has blocked this file" >&2\nexit 1\n`;
-  const record = (f: Fixture, text: string) => write(path.join(f.root, 'bin/.gstack-cso-build-result'), text);
-  const cso = (f: Fixture) => { for (const name of ['gstack-cso-launcher', 'gstack-cso-core']) write(path.join(f.root, 'bin', name + EXE), '#!/bin/sh\necho cso\n', 0o755); };
 
   test('healthy binaries are ok; a blocked browse says blocked, not "not built"', () => {
     const f = makeFixture();
@@ -45,25 +43,6 @@ describe('gstack-doctor launch and CSO rows', () => {
     expect(r.row('binaries').detail).toBe('not built: pdf');
   });
 
-  test('the CSO row reads the build-result record', () => {
-    const f = makeFixture();
-    const none = doctor(f).row('cso');
-    expect(none.state).toBe('not configured');
-    expect(none.detail).toBe('native helper not built; /cso reports not assessed');
-    expect(none.fix).toContain('./setup (it names any missing build prerequisite)');
-    record(f, 'result=failed\nstage=build\nreason=exit 42\nrevision=1.2 (abc)\ninstalled=\nlauncher=no\ndiagnostic=/x/cso.log\n');
-    let r = doctor(f);
-    expect(r.row('cso').state).toBe('warn');
-    expect(r.row('cso').detail).toBe('unavailable: the build step failed (exit 42); /cso reports not assessed');
-    expect(r.row('cso').fix).toContain('bun run build:cso && ./setup (log: /x/cso.log;');
-    cso(f);
-    record(f, 'result=failed\nstage=publish\nreason=exit 1\nrevision=1.2 (abc)\ninstalled=1.1 (def)\nlauncher=yes\ndiagnostic=/x/cso.log\n');
-    expect(doctor(f).row('cso').detail).toBe('publish step failed (exit 1) for 1.2 (abc); previous CSO kept: 1.1 (def)');
-    record(f, 'result=ok\nstage=publish\nreason=committed\nrevision=1.2 (abc)\ninstalled=1.2 (abc)\nlauncher=yes\ndiagnostic=x\n');
-    r = doctor(f);
-    expect(r.row('cso')).toEqual({ state: 'ok', detail: 'native helper 1.2 (abc)', fix: '' });
-    expect(r.status).toBe(0);
-  });
 });
 
 // Field wave lane A: the trailer agrees with the Bun workflows run (A3), a

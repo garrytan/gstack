@@ -62,8 +62,6 @@ const BASELINE = [
   'test/codex-eval-recording.test.ts',
   'test/codex-resume-flag-semantics.test.ts',
   'test/context-restore-fragment-verdict.test.ts', // GSTA-91: replays three captured false reds (0/3 on main cb99df4) through the paid context-restore-fragment-match case's fragmentRestoreVerdict
-  'test/cso-ntfs-fixture.test.ts',
-  'test/cso-windows-build-contract.test.ts',
   'test/dependency-security.test.ts',
   'test/deps-smoke.test.ts',
   'test/design-completion-handoff-scored.test.ts',

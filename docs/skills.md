@@ -27,7 +27,6 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/benchmark`](#benchmark) | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. Track trends over time. |
 | [`/ubicloud`](#ubicloud) | **Remote Runner** | Run a heavy suite, build or eval on an ephemeral 16-vCPU Ubicloud VM: TTL-named VMs with a reaper, quota preflight, a hang watchdog and one committed verify per repository. |
 | [`/runaway-stopper`](#runaway-stopper) | **Spend Warden** | Find runaway Capy threads and subagents, stop or rotate them at a clean point, and set the defaults that keep them from coming back. |
-| [`/cso`](#cso) | **Chief Security Officer** | Supported security findings with explicit coverage. Static assessment remains available without catalog profiles; contained runtime/scanner execution requires matching qualified profiles. Runtime-tested bundles authenticate separate external assertions. Project-test completion remains `self_reported` because target code controls the test process; `tested` is reserved for a future target-independent completion witness. |
 | [`/document-release`](#document-release) | **Technical Writer** | Audit relevant docs on every ship before final verification; standalone runs can also update docs after a PR exists. Catches stale READMEs and reports unresolved gaps. |
 | [`/document-generate`](../document-generate/SKILL.md) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
@@ -1103,29 +1102,6 @@ Claude: UBICLOUD_API_KEY: set; UBI_OWNER=lane7
         ubi-runner: command exited 0 after 1140s
         ubi-runner: destroyed eu-central-h1/ubirun-lane7-1761500000-9f3a2c10-t3
         UBICLOUD: left=0 owner=lane7 vm=ubirun-lane7-1761500000-9f3a2c10-t3 others=0
-```
-
----
-
-## `/cso`
-
-This is my **Chief Security Officer**.
-
-Run `/cso` for a bounded static investigation with an application model, challenged findings, and explicit coverage; static assessment remains available when no runtime or scanner catalog profile is qualified. With matching qualified profiles, `/cso --comprehensive` can prepare Node/Bun, Python, and Rails applications in contained local runtimes, reproduce a defect, and retain a reviewable repair candidate without changing the working branch. An out-of-process witness can authenticate the external boot, legitimate-control, and security assertions and issue a `runtime_tested` bundle. Project-test completion remains `self_reported` because target code shares that process and can forge reporter output or terminate the runner; recorded command, count, exit, and output hashes are diagnostic evidence, not a target-independent completion witness. Every report shows assertion, test-completion, and review assurance separately. The `tested` state is reserved for a future target-independent witness and is not emitted today. `/cso --doctor`, `--resume`, `--replay`, and `--recheck` diagnose prerequisites, recover interrupted work, repeat recorded verification, and establish current-source closure from fresh evidence.
-
-Contained runtime and scanner execution needs Docker and a matching qualified profile. The runtime catalog qualifies ten images: Node 24.4.0, Bun 1.3.10, Python 3.13.4 with uv 0.8.0, Rails on Ruby 3.4.4, and PostgreSQL 17.2, each for linux/amd64 and linux/arm64. The scanner catalog qualifies twelve: gitleaks, OSV-Scanner, Schemathesis, Semgrep, Trivy and zizmor on both platforms. Without Docker, or where no profile matches (native Windows Docker, for example), `/cso` runs static assessment only.
-
-```
-You:   /cso
-
-Claude: complete — assessed application routes, tenant authorization, secrets,
-        dependency exposure, and deployment configuration.
-
-        HIGH: Cross-tenant invoice access (app/controllers/invoices.rb:47)
-        Confidence: high — caller, middleware, and policy checks traced
-        Evidence: supported static finding; runtime not requested
-
-        1 supported finding. Run ID: cso-…
 ```
 
 ---

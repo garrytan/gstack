@@ -1,6 +1,6 @@
 # E2E detector inventory: phrase checks and structured sources
 
-This inventory lists every pass/fail decision in the gate and periodic E2E cases (`E2E_TIERS` in test/helpers/touchfiles-data.ts, plus the three standalone periodic AUQ files) that rests only on phrases or regexes in model free text, at HEAD `cbcccf9`. It has 153 phrase-check rows: 13 are already structured-first (a), 38 are convert candidates (b), 79 need a phrase witness because the contract is user-visible (c), and 23 have no structured source (d); 13 more rows are LLM judges. Shared detectors (S1-S10, F1-F3, A1) are counted once, even though up to nine cases use each. Of the five B1 cases, only auto-decide-preserved has a structured record that can decide its outcome; the other four already read their records first or test text the user sees, so B1 replay corpora protect their phrase checks.
+This inventory lists every pass/fail decision in the gate and periodic E2E cases (`E2E_TIERS` in test/helpers/touchfiles-data.ts, plus the three standalone periodic AUQ files) that rests only on phrases or regexes in model free text, at HEAD `cbcccf9`. It has 149 phrase-check rows: 13 are already structured-first (a), 38 are convert candidates (b), 78 need a phrase witness because the contract is user-visible (c), and 20 have no structured source (d), after the four rows for the removed security audit skill were dropped; 13 more rows are LLM judges. Shared detectors (S1-S10, F1-F3, A1) are counted once, even though up to nine cases use each. Of the five B1 cases, only auto-decide-preserved has a structured record that can decide its outcome; the other four already read their records first or test text the user sees, so B1 replay corpora protect their phrase checks.
 
 Dispositions:
 
@@ -133,7 +133,7 @@ The plan-ceo-review-plan-mode (:89, :108), plan-devex-review-plan-mode (:181-222
 | context-restore-loads-latest | test/skill-e2e-session-intelligence.test.ts:379-393, :401-402 | `RESTORED: <newer>` or newer-body phrase; Read of the newer file as fallback | Read tool_use | partly | (c) |
 | learnings-show | test/skill-e2e-learnings.test.ts:117-119, :131 | output mentions ≥2 of n-plus-one, stale/cache, rubocop | `gstack-learnings-search` Bash result (fixture copies it, test/skill-e2e-learnings.test.ts:43) | yes (/learn shows them) | (c) |
 
-### test/skill-e2e-qa-functional*.test.ts, test/skill-e2e-skillify.test.ts, test/skill-e2e-deploy.test.ts, test/skill-e2e-cso.test.ts
+### test/skill-e2e-qa-functional*.test.ts, test/skill-e2e-skillify.test.ts, test/skill-e2e-deploy.test.ts
 
 | Case | Check (file:line) | Matches | Structured source | User-visible | Disposition |
 |---|---|---|---|---|---|
@@ -147,8 +147,6 @@ The plan-ceo-review-plan-mode (:89, :108), plan-devex-review-plan-mode (:181-222
 | land-and-deploy-first-run | test/skill-e2e-deploy.test.ts:150-151 | report contains fly or first-run-app | Bash result `PLATFORM:fly` (this case runs Step 1.5) | no | (b) |
 | land-and-deploy-review-gate | test/skill-e2e-deploy.test.ts:221-222 | readiness report ~ review and not run/no reviews/missing | none (gstack-review-read not installed) | yes | (c) |
 | setup-deploy-workflow | test/skill-e2e-deploy.test.ts:408-410 | CLAUDE.md contains fly, my-cool-app, Deploy Configuration | the `## Deploy Configuration` key/value block (setup-deploy/SKILL.md.tmpl:183-190) | no (machine-read) | (b) |
-| cso-diff-mode | test/skill-e2e-cso.test.ts:181 | webhook.js finding prose ~ signature/authenticat/forg | report.json has no class/CWE field (lib/cso/contracts.ts:65-80) | no | (d) |
-| cso-diff-mode (and the periodic CSO cases) | test/skill-e2e-cso.test.ts:61, :86, :133-134 | CANARY token absent from output, transcript and reports | n/a (leak canary) | yes | (c) |
 
 ### test/skill-e2e-third-party-actions.test.ts
 
@@ -249,7 +247,7 @@ The plan-design-review-plan-mode-smoke verdicts are S1-S10, and the plan-design-
 | design-html-slop-gate | test/skill-e2e-design.test.ts:1318-1319 | gate-output.md has ai-color-palette and accepted | scan call count only | yes | (c) |
 | design-consultation-core, plan-decision-classification, plan-devex-peer-comparison-classification, diagram-authoring-quality | design :168; classification :150-153, :40-43; diagram :159-183 | — | — | — | judge |
 
-### Context, scrape, CSO, health, Aside
+### Context, scrape, health, Aside
 
 | Case | Check (file:line) | Matches | Structured source | User-visible | Disposition |
 |---|---|---|---|---|---|
@@ -264,8 +262,6 @@ The plan-design-review-plan-mode-smoke verdicts are S1-S10, and the plan-design-
 | context-save-list-current-branch | test/skill-e2e-context-skills.test.ts:525-526, :537-538 | final lacks other-branch entries | none (model-rendered list) | yes | (c) |
 | context-save-list-all-branches | test/skill-e2e-context-skills.test.ts:572-576, :586 | surface has all 3 timestamps | Bash listing result | partly | (b) |
 | scrape-prototype-path | test/skill-e2e-skillify.test.ts:283, :290-294, :304-305 | surface ~ /skillify/ and `"items": [` (both vacuous: in scrape/SKILL.md.tmpl:32, :173) | none | yes | (c) |
-| cso-full-audit | test/skill-e2e-cso.test.ts:139-140 | server.js finding prose ~ tenant/owner/authoriz | no class field in report.json | no | (d) |
-| cso-infra-scope | test/skill-e2e-cso.test.ts:227-229 | finding prose ~ comment body, run/shell, GITHUB_TOKEN | same | no | (d) |
 | health-reporting | test/helpers/health-eval-fixture.ts:132-156 | rendered dashboard: composite 5.6, partial coverage, 0/10 typecheck, "60 errors", unavailable categories, no trend verdict, N/A composite | health-history.jsonl rows (already checked :158-176) | yes | (c) |
 | aside-browse-basic, aside-qa-quick, aside-scrape-json | test/skill-e2e-aside.test.ts:179, :219, :234-239 | title in final message; `health score` in report; final JSON contains page1 | none verified | yes | (c) |
 | aside-canary-quick | test/skill-e2e-aside.test.ts:256 | canary report ~ CANARY REPORT/Status: | `{date}-canary.json` (canary/SKILL.md.tmpl:221); not verified | no | (b) |

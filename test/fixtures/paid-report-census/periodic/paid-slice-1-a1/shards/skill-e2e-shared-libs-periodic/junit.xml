@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="2" assertions="0" failures="0" skipped="0" time="293.147597765">
+  <testsuite name="test/skill-e2e-shared-libs-periodic.test.ts" file="test/skill-e2e-shared-libs-periodic.test.ts" tests="2" assertions="0" failures="0" skipped="0" time="293.145365972">
+    <testsuite name="/deslop-shared-libs periodic" file="test/skill-e2e-shared-libs-periodic.test.ts" line="70" tests="2" assertions="0" failures="0" skipped="0" time="293.11">
+      <testcase name="shared-libs-pr-coverage" classname="/deslop-shared-libs periodic" time="242.558725" file="test/skill-e2e-shared-libs-periodic.test.ts" line="145" assertions="0" />
+      <testcase name="shared-libs-plan-callers" classname="/deslop-shared-libs periodic" time="293.110054" file="test/skill-e2e-shared-libs-periodic.test.ts" line="169" assertions="0" />
+    </testsuite>
+  </testsuite>
+</testsuites>

@@ -26,8 +26,8 @@ section has a stable link anchor; the reason codes and anchors come from
 Run `~/.claude/skills/gstack/bin/gstack-doctor` (other hosts: `./setup --status`
 in your gstack checkout prints the doctor's absolute path). It prints one row
 each for the install, state root, Bun, hooks, Codex, the cached Codex model
-check, artifacts sync, the browse bundle, the other compiled binaries, the
-/cso native helper, Claude Code, the largest session journal and recent
+check, artifacts sync, the browse bundle, the other compiled binaries,
+Claude Code, the largest session journal and recent
 /autoplan guard codes. Each row is `ok`, `warn`,
 `not configured` or `fail` with its fix; only `fail` exits non-zero. It makes
 no paid call: the Codex rows report the cached model check and its age, and
@@ -1577,130 +1577,6 @@ you are sure you don't need it (about 36 MB for a pre-1.91.65 Claude install).
 **Expected result.** The next `./setup` prints no `pruned` line, and
 `./setup --status` lists the agents you use.
 
-<a id="cso-windows-msvc-compile"></a>
-### `CSO unavailable: its native helper was not built (windows-msvc-compile)`
-
-**Meaning.** Visual Studio's compiler was found but the /cso native helper did
-not compile. setup prints the first compiler error. It used to say "install
-Visual Studio".
-
-**Fix.** Fix the printed compiler error, then re-run `./setup`.
-
-<a id="cso-build-or-publish-failed"></a>
-### `CSO unavailable: the native helper's <stage> step failed (...)` / `CSO publish step failed (...) for <revision>; previous CSO kept: <revision>`
-
-**Meaning.** The /cso native helper is optional. Its build prerequisites were
-present, but the `build` step (compiling the helper) or the `publish` step
-(swapping the new helper into `bin/` under a lock) failed. setup used to stop
-here (#3071); now it finishes everything else and says which step failed. When
-an earlier helper was installed and the failed publish restored it, setup
-prints `previous CSO kept` and /cso keeps using that helper; otherwise /cso
-reports `not assessed`. `interrupted` means the step was killed before it could
-record a result. The outcome is in `bin/.gstack-cso-build-result`, and
-`gstack-doctor`'s `cso` row reads the same record. The build output is in
-`bin/.gstack-cso-build.log`.
-
-**Fix.** Read the log, fix what it reports, then retry from your gstack checkout:
-
-```bash
-bun run build:cso && ./setup
-```
-
-On Windows, setup and the build use PowerShell 7 (`pwsh`) when it is installed
-and fall back to Windows PowerShell 5.1. The root cause of the staged files
-vanishing during publish in #3071 is still unknown; attach the log there if you
-hit it. CI sets `GSTACK_STRICT_BUILD=1`, which makes these failures fatal so
-build regressions cannot hide.
-
-**Expected result.** setup prints no CSO line, and the doctor's `cso` row is
-`ok`.
-
-<a id="cso-windows-docker"></a>
-### `Docker found at <path>, but native Windows Docker transport is not supported yet; static assessment only.` / `docker.exe at <path> is outside the trusted install locations (...)`
-
-**Meaning.** On Windows, /cso looks for `docker.exe` only under the install
-folders Windows reports for Program Files, Program Files (x86) and the Windows
-directory, by its real path, with no symlink or junction on the way. A
-user-writable directory is untrusted, because the Docker child carries
-registry credentials; that refusal cannot be overridden.
-
-Even a trusted `docker.exe` cannot run /cso's isolated containers yet: /cso
-admits only a local Unix Docker socket, and Docker Desktop on Windows speaks
-over a named pipe. /cso reports this and runs its static assessment only; no
-container or runtime check runs.
-
-**Fix.** For runtime checks, run /cso from Linux or macOS (WSL2 counts as
-Linux) with a local Docker socket. On Windows, static assessment is the
-supported mode; if the refusal named a user directory, install Docker Desktop
-under Program Files.
-
-<a id="cso-capacity"></a>
-### `Snapshot manifest cap exceeded: ...` / `64 MiB source cap exceeded: ...` / `Symlink or special source file: <path>`
-
-**Meaning.** /cso copies the repository into a private snapshot before any
-audit starts, and refuses the whole run when the snapshot would be incomplete
-or too large. Each message names the cap that applied:
-
-- **Snapshot manifest cap (16 MiB).** One entry per tracked or nonignored
-  untracked file; about 50,000 files fit.
-- **64 MiB source cap.** The full size of every such file outside dependency
-  and VCS directories counts, including files over 1 MiB whose contents are
-  withheld from the audit.
-- **Special files.** A nonignored FIFO, socket or device inside the audit
-  scope (the whole repository, or the `--paths` directories) stops the run.
-  Symlinks do not: since the first release after v1.102.0.0 (#4540), each
-  tracked or nonignored symlink is listed in the report with its target string, or notes that the target was withheld when it matches a secret pattern
-  and is never followed, so a link to `/etc/passwd` or out through `..` is
-  reported, not read.
-
-**Fix.** No setting raises these caps. For the 64 MiB source cap, rerun with
-`--paths` set to the comma-separated repo-relative directories you want audited
-(for example `--paths src/core,src/mcp`). Paths outside them are never
-captured or assessed and do not count toward the cap; snapshot and history
-coverage then read **partial**, the report counts every skipped path, and the run's
-snapshot manifest lists each one, so the verdict says what was not audited.
-With `--diff`, every changed path outside dependency directories must be inside
-`--paths`, or the run is refused. Do not audit a hand-trimmed copy: /cso would treat it as the whole
-repository and report nothing as skipped. `--paths` does not lower the
-manifest cap or the 100,000-entry limit, because every skipped path still has a
-manifest entry (about 50,000 files fit). Remove or ignore a FIFO, socket or
-device, or narrow `--paths` past it. Add your
-file count or size to
-[#2993](https://github.com/garrytan/gstack/issues/2993).
-
-<a id="cso-scanner-invalid-output"></a>
-### `INVALID_OUTPUT: Scanner report is malformed, unsupported, or exceeds structural limits.` (Semgrep on a real repository)
-
-**Meaning.** Before the first release after v1.91.101.0, /cso redacted a
-scanner's JSON report by splicing an unquoted `<REDACTED-...>` marker over any
-bare number that looked like a phone number or card number, such as Semgrep's
-`"max_memory_bytes":1145427776` or an epoch timestamp. The report then failed to
-parse and the scanner was recorded as not assessed (#3185). Now a redacted
-number becomes the quoted string `"<REDACTED-...>"` and the report parses. A
-redaction that would cross JSON tokens still withholds the payload
-(`REDACTION_FAILED`).
-
-**Fix.** Update gstack (`/gstack-upgrade`), then run /cso again. If this code
-still appears, the scanner itself emitted malformed JSON; report the scanner
-and version at https://github.com/garrytan/gstack/issues.
-
-**Fixed in.** The first release after v1.91.101.0 (#3185).
-
-<a id="cso-orbstack-argv0"></a>
-### `unsupported argv0 "docker-tools"` (OrbStack's `docker` under /cso)
-
-**Meaning.** /cso runs the canonical path of `docker` (symlinks resolved), and
-OrbStack's `docker` is a symlink to one multicall binary, `docker-tools`, that
-decides what to be from the name it was started as. Started under its real name
-it refused, so Docker isolation and every scanner were reported missing
-(#3187). /cso now starts the same verified binary with the name `docker`,
-including in its cleanup watchdog.
-
-**Fix.** Update gstack (`/gstack-upgrade`), then run `gstack-doctor`; its `cso`
-row should pass with OrbStack running.
-
-**Fixed in.** The first release after v1.91.101.0 (#3187).
-
 <a id="conductor-auq-hook-removed"></a>
 ### `removed the AskUserQuestion preference hook: it breaks Conductor's native AskUserQuestion (#2207). ...`
 
@@ -1735,9 +1611,8 @@ of the codes below. Read the trailer directly; never pipe `--check` through
 checkout) is not installed, not built, not current, or not authenticated. The
 row names it: `claude` or `codex` (a host profile missing or stale), `patch`
 (the Codex render lacks the model behavioral patch), `codex-cli` (the Codex CLI
-is required and absent or not logged in), `browse-bundle`, `browser` (Chromium
-does not launch or render), `cso` (the native helper is required and not
-built).
+is required and absent or not logged in), `browse-bundle` or `browser` (Chromium
+does not launch or render).
 
 **Fix.** Run the command in the row's `fix:` clause. For `browser`, that is
 `<checkout>/bin/gstack-browser-ensure`, which installs Chromium on first use
@@ -4348,7 +4223,7 @@ returned output or PR text. `verify` prints `FETCH_VIOLATION:` and refuses
 until the stage has rerun and swept clean. A test run's fixtures (a root
 carrying `.gstack-test-fixture`, or a repository whose remote resolves to a local
 path through `url.<base>.insteadOf`) and the checkout's own native build output at a
-path its committed root `.gitignore` names exactly (`bin/gstack-cso-core`) print
+path its committed root `.gitignore` names exactly print
 `FETCH_IGNORED:` and never count.
 Capy's `~/.capy/drive` is never walked, and the drive sync database under
 `~/.capy/drive-engine` (`state.db` and its `-wal`, `-shm` and `-journal` files)
@@ -5634,7 +5509,7 @@ only decided lines are rewritten, each to its chosen option and the date.
 
 **Meaning.** Git for Windows checks out with `core.autocrlf=true`, so gstack's
 nested shell scripts (skill `bin/` helpers, the Claude hook shims,
-`lib/cso/images/*`, `scripts/app/*`) were written with CRLF until
+`scripts/app/*`) were written with CRLF until
 `.gitattributes` pinned them to LF (#3110). Git Bash runs them anyway, but a
 Linux bash reading the same checkout (a synced tree, WSL, a bind mount) fails
 with `set: pipefail: invalid option name`, and a hook that fails that way

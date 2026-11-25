@@ -32,7 +32,6 @@ const SESSION_KIND_INVENTORY: Record<string, string> = {
   'hosts/claude/hooks/spawned-directive.ts': 'Claude Code only (:57)',
   'hosts/claude/hooks/question-preference-hook.ts': 'Claude Code only (:506)',
   'bin/gstack-capy-install': 'writer: the Capy launcher exports unattended (:658, :677)',
-  'scripts/cso-eval-producer.ts': 'writer: sets spawned for its own producer run and restores it (:616-631)',
   'scripts/lib/shard-engine.ts': 'writer: drops the Capy launch markers from shard environments (:595)',
 };
 

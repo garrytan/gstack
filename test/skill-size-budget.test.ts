@@ -160,7 +160,7 @@ describe('SKILL.md size budget regression (gate, free)', () => {
    * a tiny noise floor. A skill that was 100 KB at v1.47.0.0 and shrinks to
    * 250 bytes passes that check despite losing 99.75% of content. The
    * parity-suite content invariants cover this for 10 hand-picked skills
-   * (cso, ship, plan-ceo, etc.); the remaining 41 skills had no per-skill
+   * (ship, plan-ceo, etc.); the remaining 41 skills had no per-skill
    * shrinkage floor.
    *
    * Floor: 80% of the v1.47.0.0 baseline. v1.46 actual shrinkage is <1% per

@@ -22,7 +22,7 @@
       }
     },
     {
-      "file": "test/skill-e2e-cso.test.ts",
+      "file": "test/skill-e2e-retro.test.ts",
       "slice": 1,
       "status": "planned",
       "estimatedMs": 227394

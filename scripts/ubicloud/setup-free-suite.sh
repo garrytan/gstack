@@ -59,5 +59,4 @@ sudo install -T -o root -g root -m 4755 "${chrome%/*}/chrome_sandbox" "${chrome%
   bun run vendor:xterm
   bash browse/scripts/build-node-server.sh
   bun run build:gates
-  bun run build:cso
 } >/dev/null

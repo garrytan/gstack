@@ -116,8 +116,7 @@ Not every workflow writes this line or a run directory today:
   writes a run directory or prints the line, so a parent should not wait for
   either. `/eval-plan` asks for a `gate_pending` line at its spend gate, but no
   helper writes its `gate.json` yet (`gstack-gate` renders and parses a gate
-  list; it does not create one). `/cso` skips the shared startup, so these
-  session rules do not reach it at all. Read each skill's own record instead:
+  list; it does not create one). Read each skill's own record instead:
   the review-log rows (`gstack-review-read`) for `/review` and the
   `qa-report-*.md` file for `/qa`. For a `/gstack-ship` run from before the result
   line, read the receipt instead: when the run did not push (an unattended run

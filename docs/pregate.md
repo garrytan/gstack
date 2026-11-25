@@ -1138,9 +1138,8 @@ the gate or a fresh run. No lane has a profile, so every macOS and Windows lane
 still clears by `--run-url`, checked for its workflow file and a green
 conclusion. On main the free tier's Windows smoke lane is
 `windows-smoke.yml/windows-smoke`, and a `windows-smoke.yml` run clears it.
-Two narrower Windows lanes are owed only when a branch selects their own test
-files: `free-tests.yml/cso-windows-launcher` (cleared by a `free-tests.yml`
-run) and `windows-setup-e2e.yml/windows-setup` (cleared by a
+One narrower Windows lane is owed only when a branch selects its own test
+files: `windows-setup-e2e.yml/windows-setup` (cleared by a
 `windows-setup-e2e.yml` run). The eight-shard
 `windows-free-tests.yml/windows-free-shard` job is `manual`, so it is never an
 obligation. A branch cut before

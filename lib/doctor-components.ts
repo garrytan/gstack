@@ -28,7 +28,7 @@
  *             an empty machine is never `ok`.
  *   component a built or rendered artifact (patch, browse bundle, browser).
  *             SKIP (not_applicable) when the selected workflow does not need it.
- *   optional  present-or-absent helpers (Codex CLI, CSO native helper). SKIP
+ *   optional  present-or-absent helpers (Codex CLI). SKIP
  *             (optional) when absent and not required; FAIL only when required.
  *
  * Install profiles (INSTALL_PROFILES) are SKILL_REQUIREMENTS rows that name an
@@ -59,7 +59,6 @@ export const DOCTOR_COMPONENTS: readonly DoctorComponent[] = [
   { id: 'codex-cli', title: 'Codex CLI (outside voice)', kind: 'optional' },
   { id: 'browse-bundle', title: 'browse bundle', kind: 'component' },
   { id: 'browser', title: 'Chromium launch and render', kind: 'component' },
-  { id: 'cso', title: 'CSO native helper', kind: 'optional' },
   { id: 'helpers', title: 'read-only helpers (gstack-pregate sealed, gstack-plan-reality, gstack-artifact, gstack-autoplan reads)', kind: 'component' },
   { id: 'runtime', title: 'gstack runtime (Bun)', kind: 'core' },
   { id: 'pins', title: 'project pins', kind: 'core' },
@@ -127,9 +126,8 @@ export function capyBootstrapCommand(skill: string, root: string = CAPY_INSTALL_
  * Every skill directory in the repo is classified here; test/doctor-components.test.ts
  * fails when a skill is added without a row. Planning skills need both host
  * profiles and the Astra patch (the outside voice reads the Codex render);
- * browser skills add the browse bundle and Chromium; /cso adds the native
- * helper; /codex needs the CLI itself; everything else runs on the Claude
- * profile alone.
+ * browser skills add the browse bundle and Chromium; /codex needs the CLI
+ * itself; everything else runs on the Claude profile alone.
  */
 export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   autoplan: PLANNING,
@@ -143,7 +141,6 @@ export const SKILL_REQUIREMENTS: Readonly<Record<string, SkillRequirement>> = {
   review: PLANNING,
   ship: PLANNING,
   codex: { requires: ['claude', 'codex', 'patch', 'codex-cli'], optional: [] },
-  cso: { requires: ['claude', 'cso'], optional: [] },
   browse: BROWSER,
   qa: BROWSER,
   'qa-only': BROWSER,

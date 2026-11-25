@@ -6,9 +6,8 @@
  * fixture: `git rev-parse --git-path hooks` resolves to that directory, so the
  * install rewrites the developer's own pre-push (#3353), and their hook runs
  * on fixture pushes and rejects the local remote (#2967). /dev/null drops the
- * global file on every platform: Git for Windows rejects NUL (see
- * EMPTY_GLOBAL_GIT_CONFIG in lib/cso/process.ts). Config written inside the
- * fixture repo still applies.
+ * global file on every platform: Git for Windows rejects NUL. Config written
+ * inside the fixture repo still applies.
  */
 export function gitEnv(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ...extra };

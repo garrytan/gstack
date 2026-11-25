@@ -233,11 +233,6 @@ export const GATE_OUTCOMES = {
     summary: 'auto-update pulled gstack, but setup or migrations did not finish',
     fix: 'cd <gstack checkout> && ./setup',
   },
-  cso_helper_unbuilt: {
-    state: 'unavailable', anchor: 'cso-windows-msvc-compile',
-    summary: 'MSVC is installed but the /cso native helper failed to compile',
-    fix: 'fix the printed compiler error, then re-run ./setup',
-  },
   chromium_path_failed: {
     state: 'unavailable', anchor: 'browse-chromium-path-failed',
     summary: 'the Chromium at GSTACK_CHROMIUM_PATH could not launch',
