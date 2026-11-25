@@ -15,6 +15,7 @@
 import type { GhResult, GhRunner } from './ci-gate';
 import { headCheckRows } from './ci-head-checks';
 import { parseHeadChecks, parsePullState, rateLimitKind, type PullState } from './gh-poll';
+import { replacedCancels } from './ship-queue';
 
 export class GhError extends Error {
   constructor(message: string, readonly transient: boolean) {
@@ -183,12 +184,16 @@ function restList(env: GhEnv, path: string, key: string): unknown[] {
  * statuses (the same rows `gh pr checks` reads through GraphQL) plus CI at the
  * head as gstack-ship-queue ready reads it (lib/ci-head-checks.ts: a failed
  * check whose rerun attempt created no jobs, a workflow run that failed with
- * no jobs), duplicates collapsed to the worst bucket. An unknown read is a
+ * no jobs), duplicates collapsed to the worst bucket. A cancelled run that a
+ * newer passing run of the same app and check name replaced is left out first,
+ * as that reader leaves it out (replacedCancels, #4807). An unknown read is a
  * transient GhError, so the poll loop tries again.
  */
 export function fetchChecks(env: GhEnv, repo: string, head: string): Map<string, Check> {
+  const runs = restList(env, `repos/${repo}/commits/${head}/check-runs?per_page=100`, 'check_runs') as Array<Record<string, unknown>>;
+  const replaced = replacedCancels(runs);
   const listed = parseHeadChecks(
-    restList(env, `repos/${repo}/commits/${head}/check-runs?per_page=100`, 'check_runs'),
+    runs.filter(r => !replaced.has(r)),
     restList(env, `repos/${repo}/commits/${head}/status?per_page=100`, 'statuses'),
   );
   const ci = headCheckRows(args => runGh(env, args), repo, head);

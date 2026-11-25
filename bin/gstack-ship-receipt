@@ -196,7 +196,8 @@ function noStopArg(raw: string | undefined): ShipReceipt['no_stop'] {
   if (raw === undefined) return undefined;
   const parsed = JSON.parse(raw.startsWith('@') ? fs.readFileSync(raw.slice(1), 'utf8') : raw);
   if (!Array.isArray(parsed)) throw new Error('--no-stop expects a JSON array of {class, reason, evidence}');
-  const kept = parsed.filter(r => (NO_STOP_CLASSES as readonly string[]).includes(r?.class) || void process.stderr.write(`NO_STOP: dropped ${JSON.stringify(r?.class)} from --no-stop: not a current no-stop class (${NO_STOP_CLASSES.join(', ')}), so the receipt leaves it out (GST-2706)\n`));
+  const current: readonly string[] = NO_STOP_CLASSES.filter(c => c !== 'scoped-fix-check');
+  const kept = parsed.filter(r => current.includes(r?.class) || void process.stderr.write(`NO_STOP: dropped ${JSON.stringify(r?.class)} from --no-stop: not a current no-stop class (${current.join(', ')}), so the receipt leaves it out (GST-2706)\n`));
   return kept.length ? kept : undefined;
 }
 function git(args: string[], cwd?: string): string | undefined {

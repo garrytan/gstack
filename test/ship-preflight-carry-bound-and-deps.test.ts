@@ -91,6 +91,25 @@ describe('preflight Step 5: a worktree with no installed packages stops with the
     expect(testsOnly(plain).stdout).not.toContain('DEPS_MISSING');
   });
 
+  // Value: protects=a lockfile with a git-resolved package gets a hint that names npm's allow-git setting and its flag, since plain
+  //   npm ci fails with EALLOWGIT under npm 12 (#4815, exGeni), while the suggested command stays plain npm ci (no default
+  //   --allow-git=all); fails_when=the hint is plain npm ci for a git package, or a registry-only lockfile gets the note;
+  //   seam=bin/gstack-ship-preflight --tests-only, depsInstall
+  test('a lockfile that resolves a package from git names allow-git and its flag, never as the default command (#4815)', () => {
+    const pkg = '{"name":"fx","version":"1.0.0","dependencies":{"dep":"git+https://github.com/o/dep.git#abc"}}\n';
+    const lock = (resolved: string) => JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/dep': { version: '1.0.0', resolved } } }) + '\n';
+    const git = shipFixture({ 'package.json': pkg, 'package-lock.json': lock('git+ssh://git@github.com/o/dep.git#abc') });
+    fixtures.push(git);
+    const stop = lineOf(testsOnly(git).stdout, 'STOP');
+    expect(stop).toContain(`&& npm ci (package-lock.json resolves a package from git, which npm 12 and later install only when npm's allow-git setting permits it: add --allow-git=all if you trust that source), then rerun this command`);
+    const v1 = shipFixture({ 'package.json': pkg, 'npm-shrinkwrap.json': JSON.stringify({ lockfileVersion: 1, dependencies: { dep: { version: 'github:o/dep#abc' } } }) });
+    fixtures.push(v1);
+    expect(lineOf(testsOnly(v1).stdout, 'STOP')).toContain("&& npm ci (npm-shrinkwrap.json resolves a package from git");
+    const registry = shipFixture({ 'package.json': pkg, 'package-lock.json': lock('https://registry.npmjs.org/dep/-/dep-1.0.0.tgz') });
+    fixtures.push(registry);
+    expect(lineOf(testsOnly(registry).stdout, 'STOP')).toContain('&& npm ci, then rerun this command');
+  });
+
   // Value: protects=an installed Yarn Plug'n'Play checkout, which never has node_modules, runs Step 5 instead of stopping on an
   //   install that cannot clear the stop; fails_when=depsInstall checks node_modules alone; seam=bin/gstack-ship-preflight --tests-only
   test('a Yarn PnP checkout (.pnp.cjs, no node_modules) never stops on DEPS_MISSING', () => {
