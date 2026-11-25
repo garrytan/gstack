@@ -30,7 +30,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     const res = await runPass(h, { base: 'main', out, pass: 'w0p1', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
     expect(res).not.toContain('STOP:');
     expect(res).toContain('REVIEW_LOG_START: review');
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.length).toBeGreaterThan(0);
     const cdFirst = `First step, before anything else: run \`cd '${wt}' && `;
     for (const c of h.creates) {
@@ -55,7 +55,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     expect(moved).toMatch(/COLLECT_(WRONG_TREE|TREE_MOVED): reader=/);
     expect(moved).not.toContain('NEXT: judge');
     const outside = host(path.dirname(wt), env);
-    expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p4'), pass: 'w0p4', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: voices (');
+    expect(await runPass(outside, { base: 'main', out: path.join(wt, '.state/run/p4'), pass: 'w0p4', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
     const sibling = host(dir, env);
     const same = await runPass(sibling, { base: 'main', out: path.join(wt, '.state/run/p7'), pass: 'w0p7', cwd: wt, planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
     expect(same).toContain(`STOP: readers on the shared machine start in ${fs.realpathSync(dir)}, not in ${wt}, the checkout this pass ships, and ${fs.realpathSync(dir)} also holds its diff base `);
@@ -94,7 +94,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     const broken = tmp('rp-broken-');
     fs.writeFileSync(path.join(broken, '.git'), 'garbage\n');
     const unreadable = host(broken, env);
-    expect(await runPass(unreadable, { base: 'main', out: path.join(wt, '.state/run/c2'), pass: 'c2p1', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: voices (');
+    expect(await runPass(unreadable, { base: 'main', out: path.join(wt, '.state/run/c2'), pass: 'c2p1', cwd: wt, planFlags: ['--depth-floor', 'full'] })).toContain('NEXT: judge (Phase 4)');
     expect(unreadable.creates.length).toBeGreaterThan(0);
   }, 240_000);
 
@@ -135,7 +135,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     const res = await runPass(h, { base: 'main', out, pass: 'w3p1', cwd: wt, planFlags: ['--depth-floor', 'full'],
       extras: [{ name: 'coverage', prompt_file: path.join(out, 'coverage.prompt.md'), first: true }] });
     expect(res).not.toContain('STOP:');
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.length).toBeGreaterThan(2);
     for (const c of h.creates) {
       const verdict = !c.title.includes(' audit/');
@@ -197,7 +197,7 @@ describe('readers on a shared machine review the checkout the pass ships (GST-48
     const out = path.join(wt, '.state/run/p1');
     const h = host(wt, env, { reportFrom: t => (t.endsWith('outside-voice') ? dir : briefDirOf(h, t)) });
     const base = { base: 'main', out, pass: 'w8p1', cwd: wt, planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     const models = { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
     const res = await runPass(h, { ...base, stage: 'voices', models });
     expect(res).toContain('COLLECT_UNAVAILABLE: reader=outside-voice');

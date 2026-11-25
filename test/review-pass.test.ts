@@ -231,7 +231,7 @@ describe('the Capy skill loader', () => {
     expect(res.split('\n')[0]).toBe('PROGRAM: v1 sha256=' + promptHash(PROGRAM) + ' bytes=' + Buffer.byteLength(PROGRAM));
     expect(res).toMatch(/REVIEW_LOG_START: review token=\S+/);
     expect(res).toMatch(/NOTE: \S+ used=\d+ credits=\S+ readers=\d+/);
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge (Phase 4)');
     expect(h.creates.length).toBeGreaterThan(0);
   }, 180_000);
 });
@@ -355,7 +355,7 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(h.creates.map(c => c.title)).not.toContain('ship f1p1 specialist-batched#2');
     fs.rmSync(beam, { recursive: true, force: true });
     const res = await runPass(h, { base: 'main', out, pass: 'f1p1', planFlags: ['--depth-floor', 'full'] });
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge (Phase 4)');
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
     const first = m.readers.find(r => r.reader === 'specialist-batched')!;
     expect(first.superseded_by).toBe('specialist-batched#2');
@@ -517,7 +517,7 @@ describe('the fetch sweep quarantines a stage that fetched (GST-1322 PR B)', () 
     expect(blocked).not.toMatch(/^FETCH_(VIOLATION|RERUN_BLOCKED): .*(gst-left|ship-bin-left)/m);
     fs.rmSync(beam, { recursive: true, force: true });
     const res = await runPass(h, input);
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge (Phase 4)');
     expect(res).not.toContain('FETCH_RERUN_BLOCKED');
     expect([fs.existsSync(fixture), fs.existsSync(shipBin)]).toEqual([true, true]);
   }, 240_000);

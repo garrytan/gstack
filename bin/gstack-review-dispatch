@@ -69,12 +69,12 @@ const HELP = `gstack-review-dispatch — verbatim reviewer briefs and loss-free 
       moved; exit 1, nothing merged, verify reports NOT_COLLECTED, and with --manifest <f> the reader becomes failed); the
       outside voice's, when it holds no finding, is recorded as unavailable coverage instead --unavailable '<reason>' (the outside voice only; refused when the
       output holds findings) records its failure text as missing coverage: COLLECT_UNAVAILABLE, and verify prints UNAVAILABLE and unavailable=N, never a review
-  judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl>
+  judge --ledger <f> --merged <merged.jsonl> --judged <judged.jsonl> [--manifest <f>]
       judged lines {"id","severity","reason"?,"duplicate_of"?}: every merged id kept at its severity or above (a
       duplicate folds into one at least as severe); added and promoted findings need a reason. JUDGMENT: ok …, or
       JUDGMENT_REJECTED: dropped=… downgraded=… (exit 1). An empty merged.jsonl needs no judged file: judge writes an
       empty one and prints JUDGMENT: ok nothing to judge; a merge with findings and no judged file is refused (exit 2)
-  verify --ledger <f> [--targeted-out <file>]
+  verify --ledger <f> [--targeted-out <file>] [--manifest <f>]
       BRIEF, OUTPUT and JUDGE rows from the ledger alone, then VERIFY: clean (exit 0), VERIFY: dirty (exit 1) or
       VERIFY: no brief records (exit 3: this run's ledger kept no prompts). A ledger with a targeted brief also prints
       TARGETED_RECORD: and --targeted-out writes it as the JSON gstack-ship-receipt write --review-targeted reads; under
@@ -385,6 +385,19 @@ function standaloneSelection(reader: string, base: string, diffBase: string, rea
   return { reader, diff_base: diffBase, exclude, keep: (s.keep ?? []).filter(k => !s.excerpt?.includes(k)), ...(s.excerpt ? { excerpt: s.excerpt } : {}), ...(disclosure ? { disclosure } : {}) };
 }
 
+/** Why the ledger's newest pass is not settled (GST-3782): its own manifest (--manifest, else beside the ledger) must name this ledger,
+ *  and every reader it planned must have reached a settled state; null when settled or when no event names a pass. */
+function passReaders(ledger: string, settled: ReaderState[]): string | null {
+  const pass = readLedger(ledger).map(e => e.pass).filter((p): p is string => typeof p === 'string').at(-1);
+  if (!pass) return null;
+  const file = flag('--manifest') ?? manifestPath(path.dirname(path.resolve(ledger)));
+  const real = (f: string) => { try { return fs.realpathSync(f); } catch { return path.resolve(f); } };
+  const m = fs.existsSync(file) ? readManifest(file) : null;
+  if (!m || m.pass !== pass || real(m.ledger) !== real(ledger)) return `pass ${pass} has no manifest that owns ${ledger} (${file} ${m ? `is pass ${m.pass}'s, ledger ${m.ledger}` : 'does not exist'}); name it with --manifest <out>/pass-manifest.json`;
+  const owed = m.readers.filter(r => !r.superseded_by && !settled.includes(r.state));
+  return owed.length ? `pass ${pass} still owes ${owed.map(r => `${r.reader} (${r.state})`).join(', ')}` : null;
+}
+
 function pass(): number {
   const base = flag('--base'), out = flag('--out'), given = flag('--pass'), id = given?.toLowerCase();
   if (!base || !out || !id) { process.stderr.write('gstack-review-dispatch pass: needs --base <ref>, --out <dir> and --pass <id>\n'); return EXIT.usage; }
@@ -651,11 +664,9 @@ function main(): number {
     const merged = flag('--merged');
     const judged = flag('--judged');
     if (!merged || !judged) { process.stderr.write('gstack-review-dispatch judge: needs --merged <file> and --judged <file>\n'); return EXIT.usage; }
-    const mf = manifestPath(path.dirname(path.resolve(ledger)));
-    const pm = fs.existsSync(mf) ? readManifest(mf) : null;
-    const owed = pm?.readers.filter(r => !r.superseded_by && r.state !== 'collected' && r.state !== 'failed') ?? [];
-    if (owed.length) {
-      process.stderr.write(`JUDGMENT_REFUSED: pass ${pm!.pass} still owes ${owed.map(r => `${r.reader} (${r.state})`).join(', ')}: run the pass program again until every reader it dispatched settles (stage "voices" for Step 11's readers), then judge the whole pass\n`);
+    const pr = passReaders(ledger, ['planned', 'collected', 'failed']);
+    if (pr) {
+      process.stderr.write(`JUDGMENT_REFUSED: ${pr} (judge waits until every reader the pass dispatched is collected)\n`);
       return EXIT.refused;
     }
     const lines = readJsonl<MergedLine>(merged);
@@ -686,7 +697,9 @@ function main(): number {
     const sel = excludeRecord(ledger);
     if (sel && 'digest' in sel) process.stdout.write(`REVIEW_EXCLUDE_RECORD: digest=${sel.digest} (gstack-ship-receipt write --review-exclude ${sel.digest})\n`);
     if (sel && 'mixed' in sel) process.stdout.write(`REVIEW_EXCLUDE_RECORD: mixed digests=${sel.mixed.join(',')} (readers read different review_exclude_paths selections; rerun the review so every reader reads HEAD's)\n`);
-    const clean = v.clean && !(sel && 'mixed' in sel);
+    const owed = passReaders(ledger, ['collected', 'failed']);
+    if (owed) process.stdout.write(`VERIFY_OWED: ${owed}; after the fixes run the pass program with stage "voices", collect and judge them, then verify\n`);
+    const clean = v.clean && !(sel && 'mixed' in sel) && !owed;
     if (v.verdicts.asked) process.stdout.write(`VERIFY_VERDICT: agree=${v.verdicts.agree} asked=${v.verdicts.asked} (informational: a disagreeing count already counts its blockers; docs/review-policy.md#verdict-line)\n`);
     process.stdout.write(`VERIFY: ${clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}${v.unavailable ? ` unavailable=${v.unavailable}` : ''}\n`);
     return clean ? EXIT.ok : EXIT.fail;

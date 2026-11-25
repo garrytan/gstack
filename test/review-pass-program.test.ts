@@ -25,7 +25,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const medium = { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'medium' };
     const res = await runPass(h, { base: 'main', out, pass: 'x1p1', planFlags: ['--depth-floor', 'full'], models: { specialist: medium, 'red-team': medium } });
     expect(h.creates.every(c => JSON.stringify(c.model) === JSON.stringify(medium))).toBe(true);
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge (Phase 4); still owed after its fixes: adversarial-native, outside-voice (run this program with stage "voices" then');
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
     const active = m.readers.filter(r => r.stage !== 'voices');
     expect(h.creates.map(c => c.title)).toEqual(active.map(r => r.title));
@@ -34,14 +34,15 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(h.creates.at(-1)!.prompt).toContain('the export is untested');
     expect(active.every(r => r.state === 'collected')).toBe(true);
     const merged = fs.readFileSync(m.merged, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { id: string; label: string });
+    fs.writeFileSync(path.join(out, 'judged.jsonl'), merged.map(l => JSON.stringify({ id: l.id, severity: l.label }) + '\n').join(''));
     const judge = () => bin(dir, env, ['judge', '--ledger', m.ledger, '--merged', m.merged, '--judged', path.join(out, 'judged.jsonl')]);
-    const owed = judge();
-    expect([owed.status, owed.stderr]).toEqual([3, expect.stringContaining('JUDGMENT_REFUSED: pass x1p1 still owes adversarial-native (planned), outside-voice (planned)')]);
+    expect(judge().status).toBe(0);
+    const owed = bin(dir, env, ['verify', '--ledger', m.ledger]);
+    expect([owed.status, owed.stdout]).toEqual([1, expect.stringContaining('VERIFY_OWED: pass x1p1 still owes adversarial-native (planned), outside-voice (planned)')]);
     let voices = '';
     for (let i = 0; i < 6 && !voices.includes('NEXT: judge the voices'); i++) voices = await runPass(h, { base: 'main', out, pass: 'x1p1', planFlags: ['--depth-floor', 'full'], stage: 'voices', models: { 'outside-voice': { model_id: 'openai/gpt-6.1-sol' }, 'adversarial-native': medium } });
     expect(voices).toContain('NEXT: judge the voices');
     const all = fs.readFileSync(m.merged, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { id: string; label: string });
-    expect(all.length).toBeGreaterThanOrEqual(merged.length);
     fs.writeFileSync(path.join(out, 'judged.jsonl'), all.map(l => JSON.stringify({ id: l.id, severity: l.label }) + '\n').join(''));
     expect(judge().status).toBe(0);
     const v = bin(dir, env, ['verify', '--ledger', m.ledger]);
@@ -58,8 +59,8 @@ describe('Capy pass program (fake host, real bins)', () => {
     expect(first).toMatch(/RUNNING: specialist-batched state=created path=1/);
     const created = h.creates.length;
     let res = '';
-    for (let i = 0; i < 6 && !res.includes('NEXT: voices ('); i++) res = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
-    expect(res).toContain('NEXT: voices (');
+    for (let i = 0; i < 6 && !res.includes('NEXT: judge'); i++) res = await runPass(h, { base: 'main', out, pass: 'x2p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] });
+    expect(res).toContain('NEXT: judge');
     expect(res).not.toContain('REVIEW_PLAN:');
     expect(res).not.toContain('REVIEW_LOG_START:');
     expect(new Set(h.creates.map(c => c.title)).size).toBe(h.creates.length);
@@ -72,7 +73,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const h = host(dir, env, { createThrows: t => (t.endsWith('specialist-batched') && lost ? (lost = false, 'after') : undefined) });
     const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x3p1', planFlags: ['--depth-floor', 'full'] };
     expect(await runPass(h, input)).toContain('STOP: pass program error: create result lost');
-    expect(await runPass(h, input)).toContain('NEXT: voices (');
+    expect(await runPass(h, input)).toContain('NEXT: judge');
     expect(h.creates.filter(c => c.title === 'ship x3p1 specialist-batched')).toHaveLength(1);
 
     const b = repo();
@@ -94,7 +95,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const h2 = host(b.dir, b.env, { reject: t => t.endsWith('specialist-batched') });
     const res2 = await runPass(h2, { base: 'main', out: path.join(b.dir, '.state/run/p1'), pass: 'x6p1', planFlags: ['--depth-floor', 'full'] });
     expect(res2).toContain('DISPATCHED: specialist-batched path=1 queued');
-    expect(res2).toContain('NEXT: voices (');
+    expect(res2).toContain('NEXT: judge');
     expect(h2.starts).toEqual([[1]]);
   }, 240_000);
 
@@ -124,7 +125,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     fs.rmSync(path.join(shim, 'gstack-review-log'));
     const res = await runPass(h, input);
     expect(res).toMatch(/REVIEW_LOG_START: review token=\S+/);
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge');
     expect(res.indexOf('REVIEW_LOG_START:')).toBeLessThan(res.indexOf('DISPATCHED:'));
   }, 240_000);
 
@@ -146,7 +147,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     spawnSync('bash', ['-c', 'git add -A && git commit -qm docs'], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
     const h = host(dir, env);
     const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x13p1', planFlags: [] });
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge');
     expect(h.creates.length).toBeGreaterThan(0);
   }, 240_000);
 
@@ -164,7 +165,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const input = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x14p1', planFlags: ['--depth-floor', 'full'] };
     expect(await runPass(h, input)).toContain('STOP: pass program error: start result lost');
     const res = await runPass(h, input);
-    expect(res).toContain('NEXT: voices (');
+    expect(res).toContain('NEXT: judge');
     expect(h.creates.filter(c => c.title === 'ship x14p1 specialist-batched')).toHaveLength(1);
   }, 240_000);
 
@@ -178,7 +179,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     h.tools.thread.get = async () => ({ cost: { tokens: 90_000_000, credits: 50 } });
     const res = await runPass(h, { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x15p1', planFlags: ['--depth-floor', 'full'], record: rec, jam: 'jam_test', step: '9' });
     expect(res).toMatch(/STOP:.*budget/);
-    expect(res).not.toContain('NEXT: voices (');
+    expect(res).not.toContain('NEXT: judge');
   }, 240_000);
 
   // Value: protects=a host whose thread.get reports cost.dollars and no cost.credits still notes the pass with a credits reading (1,000 credits a dollar); fails_when=the pass passes --credits undefined and its note refuses it;

@@ -19,7 +19,7 @@ describe('Capy pass program (fake host, real bins)', () => {
       const out = path.join(dir, '.state/run/p1');
       const h = host(dir, env, { ...o, epoch: Date.now() });
       const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'] };
-      expect(await runPass(h, base)).toContain('NEXT: voices (');
+      expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
       let res = '';
       for (let i = 0; i < 6; i++) {
         res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
@@ -58,7 +58,7 @@ describe('Capy pass program (fake host, real bins)', () => {
       const out = path.join(dir, '.state/run/p1');
       const h = host(dir, env, { ...o, keepSummary: true, output: (t: string) => (t.endsWith('outside-voice') ? '1. **A guard fails open** - `src/a.ts:1` accepts any input. Severity: Medium. Blocks: no.\n\nRecommendation: fix the guard because it fails open' : cleanReply(t)), epoch: Date.now() });
       const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'] };
-      expect(await runPass(h, base)).toContain('NEXT: voices (');
+      expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
       let res = '';
       for (let i = 0; i < 6; i++) {
         res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
@@ -78,7 +78,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env, { stopped: (t: string) => t.endsWith('outside-voice'), keepSummary: true, output: (t: string) => (t.endsWith('outside-voice') ? 'Stopped before I could read the diff.' : cleanReply(t)), epoch: Date.now() });
     const base = { base: 'main', out, pass: 'x35p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     let res = '';
     for (let i = 0; i < 6; i++) {
       res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
@@ -102,7 +102,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env, { error, output: voiceReply, epoch: Date.now() });
     const base = { base: 'main', out, pass, planFlags: ['--depth-floor', 'full'], ...lane };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     let res = '', all = '';
     for (let i = 0; i < 12; i++) {
       res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });
@@ -207,7 +207,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env, { error: t => (t.endsWith(' outside-voice') ? CYBER : undefined), keepSummary: true, output: t => (t.endsWith('outside-voice') ? '1. **A guard fails open** - `src/a.ts:1` accepts any input. Severity: Medium. Blocks: no.\n\nRecommendation: fix the guard because it fails open' : cleanReply(t)), epoch: Date.now() });
     const base = { base: 'main', out, pass: 'x44p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     let res = '', all = '';
     for (let i = 0; i < 6; i++) {
       res = await runPass(h, { ...base, stage: 'voices', stuckMs: 60_000 });

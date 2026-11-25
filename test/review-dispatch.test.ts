@@ -249,32 +249,51 @@ describe('gstack-review-dispatch sent, collect, judge and verify: nothing change
     expect([tampered.status, tampered.stdout.includes('OUTPUT outside-voice MISMATCH')]).toEqual([1, true]);
   });
 
-  // Value: protects=judgment waits for every reader the pass dispatched (GST-3782, gskills#54): with Step 11's voices still planned
-  //   in the pass manifest, judge refuses and names them, so a lane cannot judge a pass whose second-model read never ran;
-  //   fails_when=judge records a judgment while a dispatched reader is still planned; seam=judge reading the manifest beside --ledger
-    test('judge refuses while a dispatched reader is still planned, names it, and judges once every reader settles', () => {
-      const p = pass();
-      run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
-      expect(run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('none.out', 'NO FINDINGS\n'), '--merged', p.merged]).status).toBe(0);
-      const readers = (voices: string) => [
+  // Value: protects=a pass closes only once every reader its manifest planned is collected (GST-3782, gskills#54): verify stays dirty
+  //   and names Step 11's voices while they are planned, judge waits for readers already dispatched, and both refuse a pass whose own
+  //   manifest they cannot find; fails_when=verify reports clean, or judge records a judgment, while a reader the pass planned or
+  //   dispatched never came back, or a manifest that names another ledger stands in for the pass's own; seam=judge and verify
+  test('verify names the readers a pass still owes, judge waits for dispatched ones, and both need the pass\'s own manifest', () => {
+    const p = pass();
+    run(['sent', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--sent', p.file]);
+    expect(run(['collect', '--ledger', p.ledger, '--role', 'specialist', '--name', 'testing', '--output', p.w('none.out', 'NO FINDINGS\n'), '--merged', p.merged]).status).toBe(0);
+    fs.writeFileSync(p.ledger, fs.readFileSync(p.ledger, 'utf8').split('\n').map(l => (l.includes('"event":"rendered"') ? JSON.stringify({ ...JSON.parse(l), pass: 'x3782p1' }) : l)).join('\n'));
+    const judged = path.join(p.out, 'judged.jsonl');
+    const judge = (...extra: string[]) => run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged, ...extra]);
+    const verify = (...extra: string[]) => run(['verify', '--ledger', p.ledger, ...extra]);
+    const unbound = judge();
+    expect([unbound.status, unbound.stderr]).toEqual([3, expect.stringContaining('JUDGMENT_REFUSED: pass x3782p1 has no manifest that owns')]);
+    expect(verify().stdout).toMatch(/^VERIFY_OWED: pass x3782p1 has no manifest that owns[^\n]*\n[\s\S]*^VERIFY: dirty/m);
+    const manifest = (voices: string, ledger = p.ledger, dir = p.out) => {
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, 'pass-manifest.json');
+      fs.writeFileSync(file, JSON.stringify({ version: 1, pass: 'x3782p1', ledger, readers: [
         { reader: 'specialist/testing', stage: 'specialists', title: 't', state: 'collected' },
         { reader: 'adversarial-native', stage: 'voices', title: 't', state: voices },
         { reader: 'outside-voice', stage: 'voices', title: 't', state: voices },
         { reader: 'red-team', stage: 'red-team', title: 't', state: 'planned', superseded_by: 'red-team#2' },
         { reader: 'red-team#2', stage: 'red-team', title: 't', state: 'collected' },
-      ];
-      const manifest = (voices: string) => p.w('pass-manifest.json', JSON.stringify({ version: 1, pass: 'x3782p1', readers: readers(voices) }));
-      const judged = path.join(p.out, 'judged.jsonl');
-      manifest('planned');
-      const owed = run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged]);
-      expect([owed.status, owed.stdout, owed.stderr]).toEqual([3, '', expect.stringContaining('JUDGMENT_REFUSED: pass x3782p1 still owes adversarial-native (planned), outside-voice (planned)')]);
-      expect(fs.existsSync(judged)).toBe(false);
-      manifest('created');
-      expect(run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged]).stderr).toContain('still owes adversarial-native (created), outside-voice (created)');
-      manifest('collected');
-      const ok = run(['judge', '--ledger', p.ledger, '--merged', p.merged, '--judged', judged]);
-      expect([ok.status, ok.stdout]).toEqual([0, expect.stringContaining('JUDGMENT: ok nothing to judge')]);
-    });
+      ] }));
+      return file;
+    };
+    manifest('planned', path.join(p.out, 'another-ledger.jsonl'));
+    expect(judge().stderr).toContain('has no manifest that owns');
+    manifest('planned');
+    expect(judge().stdout).toContain('JUDGMENT: ok nothing to judge');
+    const owed = verify();
+    expect([owed.status, owed.stdout]).toEqual([1, expect.stringContaining('VERIFY_OWED: pass x3782p1 still owes adversarial-native (planned), outside-voice (planned)')]);
+    expect(owed.stdout).toContain('VERIFY: dirty');
+    manifest('created');
+    const waiting = judge();
+    expect([waiting.status, waiting.stderr]).toEqual([3, expect.stringContaining('JUDGMENT_REFUSED: pass x3782p1 still owes adversarial-native (created), outside-voice (created)')]);
+    manifest('collected');
+    expect(judge().status).toBe(0);
+    expect(verify().stdout).toContain('VERIFY: clean');
+    fs.rmSync(path.join(p.out, 'pass-manifest.json'));
+    const elsewhere = manifest('collected', p.ledger, path.join(p.out, 'out'));
+    expect(verify().stdout).toContain('VERIFY: dirty');
+    expect(verify('--manifest', elsewhere).stdout).toContain('VERIFY: clean');
+  });
 
   // Value: protects=a pass whose readers all came back clean records "nothing to judge" without a hand-written judged.jsonl, and a pass with findings still needs lead judgment's file; fails_when=judge crashes on the absent judged set of an empty merge (gstack-evals#191 /ship), or an absent judged set passes a merge that holds findings;
   //   why_new=judge always read --judged; seam=judge and verify; no_claim=that Step 9.4 runs judge at all on an empty merge

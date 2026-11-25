@@ -18,7 +18,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const h = host(dir, env);
     const models = { 'outside-voice': { model_id: 'openai/gpt-6.2-sol' } };
     const base = { base: 'main', out, pass: 'x12p1', planFlags: ['--depth-floor', 'full'], logStart: ['review'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     const created = h.creates.length;
     const reused = await runPass(h, { ...base, stage: 'voices', models });
     expect(reused).toStartWith('STOP: Step 11 (stage "voices") takes the adversarial-review start token');
@@ -64,7 +64,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const out = path.join(dir, '.state/run/p1');
     const h = host(dir, env);
     const base = { base: 'main', out, pass: 'x7p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     expect(await runPass(h, { ...base, stage: 'voices', laneModel: undefined })).toContain("STOP: the outside voice needs input.models['outside-voice']");
     expect(h.creates.some(c => c.title.startsWith('ship x7p1 ') && /adversarial|outside/.test(c.title))).toBe(false);
     const models = { 'outside-voice': { model_id: 'openai/gpt-6.2-sol' }, 'adversarial-native': { model_id: 'anthropic/claude-opus-5-5', reasoning_mode: 'high' } };
@@ -81,7 +81,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const { dir, env } = repo();
     const h = host(dir, env);
     const base = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x14p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     expect(await runPass(h, { ...base, stage: 'voices', models: { 'outside-voice': { model_id: 'anthropic/claude-sonnet-5-5', reasoning_mode: 'medium' } } }))
       .toContain("STOP: the outside voice anthropic/claude-sonnet-5-5 is the anthropic family, the same as the lane model; Step 11 needs input.models['outside-voice'] from another family");
     expect(await runPass(h, { ...base, stage: 'voices', models: { 'outside-voice': { model_id: 'openai/gpt-6.2-sol', reasoning_mode: 'medium' }, 'adversarial-native': { model_id: 'openai/gpt-6-astra', reasoning_mode: 'high' } } }))
@@ -97,7 +97,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const { dir, env } = repo();
     const h = host(dir, env);
     const base = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x15p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     expect(await runPass(h, { ...base, stage: 'voices', models: same })).toMatch(refused);
     expect(await runPass(h, { ...base, stage: 'voices', models: same })).toMatch(refused);
     expect(h.creates.some(c => /^ship x15p1 (adversarial-native|outside-voice)$/.test(c.title))).toBe(false);
@@ -105,7 +105,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const b = repo();
     const h2 = host(b.dir, b.env, { reject: t => t.endsWith('outside-voice') });
     const base2 = { ...base, out: path.join(b.dir, '.state/run/p1'), pass: 'x18p1' };
-    expect(await runPass(h2, base2)).toContain('NEXT: voices (');
+    expect(await runPass(h2, base2)).toContain('NEXT: judge (Phase 4)');
     expect(await runPass(h2, { ...base2, stage: 'voices', budgetMs: 1 })).toMatch(/DISPATCHED: outside-voice path=\d+ queued/);
     const starts = h2.starts.length;
     const recorded = path.join(base2.out, 'voice-models.json');
@@ -125,7 +125,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const { dir, env } = repo();
     const h = host(dir, env, { reject: t => t.endsWith('outside-voice') });
     const base = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x19p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     const first = { 'adversarial-native': { model_id: 'openai/gpt-6-astra', reasoning_mode: 'high' }, 'outside-voice': { model_id: 'google/gemini-4-argon', reasoning_mode: 'medium' } };
     expect(await runPass(h, { ...base, stage: 'voices', models: first, budgetMs: 1 })).toMatch(/DISPATCHED: outside-voice path=\d+ queued/);
     const res = await runPass(h, { ...base, stage: 'voices' });
@@ -141,7 +141,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const { dir, env } = repo();
     const h = host(dir, env);
     const base = { base: 'main', out: path.join(dir, '.state/run/p1'), pass: 'x16p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     const none = "STOP: the outside voice needs input.models['outside-voice'] (a model of another family); none was given";
     expect(await runPass(h, { ...base, stage: 'voices', laneModel: undefined })).toContain(none);
     expect(await runPass(h, { ...base, stage: 'voices', laneModel: 'openai/gpt-6.2-sol' })).toContain(none);
@@ -161,7 +161,7 @@ describe('Capy pass program (fake host, real bins)', () => {
     const out = path.join(dir, '.state/run', sub);
     const h = host(dir, env);
     const base = { base: 'main', out, pass: 'x17p1', planFlags: ['--depth-floor', 'full'] };
-    expect(await runPass(h, base)).toContain('NEXT: voices (');
+    expect(await runPass(h, base)).toContain('NEXT: judge (Phase 4)');
     const res = await runPass(h, { ...base, stage: 'voices', ...(models ? { models } : {}) });
     const m = JSON.parse(fs.readFileSync(path.join(out, 'pass-manifest.json'), 'utf8')) as Manifest;
     for (const r of m.readers) expect(h.creates.find(c => c.title === r.title)!.prompt).toBe(fs.readFileSync(r.file!, 'utf8'));

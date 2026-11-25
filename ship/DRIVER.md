@@ -23,7 +23,7 @@ version, CHANGELOG, commits), **Documentation** (Step 14.5) and **Next steps** (
 **Reviewers are the sections' own.** Every reviewer brief, its severity and confidence rules
 and gates come from its section verbatim; this file
 never shortens a reviewer's brief. A blocking reader's prompt is its `gstack-review-dispatch render`
-file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade, and any pass with an unsettled reader (`NEXT: voices (…)`). Audit readers cannot block (here only 14.5 runs): low effort on `AUDIT_MODEL:`,
+file, unchanged; its findings reach `merged.jsonl` only via `collect`; `judge` refuses a drop or downgrade; `verify`, a pass with owed readers (`NEXT:` names them). Audit readers cannot block (here only 14.5 runs): low effort on `AUDIT_MODEL:`,
 14.5 once; findings go to the PR body.
 
 **Calls.** One pass with no fixes is 9 calls: Phases 1-8 and the report; at most 12 with a STOP's
