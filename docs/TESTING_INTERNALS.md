@@ -2129,7 +2129,8 @@ refusal from `bin/gstack-eval-plan` (logic in `lib/eval-plan-checks.ts` and
 |---|---|---|
 | `## Decisions`: one `if <result>: <what we do>` line per possible result, at least two, with different actions | `prereg --check`, before anything is spent | `PREREG_INCOMPLETE` |
 | `## Scoring`: `judge: none`, or a judge model from another family than every arm with `labels:` (100 or more; 40 for a plan frozen before 2026-11-22) and `agreement:` (kappa 0.6 or more); with two or more arms, `paired: yes`, `interval: 95%` and `mdd:` stated before the run | `prereg --check` | `PREREG_INCOMPLETE` |
-| The judge's Cohen's kappa against `{"id", "human", "judge"}` hand labels, at the preregistered count and bar | `judge --check` before the approval ask; `results --check --labels` before any number goes out | `EVAL_JUDGE_UNCHECKED` |
+| The judge's Cohen's kappa against `{"id", "human", "judge"}` hand labels, at the preregistered count and bar; with a `labels-by:` model (R126, code judges only), its `--anchors` answers meet `anchor-pass:` first | `judge --check` before the approval ask; `results --check --labels` before any number goes out | `EVAL_JUDGE_UNCHECKED` |
+| With a `labels-by:` model, the results file says `judge checked against <model>, a third model, not against people` | `results --check` | `EVAL_REPORT_THIRD_MODEL_UNNAMED` |
 | A zero in any results table comes from a column named after a `## Diagnostics` counter whose synthetic fixture plants at least one case (expected 1 or more) | `results --check` | `EVAL_REPORT_UNPLANTED_ZERO` |
 | A results table with a failures column also has an `answer-only` column: failures by the grader's own rule on the final answer | `results --check` | `EVAL_REPORT_NO_ANSWER_ONLY` |
 
@@ -2265,6 +2266,38 @@ or after 2026-11-22, or with no `frozen:` line, checks its model judge against a
 least 100 hand-labelled outputs before the judge's numbers count. The kappa bar
 stays 0.6. A plan frozen earlier keeps 40. `prereg --check`, `judge --check` and
 `results --check` all read the bar from the plan's `frozen:` date.
+
+**Third-model labels for code judges (R126).** Garry, 2026-11-25: "Nah let's
+just use Gemini neon as another model here and don't use humans". A judge that
+grades code may be checked against labels a third-family model made instead of
+people's, at the same count and kappa bar. `## Scoring` then says:
+
+- `labels-by: google/gemini-4-neon`: the labeller, as `<provider>/<model>`,
+  from a family neither the judge nor any arm shares. Gemini 4 Neon is the
+  labeller unless Gemini is the judge or an arm (then another third family,
+  such as `x-ai/grok-4.7`), or a `labeller-fallback:` line names the run
+  where Neon missed its anchor pass line.
+- `label-kind: code`: the judge grades code. Labels for anything else,
+  quality and taste calls included (R124), stay with people, construction
+  (`labels-by: construction`) or a rule (`labels-by: rule`); `labels-by:`
+  absent means people.
+- `blind: yes`: the labeller sees each output with no judge verdict and no
+  arm name.
+- `anchors: <n>`, `anchor-pass: <k>` and `anchors-digest: <hex>`:
+  known-answer anchors, items whose label is fixed by construction, frozen
+  with the plan; how many the labeller must answer right before any of its
+  labels count; and the digest `gstack-eval-plan anchors --hash <file>`
+  prints for the frozen `{"id", "expected"}` rows.
+
+`judge --check --anchors <file>` scores the labeller's `{"id", "expected",
+"label"}` answers first (`JUDGE_ANCHORS:`); a "can't tell" is a miss, and
+ids or expected answers that don't hash to `anchors-digest:` are refused. The
+results file then carries `judge checked against <model>, a third model, not
+against people`, which `judge --check` prints as `JUDGE_RESULTS_LINE:`.
+Why the anchors are required: on the /cso check, Neon answered yes on only 1
+to 2 of 12 oracle anchors and "can't tell" on 25 to 32 of 104 reports while
+agreeing on the reports it did answer. Agreement alone hid that; the anchors
+caught it.
 
 ## Running evals as an agent: detach
 

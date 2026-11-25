@@ -33,8 +33,14 @@ export const EVAL_RESULT_CODES = {
   // The result checks (docs/TESTING_INTERNALS.md#result-checks).
   EVAL_JUDGE_UNCHECKED: {
     anchor: 'eval-judge-unchecked',
-    summary: 'the preregistration names a model judge, and its hand labels are missing, fewer than the bar, all one class, or agree with the judge below the kappa bar',
-    fix: 'label at least the preregistered number of outputs by hand (never held-out rows), write them as {"id", "human", "judge"} JSONL, and pass them with --labels; a judge below its bar is replaced or its numbers are not published',
+    summary: 'the preregistration names a model judge, and its labels are missing, fewer than the bar, all one class, or agree with the judge below the kappa bar, or a third-model labeller (R126) has no anchor answers or misses its anchor pass line',
+    fix: 'label at least the preregistered number of outputs by hand (never held-out rows), or for a code judge by the third-family labels-by: model, write them as {"id", "human", "judge"} JSONL, and pass them with --labels (a model labeller also passes its anchor answers with --anchors); a judge below its bar is replaced or its numbers are not published',
+  },
+  // R126 (Garry, 2026-11-25): a code judge checked against a third model's labels says so in its results.
+  EVAL_REPORT_THIRD_MODEL_UNNAMED: {
+    anchor: 'eval-report-third-model-unnamed',
+    summary: 'the judge was checked against labels a third-family model made, and the results file does not say so',
+    fix: 'add the line "judge checked against <model>, a third model, not against people" to the results file, naming the labels-by: model, then rerun results --check',
   },
   EVAL_REPORT_UNPLANTED_ZERO: {
     anchor: 'eval-report-unplanted-zero',

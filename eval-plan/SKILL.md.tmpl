@@ -128,7 +128,8 @@ at least one, so `expected` is 1 or more and the summarizer is shown to find it.
 2. **A checked judge.** A model judge comes from another model family than every arm,
    is checked against at least 100 hand-labelled outputs (40 for a plan frozen before
    2026-11-22; never held-out rows) at a kappa of 0.6 or better, and the comparison is paired with a 95% interval and its
-   smallest detectable difference stated now.
+   smallest detectable difference stated now. Only a judge that grades code may use blind labels from a
+   third-family model, with frozen known-answer anchors (R126, docs/TESTING_INTERNALS.md#result-checks).
 
 3. **The eval-loop checks** (docs/TESTING_INTERNALS.md#eval-loop-checks): the Pilot,
    Cost and (above 500 dollars paid) Interim look sections; the judge's `per-arm:` and
@@ -277,7 +278,7 @@ then:
 ```
 
 Give each label row its `"arm"`: with `per-arm: yes`, each `JUDGE_ARM:` line must meet the
-bar on its own. Start every judge or reader subagent with its model and reasoning effort
+bar on its own. A `labels-by:` model's anchor answers go in with `--anchors <path>`. Start every judge or reader subagent with its model and reasoning effort
 set; left unset, it inherits its parent's, and a reader that inherited the highest effort
 cost about four times the default. `JUDGE_AGREEMENT: ok` continues. `EVAL_JUDGE_UNCHECKED` (exit 1) means too few labels,
 one class, or kappa below the bar: replace the judge or fix its prompt, then
@@ -331,6 +332,7 @@ leaves the run (a report, a READY block, a PR body), check it:
 - `EVAL_REPORT_NO_GSTACK_ROW` names the arm whose filled row is missing from the table
   that holds the others; add it. A preregistration with `stack: none` needs no row.
 - `EVAL_JUDGE_UNCHECKED`: a model judge's numbers count only with `--labels` passing.
+- `EVAL_REPORT_THIRD_MODEL_UNNAMED`: model-made labels need the `JUDGE_RESULTS_LINE:` text in the results.
 - `EVAL_REPORT_UNPLANTED_ZERO`: a zero in any results table, in a column not named after
   a Diagnostics counter with a planted case. Declare and run it, or report the zero as
   unverified, outside the tables.
