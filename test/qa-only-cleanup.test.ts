@@ -106,6 +106,7 @@ fs.writeFileSync(${JSON.stringify(path.join(dir, 'port'))}, String(server.port))
       restore = () => spy.mockRestore();
     }
     if (scenario === 'missing-terminal') {
+      await waitFor(() => fs.existsSync(path.join(stateDir, 'terminal-port')));
       fs.unlinkSync(agentFile);
       fs.writeFileSync(path.join(stateDir, 'browse-daemon.log'), '[browse] terminal-agent exit remains unconfirmed: fixture\n');
     }
@@ -134,7 +135,7 @@ Bun.spawnSync = (...args) => {
     const started = performance.now();
     const errors = { 'ack-only': 'settlement deadline exceeded', 'replaced-state': 'daemon state was replaced',
       'terminal-mismatch': 'terminal ownership is unconfirmed', 'chromium-mismatch': 'Chromium ownership is unconfirmed',
-      'missing-terminal': /terminal identity is unavailable \(record absent; terminal-port .*daemon log terminal-agent lines: \[browse\] terminal-agent exit remains unconfirmed: fixture\)/,
+      'missing-terminal': /terminal identity is unavailable \(record absent; terminal-port present; .*daemon log terminal-agent lines: \[browse\] terminal-agent exit remains unconfirmed: fixture\)/,
       'unrecorded-terminal': new RegExp(`terminal identity is unavailable \\(record absent; terminal-port absent; running fixture agents: ${stray?.pid}; daemon ${daemon.pid} alive`),
       'unlisted-agents': 'terminal agent identities are unavailable',
       'blocked-identity': 'owned worker settlement deadline exceeded' };

@@ -464,7 +464,9 @@ export function hermeticSkillsConfigDir(): string {
       path.join(configDir, '.claude.json'),
       JSON.stringify(buildSeedConfig({
         apiKey: process.env.ANTHROPIC_API_KEY ?? process.env.GSTACK_ANTHROPIC_API_KEY,
-        trustedDirs: [repoRoot()],
+        // Claude Code 2.1.326 asks before using an untrusted --add-dir; the
+        // seeded PTY runtime's owned HOME and state root live under runRoot.
+        trustedDirs: [repoRoot(), runRoot],
       }), null, 2),
     );
     const root = repoRoot();

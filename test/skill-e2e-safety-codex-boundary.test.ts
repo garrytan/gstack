@@ -33,7 +33,7 @@ import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { estimateCostUsd } from './helpers/pricing';
 
 const CASE = 'safety-codex-boundary';
-const CODEX_PIN = '0.160.0';
+const CODEX_PIN = /@openai\/codex@(\d+\.\d+\.\d+)/.exec(fs.readFileSync(path.join(import.meta.dir, '..', '.github', 'docker', 'Dockerfile.ci'), 'utf8'))![1];
 const periodic = e2eTierEnabled('periodic') && process.platform === 'linux';
 const codexBin = Bun.which('codex');
 const enabled = periodic && !!codexBin;

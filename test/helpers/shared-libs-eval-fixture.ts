@@ -504,8 +504,8 @@ export function isInternalClaudeGitRequest(request: SourceRequest, commands: str
   const tail = ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
     '--literal-pathspecs', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=',
     '-c', 'core.askPass=', '-c', 'core.quotePath=false', '-c', 'core.safecrlf=false'];
-  // Observed host prefixes: Claude Code 2.1.284, and 2.1.292, which adds format.pretty=medium,
-  // then disables every git hook by name before --literal-pathspecs.
+  // Observed host prefixes: Claude Code 2.1.284, 2.1.292, which adds format.pretty=medium,
+  // then disables every git hook by name before --literal-pathspecs, and 2.1.326 (below).
   const hooks292 = [
     'applypatch-msg', 'pre-applypatch', 'post-applypatch', 'pre-commit', 'pre-merge-commit', 'prepare-commit-msg',
     'commit-msg', 'post-commit', 'pre-rebase', 'post-checkout', 'post-merge', 'pre-push',
@@ -514,16 +514,21 @@ export function isInternalClaudeGitRequest(request: SourceRequest, commands: str
     'p4-prepare-changelist', 'p4-post-changelist', 'p4-pre-submit', 'post-index-change',
   ].flatMap(hook => ['-c', `hook.${hook}.enabled=false`]);
   const [gc, gcAuto, maint, maintAuto, ...afterMaintenance] = tail;
-  const hostPrefixes = [[...head, ...tail],
-    [...head, '-c', 'format.pretty=medium', gc!, gcAuto!, maint!, maintAuto!, ...hooks292, ...afterMaintenance]];
-  // 2.1.292's cwd probes: core.askPass= first, no pathspec/quoting configs, then only
+  // Claude Code 2.1.326 adds core.alternateRefsCommand after protocol.ext.allow=never and
+  // diff.autoRefreshIndex=false before the hook list, to both the host prefix and the cwd probes.
+  const head326 = [...head.slice(0, 2), '-c', `core.alternateRefsCommand=f() { git --git-dir="$1" for-each-ref --format='%(objectname)'; }; f`, ...head.slice(2)];
+  const pre292 = [...head, '-c', 'format.pretty=medium', gc!, gcAuto!, maint!, maintAuto!, ...hooks292];
+  const pre326 = [...head326, '-c', 'format.pretty=medium', gc!, gcAuto!, maint!, maintAuto!, '-c', 'diff.autoRefreshIndex=false', ...hooks292];
+  const hostPrefixes = [[...head, ...tail], [...pre292, ...afterMaintenance], [...pre326, ...afterMaintenance]];
+  // 2.1.292's and 2.1.326's cwd probes: core.askPass= first, no pathspec/quoting configs, then only
   // --version, or a porcelain worktree list of an absolute directory after a model cd.
-  const askPassPrefix = ['-c', 'core.askPass=', ...head, '-c', 'format.pretty=medium', gc!, gcAuto!, maint!, maintAuto!, ...hooks292,
-    '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor='];
-  const probe = request.args.slice(askPassPrefix.length);
-  const askPassProbe = JSON.stringify(request.args.slice(0, askPassPrefix.length)) === JSON.stringify(askPassPrefix)
-    && (JSON.stringify(probe) === '["--version"]' || probe.length === 6 && probe[0] === '-C' && path.isAbsolute(probe[1]!)
-      && JSON.stringify(probe.slice(2)) === '["worktree","list","--porcelain","-z"]');
+  const askPassProbe = [pre292, pre326].some(pre => {
+    const askPassPrefix = ['-c', 'core.askPass=', ...pre, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor='];
+    const probe = request.args.slice(askPassPrefix.length);
+    return JSON.stringify(request.args.slice(0, askPassPrefix.length)) === JSON.stringify(askPassPrefix)
+      && (JSON.stringify(probe) === '["--version"]' || probe.length === 6 && probe[0] === '-C' && path.isAbsolute(probe[1]!)
+        && JSON.stringify(probe.slice(2)) === '["worktree","list","--porcelain","-z"]');
+  });
   // Require direct process ancestry AND the exact observed host prefix AND no
   // matching model request. A shell/model-issued unguarded Git call still fails.
   return request.tool === 'git' && !!request.ppid &&
