@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { checkPrereg } from '../lib/eval-plan';
-import { checkDecisions, checkJudgeLabels, checkScoring, cohensKappa, JUDGE_LABELS_RAISED_SINCE, modelFamily } from '../lib/eval-plan-checks';
+import { checkDecisions, checkJudgeLabels, checkScoring, cohensKappa, JUDGE_LABELS_RAISED_SINCE, MODEL_LABELLER_DEFAULT, modelFamily, thirdModelLine } from '../lib/eval-plan-checks';
 import { checkResults } from '../lib/eval-plan-report';
 
 const BIN = path.resolve(import.meta.dir, '..', 'bin', 'gstack-eval-plan');
@@ -238,3 +238,110 @@ describe('gstack-eval-plan judge --check and results --labels', () => {
     expect(noLabels.err).toContain('(EVAL_JUDGE_UNCHECKED)');
   });
 });
+
+describe('R126: a code judge may be checked against blind labels a third-family model made, with frozen anchors', () => {
+  const arms = ['claude-opus-5-5', 'claude-opus-5-5#plain'];
+  const NEON = 'labels-by: google/gemini-4-neon\nlabel-kind: code\nblind: yes\nanchors: 12 frozen in anchors.jsonl\nanchor-pass: 11\n';
+  const scoring100 = (extra: string, judge = 'gpt-6-astra') => SCORING(judge, 'labels: 100\nagreement: 0.6\nper-arm: yes\neffort: high\npaired: yes\ninterval: 95%\nmdd: 3 of 20 items\n' + extra);
+  const late = (extra: string, judge?: string) => prereg({ frozen: '2026-11-25', scoring: scoring100(extra, judge) });
+  const errs = (extra: string, judge?: string) => checkPrereg(late(extra, judge)).scoring.errors;
+  const anchors = (n: number, right: number, start = 0) => Array.from({ length: n }, (_, i) => JSON.stringify({ id: `anchor-${start + i}`, expected: 'bug', label: i < right ? 'bug' : "can't tell" })).join('\n') + '\n';
+
+  test('Gemini 4 Neon labelling code, blind, with frozen anchors and a pass line passes, and is recorded as the labeller', () => {
+    const s = checkPrereg(late(NEON)).scoring;
+    expect(s.errors).toEqual([]);
+    expect(s.labeller).toEqual({ model: MODEL_LABELLER_DEFAULT, anchors: 12, anchor_pass: 11 });
+    expect(checkPrereg(late('labels-by: `google/gemini-4-neon`\nlabel-kind: code\nblind: yes\nanchors: 12\nanchor-pass: 12\n')).ok).toBe(true);
+  });
+
+  test('people, construction, rule or no labels-by line keep the hand-label rules unchanged', () => {
+    for (const by of ['', 'labels-by: people\n', 'labels-by: construction\n', 'labels-by: Rule\n']) {
+      const s = checkPrereg(late(by)).scoring;
+      expect(s.errors, by).toEqual([]);
+      expect(s.labeller, by).toBeNull();
+    }
+    expect(errs('', 'gpt-6-astra').length).toBe(0);
+    expect(checkPrereg(prereg({ frozen: JUDGE_LABELS_RAISED_SINCE })).scoring.errors).toEqual(['labels: needs at least 100 hand-labelled outputs the judge is checked against (40 only for a plan frozen before 2026-11-22)']);
+  });
+
+  test('a model labeller for anything but code is refused, quality and taste included', () => {
+    const kind = 'label-kind: code (model-made labels count only for a judge that grades code; labels for anything else, quality and taste included, come from people, construction or a rule) (R126, R124)';
+    expect(errs(NEON.replace('label-kind: code\n', ''))).toEqual([kind]);
+    for (const k of ['prose', 'quality', 'taste', 'ui']) expect(errs(NEON.replace('label-kind: code', `label-kind: ${k}`)), k).toEqual([kind]);
+  });
+
+  test('the labeller comes from a family neither the judge nor any arm shares', () => {
+    expect(errs(NEON, 'google/gemini-4-carbon')).toEqual(['labels-by: google/gemini-4-neon is the same model family (google) as the judge or an arm; the labeller comes from a third family']);
+    expect(errs(NEON.replace('google/gemini-4-neon', 'openai/gpt-6.2-sol'))).toContain('labels-by: openai/gpt-6.2-sol is the same model family (openai) as the judge or an arm; the labeller comes from a third family');
+    expect(errs(NEON.replace('google/gemini-4-neon', 'anthropic/claude-sonnet-5-5'))).toContain('labels-by: anthropic/claude-sonnet-5-5 is the same model family (anthropic) as the judge or an arm; the labeller comes from a third family');
+  });
+
+  test('Grok 4.7 or another third family labels only when Gemini is the judge or an arm, or Neon missed its anchors', () => {
+    const grok = NEON.replace('google/gemini-4-neon', 'x-ai/grok-4.7');
+    expect(errs(grok)).toEqual(['labels-by: google/gemini-4-neon labels unless Gemini is the judge or an arm, or a labeller-fallback: line names the run where it missed its anchor pass line']);
+    expect(errs(grok, 'google/gemini-4-carbon')).toEqual([]);
+    expect(errs(grok + 'labeller-fallback: run neon-anchors-1 answered 2 of 12\n')).toEqual([]);
+    expect(errs(grok + 'labeller-fallback: tbd\n').length).toBe(1);
+  });
+
+  test('anchors, a pass line, blind labelling and a <provider>/<model> id are each required', () => {
+    expect(errs(NEON.replace('blind: yes\n', ''))).toEqual(['blind: yes (the labeller sees each output with no judge verdict and no arm name)']);
+    const anchorsErr = 'anchors: <n> frozen known-answer anchors (items whose label is fixed by construction) the labeller answers before its labels count, and where they are frozen';
+    const passErr = 'anchor-pass: <k>, how many anchors the labeller must answer right before its labels count (1 to the anchors: count)';
+    expect(errs(NEON.replace('anchors: 12 frozen in anchors.jsonl\n', ''))).toEqual([anchorsErr]);
+    expect(errs(NEON.replace('anchors: 12 frozen in anchors.jsonl', 'anchors: 0'))).toEqual([anchorsErr, passErr]);
+    expect(errs(NEON.replace('anchor-pass: 11\n', ''))).toEqual([passErr]);
+    expect(errs(NEON.replace('anchor-pass: 11', 'anchor-pass: 13'))).toEqual([passErr]);
+    for (const by of ['gemini-4-neon', 'neon', 'people, final ties by a model', 'models']) {
+      expect(errs(NEON.replace('google/gemini-4-neon', by)), by).toEqual(['labels-by: says people, construction or rule, or for a judge that grades code names a third-family model as <provider>/<model>, such as google/gemini-4-neon (R126)']);
+    }
+  });
+
+  test('judge --check counts a model labeller only once its anchor answers meet the pass line', () => {
+    const s = checkPrereg(late(NEON)).scoring;
+    expect(checkJudgeLabels(s, labels(100, 10), arms).problems).toEqual(["labels-by: google/gemini-4-neon is a model; pass --anchors <file> with its answers on the 12 frozen known-answer anchors, and its labels count only at anchor-pass: 11 or better (R126)"]);
+    expect(checkJudgeLabels(s, labels(100, 10), arms, anchors(12, 11))).toMatchObject({ ok: true, labels_by: MODEL_LABELLER_DEFAULT, anchors: { right: 11, n: 12, need_right: 11 } });
+    expect(checkJudgeLabels(s, labels(100, 10), arms, anchors(12, 2)).problems).toEqual(['google/gemini-4-neon answered 2 of 12 anchors right, below the pass line 11; its labels do not count']);
+    expect(checkJudgeLabels(s, labels(100, 10), arms, anchors(11, 11)).problems).toEqual(['11 anchors answered, the plan froze 12']);
+    expect(checkJudgeLabels(s, labels(100, 10), arms, anchors(12, 12, 0).replace(/anchor-0/, 'item-0')).problems).toEqual(['anchor item-0 is also a label row; anchors do not count toward the labels']);
+    expect(checkJudgeLabels(s, labels(40, 4), arms, anchors(12, 12)).problems).toEqual(['40 labelled outputs, needs 100']);
+  });
+
+  test('results --check wants the third-model line in the results file', () => {
+    const rows = table('| arm | passed |', '| claude-opus-5-5 | 7/9 |', '| claude-opus-5-5#plain | 5/9 |');
+    const line = thirdModelLine(MODEL_LABELLER_DEFAULT);
+    expect(line).toBe('judge checked against google/gemini-4-neon, a third model, not against people');
+    expect(checkResults(late(NEON), rows, labels(100, 10), anchors(12, 12)).issues).toEqual([{ code: 'EVAL_REPORT_THIRD_MODEL_UNNAMED', message: `the judge's labels came from google/gemini-4-neon; the results say "${line}"` }]);
+    expect(checkResults(late(NEON), rows + '\nThe ' + line + '.\n', labels(100, 10), anchors(12, 12))).toMatchObject({ ok: true, issues: [] });
+    expect(checkResults(late(NEON), rows + '\n' + line + '\n', labels(100, 10)).issues.map(i => i.code)).toEqual(['EVAL_JUDGE_UNCHECKED']);
+    expect(checkResults(late(''), rows, labels(100, 10)).ok).toBe(true);
+  });
+
+  const cli = (args: string[], files: Record<string, string>) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-third-model-')); dirs.push(d);
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(d, name), text);
+    const r = spawnSync(BIN, args, { cwd: d, encoding: 'utf8', timeout: 60_000 });
+    return { code: r.status, out: r.stdout ?? '', err: r.stderr ?? '' };
+  };
+
+  test('on the command line: judge --check reads --anchors and prints the results line; results --check reads --anchors too', () => {
+    const files = { 'p.md': late(NEON), 'l.jsonl': labels(100, 10), 'a.jsonl': anchors(12, 11), 'r.md': table('| arm | passed |', '| claude-opus-5-5 | 7/9 |', '| claude-opus-5-5#plain | 5/9 |') + '\n' + thirdModelLine(MODEL_LABELLER_DEFAULT) + '\n' };
+    const ok = cli(['judge', '--check', 'p.md', '--labels', 'l.jsonl', '--anchors', 'a.jsonl'], files);
+    expect(ok.code, ok.err).toBe(0);
+    expect(ok.out.split('\n')[0]).toBe('JUDGE_ANCHORS: ok labeller=google/gemini-4-neon right=11/12 pass=11');
+    expect(ok.out).toContain('JUDGE_AGREEMENT: ok judge=gpt-6-astra n=100/100 kappa=0.80 bar=0.6 labels_by=google/gemini-4-neon\n');
+    expect(ok.out).toContain('JUDGE_RESULTS_LINE: judge checked against google/gemini-4-neon, a third model, not against people\n');
+    const missed = cli(['judge', '--check', 'p.md', '--labels', 'l.jsonl', '--anchors', 'a.jsonl'], { ...files, 'a.jsonl': anchors(12, 2) });
+    expect(missed.code).toBe(1);
+    expect(missed.out.split('\n')[0]).toBe('JUDGE_ANCHORS: missed labeller=google/gemini-4-neon right=2/12 pass=11');
+    expect(missed.err).toContain('(EVAL_JUDGE_UNCHECKED)');
+    expect(cli(['judge', '--check', 'p.md', '--labels', 'l.jsonl'], files).code).toBe(1);
+    const results = cli(['results', '--check', 'p.md', 'r.md', '--labels', 'l.jsonl', '--anchors', 'a.jsonl'], files);
+    expect(results.code, results.err).toBe(0);
+    expect(results.out.split('\n')[0]).toBe('RESULTS: ok no_gstack_rows=0/0 rows=0/0 file=r.md');
+    const unnamed = cli(['results', '--check', 'p.md', 'r.md', '--labels', 'l.jsonl', '--anchors', 'a.jsonl'], { ...files, 'r.md': table('| arm | passed |', '| claude-opus-5-5 | 7/9 |', '| claude-opus-5-5#plain | 5/9 |') });
+    expect(unnamed.code).toBe(1);
+    expect(unnamed.err).toContain('(EVAL_REPORT_THIRD_MODEL_UNNAMED)');
+  });
+});
+

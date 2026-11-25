@@ -16,6 +16,17 @@ export const JUDGE_LABELS_RAISED_SINCE = '2026-11-22';
 export const JUDGE_RAISED_MIN_LABELS = 100;
 export const judgeMinLabels = (frozen: string | null) => (frozen !== null && frozen < JUDGE_LABELS_RAISED_SINCE ? JUDGE_MIN_LABELS : JUDGE_RAISED_MIN_LABELS);
 export const JUDGE_MIN_KAPPA = 0.6;
+/**
+ * R126 (Garry, 2026-11-25: "Nah let's just use Gemini neon as another model here and don't use humans"): a judge that
+ * grades code may be checked against labels made blind by a third-family model, a family neither the judge nor any arm
+ * shares, at the same count and kappa bar, but only when the plan freezes known-answer anchors (items whose label is fixed
+ * by construction) with a pass line the labeller meets before its labels count. Gemini 4 Neon is the labeller unless Gemini
+ * is the judge or an arm, or a labeller-fallback: line names the run where it missed its anchor pass line. Labels for
+ * anything other than code, quality and taste included (R124), come from people, construction or a rule.
+ */
+export const MODEL_LABELLER_DEFAULT = 'google/gemini-4-neon';
+export const LABEL_SOURCES = ['people', 'construction', 'rule'] as const;
+export const thirdModelLine = (model: string) => `judge checked against ${model}, a third model, not against people`;
 
 const PLACEHOLDER = /^(?:|-+|—|n\/a|none|tbd|todo|\?)\.?$/i;
 const keyValues = (body: string[]) => {
@@ -186,12 +197,14 @@ export function checkDecisions(body: string[] | null): DecisionsCheck {
   return { outcomes, errors };
 }
 
-export interface ScoringCheck { judge: string | null; labels: number | null; agreement: number | null; errors: string[]; per_arm?: boolean; min_labels?: number }
+export interface ModelLabeller { model: string; anchors: number | null; anchor_pass: number | null }
+export interface ScoringCheck { judge: string | null; labels: number | null; agreement: number | null; errors: string[]; per_arm?: boolean; min_labels?: number; labeller?: ModelLabeller | null }
 /**
  * `## Scoring`: `judge: none` or the judge model; a model judge needs `labels:`
  * (at least judgeMinLabels(frozen): 100, or 40 for a plan frozen before 2026-11-22) and `agreement:` (a kappa bar of at least 0.6) and a family no
  * arm shares. Two or more arms need `paired: yes`, `interval: 95%` and `mdd:`,
- * the smallest difference the run can detect.
+ * the smallest difference the run can detect. `labels-by:` is people when absent;
+ * a model there is a third-family labeller under R126 (MODEL_LABELLER_DEFAULT).
  */
 export function checkScoring(body: string[] | null, arms: string[], frozen: string | null = null): ScoringCheck {
   const min_labels = judgeMinLabels(frozen);
@@ -201,9 +214,15 @@ export function checkScoring(body: string[] | null, arms: string[], frozen: stri
   const labels = firstNumber(kv.labels);
   const agreement = firstNumber(kv.agreement);
   const errors: string[] = [];
+  let labeller: ModelLabeller | null = null;
   if (!judge) errors.push('no judge: line (judge: none, or the judge model)');
   else if (judge.toLowerCase() !== 'none') {
-    if (labels === null || labels < min_labels) errors.push(`labels: needs at least ${min_labels} hand-labelled outputs the judge is checked against${min_labels > JUDGE_MIN_LABELS ? ` (${JUDGE_MIN_LABELS} only for a plan frozen before ${JUDGE_LABELS_RAISED_SINCE})` : ''}`);
+    const by = (kv['labels-by'] ?? 'people').trim();
+    if (!(LABEL_SOURCES as readonly string[]).includes(by.toLowerCase())) {
+      labeller = { model: by, anchors: firstNumber(kv.anchors), anchor_pass: firstNumber(kv['anchor-pass']) };
+      errors.push(...labellerErrors(labeller, kv, judge, arms));
+    }
+    if (labels === null || labels < min_labels) errors.push(`labels: needs at least ${min_labels} ${labeller ? '' : 'hand-'}labelled outputs the judge is checked against${min_labels > JUDGE_MIN_LABELS ? ` (${JUDGE_MIN_LABELS} only for a plan frozen before ${JUDGE_LABELS_RAISED_SINCE})` : ''}`);
     if (agreement === null || agreement < JUDGE_MIN_KAPPA || agreement > 1) errors.push(`agreement: needs a kappa bar from ${JUDGE_MIN_KAPPA} to 1`);
     const family = modelFamily(judge);
     for (const arm of [...new Set(arms)]) if (modelFamily(arm) === family) errors.push(`judge ${judge} is the same model family (${family}) as arm ${arm}; use a judge from another family`);
@@ -213,10 +232,27 @@ export function checkScoring(body: string[] | null, arms: string[], frozen: stri
     if (firstNumber(kv.interval) !== 95) errors.push('interval: 95% (the interval every comparison is reported with)');
     if (PLACEHOLDER.test(kv.mdd ?? '')) errors.push('mdd: the smallest difference this run can detect, stated before the run');
   }
-  return { judge, labels, agreement, errors, per_arm: /^yes\b/i.test(kv['per-arm'] ?? ''), min_labels };
+  return { judge, labels, agreement, errors, per_arm: /^yes\b/i.test(kv['per-arm'] ?? ''), min_labels, labeller };
 }
 
-export interface JudgeLabelCheck { ok: boolean; judge: string; n: number; kappa: number | null; need_n: number; need_kappa: number; problems: string[]; arms: Array<{ arm: string; n: number; kappa: number | null }> }
+/** R126: what a model labeller in `## Scoring` needs before its labels can stand in for people's. */
+function labellerErrors(l: ModelLabeller, kv: Record<string, string>, judge: string, arms: string[]): string[] {
+  if (!/^[a-z0-9][a-z0-9.-]*\/[a-z0-9][a-z0-9.:-]*$/i.test(l.model)) return [`labels-by: says people, construction or rule, or for a judge that grades code names a third-family model as <provider>/<model>, such as ${MODEL_LABELLER_DEFAULT} (R126)`];
+  const errors: string[] = [];
+  const family = modelFamily(l.model);
+  if (!/^code\b/i.test(kv['label-kind'] ?? '')) errors.push(`label-kind: code (model-made labels count only for a judge that grades code; labels for anything else, quality and taste included, come from people, construction or a rule) (R126, R124)`);
+  const families = [modelFamily(judge), ...new Set(arms.map(modelFamily))];
+  if (families.includes(family)) errors.push(`labels-by: ${l.model} is the same model family (${family}) as the judge or an arm; the labeller comes from a third family`);
+  const geminiInPlay = families.includes(modelFamily(MODEL_LABELLER_DEFAULT));
+  if (l.model.toLowerCase() !== MODEL_LABELLER_DEFAULT && !geminiInPlay && !filled(kv['labeller-fallback'])) errors.push(`labels-by: ${MODEL_LABELLER_DEFAULT} labels unless Gemini is the judge or an arm, or a labeller-fallback: line names the run where it missed its anchor pass line`);
+  if (!/^yes\b/i.test(kv.blind ?? '')) errors.push('blind: yes (the labeller sees each output with no judge verdict and no arm name)');
+  if (l.anchors === null || l.anchors < 1 || !filled(kv.anchors)) errors.push('anchors: <n> frozen known-answer anchors (items whose label is fixed by construction) the labeller answers before its labels count, and where they are frozen');
+  if (l.anchor_pass === null || l.anchor_pass < 1 || (l.anchors !== null && l.anchor_pass > l.anchors)) errors.push('anchor-pass: <k>, how many anchors the labeller must answer right before its labels count (1 to the anchors: count)');
+  return errors;
+}
+
+export interface AnchorCheck { labeller: string; n: number; right: number; need_n: number | null; need_right: number | null }
+export interface JudgeLabelCheck { ok: boolean; judge: string; n: number; kappa: number | null; need_n: number; need_kappa: number; problems: string[]; arms: Array<{ arm: string; n: number; kappa: number | null }>; labels_by?: string; anchors?: AnchorCheck | null }
 
 /** Cohen's kappa over paired categorical labels; null when chance agreement is total (every label one class). */
 export function cohensKappa(pairs: Array<[string, string]>): number | null {
@@ -229,8 +265,34 @@ export function cohensKappa(pairs: Array<[string, string]>): number | null {
   return pe === 1 ? null : (agree / n - pe) / (1 - pe);
 }
 
-/** Score the preregistered judge against a JSONL file of `{"id", "human", "judge"}` rows. */
-export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string, planArms: string[] = []): JudgeLabelCheck {
+/**
+ * Score the labeller's answers on the frozen known-answer anchors, JSONL rows `{"id", "expected", "label"}`. A
+ * "can't tell" or any answer other than the expected one is a miss.
+ */
+export function checkAnchors(l: ModelLabeller, anchorsText: string | null, labelIds: Set<string>): { check: AnchorCheck | null; problems: string[] } {
+  if (anchorsText === null) return { check: null, problems: [`labels-by: ${l.model} is a model; pass --anchors <file> with its answers on the ${l.anchors ?? 'preregistered'} frozen known-answer anchors, and its labels count only at anchor-pass: ${l.anchor_pass ?? '?'} or better (R126)`] };
+  const problems: string[] = [];
+  const ids = new Set<string>();
+  let right = 0;
+  anchorsText.split('\n').forEach((line, i) => {
+    if (!line.trim()) return;
+    let row: { id?: unknown; expected?: unknown; label?: unknown } | null = null;
+    try { row = JSON.parse(line); } catch { row = null; }
+    if (!row || typeof row !== 'object' || ![row.id, row.expected, row.label].every(v => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number' || typeof v === 'boolean')) { problems.push(`anchors line ${i + 1}: needs {"id", "expected", "label"}, each a string, number or boolean`); return; }
+    const id = String(row.id);
+    if (ids.has(id)) { problems.push(`anchor ${id} is answered twice`); return; }
+    if (labelIds.has(id)) problems.push(`anchor ${id} is also a label row; anchors do not count toward the labels`);
+    ids.add(id);
+    if (String(row.label) === String(row.expected)) right++;
+  });
+  const check: AnchorCheck = { labeller: l.model, n: ids.size, right, need_n: l.anchors, need_right: l.anchor_pass };
+  if (l.anchors !== null && ids.size !== l.anchors) problems.push(`${ids.size} anchors answered, the plan froze ${l.anchors}`);
+  if (l.anchor_pass === null || right < l.anchor_pass) problems.push(`${l.model} answered ${right} of ${ids.size} anchors right, below the pass line ${l.anchor_pass ?? '?'}; its labels do not count`);
+  return { check, problems };
+}
+
+/** Score the preregistered judge against a JSONL file of `{"id", "human", "judge"}` rows (with a model labeller, its labels sit in "human" and its anchor answers pass separately). */
+export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string, planArms: string[] = [], anchorsText: string | null = null): JudgeLabelCheck {
   const need_n = Math.max(scoring.min_labels ?? JUDGE_RAISED_MIN_LABELS, scoring.labels ?? 0);
   const need_kappa = Math.max(JUDGE_MIN_KAPPA, scoring.agreement ?? 0);
   const problems: string[] = [];
@@ -263,7 +325,10 @@ export function checkJudgeLabels(scoring: ScoringCheck, labelsText: string, plan
     if (unknown.length) problems.push(`label rows name arms that are not in ## Arms: ${unknown.join(', ')}`);
   }
   if (scoring.per_arm) for (const a of arms) if (a.kappa === null || a.kappa < need_kappa) problems.push(`arm ${a.arm}: kappa ${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} on its ${a.n} labels is below the bar ${need_kappa}; the judge does not pass on this arm's outputs`);
-  return { ok: problems.length === 0, judge: scoring.judge ?? 'none', n: pairs.length, kappa, need_n, need_kappa, problems, arms };
+  if (!scoring.labeller) return { ok: problems.length === 0, judge: scoring.judge ?? 'none', n: pairs.length, kappa, need_n, need_kappa, problems, arms };
+  const anchors = checkAnchors(scoring.labeller, anchorsText, ids);
+  problems.push(...anchors.problems);
+  return { ok: problems.length === 0, judge: scoring.judge ?? 'none', n: pairs.length, kappa, need_n, need_kappa, problems, arms, labels_by: scoring.labeller.model, anchors: anchors.check };
 }
 
-export const renderJudgeLabels = (c: JudgeLabelCheck) => c.arms.map(a => `JUDGE_ARM: ${a.arm} n=${a.n} kappa=${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} bar=${c.need_kappa}\n`).join('') + `JUDGE_AGREEMENT: ${c.ok ? 'ok' : 'unchecked'} judge=${c.judge} n=${c.n}/${c.need_n} kappa=${c.kappa === null ? 'undefined' : c.kappa.toFixed(2)} bar=${c.need_kappa}\n`;
+export const renderJudgeLabels = (c: JudgeLabelCheck) => (c.anchors ? `JUDGE_ANCHORS: ${c.anchors.need_right !== null && c.anchors.right >= c.anchors.need_right && c.anchors.n === c.anchors.need_n ? 'ok' : 'missed'} labeller=${c.anchors.labeller} right=${c.anchors.right}/${c.anchors.n} pass=${c.anchors.need_right ?? '?'}\n` : '') + c.arms.map(a => `JUDGE_ARM: ${a.arm} n=${a.n} kappa=${a.kappa === null ? 'undefined' : a.kappa.toFixed(2)} bar=${c.need_kappa}\n`).join('') + `JUDGE_AGREEMENT: ${c.ok ? 'ok' : 'unchecked'} judge=${c.judge} n=${c.n}/${c.need_n} kappa=${c.kappa === null ? 'undefined' : c.kappa.toFixed(2)} bar=${c.need_kappa}${c.labels_by ? ` labels_by=${c.labels_by}` : ''}\n` + (c.labels_by ? `JUDGE_RESULTS_LINE: ${thirdModelLine(c.labels_by)}\n` : '');

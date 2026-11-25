@@ -10,8 +10,8 @@
  *   gstack-eval-plan pilot settle --out <dir> --attempt <id> --usd <n|unknown>
  *   gstack-eval-plan pilot release --out <dir> --attempt <id>
  *   gstack-eval-plan pilot report --out <dir> --total <items> [--workers W] [--json]
- *   gstack-eval-plan results --check <prereg> <results.md> [--labels <labels.jsonl>] [--json]
- *   gstack-eval-plan judge --check <prereg> --labels <labels.jsonl> [--json]
+ *   gstack-eval-plan results --check <prereg> <results.md> [--labels <labels.jsonl>] [--anchors <anchors.jsonl>] [--json]
+ *   gstack-eval-plan judge --check <prereg> --labels <labels.jsonl> [--anchors <anchors.jsonl>] [--json]
  *   gstack-eval-plan price-gate --gate-file <file> | --gate "<exact gate command>" [--plan-file <file>] [--base <branch>] [--cap-usd N]
  *                               [--smoke-cap-usd N] [--allow-unpriced "<reason>"] [--out <dir>] [--json]
  *
@@ -72,13 +72,15 @@ const HELP = `gstack-eval-plan — preregistration, priced arms, $0 dry run, pri
                                      settle unknown, and sit outside the cap and the projection until one settles a charge
   pilot settle --out dir --attempt id --usd <n|unknown>      pilot release --out dir --attempt id
   pilot report --out dir --total items [--workers W] [--json]  spend table + per-arm extrapolation with a 95% band, then the approval ask
-  results --check <prereg> <results.md> [--labels labels.jsonl] [--json]
+  results --check <prereg> <results.md> [--labels labels.jsonl] [--anchors anchors.jsonl] [--json]
                                      one table in the results file has a filled row for every Arms identity, each no-gstack arm
                                      beside its variants; a model judge's labels pass; a zero in any results table comes from a
                                      Diagnostics counter with a planted case; a failures column has an answer-only column beside
-                                     it; reads text only (docs/TESTING_INTERNALS.md#result-checks)
-  judge --check <prereg> --labels labels.jsonl [--json]
-                                     Cohen's kappa of the preregistered judge against {"id","human","judge"} hand labels
+                                     it; labels by a third model (labels-by:) need the line "judge checked against <model>, a third
+                                     model, not against people"; reads text only (docs/TESTING_INTERNALS.md#result-checks)
+  judge --check <prereg> --labels labels.jsonl [--anchors anchors.jsonl] [--json]
+                                     Cohen's kappa of the preregistered judge against {"id","human","judge"} hand labels; with a
+                                     labels-by: model (R126, code judges only), its {"id","expected","label"} anchor answers meet anchor-pass:
   price-gate --gate-file <file> | --gate "<exact gate command>" [--plan-file f] [--base b] [--cap-usd N] [--smoke-cap-usd N] [--allow-unpriced "<reason>"] [--out dir] [--json]
                                      price a paid gate from its GSTACK_EVAL_CALLS v1 call-plan file (--plan-file, else the base
                                      policy's price_file at HEAD); checks the gate/head/input binding, executes nothing, writes a
@@ -160,10 +162,12 @@ function doPrereg(rest: string[]): number {
 function doResults(rest: string[]): number {
   const prereg = flag(rest, '--check');
   const labels = flag(rest, '--labels');
-  const results = rest.filter(a => !a.startsWith('--') && a !== prereg && a !== labels)[0];
+  const anchors = flag(rest, '--anchors');
+  const results = rest.filter(a => !a.startsWith('--') && a !== prereg && a !== labels && a !== anchors)[0];
   if (!prereg || !results || !fs.existsSync(prereg) || !fs.existsSync(results)) return usage('results needs --check <existing prereg> <existing results file>');
   if (labels !== undefined && !fs.existsSync(labels)) return usage('results --labels needs an existing labels file');
-  const r = checkResults(fs.readFileSync(prereg, 'utf8'), fs.readFileSync(results, 'utf8'), labels === undefined ? null : fs.readFileSync(labels, 'utf8'));
+  if (anchors !== undefined && !fs.existsSync(anchors)) return usage('results --anchors needs an existing anchors file');
+  const r = checkResults(fs.readFileSync(prereg, 'utf8'), fs.readFileSync(results, 'utf8'), labels === undefined ? null : fs.readFileSync(labels, 'utf8'), anchors === undefined ? null : fs.readFileSync(anchors, 'utf8'));
   if (rest.includes('--json')) process.stdout.write(JSON.stringify({ prereg, results, ...r }) + '\n');
   else process.stdout.write(`RESULTS: ${r.ok ? 'ok' : 'incomplete'} no_gstack_rows=${r.no_gstack.filter(id => r.found.includes(id)).length}/${r.no_gstack.length} rows=${r.found.length}/${r.required.length} file=${results}\n`);
   if (r.judge && !rest.includes('--json')) process.stdout.write(renderJudgeLabels(r.judge));
@@ -174,11 +178,13 @@ function doResults(rest: string[]): number {
 function doJudge(rest: string[]): number {
   const prereg = flag(rest, '--check');
   const labels = flag(rest, '--labels');
+  const anchors = flag(rest, '--anchors');
   if (!prereg || !labels || !fs.existsSync(prereg) || !fs.existsSync(labels)) return usage('judge needs --check <existing prereg> --labels <existing labels file>');
+  if (anchors !== undefined && !fs.existsSync(anchors)) return usage('judge --anchors needs an existing anchors file');
   const preregText = fs.readFileSync(prereg, 'utf8');
   const { scoring } = checkPrereg(preregText);
   if (!scoring.judge || scoring.judge.toLowerCase() === 'none') return usage('judge --check needs a preregistration whose ## Scoring names a judge model');
-  const r = checkJudgeLabels(scoring, fs.readFileSync(labels, 'utf8'), armIdentities(preregText));
+  const r = checkJudgeLabels(scoring, fs.readFileSync(labels, 'utf8'), armIdentities(preregText), anchors === undefined ? null : fs.readFileSync(anchors, 'utf8'));
   process.stdout.write(rest.includes('--json') ? JSON.stringify({ prereg, labels, ...r }) + '\n' : renderJudgeLabels(r));
   if (!r.ok) { process.stderr.write(resultLine('gstack-eval-plan judge', 'EVAL_JUDGE_UNCHECKED', r.problems.join('; ')) + '\n'); return EXIT.fail; }
   return EXIT.ok;
