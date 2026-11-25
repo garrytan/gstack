@@ -19,3 +19,23 @@ gstack_skill_md_name() {
   done < "$1"
   return 0
 }
+
+# gstack_render_serves RENDER_DIR INSTALL_DIR SKILL returns 0 when RENDER_DIR's
+# copy of SKILL may be served instead of the checkout's. An always-prefixed
+# skill (GSTACK_PREFIXED_SKILLS, bin/gstack-install-registry.sh) is served from
+# a render only when the render's .overlay record names this checkout's
+# VERSION: a render made before the skill took its gstack- name, which a failed
+# regeneration keeps, still says to run the plain name the host's built-in
+# hides (#4775). Starts no process, like the helper above.
+gstack_render_serves() {
+  [ -f "$1/$3/SKILL.md" ] || return 1
+  case " ${GSTACK_PREFIXED_SKILLS:-} " in *" $3 "*) ;; *) return 0 ;; esac
+  [ -f "$2/VERSION" ] && [ -f "$1.overlay" ] || return 1
+  local _grs_line _grs_have= _grs_want=
+  IFS= read -r _grs_want < "$2/VERSION" || [ -n "$_grs_want" ] || return 1
+  _grs_want=${_grs_want//[[:space:]]/}
+  while IFS= read -r _grs_line || [ -n "$_grs_line" ]; do
+    case "$_grs_line" in version=*) _grs_have=${_grs_line#version=}; break ;; esac
+  done < "$1.overlay"
+  [ -n "$_grs_want" ] && [ "${_grs_have//[[:space:]]/}" = "$_grs_want" ]
+}

@@ -46,7 +46,7 @@ export const POLL_SECONDS = MIN_POLL_MS / 1000;
 const CALL_BUDGET_SECONDS = 90;
 const COMMENT_WINDOW_DAYS = 90;
 const TRIGGER = "@greptileai";
-export const EARLY_BODY = "/ship opened this pull request early so Greptile can review it while /ship runs its own checks. /ship will replace this title and description, and marks it ready for review unless a draft was requested.\n";
+export const EARLY_BODY = "/gstack-ship opened this pull request early so Greptile can review it while /gstack-ship runs its own checks. /gstack-ship will replace this title and description, and marks it ready for review unless a draft was requested.\n";
 
 const isGreptile = (login: unknown) => typeof login === "string" && /greptile/i.test(login);
 
@@ -149,7 +149,7 @@ function detect(env: EarlyEnv): number {
   line("GREPTILE_CONSENT", consent);
   if (consent === "declined") return off("you declined early pushes for this public repo");
   line("GREPTILE_EARLY", consent === "ask" ? "ask" : "on");
-  env.out(`Greptile: found ${SIGNAL_TEXT[signal]}. /ship will push this branch and open a draft PR now so Greptile reviews while /ship runs, then wait up to ${WAIT_CAP_SECONDS / 60} minutes for that review at Step 10. Turn this off: ${config(env)} set ship_greptile_early false\n`);
+  env.out(`Greptile: found ${SIGNAL_TEXT[signal]}. /gstack-ship will push this branch and open a draft PR now so Greptile reviews while /gstack-ship runs, then wait up to ${WAIT_CAP_SECONDS / 60} minutes for that review at Step 10. Turn this off: ${config(env)} set ship_greptile_early false\n`);
   return 0;
 }
 

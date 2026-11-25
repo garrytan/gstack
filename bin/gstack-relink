@@ -16,6 +16,7 @@ GSTACK_CONFIG="${SCRIPT_DIR}/gstack-config"
 
 . "$SCRIPT_DIR/gstack-state-root.sh" 2>/dev/null || { echo "$0: cannot resolve the gstack state root: $SCRIPT_DIR/gstack-state-root.sh is missing. fix: reinstall with ./setup or /gstack-upgrade (docs/state-root.md)" >&2; exit 1; }
 gstack_state_root_select; GSTACK_STATE_ROOT="$_gstack_sr_root"
+. "$SCRIPT_DIR/gstack-skill-name.sh" 2>/dev/null || { echo "$0: $SCRIPT_DIR/gstack-skill-name.sh is missing. fix: reinstall with ./setup" >&2; exit 1; }
 
 # Install root: an explicit override, else the install this script belongs to
 # (it sits in a skills directory), else the Claude installs the registry
@@ -71,6 +72,8 @@ DISABLED=" "
 if [ -f "$SCRIPT_DIR/gstack-install-registry.sh" ]; then
   . "$SCRIPT_DIR/gstack-install-registry.sh"
   DISABLED="$(gstack_disabled_config "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
+else
+  echo "gstack-relink: $SCRIPT_DIR/gstack-install-registry.sh is missing, so disabled_skills is ignored and ship links as /ship, which Claude Code's built-in /ship hides. Fix: reinstall with ./setup" >&2
 fi
 # Retired skills, and the crew skills off a Capy machine
 # (GSTACK_UNREGISTERED_SKILLS), lose their entry the same way; only the user's
@@ -236,6 +239,7 @@ _report_foreign() {
 # share it and one run's backup can't overwrite another's.
 BACKUP_ROOT=""
 BACKED_UP=()
+OLD_BACKED_UP=()
 _backup_skill_md() {
   # Non-zero when the file could NOT be moved: the caller leaves the entry alone.
   local file="$1" name="$2"
@@ -245,7 +249,7 @@ _backup_skill_md() {
   fi
   mkdir -p "$BACKUP_ROOT/$name" 2>/dev/null || return 1
   mv -f "$file" "$BACKUP_ROOT/$name/SKILL.md" 2>/dev/null || return 1
-  BACKED_UP+=("$name")
+  if [ "${3:-}" = old ]; then OLD_BACKED_UP+=("$name"); else BACKED_UP+=("$name"); fi
   return 0
 }
 
@@ -286,7 +290,7 @@ _cleanup_skill_entry() {
       if [ -f "$entry/SKILL.md" ] && [ ! -L "$entry/SKILL.md" ] && [ -n "$skill" ]; then
         if [ ! -f "$src" ] || { ! cmp -s "$entry/SKILL.md" "$src" \
            && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: ${entry##*/}/" "$src" | cmp -s - "$entry/SKILL.md"; }; then
-          if ! _backup_skill_md "$entry/SKILL.md" "${entry##*/}"; then
+          if ! _backup_skill_md "$entry/SKILL.md" "${entry##*/}" old; then
             echo "  kept ${entry##*/}/SKILL.md: could not back up the customized file — left untouched" >&2
             return 0
           fi
@@ -325,7 +329,8 @@ _dir_only_links() {
 # checkout. Only entries that are our links, or directories of nothing but our
 # links, are touched; anything else is the user's and stays.
 _serve_rendered_assets() {
-  local skill="$1" target="$2" asset name t child
+  local skill="$1" target="$2" render="$RENDER_DIR" asset name t child
+  gstack_render_serves "$RENDER_DIR" "$INSTALL_DIR" "$skill" || render=""
   for asset in "$INSTALL_DIR/$skill"/*; do
     [ -e "$asset" ] || continue
     name="${asset##*/}"
@@ -338,20 +343,20 @@ _serve_rendered_assets() {
     else
       continue
     fi
-    if [ -d "$asset" ] && [ -d "$RENDER_DIR/$skill/$name" ]; then
+    if [ -n "$render" ] && [ -d "$asset" ] && [ -d "$render/$skill/$name" ]; then
       rm -rf "$t"
       mkdir -p "$t"
       for child in "$asset"/*; do
         [ -e "$child" ] || continue
-        if [ -f "$RENDER_DIR/$skill/$name/${child##*/}" ]; then
-          ln -snf "$RENDER_DIR/$skill/$name/${child##*/}" "$t/${child##*/}"
+        if [ -f "$render/$skill/$name/${child##*/}" ]; then
+          ln -snf "$render/$skill/$name/${child##*/}" "$t/${child##*/}"
         else
           ln -snf "$child" "$t/${child##*/}"
         fi
       done
-    elif [ -f "$asset" ] && [ -f "$RENDER_DIR/$skill/$name" ]; then
+    elif [ -n "$render" ] && [ -f "$asset" ] && [ -f "$render/$skill/$name" ]; then
       rm -rf "$t"
-      ln -snf "$RENDER_DIR/$skill/$name" "$t"
+      ln -snf "$render/$skill/$name" "$t"
     elif [ -d "$t" ] && [ ! -L "$t" ] || [ "$(_link_target_abs "$t")" != "$asset" ]; then
       rm -rf "$t"
       ln -snf "$asset" "$t"
@@ -431,8 +436,13 @@ for skill_dir in "$INSTALL_DIR"/*/; do
     # Remove old flat entry if it exists (and isn't the same as the new link).
     # An always-prefixed skill's migration runs on every short-name upgrade,
     # so it removes only what is ours and keeps any file the user added.
-    _old_mode=whole; [ "$PREFIX" = "true" ] || _old_mode=files
-    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill" "$_old_mode"
+    # In short-name mode a plain entry that is not ours is the user's own
+    # skill of that name, not one of ours skipped, so it is left unreported.
+    if [ "$PREFIX" = "true" ]; then
+      [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill"
+    elif _entry_is_ours "$SKILLS_DIR/$skill" "$skill"; then
+      _cleanup_skill_entry "$SKILLS_DIR/$skill" "$skill" files
+    fi
   else
     link_name="$skill"
     # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
@@ -461,7 +471,7 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   # Create real directory with symlinked SKILL.md (absolute path)
   mkdir -p "$target"
   skill_md_src="$INSTALL_DIR/$skill/SKILL.md"
-  [ -f "$RENDER_DIR/$skill/SKILL.md" ] && skill_md_src="$RENDER_DIR/$skill/SKILL.md"
+  ! gstack_render_serves "$RENDER_DIR" "$INSTALL_DIR" "$skill" || skill_md_src="$RENDER_DIR/$skill/SKILL.md"
   # A real-file SKILL.md we can only WEAKLY prove ours and whose content
   # differs from what we are about to serve is moved aside, not overwritten.
   if [ -f "$target/SKILL.md" ] && [ ! -L "$target/SKILL.md" ] && ! _entry_owned_strongly "$target" \
@@ -539,6 +549,9 @@ if [ "$DISABLED_COUNT" -gt 0 ]; then
 fi
 if [ ${#BACKED_UP[@]} -gt 0 ]; then
   echo "Moved ${#BACKED_UP[@]} pre-existing SKILL.md file(s) to $BACKUP_ROOT before linking gstack's: ${BACKED_UP[*]}"
+fi
+if [ ${#OLD_BACKED_UP[@]} -gt 0 ]; then
+  echo "Moved ${#OLD_BACKED_UP[@]} SKILL.md file(s) from gstack's old entries to $BACKUP_ROOT, kept because they differ from this version's: ${OLD_BACKED_UP[*]}"
 fi
 if [ ${#FOREIGN_SKIPPED[@]} -gt 0 ]; then
   echo "Skipped ${#FOREIGN_SKIPPED[@]} foreign entr$( [ ${#FOREIGN_SKIPPED[@]} -eq 1 ] && echo y || echo ies) (not gstack-managed, left untouched): ${FOREIGN_SKIPPED[*]}"

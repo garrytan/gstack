@@ -132,7 +132,7 @@ describe("detection (CEO-8, DX-10)", () => {
 
   test("the plan line names the signal, the draft push, the wait cap and the off switch", () => {
     const r = fixture({ files: { "greptile.json": "{}" } }).run("detect");
-    expect(r.out).toContain("Greptile: found greptile.json. /ship will push this branch and open a draft PR now");
+    expect(r.out).toContain("Greptile: found greptile.json. /gstack-ship will push this branch and open a draft PR now");
     expect(r.out).toContain("wait up to 10 minutes");
     expect(r.out).toContain("Turn this off: /opt/gstack/bin/gstack-config set ship_greptile_early false");
   });

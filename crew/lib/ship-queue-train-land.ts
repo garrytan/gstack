@@ -194,7 +194,7 @@ async function landDirect(ctx: QueueContext, s: Slot, info: PrInfo, base: string
   if (info.headRefOid !== s.pin) return stopped(s.env, s.t, 'QUEUE_TRAIN_MOVED', `#${pr}'s head is ${info.headRefOid.slice(0, 12)}, not its pin ${s.pin.slice(0, 12)}`, base, s.lines, true);
   const shipped = bindTrainReceipt(ctx.repoRoot, `refs/remotes/${s.env.remote}/${ctx.base}`, info.body, pr, [s.pin], false);
   s.lines.push(shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : []), `MODE: direct (${why})`);
-  if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, s.lines, `#${pr}'s lane runs /ship at its pin and READYs again`, s.run);
+  if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, s.lines, `#${pr}'s lane runs /gstack-ship at its pin and READYs again`, s.run);
   const plan = slotPlan(s, info);
   if (plan) return plan;
   recordLanding(s, 'direct', null, base);
@@ -219,7 +219,7 @@ async function landUpdate(ctx: QueueContext, s: Slot, info: PrInfo, base: string
     if (![pin, commit, j?.stamp_commit].includes(info.headRefOid)) return stopped(env, t, 'QUEUE_TRAIN_MOVED', `#${pr}'s head is ${info.headRefOid.slice(0, 12)}, not its pin ${pin.slice(0, 12)}`, base, s.lines, true);
     const shipped = bindTrainReceipt(root, `refs/remotes/${env.remote}/${ctx.base}`, info.body, pr, [pin], !!t.slots[s.i]!.base_red);
     s.lines.push(shipped.line, ...(shipped.depthLine ? [shipped.depthLine] : []));
-    if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, s.lines, `#${pr}'s lane runs /ship at its pin and READYs again`, s.run);
+    if (!shipped.ok) return outRefused({ code: shipped.code, message: shipped.message }, s.lines, `#${pr}'s lane runs /gstack-ship at its pin and READYs again`, s.run);
     const plan = slotPlan(s, info);
     if (plan) return plan;
     if (!t.gated) {

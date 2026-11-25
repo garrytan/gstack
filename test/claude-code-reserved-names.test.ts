@@ -57,12 +57,13 @@ test('the /ship budget child is started with /gstack-ship, never the reserved /s
 });
 
 // Value: protects=an upgrade replaces gstack's hidden /ship with /gstack-ship in both prefix modes and keeps ship opt-outs working;
-//   fails_when=relink leaves the old ship entry, links ship under its old name, strips gstack- from its name, or deletes a user's own ship skill;
+//   fails_when=relink leaves the old ship entry, links ship under its old name, strips gstack- from its name, serves a render older than the checkout, or deletes a user's own ship skill;
 //   why_new=#4775; seam=the real gstack-relink and gstack-patch-names on a fixture install; no_claim=Claude Code's own lookup
 describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became /gstack-ship (#4775)', () => {
   let tmp: string;
   let install: string;
   let skills: string;
+  let render: string;
   const relink = (config = '') => {
     fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'state', 'config.yaml'), config);
@@ -71,7 +72,7 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
       timeout: 60_000,
       env: {
         ...process.env, GSTACK_HOME: path.join(tmp, 'state'), GSTACK_STATE_ROOT: '', GSTACK_STATE_DIR: '',
-        GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '',
+        GSTACK_INSTALL_DIR: install, GSTACK_SKILLS_DIR: skills, GSTACK_SETUP_RUNNING: '', GSTACK_USER_RENDER_DIR: render,
       },
     });
   };
@@ -81,7 +82,9 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ship-renamed-'));
     install = path.join(tmp, 'gstack');
     skills = path.join(tmp, 'skills');
+    render = path.join(tmp, 'render');
     fs.mkdirSync(path.join(install, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(install, 'VERSION'), '2.0.0.0\n');
     for (const b of BINS) {
       fs.copyFileSync(path.join(ROOT, 'bin', b), path.join(install, 'bin', b));
       fs.chmodSync(path.join(install, 'bin', b), 0o755);
@@ -135,6 +138,61 @@ describe.skipIf(process.platform === 'win32')('gstack-relink after /ship became 
     expect(r.status, r.stderr).toBe(0);
     expect(fs.readFileSync(path.join(skills, 'ship', 'SKILL.md'), 'utf8')).toBe(own);
     expect(gone('gstack-ship')).toBe(false);
+    expect(r.stdout + r.stderr, 'nothing of ours was skipped').not.toContain('skipped ship');
+    expect(r.stdout).not.toContain('foreign entr');
+  });
+
+  const renderShip = (version: string) => {
+    fs.mkdirSync(path.join(render, 'ship', 'sections'), { recursive: true });
+    fs.writeFileSync(path.join(render, 'ship', 'SKILL.md'), '---\nname: ship\ndescription: test\n---\nrun /ship --resume\n');
+    fs.writeFileSync(path.join(render, 'ship', 'sections', 'tests.md'), 'run /ship --continue\n');
+    fs.writeFileSync(render + '.overlay', `overlay=claude\nversion=${version}\nrender=user\n`);
+    fs.mkdirSync(path.join(install, 'ship', 'sections'), { recursive: true });
+    fs.writeFileSync(path.join(install, 'ship', 'sections', 'tests.md'), 'run /gstack-ship --continue\n');
+  };
+  for (const prefix of ['false', 'true']) {
+    test(`skill_prefix ${prefix}: a render left from an older version is not served for /gstack-ship`, () => {
+      renderShip('1.0.0.0');
+      fs.mkdirSync(path.join(skills, 'gstack-ship'));
+      fs.symlinkSync(path.join(render, 'ship', 'SKILL.md'), path.join(skills, 'gstack-ship', 'SKILL.md'));
+      fs.symlinkSync(path.join(render, 'ship', 'sections'), path.join(skills, 'gstack-ship', 'sections'));
+      fs.writeFileSync(path.join(skills, 'gstack-ship', '.gstack-owned'), install + '\n');
+      const r = relink(`skill_prefix: ${prefix}\n`);
+      expect(r.status, r.stderr).toBe(0);
+      expect(fs.realpathSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(fs.realpathSync(path.join(install, 'ship', 'SKILL.md')));
+      expect(fs.readFileSync(path.join(skills, 'gstack-ship', 'SKILL.md'), 'utf8')).not.toContain('/ship');
+      expect(fs.readFileSync(path.join(skills, 'gstack-ship', 'sections', 'tests.md'), 'utf8')).toBe('run /gstack-ship --continue\n');
+      const again = relink(`skill_prefix: ${prefix}\n`);
+      expect(again.status, again.stderr).toBe(0);
+      expect(fs.realpathSync(path.join(skills, 'gstack-ship', 'SKILL.md')), 'a rerun after patch-names renamed the old render').toBe(fs.realpathSync(path.join(install, 'ship', 'SKILL.md')));
+    });
+  }
+
+  test("a render this version made is served for /gstack-ship", () => {
+    renderShip('2.0.0.0');
+    const r = relink('skill_prefix: false\n');
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.realpathSync(path.join(skills, 'gstack-ship', 'SKILL.md'))).toBe(fs.realpathSync(path.join(render, 'ship', 'SKILL.md')));
+    expect(fs.readFileSync(path.join(skills, 'gstack-ship', 'SKILL.md'), 'utf8')).toContain('name: gstack-ship');
+  });
+
+  test("a copy of gstack's older ship SKILL.md is reported as moved from an old entry", () => {
+    fs.mkdirSync(path.join(skills, 'ship'));
+    fs.writeFileSync(path.join(skills, 'ship', 'SKILL.md'), '---\nname: ship\ndescription: older\n---\n# ship\n');
+    fs.writeFileSync(path.join(skills, 'ship', '.gstack-owned'), install + '\n');
+    const r = relink('skill_prefix: false\n');
+    expect(r.status, r.stderr).toBe(0);
+    expect(gone('ship')).toBe(true);
+    expect(r.stdout).toContain("SKILL.md file(s) from gstack's old entries to ");
+    expect(r.stdout).not.toContain('pre-existing');
+  });
+
+  test('a missing install registry is reported, not silently linked as /ship', () => {
+    fs.rmSync(path.join(install, 'bin', 'gstack-install-registry.sh'));
+    const r = relink('skill_prefix: false\n');
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain('gstack-install-registry.sh is missing');
+    expect(r.stderr).toContain('Fix: reinstall with ./setup');
   });
 
   for (const entry of ['ship', 'gstack-ship']) {

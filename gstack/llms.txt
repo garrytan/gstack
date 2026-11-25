@@ -3,7 +3,7 @@
 > gstack is Garry's Stack: AI coding skills + a fast headless browser binary + a design CLI. This file indexes every capability so agents can discover and invoke them without crawling individual SKILL.md files.
 
 Conventions:
-- Skills are invoked by name (e.g. `/ship`, `/plan-ceo-review`).
+- Skills are invoked by name (e.g. `/gstack-ship`, `/plan-ceo-review`).
 - Browse commands run as `browse <command> [args]` (or `$B` shorthand).
 - Design commands run as `design <command> [args]` (or `$D`).
 - Project-specific config lives in `CLAUDE.md`. Always read it first.

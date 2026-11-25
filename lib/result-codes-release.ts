@@ -561,7 +561,7 @@ export const RELEASE_RESULT_CODES = {
   QUEUE_GATE_DISPOSITION: {
     anchor: 'queue-gate-disposition',
     summary: 'the owner gate dispositions the approval store applies at the pin are not all accepted by the lander, an accepted id is not applied, or the receipt or PR body differs from the store',
-    fix: 'read each GATE_DISPOSITION line, then rerun land (or verify) with --accept-gate-disposition <approval id> for each one you accept; when the receipt or body differs from the store, the lane reruns /ship and ready at the pin',
+    fix: 'read each GATE_DISPOSITION line, then rerun land (or verify) with --accept-gate-disposition <approval id> for each one you accept; when the receipt or body differs from the store, the lane reruns /gstack-ship and ready at the pin',
   },
   QUEUE_LAND_CHECKS: {
     anchor: 'queue-land-checks',

@@ -46,6 +46,9 @@ function fixture() {
   put(path.join(install, 'ship/checklist.md'), 'checkout checklist\n');
   put(path.join(render, 'ship/SKILL.md'), '---\nname: ship\ndescription: t\n---\n# ship rendered');
   put(path.join(render, 'ship/sections/adversarial.md'), `body\n${SAVE_BLOCK}\n`);
+  // Rendered by this checkout's version: an older render is never served for ship (#4775).
+  put(path.join(install, 'VERSION'), '1.0.0.0\n');
+  put(`${render}.overlay`, 'overlay=claude\nversion=1.0.0.0\nrender=user\n');
   fs.mkdirSync(skills, { recursive: true });
   return { install, render, skills, dst: path.join(skills, 'gstack-ship') };
 }

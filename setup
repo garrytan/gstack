@@ -2790,14 +2790,15 @@ link_claude_skill_dirs() {
       # #2569: prefer a rendered :user variant when present. gbrain installs
       # render brain-aware SKILL.md into ${GSTACK_HOME}/render/claude via
       # gen:skill-docs --out-dir instead of dirtying the tracked source
-      # checkout; when a render exists for this skill, serve it. Its STOP
+      # checkout; when a render exists for this skill, serve it (an
+      # always-prefixed skill's only from this version, gstack_render_serves). Its STOP
       # pointers are absolute render-dir paths, but its section index names
       # `sections/<f>.md` relative to this directory, so the runtime assets
       # below prefer the render too (F5, #2706).
       _skill_md_src="$gstack_dir/$dir_name/SKILL.md"
       _render_dir="${GSTACK_USER_RENDER_DIR:-$GSTACK_STATE_ROOT/render/claude}"
       _skill_render=""
-      if [ -f "$_render_dir/$dir_name/SKILL.md" ]; then
+      if gstack_render_serves "$_render_dir" "$gstack_dir" "$dir_name"; then
         _skill_md_src="$_render_dir/$dir_name/SKILL.md"
         _skill_render="$_render_dir/$dir_name"
       fi

@@ -107,7 +107,7 @@ describe('verify, freeze, repair and clear', () => {
     expect(stale.status).toBe(EXIT.refused);
     expect(stale.err).toMatch(new RegExp(`PR #1's ship receipt is for bbbbbbbbbbbb, not the head ${h1.slice(0, 12)} or ${stamped.slice(0, 12)} being merged.*\\(QUEUE_RECEIPT_STALE\\)`));
     expect(stale.out).not.toContain('MERGE_CONDITION:');
-    expect(next(stale.out)).toBe("NEXT: #1's lane runs /ship and READYs again; then gstack-ship-queue train build --prs <pins>");
+    expect(next(stale.out)).toBe("NEXT: #1's lane runs /gstack-ship and READYs again; then gstack-ship-queue train build --prs <pins>");
     expect(trainJson(fx, nonce).merged).toEqual([]);
     setPrBody(fx, '1', '');
     expect(v().err).toContain('(QUEUE_RECEIPT_MISSING)');

@@ -575,7 +575,7 @@ describe('train build', () => {
       expect(r.status).toBe(EXIT.refused);
       expect(r.err).toMatch(/PR #2's body carries no ship receipt; fix: run \/gstack-ship on the branch .*\(QUEUE_RECEIPT_MISSING\)/);
       expect(r.out).toContain('SHIP_RECEIPT: none in the PR body');
-      expect(next(r.out)).toBe("NEXT: #2's lane runs /ship, then gstack-ship-queue ready --pr 2 --screen|--no-screen; then gstack-ship-queue train build --prs <pins>");
+      expect(next(r.out)).toBe("NEXT: #2's lane runs /gstack-ship, then gstack-ship-queue ready --pr 2 --screen|--no-screen; then gstack-ship-queue train build --prs <pins>");
       expect(result(r.out)).toBe('GSTACK_RESULT: skill=ship-queue status=refused run=none');
     }
     setPrBody(fx, '2', shippedBody('2', 'a'.repeat(40)));
