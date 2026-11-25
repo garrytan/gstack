@@ -1,3 +1,0 @@
-### For contributors
-
-- **A release no longer rewrites version numbers inside changelog entries, counts subsection headings as changes, or prints a subsection heading twice.** `gstack-restamp --release` copies each `changelog.d/` entry as written, even where the CHANGELOG is one of the policy's `stamp_files`, so a note that quotes the version being released from keeps pointing at it. The release PR lists one line per change, and entries that share a heading such as `### For contributors` sit under one copy of it. To correct an entry already on main, land a small PR before the release that deletes it and adds the fixed text under a new file name.

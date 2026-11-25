@@ -1,1 +1,0 @@
-**The QA-only cleanup test no longer fails at random in CI.** Its missing-terminal case now waits until the terminal agent has published its port before removing the agent's record, so it always checks that cleanup refuses when a terminal's record is gone but its port file is left behind.
