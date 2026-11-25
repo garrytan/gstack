@@ -270,10 +270,6 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/arm-setup-smoke.yml',
   '.github/workflows/ci-image.yml',
   '.github/workflows/codex-hooks.yml', // Installs the pinned Codex CLI and runs the free test/codex-hooks-real-codex.test.ts; no paid case reads it.
-  '.github/workflows/cso-runtime-images.yml',
-  '.github/workflows/cso-runtime-promote.yml',
-  '.github/workflows/cso-runtime-qualification.yml',
-  '.github/workflows/cso-scanner-images.yml',
   '.github/workflows/dependency-review.yml',
   '.github/workflows/free-durations-record.yml',
   '.github/workflows/free-tests.yml',
