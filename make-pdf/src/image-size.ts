@@ -105,7 +105,7 @@ export function svgTagDims(markup: string): { width: number; height: number } | 
   const tag = markup.match(/<svg\b[^>]*>/i)?.[0];
   if (!tag) return null;
   const attr = (name: string): number | null => {
-    const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*["']\\s*([0-9.]+)(px)?\\s*["']`, "i"));
+    const m = tag.match(new RegExp(`(?<![-\\w:])${name}\\s*=\\s*["']\\s*([0-9.]+)(px)?\\s*["']`, "i"));
     return m ? parseFloat(m[1]) : null;
   };
   const w = attr("width");

@@ -219,6 +219,42 @@ export function sanitizeUntrustedHtml(html: string): string {
   return escapeHtml(s);
 }
 
+/**
+ * Whether the text at offset starts an attribute of the tag that contains it,
+ * read the way the browser's tokenizer reads that tag from its "<": not
+ * inside a name or a value, and the tag not yet closed.
+ */
+function startsAttribute(str: string, offset: number): boolean {
+  const tagStart = str.lastIndexOf("<", offset);
+  if (tagStart === -1 || !/[a-zA-Z]/.test(str[tagStart + 1] ?? "")) return false;
+  const endsAtSpace = /\s/.test(str[offset] ?? "");
+  let i = tagStart + 1;
+  while (i < offset && !/[\s/>]/.test(str[i]!)) i++;
+  while (i < offset) {
+    if (/[\s/]/.test(str[i]!)) { i++; continue; }
+    if (str[i] === ">") return false;
+    while (i < offset && !/[\s/>=]/.test(str[i]!)) i++;
+    if (i === offset) return endsAtSpace;
+    let j = i;
+    while (j < offset && /\s/.test(str[j]!)) j++;
+    if (str[j] !== "=") continue;
+    j++;
+    while (j < offset && /\s/.test(str[j]!)) j++;
+    if (j >= offset) return false;
+    const q = str[j];
+    if (q === '"' || q === "'") {
+      const close = str.indexOf(q, j + 1);
+      if (close === -1 || close >= offset) return false;
+      i = close + 1;
+      continue;
+    }
+    while (j < offset && !/[\s>]/.test(str[j]!)) j++;
+    if (j === offset) return endsAtSpace;
+    i = j;
+  }
+  return true;
+}
+
 function sanitizePass(html: string): string {
   let s = html;
 
@@ -253,9 +289,14 @@ function sanitizePass(html: string): string {
   // whole page, text included, so "/on…=" inside a URL or code goes too.
   // A quoted value goes with its name only when it holds no "<" or ">":
   // otherwise the quote may belong to a later element, so the last rule
-  // removes just the name and the rest stays where it was.
+  // removes just the name and the rest stays where it was. A value holding
+  // ">" but no "<" also goes when the handler starts an attribute of the tag
+  // it sits in (<div onclick="a > b" class="x">); inside another attribute's
+  // value (title="docs/onload='x">…') the quote may be text, so it stays.
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"<>]*"/gi, "");
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^'<>]*'/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*(?:"[^"<]*"|'[^'<]*')/gi, (m, offset: number, str: string) =>
+    startsAttribute(str, offset) ? "" : m);
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`<]*/gi, "");
 
   // javascript: URLs in href/src/action/formaction (same attribute starts).
@@ -264,8 +305,9 @@ function sanitizePass(html: string): string {
     '$1"#"',
   );
   // Any other javascript: value (unquoted, or quoted around "<" or ">") loses
-  // only its scheme, so no quote is added or removed.
-  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*["']?[\s\x01-\x20]*)javascript(?::|&colon;|&#0*58;?|&#x0*3a;?)/gi, "$1#");
+  // only its scheme, so no quote is added or removed. A numeric reference
+  // with more digits after 58 or 3a is another character, not a colon.
+  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*["']?[\s\x01-\x20]*)javascript(?::|&colon;|&#0*58(?![0-9]);?|&#x0*3a(?![0-9a-f]);?)/gi, "$1#");
 
   // srcdoc attribute (iframe escape hatch — already stripped via iframe above,
   // but defense-in-depth).
@@ -352,6 +394,28 @@ function sanitizePass(html: string): string {
       if (dec !== undefined) return refCodePoint(parseInt(dec, 10));
       if (named !== undefined) return NAMED_REFS[named] ?? m;
       return NAMED_REFS[legacy];
+    });
+
+  // javascript: spelled the way only the browser reads it: entity letters
+  // (&#106;avascript:), or a tab or line break anywhere in the scheme, which
+  // URL parsing drops (java&Tab;script:). Decode the start of each URL
+  // attribute value as the parser will, drop tabs and line breaks, and when
+  // it is still javascript: put "#" in front, which makes the whole value a
+  // fragment. Only the name and the opening quote are matched, so a quote
+  // that really closes an earlier attribute can't hide a later value, and no
+  // quote is added or removed. A value longer than the window that is still
+  // nothing but padding and the start of "javascript:" counts as one.
+  s = s.replace(/(?<=[\s/"'])(\s*(?:href|src|action|formaction|xlink:href)\s*=\s*)(["']?)/gi,
+    (m, pre, q, offset: number, str: string) => {
+      const start = offset + m.length;
+      let end = q ? str.indexOf(q, start) : str.slice(start, start + 2048).search(/[\s>]/);
+      end = end === -1 ? str.length : q ? end : start + end;
+      const truncated = end - start > 2048;
+      let value = str.slice(start, Math.min(end, start + 2048));
+      if (truncated) value = value.replace(/&[#\w]*$/, "");
+      const url = decodeStyleAttrEntities(value).replace(/[\t\n\r]/g, "").replace(/^[\x00-\x20]+/, "").toLowerCase();
+      const live = url.startsWith("javascript:") || (truncated && "javascript:".startsWith(url));
+      return live ? `${pre}${q}#` : m;
     });
 
   // Inline style attributes — quoted AND unquoted. HTML spec: an unquoted

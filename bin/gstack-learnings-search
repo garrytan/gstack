@@ -153,6 +153,7 @@ for (const taggedLine of lines) {
     const line = tabIndex === -1 ? taggedLine : taggedLine.slice(tabIndex + 1);
     const e = JSON.parse(line);
     if (!e.key || !e.type) continue;
+    e.files = Array.isArray(e.files) ? e.files.map(String) : typeof e.files === 'string' ? [e.files] : [];
 
     // Apply confidence decay: observed/inferred lose 1pt per 30 days
     let conf = e.confidence || 5;
@@ -182,12 +183,16 @@ for (const taggedLine of lines) {
   } catch {}
 }
 
-// Dedup: latest winner per key+type
+// Dedup: latest winner per key+type. This project's own entry always beats
+// another project's entry for the same key+type, whatever their dates: other
+// projects add learnings, they never replace this project's answer.
 const seen = new Map();
 for (const e of entries) {
   const dk = e.key + '|' + e.type;
   const existing = seen.get(dk);
-  if (!existing || new Date(e.ts) > new Date(existing.ts)) {
+  const ownBeatsCross = existing && existing._crossProject && !e._crossProject;
+  const sameOrigin = existing && existing._crossProject === e._crossProject;
+  if (!existing || ownBeatsCross || (sameOrigin && new Date(e.ts) > new Date(existing.ts))) {
     seen.set(dk, e);
   }
 }
@@ -202,7 +207,7 @@ if (type) results = results.filter(e => e.type === type);
 // must not become a sort key.
 const tokenHits = new Map();
 if (queryTokens.length > 0) results = results.filter(e => {
-  const haystacks = [String(e.key || '').toLowerCase(), String(e.insight || '').toLowerCase(), ...(Array.isArray(e.files) ? e.files : []).map(f => String(f).toLowerCase())];
+  const haystacks = [String(e.key || '').toLowerCase(), String(e.insight || '').toLowerCase(), ...e.files.map(f => f.toLowerCase())];
   const hits = [...new Set(queryTokens)].filter(tok => haystacks.some(h => h.includes(tok))).length;
   tokenHits.set(e, hits);
   return hits > 0;
@@ -245,8 +250,8 @@ for (const [t, arr] of Object.entries(byType)) {
   console.log('## ' + t.charAt(0).toUpperCase() + t.slice(1) + 's');
   for (const e of arr) {
     const cross = e._crossProject ? ' [cross-project]' : '';
-    const files = e.files?.length ? ' (files: ' + e.files.join(', ') + ')' : '';
-    console.log('- [' + e.key + '] (confidence: ' + e._effectiveConfidence + '/10, ' + e.source + ', ' + (e.ts || '').split('T')[0] + ')' + cross);
+    const files = e.files.length ? ' (files: ' + e.files.join(', ') + ')' : '';
+    console.log('- [' + e.key + '] (confidence: ' + e._effectiveConfidence + '/10, ' + e.source + ', ' + String(e.ts || '').split('T')[0] + ')' + cross);
     console.log('  ' + e.insight + files);
   }
   console.log('');

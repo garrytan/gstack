@@ -95,6 +95,39 @@ describe('gstack-learnings-search cross-project trust gating', () => {
 // B5 (#2790): both query scripts ended in `2>/dev/null || exit 0`, so a
 // missing bun or a crashed embedded script printed nothing and exited 0,
 // exactly like "nothing recorded".
+// Value: protects=with cross-project learnings on (the recommended answer), a review or QA run still reads this
+//   project's own learning for a key; fails_when=a newer trusted learning with the same key+type in another project
+//   replaces this project's entry, so the agent is told another repo's answer (pytest instead of bun test);
+//   why_new=the latest-wins dedup ran across projects; seam=none
+describe('gstack-learnings-search cross-project rows never replace this project\'s own', () => {
+  const ownCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-search-own-cwd-'));
+  const ownDir = path.join(tmpHome, 'projects', path.basename(ownCwd).replace(/[^a-zA-Z0-9._-]/g, ''));
+  const row = (over: Record<string, unknown>) => JSON.stringify({ skill: 'qa', type: 'tool', key: 'test-command', confidence: 9, source: 'user-stated', trusted: true, files: [], ...over });
+  beforeAll(() => {
+    fs.mkdirSync(ownDir, { recursive: true });
+    fs.writeFileSync(path.join(ownDir, 'learnings.jsonl'), [
+      row({ ts: '2026-05-01T00:00:00Z', insight: 'This repo runs its tests with bun test' }),
+    ].join('\n') + '\n');
+    fs.appendFileSync(path.join(otherProjDir, 'learnings.jsonl'), [
+      row({ ts: '2026-06-01T00:00:00Z', insight: 'That repo runs its tests with pytest' }),
+      row({ ts: '2026-06-02T00:00:00Z', key: 'foreign-only-tool', insight: 'A tool learning only the other project has' }),
+    ].join('\n') + '\n');
+  });
+  afterAll(() => fs.rmSync(ownCwd, { recursive: true, force: true }));
+  const search = (args: string[]) => execFileSync(BIN, args, { timeout: 30_000, env: { ...process.env, GSTACK_HOME: tmpHome }, cwd: ownCwd, encoding: 'utf-8' });
+
+  test('this project\'s entry wins over a newer same-key entry from another project', () => {
+    const out = search(['--cross-project', '--all']);
+    expect(out).toContain('This repo runs its tests with bun test');
+    expect(out).not.toContain('That repo runs its tests with pytest');
+  });
+
+  test('other projects still add the keys this project lacks', () => {
+    const out = search(['--cross-project', '--all']);
+    expect(out).toMatch(/\[foreign-only-tool\].*\[cross-project\]/);
+  });
+});
+
 describe('B5: query scripts never report a failed read as an empty result', () => {
   const TOOLS = ['bash', 'sh', 'env', 'dirname', 'basename', 'git', 'tr', 'sed', 'cat', 'head', 'tail', 'grep', 'find',
     'ls', 'mkdir', 'mktemp', 'mv', 'rm', 'cp', 'awk', 'wc', 'sort', 'uname', 'date', 'cut', 'readlink', 'realpath', 'stat', 'touch', 'id', 'printf'];
@@ -229,6 +262,27 @@ describe('B6: rank by matched tokens and disclose truncation', () => {
       ]);
       const got = keys(runIn(badCwd, ['--query', 'alpha beta']).stdout);
       for (const k of ['healthy-0', 'healthy-1', 'healthy-2']) expect(got).toContain(k);
+    });
+  }
+
+  // Value: protects=skills read every learning at start, so one malformed row must not hide the rest;
+  //   fails_when=a row whose files is a string or whose ts is a number crashes the
+  //   formatter and exits 1 after printing only part of the list; why_new=gstack-learnings-log stores files and ts
+  //   as given, so '"files":"src/a.ts"' made every later search fail; seam=none
+  for (const [label, over] of [
+    ['files is a string', { files: 'src/a.ts' }],
+    ['ts is a number', { ts: 1700000000000 }],
+  ] as const) {
+    test(`a row whose ${label} cannot blank the whole store`, () => {
+      write(badDir, [
+        row({ ts: '2026-05-01T00:00:00Z', type: 'pitfall', key: 'healthy-pitfall', insight: 'a healthy pitfall', files: ['src/b.ts'] }),
+        row({ key: 'malformed-row', insight: 'the malformed row', ...over }),
+        row({ ts: '2026-05-02T00:00:00Z', type: 'tool', key: 'healthy-tool', insight: 'a healthy tool' }),
+      ]);
+      const r = runIn(badCwd, ['--all']);
+      expect(r.status).toBe(0);
+      expect(keys(r.stdout)).toEqual(expect.arrayContaining(['healthy-pitfall', 'healthy-tool']));
+      expect(r.stdout).toContain('(files: src/b.ts)');
     });
   }
 });

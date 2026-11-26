@@ -84,6 +84,44 @@ describe("smartypants", () => {
     expect(out).toContain("</a>");
   });
 
+  // A quote that opens a paragraph, heading or list item sits right after a
+  // tag, and was read as a closing quote: "Hello," rendered as ”Hello,”.
+  test("opens a quote at the start of a paragraph, heading or list item", () => {
+    expect(smartypants(`<p>"Hello," she said.</p>`)).toBe(`<p>\u201cHello,\u201d she said.</p>`);
+    expect(smartypants(`<h1>"Quoted" title</h1>`)).toBe(`<h1>\u201cQuoted\u201d title</h1>`);
+    expect(smartypants(`<ul>\n<li>'one'</li>\n</ul>`)).toBe(`<ul>\n<li>\u2018one\u2019</li>\n</ul>`);
+    expect(smartypants(`<p>x</p><p>"y"</p>`)).toBe(`<p>x</p><p>\u201cy\u201d</p>`);
+    expect(smartypants(`<p><em>"quoted"</em> word</p>`)).toBe(`<p><em>\u201cquoted\u201d</em> word</p>`);
+  });
+
+  test("reads a quote after an inline tag by the text before the tag", () => {
+    expect(smartypants(`<p>He said "<em>stop</em>" twice.</p>`)).toBe(`<p>He said \u201c<em>stop</em>\u201d twice.</p>`);
+    expect(smartypants(`<p><em>Garry</em>'s book</p>`)).toBe(`<p><em>Garry</em>\u2019s book</p>`);
+  });
+
+  test("a flag at the start of a cell, list item or bold run keeps its dashes", () => {
+    expect(smartypants(`<td>--og</td><li>--check</li><p><strong>--resume</strong></p>`))
+      .toBe(`<td>--og</td><li>--check</li><p><strong>--resume</strong></p>`);
+  });
+
+  test("dashes at the end of a run before a tag keep their dashes", () => {
+    expect(smartypants(`<p>wait --</p><p>run --<code>x</code></p>`))
+      .toBe(`<p>wait --</p><p>run --<code>x</code></p>`);
+  });
+
+  test("a quote after an image or an unknown tag still closes", () => {
+    expect(smartypants(`<p>"check out <PR link>" today</p>`)).toBe(`<p>\u201ccheck out <PR link>\u201d today</p>`);
+    expect(smartypants(`<p>"see <img src="a.png">" here</p>`)).toBe(`<p>\u201csee <img src="a.png">\u201d here</p>`);
+  });
+
+  test("renders a document whose paragraph and heading open with a quote", () => {
+    const html = render({ markdown: `# "Quoted" title\n\n"Hello," she said.\n` }).html;
+    expect(html).toContain(`\u201cQuoted\u201d title`);
+    expect(html).toContain(`<p>\u201cHello,\u201d she said.</p>`);
+    expect(html).not.toContain(`\u201dQuoted`);
+    expect(html).not.toContain(`\u201dHello`);
+  });
+
   test("does NOT touch HTML attribute values", () => {
     const out = smartypants(`<a href="it's-a-test.html">link</a>`);
     expect(out).toContain(`href="it's-a-test.html"`);
@@ -382,16 +420,22 @@ function browserAttrs(html: string): Array<{ tag: string; name: string; value: s
 }
 
 function decodeAttr(v: string): string {
-  return v.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(quot|apos|amp));?/gi, (_m, hex, dec, named) =>
+  return v.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(quot|apos|amp)|(Tab|NewLine|colon););?/gi, (m, hex, dec, named, withSemi) =>
     hex ? String.fromCodePoint(parseInt(hex, 16))
       : dec ? String.fromCodePoint(parseInt(dec, 10))
-      : ({ quot: '"', apos: "'", amp: "&" } as Record<string, string>)[named.toLowerCase()]!);
+      : named ? ({ quot: '"', apos: "'", amp: "&" } as Record<string, string>)[named.toLowerCase()]!
+      : ({ Tab: "\t", NewLine: "\n", colon: ":" } as Record<string, string>)[withSemi] ?? m);
+}
+
+/** A URL the way the browser reads it: decoded, tabs and line breaks removed. */
+function browserUrl(v: string): string {
+  return decodeAttr(v).replace(/[\t\n\r]/g, "");
 }
 
 function liveScript(html: string): string[] {
   return browserAttrs(html)
     .filter((a) => a.name.startsWith("on") ||
-      (/^(?:href|src|xlink:href|action|formaction)$/.test(a.name) && /^\s*javascript:/i.test(decodeAttr(a.value))))
+      (/^(?:href|src|xlink:href|action|formaction)$/.test(a.name) && /^[\x00-\x20]*javascript:/i.test(browserUrl(a.value))))
     .map((a) => `<${a.tag} ${a.name}=${a.value}>`);
 }
 
@@ -506,6 +550,91 @@ describe("render() — characters dropped after sanitizing cannot revive script"
     const out = sanitizeUntrustedHtml("<svg on\u0000load=alert(1)><circle r=\"2\"/></svg>");
     expect(out).not.toContain("\u0000");
     expect(liveScript(out)).toEqual([]);
+  });
+});
+
+describe("sanitizeUntrustedHtml — handlers and javascript: links in any spelling the browser reads", () => {
+  // A ">" inside a quoted handler value is still part of that value, so the
+  // whole handler goes and the attributes after it stay.
+  test("a handler whose quoted value holds > is removed with its value", () => {
+    expect(sanitizeUntrustedHtml(`<div onclick="return a > b" class="notice">Keep me</div>`))
+      .toBe(`<div class="notice">Keep me</div>`);
+    expect(sanitizeUntrustedHtml(`<div onclick='return a > b' class="notice">Keep me</div>`))
+      .toBe(`<div class="notice">Keep me</div>`);
+    expect(sanitizeUntrustedHtml(`<input disabled onclick="a > b" x=1 onfocus='c > d' name=n>`))
+      .toBe(`<input disabled x=1 name=n>`);
+  });
+
+  // Handler-looking text inside another attribute's value is not an
+  // attribute, so a quote after it may be text: only the name goes.
+  test("handler text inside an attribute value never swallows the text after the tag", () => {
+    const out = sanitizeUntrustedHtml(`<div title="docs/onload='example">Keep me ' and the rest</div>`);
+    expect(out).toContain("Keep me ' and the rest</div>");
+    expect(liveScript(out)).toEqual([]);
+  });
+
+  // &#x3ab; is the character U+03AB, not a colon followed by "b".
+  test("an entity that only starts like a colon is left alone", () => {
+    for (const href of ["javascript&#x3ab;guide", "javascript&#5899;guide", "javascript&#x3A0;x"]) {
+      const html = `<a href="${href}">g</a>`;
+      expect(sanitizeUntrustedHtml(html)).toBe(html);
+    }
+    expect(liveScript(sanitizeUntrustedHtml(`<a href="javascript&#x3a;alert(1)">g</a>`))).toEqual([]);
+    expect(liveScript(sanitizeUntrustedHtml(`<a href="javascript&#58alert(1)">g</a>`))).toEqual([]);
+  });
+
+  // Browsers drop tabs and line breaks from a URL and decode entities first,
+  // so all of these still run as javascript: links.
+  test("javascript: written with tabs, line breaks or entity letters is neutralized", () => {
+    const spellings = [
+      "java\tscript:alert(1)", "java\nscript:alert(1)", "java\rscript:alert(1)",
+      "java&Tab;script:alert(1)", "java&#9;script:alert(1)", "java&#x9;script:alert(1)", "java&NewLine;script:alert(1)",
+      "&#106;avascript:alert(1)", "&#x6A;avascript:alert(1)", "&#106avascript:alert(1)",
+      "&#32;javascript:alert(1)", "j&#97;v&#97;script&colon;alert(1)",
+    ];
+    for (const v of spellings) {
+      for (const attr of [`href="${v}"`, `href='${v}'`, `src="${v}"`, `formaction="${v}"`]) {
+        const out = sanitizeUntrustedHtml(`<a ${attr}>j</a>`);
+        expect(liveScript(out)).toEqual([]);
+        expect(out).toContain(">j</a>");
+      }
+      if (!/\s/.test(v)) expect(liveScript(sanitizeUntrustedHtml(`<a href=${v}>j</a>`))).toEqual([]);
+    }
+  });
+
+  test("a javascript: value holding < or > keeps its quotes and loses its scheme", () => {
+    const out = sanitizeUntrustedHtml(`<a href='java&#9;script:a>b' title="t">j</a><p>after</p>`);
+    expect(liveScript(out)).toEqual([]);
+    expect(attrsOf(out, "a")).toEqual(["href", "title"]);
+    expect(out).toContain("<p>after</p>");
+  });
+
+  test("a later attribute is checked even when an earlier quote pairs with it", () => {
+    const out = sanitizeUntrustedHtml(`<p title=' href='>x</p><a href='java&#9;script:alert(1)'>j</a>`);
+    expect(liveScript(out)).toEqual([]);
+    for (const v of ["&#106;avascript:alert(1)", "java&Tab;script:alert(1)"]) {
+      expect(liveScript(sanitizeUntrustedHtml(`<a title='x href='href=${v}>b</a>`))).toEqual([]);
+    }
+  });
+
+  test("ordinary links are untouched", () => {
+    const html = `<a href="https://example.com/a?b=1&amp;c=2">a</a><a href="#top">t</a><a href="java.html">j</a><img src="javascript.png">`;
+    expect(sanitizeUntrustedHtml(html)).toBe(html);
+  });
+
+  test("render() neutralizes the same spellings in raw HTML and links", () => {
+    const md = [
+      "<div>",
+      `<a href="java&#9;script:alert(1)">a</a>`,
+      `<a href="&#106;avascript:alert(1)">b</a>`,
+      "</div>",
+      "",
+      "[c](java&#9;script:alert(1)) [d](&#106;avascript:alert(1))",
+      "",
+    ].join("\n");
+    const html = render({ markdown: md }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    for (const t of [">a</a>", ">b</a>"]) expect(html).toContain(t);
   });
 });
 

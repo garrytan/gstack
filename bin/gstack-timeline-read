@@ -154,7 +154,7 @@ if (countStr) {
 console.log('');
 console.log('## Recent Events');
 for (const e of recent) {
-  const ts = (e.ts || '').replace('T', ' ').replace(/\.\d+Z$/, 'Z');
+  const ts = String(e.ts || '').replace('T', ' ').replace(/\.\d+Z$/, 'Z');
   const dur = e.duration_s ? ' (' + e.duration_s + 's)' : '';
   const outcome = e.outcome ? ' [' + e.outcome + ']' : '';
   console.log('- ' + ts + ' /' + e.skill + ' ' + e.event + outcome + dur + (e.branch ? ' on ' + e.branch : ''));

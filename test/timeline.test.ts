@@ -128,6 +128,24 @@ describe('gstack-timeline-log', () => {
     expect(parsed.ts).toBe('2025-06-15T10:00:00Z');
   });
 
+  test('a multi-line event with its own ts is stored as one line and read back', () => {
+    runLog(JSON.stringify({ skill: 'review', event: 'completed', branch: 'main', ts: new Date().toISOString() }, null, 2));
+
+    const lines = fs.readFileSync(findTimelineFile()!, 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]).skill).toBe('review');
+    expect(runRead()).toContain('/review completed');
+  });
+
+  test('an event whose ts is a number does not stop the read', () => {
+    runLog(JSON.stringify({ skill: 'review', event: 'completed', branch: 'main', ts: 1764160000000 }));
+    runLog(JSON.stringify({ skill: 'qa', event: 'completed', branch: 'main' }));
+
+    const out = runRead();
+    expect(out).toContain('/qa completed');
+    expect(out).toContain('/review completed');
+  });
+
   test('validates required fields (skill, event) - exits 0 if missing skill', () => {
     const result = runLog('{"event":"started","branch":"main"}');
     expect(result.exitCode).toBe(0);

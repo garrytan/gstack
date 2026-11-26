@@ -56,14 +56,13 @@ case "$VALIDATE_OUT" in
   *) echo "gstack-timeline-log: bun printed no verdict while validating the event; nothing was logged" >&2; exit 1 ;;
 esac
 
-# Inject timestamp if not present
-if ! printf '%s' "$INPUT" | bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "const j=JSON.parse(await Bun.stdin.text()); if(!j.ts) process.exit(1)" 2>/dev/null; then
-  STAMPED=$(printf '%s' "$INPUT" | bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
-    const j = JSON.parse(await Bun.stdin.text());
-    j.ts = new Date().toISOString();
-    console.log(JSON.stringify(j));
-  " 2>/dev/null) && [ -n "$STAMPED" ] && INPUT=$STAMPED || true
-fi
+# Inject timestamp if not present, and store the event as one line: a
+# multi-line event appended as given is unreadable to every JSONL reader.
+STAMPED=$(printf '%s' "$INPUT" | bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" -e "
+  const j = JSON.parse(await Bun.stdin.text());
+  if (!j.ts) j.ts = new Date().toISOString();
+  console.log(JSON.stringify(j));
+" 2>/dev/null) && [ -n "$STAMPED" ] && INPUT=$STAMPED || true
 
 echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
 
