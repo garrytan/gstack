@@ -416,10 +416,10 @@ function codexPlanReviewRun(ctx: TemplateContext, ceo: boolean, needsApprovalRea
   // (gates 40477638211 and 40454750574: every judge sample read "(or unverified)" as a branch nothing can enter).
   return `**If \`CODEX_MODE: ready\` — run ${outsideVoiceFor(ctx).label}:**
 
-${['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName) ? `Run this block for \`ready\`, in the one foreground Bash call described below.
+${['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName) ? `Run this block for \`ready\` in one foreground Bash call.
 Its opening harness guard rechecks the fresh shell: exit 78 uses the same Native
 fallback below, never a replacement provider. Finish termination before fallback and consume only
-completed output. Use private temporary paths, with no background jobs.` : `Run the selected backend in the one foreground Bash invocation described below.
+completed output. No background jobs.` : `Run the selected backend in the one foreground Bash invocation described below.
 Finish a failed attempt's termination before fallback; consume only its completed
 output. No background jobs or shared temporary paths.`}
 

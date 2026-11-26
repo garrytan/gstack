@@ -177,8 +177,9 @@ export function outsideVoiceInvocation(ctx: TemplateContext, requested: OutsideC
         : planRecommendation
           ? "Request severity (Critical, High, Medium or Low) per finding and the prompt's Recommendation and VERDICT lines."
           : `Request severity (Critical, High, Medium or Low) per finding, a Recommendation: <action> because <reason> line, and ${VERDICT_LAST_LINE}.`;
-  const preparation = `${['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName)
-      ? 'Create a private prompt file: run `umask 077; mktemp "${TMPDIR:-/tmp}/gstack-plan-prompt.XXXXXXXX"` in Bash and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in that file'
+  const planPrompt = ['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName);
+  const preparation = `${planPrompt
+      ? 'Create a private prompt file: run `mkdir -m 700 -p .gstack/tmp && echo \'*\' >.gstack/tmp/.gitignore && mktemp "$PWD/.gstack/tmp/gstack-plan-prompt.XXXXXX"` in Bash and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in it'
       : 'Write the **complete prompt and context**, including actual plan/spec/source, to a private file'}${outsideVoiceFor(ctx).id === 'claude-code' ? ' (Claude Code has no tools, git or path access)' : ''}. Substitute its shell-quoted path for \`<prepared-prompt-file>\`; never interpolate user text into shell source. ${completion}`;
   return `${preparation}
 
@@ -186,7 +187,7 @@ export function outsideVoiceInvocation(ctx: TemplateContext, requested: OutsideC
 ${outsideVoiceCommand(ctx, opts)}
 \`\`\`
 
-Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing ${planRecommendation ? 'Recommendation: <action> because <reason>' : opts.purpose === 'design-direction' ? 'Recommendation' : 'score/severity/completion'} markers, timeout or CLI failure means \`outside_status: unavailable\`. P0/P1 findings block like native ones; \`OUTSIDE_STATUS: unverified\` is missing coverage. ${opts.purpose === 'design-direction' ? 'Continue completed proposals; native completion does not count as outside coverage.' : opts.nativeAlreadyRequired === 'dispatched' ? 'A dispatched native pass runs once either way; outside output cannot complete it.' : opts.nativeAlreadyRequired ? 'Retain the required native pass without duplicating it; it cannot complete outside coverage.' : "Use the caller's fallback; missing coverage is never clean/PASS."} After either outcome, delete only your private prompt; scratch cleanup is automatic.`;
+Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing ${planRecommendation ? 'Recommendation: <action> because <reason>' : opts.purpose === 'design-direction' ? 'Recommendation' : 'score/severity/completion'} markers, timeout or CLI failure means \`outside_status: unavailable\`. P0/P1 findings block like native ones; \`OUTSIDE_STATUS: unverified\` is missing coverage. ${opts.purpose === 'design-direction' ? 'Continue completed proposals; native completion does not count as outside coverage.' : opts.nativeAlreadyRequired === 'dispatched' ? 'A dispatched native pass runs once either way; outside output cannot complete it.' : opts.nativeAlreadyRequired ? 'Retain the required native pass without duplicating it; it cannot complete outside coverage.' : "Use the caller's fallback; missing coverage is never clean/PASS."} After either outcome, ${planPrompt ? "run `rm -- '<prepared-prompt-file>'`" : 'delete only your private prompt'}; scratch cleanup is automatic.`;
 }
 
 /**
