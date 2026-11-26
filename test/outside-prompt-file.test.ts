@@ -7,7 +7,7 @@
  *
  * #4842: /plan-ceo-review and /plan-eng-review created the prompt with mktemp under $TMPDIR, outside the project.
  * Claude Code's plan mode refuses a Write there, so Codex never started. The prompt now goes in the session folder's
- * .gstack/tmp/, which a .gitignore of '*' keeps out of git, and its cleanup removes that one path without an ask.
+ * .gstack/tmp/ (refusing a symlinked .gstack or .gstack/tmp), and its cleanup removes that one path without an ask.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'child_process';
@@ -82,13 +82,25 @@ describe.skipIf(process.platform === 'win32')('plan-review prompt file lives in 
       expect(fs.statSync(prompt).mode & 0o777).toBe(0o600);
       expect(fs.statSync(path.dirname(prompt)).mode & 0o777).toBe(0o700);
       fs.writeFileSync(prompt, 'review this plan');
-      expect(git(project, 'status', '--porcelain', '--untracked-files=all')).toBe('');
 
       const remove = cleanup[0].replace('<prepared-prompt-file>', prompt);
       expect(careful(remove, project)).toBe('{}');
       const removed = spawnSync('bash', ['-c', remove], { cwd: project, encoding: 'utf8', timeout: 30_000 });
       expect(removed.status, removed.stderr).toBe(0);
       expect(fs.existsSync(prompt)).toBe(false);
+
+      // A cloned repo can commit .gstack or .gstack/tmp as a symlink; the prompt must never land where it points.
+      for (const link of ['.gstack', '.gstack/tmp']) {
+        const linked = path.join(scratch, skill + '-link-' + link.replace(/\W/g, ''));
+        const outside = path.join(linked, 'outside');
+        fs.mkdirSync(outside, { recursive: true });
+        fs.mkdirSync(path.join(linked, 'repo', path.dirname(link)), { recursive: true });
+        fs.symlinkSync(outside, path.join(linked, 'repo', link));
+        const refused = spawnSync('bash', ['-c', create[0]], { cwd: path.join(linked, 'repo'), encoding: 'utf8', timeout: 30_000 });
+        expect(refused.status, link).not.toBe(0);
+        expect(refused.stdout.trim(), link).toBe('');
+        expect(fs.readdirSync(outside), link).toEqual([]);
+      }
     });
   }
 });
