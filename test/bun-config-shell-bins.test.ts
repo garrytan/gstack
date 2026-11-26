@@ -16,6 +16,13 @@
  * nothing written instead of exiting 0. An OSTYPE=msys inherited by a POSIX
  * bash with no cygpath keeps /dev/null, so a file named NUL in the repository
  * is never read as Bun's config.
+ *
+ * gstack-question-log starts a detached gstack-developer-profile --derive after
+ * each write, and that process keeps writing into the state root after its
+ * test returns, while the next test resets it (Trunk 4c32732f: a control then
+ * saw the previous test's record). Every call here sets
+ * GSTACK_QUESTION_LOG_NO_DERIVE, the bin's test opt-out, so no process outlives
+ * the test that started it.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -47,7 +54,7 @@ function env(pathPrefix?: string, extra: Record<string, string> = {}): NodeJS.Pr
   for (const [k, v] of Object.entries(process.env)) if (!/^(GSTACK_|MSYS|OSTYPE$)/.test(k)) out[k] = v;
   const PATH = Object.keys(out).find(k => k.toUpperCase() === 'PATH') ?? 'PATH';
   if (pathPrefix) out[PATH] = pathPrefix + path.delimiter + (out[PATH] ?? '');
-  return { ...out, HOME: path.join(tmp, 'home'), GSTACK_STATE_ROOT: stateRoot, MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*', ...extra };
+  return { ...out, HOME: path.join(tmp, 'home'), GSTACK_STATE_ROOT: stateRoot, GSTACK_QUESTION_LOG_NO_DERIVE: '1', MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*', ...extra };
 }
 
 function run(bin: string, input: string, pathPrefix?: string, extra: Record<string, string> = {}, rest: string[] = []) {
