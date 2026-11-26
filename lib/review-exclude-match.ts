@@ -32,20 +32,40 @@ export function select(i: SelectInput, patterns: readonly string[]): { byPattern
     if (f && !files.has(f)) files.set(f, { oldMode: oldMode ?? '', newMode: newMode ?? '', oldSha: oldSha ?? '', newSha: newSha ?? '' });
   }
   if (patterns.length === 1) return { byPattern: new Map([[patterns[0]!, [...files.keys()]]]), files };
-  // GST-4003: one diff for every pattern, then each pattern's share from git's own pathspec match over a scratch index of just
+  // GST-4003: one diff for every pattern, then each pattern's share from git's own pathspec match over scratch indexes of just
   // those paths (a diff per pattern took 0.2 s each over harness-evals#616's 16,165 files, and the cap is now 256 patterns).
+  // A deleted path and a new one can be a file and a directory of the same name (data/x/a.json gone, data/x added), which one
+  // index cannot hold, so the head side and the deleted side get an index each; one that does not list every path it was
+  // given sends every pattern back to its own diff.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-select-'));
   try {
-    const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, 'index') };
-    const entries = [...files].map(([f, m]) => `${m.newMode !== '000000' ? m.newMode : m.oldMode} e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0\t${f}`);
-    if (entries.length && !git(i.root, ['update-index', '-z', '--index-info'], entries.join('\0') + '\0', env).ok) return { error: 'git update-index could not build the scratch index the patterns are matched on' };
-    for (const [k, p] of patterns.entries()) {
-      const ls = entries.length ? git(i.root, ['ls-files', '-z', '--full-name', '--', specs[k]!], undefined, env) : { ok: true, out: '', err: '', status: 0 };
-      if (!ls.ok) return { error: `git ls-files -- ${specs[k]}: ${ls.err.split('\n')[0] || `exit ${ls.status}`}` };
-      const hit = new Set(ls.out.split('\0').filter(Boolean));
-      byPattern.set(p, [...files.keys()].filter(f => hit.has(f)));
+    const sides = [[...files].filter(([, m]) => m.newMode !== '000000'), [...files].filter(([, m]) => m.newMode === '000000')].filter(s => s.length);
+    const hits = patterns.map(() => new Set<string>());
+    for (const [n, side] of sides.entries()) {
+      const env = { ...process.env, GIT_INDEX_FILE: path.join(dir, `index-${n}`) };
+      const entries = side.map(([f, m]) => `${m.newMode !== '000000' ? m.newMode : m.oldMode} e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0\t${f}`);
+      const listed = git(i.root, ['update-index', '-z', '--index-info'], entries.join('\0') + '\0', env).ok ? git(i.root, ['ls-files', '-z', '--full-name'], undefined, env) : null;
+      if (!listed?.ok || listed.out.split('\0').filter(Boolean).length !== side.length) return perPattern(i, patterns, range, files);
+      for (const [k, spec] of specs.entries()) {
+        const ls = git(i.root, ['ls-files', '-z', '--full-name', '--', spec], undefined, env);
+        if (!ls.ok) return { error: `git ls-files -- ${spec}: ${ls.err.split('\n')[0] || `exit ${ls.status}`}` };
+        for (const f of ls.out.split('\0')) if (f) hits[k]!.add(f);
+      }
     }
+    for (const [k, p] of patterns.entries()) byPattern.set(p, [...files.keys()].filter(f => hits[k]!.has(f)));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  return { byPattern, files };
+}
+
+/** Each pattern's paths from its own `git diff --raw`, as select read them before GST-4003: the fallback when a scratch index cannot hold the paths. */
+function perPattern(i: SelectInput, patterns: readonly string[], range: readonly string[], files: Map<string, Matched>): ReturnType<typeof select> {
+  const byPattern = new Map<string, string[]>();
+  for (const p of patterns) {
+    const spec = `:(top,glob)${p}`;
+    const raw = git(i.root, ['diff', '--raw', '-z', '--no-abbrev', '--no-renames', ...range, '--', spec]);
+    if (!raw.ok) return { error: `git diff --raw ${range.join(' ')} -- ${spec}: ${raw.err.split('\n')[0] || `exit ${raw.status}`}` };
+    byPattern.set(p, raw.out.split('\0').filter((f, k) => k % 2 === 1 && f));
+  }
   return { byPattern, files };
 }
 
