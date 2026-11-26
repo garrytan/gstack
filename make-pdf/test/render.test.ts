@@ -84,6 +84,34 @@ describe("smartypants", () => {
     expect(out).toContain("</a>");
   });
 
+  // A quote that opens a paragraph, heading or list item sits right after a
+  // tag, and was read as a closing quote: "Hello," rendered as ”Hello,”.
+  test("opens a quote at the start of a paragraph, heading or list item", () => {
+    expect(smartypants(`<p>"Hello," she said.</p>`)).toBe(`<p>\u201cHello,\u201d she said.</p>`);
+    expect(smartypants(`<h1>"Quoted" title</h1>`)).toBe(`<h1>\u201cQuoted\u201d title</h1>`);
+    expect(smartypants(`<ul>\n<li>'one'</li>\n</ul>`)).toBe(`<ul>\n<li>\u2018one\u2019</li>\n</ul>`);
+    expect(smartypants(`<p>x</p><p>"y"</p>`)).toBe(`<p>x</p><p>\u201cy\u201d</p>`);
+    expect(smartypants(`<p><em>"quoted"</em> word</p>`)).toBe(`<p><em>\u201cquoted\u201d</em> word</p>`);
+  });
+
+  test("reads a quote after an inline tag by the text before the tag", () => {
+    expect(smartypants(`<p>He said "<em>stop</em>" twice.</p>`)).toBe(`<p>He said \u201c<em>stop</em>\u201d twice.</p>`);
+    expect(smartypants(`<p><em>Garry</em>'s book</p>`)).toBe(`<p><em>Garry</em>\u2019s book</p>`);
+  });
+
+  test("a quote after an image or an unknown tag still closes", () => {
+    expect(smartypants(`<p>"check out <PR link>" today</p>`)).toBe(`<p>\u201ccheck out <PR link>\u201d today</p>`);
+    expect(smartypants(`<p>"see <img src="a.png">" here</p>`)).toBe(`<p>\u201csee <img src="a.png">\u201d here</p>`);
+  });
+
+  test("renders a document whose paragraph and heading open with a quote", () => {
+    const html = render({ markdown: `# "Quoted" title\n\n"Hello," she said.\n` }).html;
+    expect(html).toContain(`\u201cQuoted\u201d title`);
+    expect(html).toContain(`<p>\u201cHello,\u201d she said.</p>`);
+    expect(html).not.toContain(`\u201dQuoted`);
+    expect(html).not.toContain(`\u201dHello`);
+  });
+
   test("does NOT touch HTML attribute values", () => {
     const out = smartypants(`<a href="it's-a-test.html">link</a>`);
     expect(out).toContain(`href="it's-a-test.html"`);

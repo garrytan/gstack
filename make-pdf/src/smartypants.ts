@@ -54,7 +54,7 @@ export function smartypants(html: string): string {
   s = carve(s, TAG_RE);
   s = carve(s, URL_RE);
 
-  s = transformText(s);
+  s = transformSegments(s, preserved);
 
   // Step 2: restore preserved zones.
   // Use a function to avoid $-substitution gotchas.
@@ -63,6 +63,36 @@ export function smartypants(html: string): string {
   });
 
   return s;
+}
+
+const PLACEHOLDER_SPLIT_RE = /(\u0000SMARTPANTS_PRESERVED_\d+\u0000)/;
+const BLOCK_TAG_RE = /^<\/?(?:address|article|aside|blockquote|br|caption|dd|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tbody|td|tfoot|th|thead|tr|ul)\b/i;
+const INLINE_TAG_RE = /^<\/?(?:a|abbr|b|cite|del|dfn|em|i|ins|mark|q|s|small|span|strong|sub|sup|u)\b/i;
+const OPENING_CONTEXT_RE = /[\s\(\[\{\-\uff1a\uff08\u3010\u300c\u300e\u3008\u300a]/;
+
+/**
+ * Transform each run of text between placeholders, reading a quote at the
+ * start of a run by the visible text before it: a block tag (<p>, <li>, <h1>)
+ * or the start of the document opens, an inline tag that wraps text (<em>,
+ * <a>) is skipped, and anything else (code, a URL, an image, an unknown tag)
+ * counts as a word. Each run is transformed behind a one-character prefix
+ * that stands for that context; every rule keeps the character before its
+ * match, so the prefix comes back unchanged and is cut.
+ */
+function transformSegments(s: string, preserved: string[]): string {
+  let context = " ";
+  return s.split(PLACEHOLDER_SPLIT_RE).map((part, i) => {
+    if (i % 2 === 1) {
+      const zone = preserved[parseInt(part.slice("\u0000SMARTPANTS_PRESERVED_".length), 10)] ?? "";
+      if (BLOCK_TAG_RE.test(zone)) context = " ";
+      else if (!INLINE_TAG_RE.test(zone)) context = "x";
+      return part;
+    }
+    if (!part) return part;
+    const out = transformText(context + part).slice(1);
+    context = OPENING_CONTEXT_RE.test(part[part.length - 1]!) ? " " : "x";
+    return out;
+  }).join("");
 }
 
 /**

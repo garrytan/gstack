@@ -207,6 +207,12 @@ describe("auto-landscape: diagram figures", () => {
     );
     expect(r.hasLandscape).toBe(true);
   });
+  // stroke-width="2" sat before width= on the root, and the width lookup
+  // matched inside it: a 3000px diagram measured 2px wide and stayed portrait.
+  test("measures width and height, not stroke-width or data-height", () => {
+    const r = applyImagePolicy(fig(`stroke-width="2" data-height="9" width="3000" height="600"`), OPTS);
+    expect(r.hasLandscape).toBe(true);
+  });
   test("diagnostic blocks are never promoted", () => {
     const html = `<figure class="diagram diagram-error" role="img" aria-label="x"><svg viewBox="0 0 4000 600"></svg></figure>`;
     const r = applyImagePolicy(html, OPTS);
