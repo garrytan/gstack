@@ -4891,7 +4891,7 @@ _skill_hook_gate() {
   local decision src out def unrecognized=0 matcher="${9:-}"
   local -a regs=("$event" "$cmd" "$matcher")
   [ "$#" -gt 9 ] && regs+=("${@:10}")
-  def="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(_bun_path "$SKILL_ROUTE_BIN")" --default "$key" 2>/dev/null || true)"
+  def="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SKILL_ROUTE_BIN" --default "$key" 2>/dev/null || true)"
   [ "$def" = "on" ] || def="off"
   if [ -n "$mode" ]; then
     decision="$mode"; src="flag"
@@ -5004,7 +5004,7 @@ _codex_hook_gate() {
 }
 
 _HOOKS_ON_BY_DEFAULT=""
-SKILL_ROUTE_BIN="$SOURCE_GSTACK_DIR/bin/gstack-skill-route"
+SKILL_ROUTE_BIN="$(_bun_path "$SOURCE_GSTACK_DIR/bin/gstack-skill-route")"
 SKILL_ROUTE_HOOK="$(_hook_command_path hosts/claude/hooks/skill-route-hook || true)"
 SKILL_CONTRACT_HOOK="$(_hook_command_path hosts/claude/hooks/skill-contract-stop-hook || true)"
 _skill_hook_gate skill_routing "$SKILL_ROUTING_MODE" GSTACK_SKILL_ROUTING UserPromptSubmit \
