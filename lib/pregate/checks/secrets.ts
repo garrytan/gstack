@@ -10,6 +10,7 @@
  * scanned in overlapping line-aligned parts (scanParts); a single line over
  * it fails. Runs regardless of lint tools.
  */
+import { gitDiffInParts, mergeParts } from '../../diff-parts';
 import { spawnSync } from '../../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -155,6 +156,8 @@ function scratchNames(part: { file: string; keep?: number[] }): string[] {
   return gitMangledPath(part.file) && name !== 'added.txt' ? [name, 'added.txt'] : [name];
 }
 const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
+/** Postimage text the full-context diff may hold in all: past it every file is scanned on its added lines, as when that diff overran its 256 MiB buffer. */
+const FULL_CONTEXT_MAX_BYTES = 256 * 1024 * 1024;
 
 /**
  * Added lines from the merge-base to the working tree, plus every line of
@@ -171,23 +174,30 @@ const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
  * `-diff` attribute the branch itself can add) from printing "Binary files
  * differ" in place of its added lines; each such file is marked `binary`,
  * carries every reading scannableReadings gives and is held to its credential findings. A diff git did not finish (an exit, a kill, a
- * full buffer) throws: its partial output is never scanned as complete.
+ * timeout) throws: its partial output is never scanned as complete. git writes each diff to a private file read back in
+ * whole-file parts (lib/diff-parts.ts), so no output buffer caps a PR's size (GST-4003, harness-evals#616's 255.7 MB).
  */
 export function addedLines(ctx: PregateContext): Array<{ file: string; texts: string[]; keep?: number[]; binary?: boolean }> {
-  const diff = spawnSync('git', ['diff', '--text', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=0', '--diff-filter=ACMR', ctx.mergeBase, '--'], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
-  if (diff.error || diff.status !== 0) throw new Error(`git diff ${ctx.mergeBase.slice(0, 12)} did not finish (${diff.error?.message ?? (diff.status === null ? `killed by ${diff.signal}` : `exit ${diff.status}: ${(diff.stderr ?? '').trim().split('\n').pop() ?? ''}`)})`);
-  const files = parseAddedLines(diff.stdout ?? '');
-  const numbers = parseAddedLineNumbers(diff.stdout ?? '');
+  const files = new Map<string, string[]>();
+  const numbers = new Map<string, number[]>();
+  const run = { cwd: ctx.repoRoot, timeout: 60_000, env: ctx.env };
+  const diff = gitDiffInParts(['diff', '--text', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=0', '--diff-filter=ACMR', ctx.mergeBase, '--'], run, part => { mergeParts(files, parseAddedLines(part)); mergeParts(numbers, parseAddedLineNumbers(part)); });
+  if (!diff.ok) throw new Error(`git diff ${ctx.mergeBase.slice(0, 12)} did not finish (${diff.why})`);
   const whole = new Map<string, { text: string; keep: number[] }>();
   const sources = [...numbers.keys()].filter(file => LEXICAL_CONTEXT_SOURCE.test(file));
   if (sources.length) {
-    const full = spawnSync('git', ['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=100000000', '--diff-filter=ACMR', ctx.mergeBase, '--', ...sources.map(file => `:(literal)${file}`)], { cwd: ctx.repoRoot, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024, env: ctx.env });
-    for (const [file, post] of parsePostimages(full.status === 0 ? full.stdout ?? '' : '')) {
-      const keep = numbers.get(file) ?? [];
-      const added = files.get(file) ?? [];
-      const text = post.join('\n');
-      if (text.length <= WHOLE_FILE_MAX_BYTES && keep.length === added.length && keep.every((n, k) => post[n - 1] === added[k])) whole.set(file, { text, keep });
-    }
+    let held = 0;
+    const full = gitDiffInParts(['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=100000000', '--diff-filter=ACMR', ctx.mergeBase, '--', ...sources.map(file => `:(literal)${file}`)], run, part => {
+      if (held > FULL_CONTEXT_MAX_BYTES) return;
+      for (const [file, post] of parsePostimages(part)) {
+        const size = post.reduce((n, line) => n + line.length + 1, 0) - 1;
+        held += size;
+        const keep = numbers.get(file) ?? [];
+        const added = files.get(file) ?? [];
+        if (size <= WHOLE_FILE_MAX_BYTES && keep.length === added.length && keep.every((n, k) => post[n - 1] === added[k])) whole.set(file, { text: post.join('\n'), keep });
+      }
+    });
+    if (!full.ok || held > FULL_CONTEXT_MAX_BYTES) whole.clear();
   }
   for (const t of ctx.touched) {
     if (!t.uncommitted || t.status === 'D') continue;

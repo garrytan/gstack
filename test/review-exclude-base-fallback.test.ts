@@ -29,29 +29,29 @@ const planJson = (repo: FixtureRepo) => { const r = runBin(repo, 'gstack-review-
 describe('an invalid exclusion list on the base is set aside, never loosened (GST-3399)', () => {
   // Value: protects=a base whose only error is review_exclude_paths' length plans with every file reviewed and its other keys
   //   applied, with a loud line on stdout and stderr and the record in --json; fails_when=the plan refuses POLICY_INVALID (the
-  //   harness-evals deadlock), applies some of the 65 patterns, or drops the base's readers.forbid_paths with the bad key;
+  //   harness-evals deadlock), applies some of the 257 patterns, or drops the base's readers.forbid_paths with the bad key;
   //   why_new=GST-3399; seam=gstack-review-plan on a real repository; no_claim=what reviewers do with the files
-  test('65 patterns on the base: the plan reviews every file, keeps forbid_paths and says why', () => {
-    const repo = repoWith({ review_exclude_paths: patterns(65) });
+  test('257 patterns on the base: the plan reviews every file, keeps forbid_paths and says why', () => {
+    const repo = repoWith({ review_exclude_paths: patterns(257) });
     const r = plan(repo);
     expect(r.status, r.err).toBe(EXIT.ok);
     expect(r.out).toContain('REVIEW_EXCLUDE: fallback (WARNING: the base policy origin/main@');
-    expect(r.out).toContain('review_exclude_paths: more than 64 patterns');
+    expect(r.out).toContain('review_exclude_paths: more than 256 patterns');
     expect(r.out).toContain('every file is reviewed');
     expect(r.err).toContain('gstack-review-plan: REVIEW_EXCLUDE: fallback (WARNING');
     expect(r.out).toMatch(/READERS: forbid_fetch=0 forbid_paths=1 /);
     const j = planJson(repo);
     expect(j.review_exclude.state).toBe('fallback');
-    expect(j.review_exclude.errors).toEqual(['review_exclude_paths: more than 64 patterns']);
+    expect(j.review_exclude.errors).toEqual(['review_exclude_paths: more than 256 patterns']);
     expect(j.paths).toContain('data/p0/r.json');
     expect(j.readers.forbid_paths).toEqual(['private/**']);
-    expect(receiptExcludeFallback(j.review_exclude)).toEqual({ source: j.review_exclude.source, errors: ['review_exclude_paths: more than 64 patterns'] });
+    expect(receiptExcludeFallback(j.review_exclude)).toEqual({ source: j.review_exclude.source, errors: ['review_exclude_paths: more than 256 patterns'] });
   }, 120_000);
 
   // Value: protects=the PR that fixes the list is planned under the base's (set-aside) list, not its own valid one; fails_when=
   //   the head's 61 patterns are applied before they land; seam=gstack-review-plan --json; no_claim=the land step
   test('the PR that shortens the list is still planned with nothing excluded', () => {
-    const repo = repoWith({ review_exclude_paths: patterns(65) }, { '.gstack/ship-policy.json': policyText({ review_exclude_paths: patterns(61) }) });
+    const repo = repoWith({ review_exclude_paths: patterns(257) }, { '.gstack/ship-policy.json': policyText({ review_exclude_paths: patterns(61) }) });
     const j = planJson(repo);
     expect(j.review_exclude.state).toBe('fallback');
     expect(j.paths).toContain('data/p0/r.json');
@@ -60,11 +60,11 @@ describe('an invalid exclusion list on the base is set aside, never loosened (GS
   // Value: protects=a valid base list plans exactly as before (negative control); fails_when=a valid list falls back or stops
   //   excluding; seam=gstack-review-plan; no_claim=the excluded file count beyond this fixture
   test('a valid base list still excludes its files', () => {
-    const repo = repoWith({ review_exclude_paths: patterns(64) });
+    const repo = repoWith({ review_exclude_paths: patterns(256) });
     const r = plan(repo);
     expect(r.status, r.err).toBe(EXIT.ok);
     expect(r.out).not.toContain('fallback');
-    expect(r.out).toMatch(/REVIEW_EXCLUDE: patterns=1\/64 excluded=1 /);
+    expect(r.out).toMatch(/REVIEW_EXCLUDE: patterns=1\/256 excluded=1 /);
     expect(planJson(repo).review_exclude.state).toBe('active');
   }, 120_000);
 
@@ -82,7 +82,7 @@ describe('an invalid exclusion list on the base is set aside, never loosened (GS
   //   fails_when=the fallback swallows an error in a key whose default would loosen review or readers; seam=gstack-review-plan
   //   and gstack-ship-queue's loadBasePolicy; no_claim=the wording of the refusal
   test('a base with another invalid key still refuses, in the plan and in the queue', () => {
-    const repo = repoWith({ review_exclude_paths: patterns(65), review: { panel: 'some' } });
+    const repo = repoWith({ review_exclude_paths: patterns(257), review: { panel: 'some' } });
     const r = plan(repo);
     expect(r.status).toBe(EXIT.refused);
     expect(r.err).toContain('POLICY_INVALID');
@@ -95,7 +95,7 @@ describe('an invalid exclusion list on the base is set aside, never loosened (GS
   //   (review_exclude_paths[0]) is an error of its own and still refuses; fails_when=the key filter is unanchored and drops that key
   //   with the list; seam=lib/ship-policy.ts finish; no_claim=the wording of the refusal
   test('an unknown key that starts with an exclusion key name still refuses', () => {
-    const repo = repoWith({ review_exclude_paths: patterns(65), 'review_exclude_paths[0]': 'data/**' });
+    const repo = repoWith({ review_exclude_paths: patterns(257), 'review_exclude_paths[0]': 'data/**' });
     const r = plan(repo);
     expect(r.status).toBe(EXIT.refused);
     expect(r.err).toContain('POLICY_INVALID');
@@ -105,7 +105,7 @@ describe('an invalid exclusion list on the base is set aside, never loosened (GS
   // Value: protects=the merge step reads a base that fails only on its exclusion list, with its other keys, so the PR that fixes
   //   the list can land; fails_when=gstack-ship-queue refuses POLICY_INVALID on it; seam=loadBasePolicy; no_claim=land's checks
   test('the queue reads such a base with its other keys', () => {
-    const repo = repoWith({ review_exclude_paths: patterns(65) });
+    const repo = repoWith({ review_exclude_paths: patterns(257) });
     const q = loadBasePolicy({ repoRoot: repo.work, base: 'main', gh: () => ({ ok: false, out: '' }) });
     expect('code' in q ? q : null).toBeNull();
     expect('policy' in q && q.policy.review_exclude_paths).toEqual([]);
@@ -116,18 +116,18 @@ describe('an invalid exclusion list on the base is set aside, never loosened (GS
   //   owner fixes it; fails_when=gstack-ship-policy validate --policy-from base reports such a base valid; seam=the validate CLI;
   //   no_claim=validate's other output
   test('validate still reports the base list as invalid', () => {
-    const repo = repoWith({ review_exclude_paths: patterns(65) });
+    const repo = repoWith({ review_exclude_paths: patterns(257) });
     const r = runBin(repo, 'gstack-ship-policy', ['validate', '--policy-from', 'base', '--base', 'main']);
     expect(r.status).toBe(EXIT.fail);
     expect(r.out).toContain('POLICY_INVALID: 1 error(s)');
-    expect(r.err).toContain('more than 64 patterns at review_exclude_paths');
+    expect(r.err).toContain('more than 256 patterns at review_exclude_paths');
   }, 120_000);
 
   // Value: protects=show-effective, which /ship's POLICY line and /land-and-deploy's stamp check read, reports such a base valid
   //   with its other keys and the loud fallback line; fails_when=it exits 1 with valid:false (land-and-deploy then reads no
   //   queue_mode) or drops the warning; seam=the show-effective CLI; no_claim=renderEffective's other lines
   test('show-effective reads the base with its other keys and warns', () => {
-    const repo = repoWith({ review_exclude_paths: patterns(65), queue_mode: 'stamp-at-merge' });
+    const repo = repoWith({ review_exclude_paths: patterns(257), queue_mode: 'stamp-at-merge' });
     const r = runBin(repo, 'gstack-ship-policy', ['show-effective', '--base', 'main', '--json']);
     expect(r.status, r.err).toBe(EXIT.ok);
     const j = JSON.parse(r.out);

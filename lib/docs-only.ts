@@ -60,8 +60,8 @@ export class DocsOnlyError extends Error {
   constructor(readonly command: string, readonly detail: string, readonly fix: string) { super(`${command}: ${detail}`); }
 }
 
-function git(root: string, args: string[], okCodes = [0]): string {
-  const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+function git(root: string, args: string[], okCodes = [0], input?: string): string {
+  const r = spawnSync('git', args, { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
   if (r.error || r.status === null || !okCodes.includes(r.status)) {
     const detail = (r.error?.message ?? r.stderr ?? '').trim().split('\n')[0] || `exit ${r.status}`;
     throw new DocsOnlyError(`git ${args.join(' ')}`, detail, /bad revision|unknown revision|no merge base|ambiguous argument/i.test(detail)
@@ -159,6 +159,57 @@ export function referencesTo(root: string, p: string, tree?: string, repo: RepoD
 }
 
 /**
+ * referencesTo for every one of `paths` at once (GST-4003: one `git grep` per path took minutes on a 16,000-file PR). One
+ * `git grep -l -F -f -` lists the files naming any of them, the outside-prose ones among those are read once, and each path
+ * gets the files whose bytes hold it, which is what a per-path `git grep -l -F -e <path>` lists (a path holds no newline, so a
+ * line match is a substring match). A path with a newline, which `-f` cannot carry, is still grepped alone.
+ */
+export function referencesToAll(root: string, paths: readonly string[], tree?: string, repo: RepoDocs = NO_REPO_DOCS): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const plain = [...new Set(paths)].filter(p => p && !p.includes('\n'));
+  for (const p of paths) if (!p || p.includes('\n')) out.set(p, referencesTo(root, p, tree, repo));
+  for (const p of plain) out.set(p, []);
+  if (!plain.length) return out;
+  const gen = generatedOutputs(root);
+  const prefix = tree ? `${tree}:` : '';
+  const named = git(root, ['grep', '-l', '-z', '-F', '-I', '-f', '-', ...(tree ? [tree] : []), '--'], [0, 1], plain.join('\n') + '\n').split('\0').filter(Boolean)
+    .map(f => (f.startsWith(prefix) ? f.slice(prefix.length) : f)).filter(f => !PROSE_REFERENCE.test(f) && pathRefusal(f, root, gen, repo) !== null);
+  const needles = plain.map(p => [p, Buffer.from(p)] as const);
+  const fromIndex = tree ? new Set<string>() : indexRead(root);
+  for (let i = 0; i < named.length; i += 256) {
+    const files = named.slice(i, i + 256);
+    const cached = files.filter(f => fromIndex.has(f));
+    const blobs = new Map(cached.length ? treeBlobs(root, '', cached).map((b, k) => [cached[k]!, b] as const) : []);
+    const texts = tree ? treeBlobs(root, tree, files) : files.map(f => blobs.get(f) ?? fs.readFileSync(path.join(root, f)));
+    files.forEach((f, k) => { for (const [p, needle] of needles) if (f !== p && texts[k]!.includes(needle)) out.get(p)!.push(f); });
+  }
+  return out;
+}
+
+/** Tracked paths a working-tree `git grep` reads from the index, as it does for skip-worktree and assume-unchanged entries (`git ls-files -v` tags them S or in lowercase). */
+function indexRead(root: string): Set<string> {
+  return new Set(git(root, ['ls-files', '-v', '-z']).split('\0').filter(e => e.length > 2 && (e[0] === 'S' || e[0] !== e[0]!.toUpperCase())).map(e => e.slice(2)));
+}
+
+/** The blobs of `files` at `tree` (the index when it is ''), through one `git cat-file --batch` (a name with a newline is read alone); any git failure throws DocsOnlyError. */
+function treeBlobs(root: string, tree: string, files: readonly string[]): Buffer[] {
+  const fail = (what: string): never => { throw new DocsOnlyError(`git cat-file ${tree}`, what, 'rerun in a git checkout of this repository'); };
+  const one = (f: string) => { const r = spawnSync('git', ['cat-file', 'blob', `${tree}:${f}`], { cwd: root, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }); return r.status === 0 && Buffer.isBuffer(r.stdout) ? r.stdout : fail(`cannot read ${f}`); };
+  const batched = files.filter(f => !f.includes('\n'));
+  const r = batched.length ? spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: batched.map(f => `${tree}:${f}`).join('\n') + '\n', timeout: 60_000, maxBuffer: 1024 * 1024 * 1024 }) : null;
+  if (r && (r.error || r.status !== 0 || !Buffer.isBuffer(r.stdout))) fail((r.error?.message ?? String(r.stderr ?? '')).trim().split('\n')[0] || `exit ${r.status}`);
+  const read = new Map<string, Buffer>();
+  for (let at = 0, k = 0; r && k < batched.length; k++) {
+    const nl = r.stdout.indexOf(10, at);
+    const size = Number(/^[0-9a-f]+ blob (\d+)$/.exec(r.stdout.subarray(at, nl).toString())?.[1] ?? NaN);
+    if (!Number.isInteger(size)) fail(`cannot read ${batched[k]}`);
+    read.set(batched[k]!, r.stdout.subarray(nl + 1, nl + 1 + size));
+    at = nl + 2 + size;
+  }
+  return files.map(f => read.get(f) ?? one(f));
+}
+
+/**
  * Non-docs tracked files that name a directory holding the repo-admitted path `p` ("wiki/", 'wiki', './wiki', root + '/wiki') and are tied to
  * none of the repository's docs_only.tests: a script that lists a directory reads every post in it, which the literal
  * scan in referencesTo cannot see. A reader is tied when it is a declared test, names one, or one names it (with or
@@ -220,7 +271,11 @@ export function classifyDocsOnly(o: { root: string; base: string; head?: string;
   const repo = 'error' in policy ? NO_REPO_DOCS : policy;
   const changed = new Set(entries.flatMap(e => [e.path, ...(e.from ? [e.from] : [])]));
   const outside = (f: string) => !changed.has(f) || pathRefusal(f, o.root, undefined, repo) !== null;
-  const r = classifyEntries(entries, o.root, p => referencesTo(o.root, p, o.head, repo).filter(outside), repo, p => directoryReaders(o.root, p, repo, o.head).filter(outside));
+  const gen = generatedOutputs(o.root);
+  const refs = referencesToAll(o.root, [...changed].filter(p => pathRefusal(p, o.root, gen, repo) === null), o.head, repo);
+  const readers = new Map<string, string[]>();
+  const readersOf = (p: string) => { const k = `${builtIn(p)}\0${path.posix.dirname(p)}`; if (!readers.has(k)) readers.set(k, directoryReaders(o.root, p, repo, o.head)); return readers.get(k)!; };
+  const r = classifyEntries(entries, o.root, p => (refs.get(p) ?? referencesTo(o.root, p, o.head, repo)).filter(outside), repo, p => readersOf(p).filter(outside));
   if ('error' in policy) return { ...r, docsOnly: false, tests: [], refusals: [{ path: SHIP_POLICY_PATH, reason: policy.error }, ...r.refusals] };
   const missing = r.tests.filter(t => repo.tests.includes(t) && (o.head ? !git(o.root, ['ls-tree', '--name-only', o.head, '--', t]).trim() : !fs.existsSync(path.join(o.root, t))));
   return missing.length ? { ...r, docsOnly: false, tests: [], refusals: missing.map(t => ({ path: t, reason: `listed in docs_only.tests at ${repo.label} but missing from this tree; restore it or correct the list` })) } : r;

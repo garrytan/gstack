@@ -94,7 +94,11 @@ branch that changes the policy.
 | `changelog_fragments` | `{ dir, required_checks? }` or `null` | `null` | PRs carry unversioned [CHANGELOG fragments](#changelog-fragments) in `dir` (one flat, repo-relative directory, no `..`) and the merge step ([`land`](#land)) assigns the version (under `merge: direct`, the [release PR](#release-stamp) does). `required_checks` (up to 50 distinct names) are the checks [`train land`](#stamped-trains-under-changelog_fragments-train-land) requires present and green on a stamp commit. `null` keeps `[Unreleased]` sections and per-PR stamps. Needs `min_gstack_version`. |
 
 Containment, checked by `validate` and again at write time: paths and globs are
-repo-relative with no `..` segment, under 256 characters, at most 64 per list,
+repo-relative with no `..` segment, under 256 characters, at most 64 per list
+(`review_exclude_paths` takes up to 256, as long as their exclude pathspecs fit
+in 24,000 argument bytes together, since every reader's one `git diff` carries
+all of them; an older gstack reads a list over 64 as invalid, sets the key aside
+and reviews every file),
 and a glob's regex expansion under 512 characters; `release_tool` is under 512
 characters with no newline; a matched file that resolves through a symlink to
 outside the repository is refused (`POLICY_CONTAINMENT`). A mirror may start
@@ -1468,8 +1472,8 @@ the base commit it already resolved (`origin/<base>`, or `<base>`), never
 the branch's copy, so a branch cannot exclude its own files. A branch that adds
 the key gets `REVIEW_EXCLUDE: none (head sets review_exclude_paths; it applies
 after it lands on <base>)` and a normal review. A base policy whose only errors
-are in `review_exclude_paths` or `review_content_patterns` (65 patterns, say,
-past the limit of 64) does not stop the plan: both keys are set aside, every
+are in `review_exclude_paths` or `review_content_patterns` (257 patterns, say,
+past the limit of 256) does not stop the plan: both keys are set aside, every
 file is reviewed as if the base excluded nothing, and every other key, the
 readers' `forbid_paths` included, applies as committed. The plan prints
 `REVIEW_EXCLUDE: fallback (WARNING: …)` naming each error and the fix, on
@@ -1865,7 +1869,7 @@ with the `gate_id` its gate disposition needs, since a ruling never closes one
 `gstack-approvals rulings` prints one `Ruled note: …` line per ruling for the
 Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
-line word for word, and the READY block prints each as `RULED_NOTE:`.
+line word for word (bare, or as a `- ` or `* ` list item), and the READY block prints each as `RULED_NOTE:`.
 Step 11.5 reads the same rulings: `gstack-review-read` applies a ruling to a Step 9
 or Step 11 row that carries the finding and whose `range_base..commit` holds the
 ruling's head (a first pass, with no `range_base`: its own commit), lists its
