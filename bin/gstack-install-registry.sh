@@ -244,6 +244,8 @@ _gstack_vendored_source() {
 # gstack_install_known_roots — "host<TAB>scope<TAB>destination<TAB>install_root"
 # for every location setup can install into, global and (inside a git repo)
 # project-local. Used to discover installs made before the registry existed.
+# Inside a gstack checkout, its own .agents/skills/gstack is its Codex render,
+# not a project install, so that root is left out (#4835).
 gstack_install_known_roots() {
   local claude_dir codex_dir proj
   claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
@@ -263,7 +265,9 @@ gstack_install_known_roots() {
   proj="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$proj" ] && [ "$proj" != "$HOME" ]; then
     printf 'claude\tproject\t%s\t%s\n' "$proj/.claude/skills" "$proj/.claude/skills/gstack"
-    printf 'codex\tproject\t%s\t%s\n' "$proj/.agents/skills" "$proj/.agents/skills/gstack"
+    if [ "$(_gstack_install_source "$proj/.agents/skills/gstack")" != "$(cd "$proj" 2>/dev/null && pwd -P)" ]; then
+      printf 'codex\tproject\t%s\t%s\n' "$proj/.agents/skills" "$proj/.agents/skills/gstack"
+    fi
   fi
 }
 
@@ -299,9 +303,6 @@ ROWS
     seen="$seen$root|"
     src="$(_gstack_install_source "$root")"
     [ -n "$src" ] || continue
-    case "$root" in */.agents/skills/gstack)
-      [ "$(cd "${root%/.agents/skills/gstack}" 2>/dev/null && pwd -P)" = "$src" ] && continue ;;
-    esac
     cur="$(cat "$src/VERSION" 2>/dev/null || echo '-')"
     note="installed before the registry; register it: cd $src && ./setup --host $host"
     if [ "$scope" = global ] && [ "$host" != claude ] && _gstack_vendored_source "$src"; then
