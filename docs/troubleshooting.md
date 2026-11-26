@@ -4011,7 +4011,8 @@ record only when it changes no binary file, adds no numeric claim, touches no
 results, prereg or eval path, and names no money, security, secret or auth topic; any other docs change
 needs the reader again (GST-1195). With `--body`, write also refuses, writing
 nothing, a body that does not carry each line the receipt requires as one line,
-word for word: every `Ruled note: …` line `gstack-approvals rulings` prints,
+word for word: every `Ruled note: …` line `gstack-approvals rulings` prints
+(bare, or as a `- ` or `* ` list item),
 every `Gate disposition: …` line `gstack-approvals dispositions` prints (and while
 a gate disposition applies at HEAD, write refuses to run without `--body`),
 finish's `MECHANICAL:` lines as `Mechanical retake: …`, and accept's
@@ -4090,7 +4091,11 @@ the base policy commit.
 - **A pattern keeps too many files** stops the plan with
   [`REVIEW_EXCLUDE_KEEP_TOO_LARGE`](#review-exclude-keep-too-large) before any reader runs.
 - **Still over after exclusion:** add the printed folders to the base policy, or
-  split the PR. When published data under a pattern is kept as `code`
+  split the PR. The fix only suggests data, log and binary folders, never `docs/`
+  (the report is what the reviewer is there to read), and when the printed folders
+  would take the base list past 256 patterns or its 24,000-byte pathspec budget it
+  prints no JSON and asks for the existing patterns to be merged under fewer
+  folder globs instead. When published data under a pattern is kept as `code`
   (`REVIEW_EXCLUDE_KEPT: code …` on `.patch`, `.sha256` or extension-less files),
   add [`review_content_patterns`](ship-policy.md#review-content-patterns) for it. Files kept only for a secret line already count as their
   excerpts ([secret-line excerpts](ship-policy.md#secret-line-excerpts)), and so

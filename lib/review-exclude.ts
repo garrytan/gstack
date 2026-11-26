@@ -42,7 +42,8 @@ import { shannonEntropy } from './redact-patterns';
 import { KEY_NAME, RESULTS_TREE, SECRET_LINE, hashManifest, secretPath } from './review-risk';
 import { secretExcerpt } from './review-secret-excerpt';
 import { cmpVersion, parseVersion } from './version-source';
-import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, isUnavailable, policyUnavailableLine } from './ship-policy';
+import { REVIEW_EXCLUDE_KEY_VERSION, SHIP_POLICY_PATH, excludeListTooLarge, isUnavailable, policyUnavailableLine } from './ship-policy';
+import { fixedIndex, select, type Matched } from './review-exclude-match';
 import { loadPolicyAt } from './ship-policy-at';
 import { resolveStateRoot } from './state-root';
 import { vendoredCacheRoot, vendoredPolicy, vendoredSelection, type VendoredSelection } from './review-vendored';
@@ -193,31 +194,6 @@ export function literalPrefix(pattern: string): string {
   const at = pattern.search(/[*?[]/);
   const head = at < 0 ? pattern : pattern.slice(0, at);
   return head.slice(0, head.lastIndexOf('/') + 1);
-}
-
-interface Matched { oldMode: string; newMode: string; oldSha: string; newSha: string }
-
-/** Every changed path each pattern matches, with its modes, from git's raw diff; untracked files are never part of it, since no reader's git diff shows them and the receipt reads the committed head. */
-function select(i: ExcludeInput, patterns: readonly string[]): { byPattern: Map<string, string[]>; files: Map<string, Matched> } | { error: string } {
-  const byPattern = new Map<string, string[]>();
-  const files = new Map<string, Matched>();
-  const range = i.head ? [i.mergeBase, i.head] : [i.mergeBase];
-  for (const p of patterns) {
-    const spec = `:(top,glob)${p}`;
-    const raw = git(i.root, ['diff', '--raw', '-z', '--no-abbrev', '--no-renames', ...range, '--', spec]);
-    if (!raw.ok) return { error: `git diff --raw ${range.join(' ')} -- ${spec}: ${raw.err.split('\n')[0] || `exit ${raw.status}`}` };
-    const parts = raw.out.split('\0');
-    const hit: string[] = [];
-    for (let k = 0; k + 1 < parts.length; k += 2) {
-      const [oldMode, newMode, oldSha, newSha] = parts[k]!.slice(1).split(' ');
-      const f = parts[k + 1]!;
-      if (!f) continue;
-      hit.push(f);
-      if (!files.has(f)) files.set(f, { oldMode: oldMode ?? '', newMode: newMode ?? '', oldSha: oldSha ?? '', newSha: newSha ?? '' });
-    }
-    byPattern.set(p, hit);
-  }
-  return { byPattern, files };
 }
 
 /** Executable image magic: ELF, Mach-O (thin, universal and 64-bit universal; 0xcafebabe is also a Java class), PE, WebAssembly and a script's #!. */
@@ -433,8 +409,9 @@ function contractExample(patterns: ReadonlySet<string>, s: string, file: string,
  * the scratch index or grep it (a timeout included). Each tree's file list is filtered to consumers first, so the data under
  * the patterns is never read (GST-1435: a whole-tree grep for 4,354 candidate paths through 30 MB of receipts ran 278 s), and
  * the consumers go into a scratch index that one git grep reads, so the git calls stay fixed however many files there are
- * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). `git grep -l` lists the consumers holding any string, and
- * only those are read and searched here: git's -o grew with the number of strings (HARN-64: 2,140 candidate paths in one
+ * (GST-1442: 363 chunked greps over a 192k-file tree ran 132 s). `git grep -l` lists the consumers holding any string's
+ * token (fixedIndex: its extension or last segment, since git's -l also grew with the number of strings: 16,165 paths took 37 s on
+ * harness-evals#616, GST-4003), and only those are read and searched here: git's -o grew with the number of strings (HARN-64: 2,140 candidate paths in one
  * 464 KB pins.sha256 ran past git's 120 s bound, so every candidate stayed in review). A consumer that is a hash or pin
  * manifest (every line a digest and a path, lib/review-risk.ts) names files without reading them, so it keeps none. On a live tree, an entry git reads from its blob
  * (skip-worktree or assume-unchanged) goes into a second index grepped with --cached, as git grep itself would read it.
@@ -445,7 +422,8 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-exclude-'));
   try {
     const list = path.join(dir, 'patterns');
-    fs.writeFileSync(list, strings.join('\n') + '\n');
+    const index = fixedIndex(strings);
+    fs.writeFileSync(list, index.tokens.join('\n') + '\n');
     let n = 0;
     for (const at of [i.head ?? '', ...revs]) {
       const ls = git(i.root, at ? ['ls-tree', '-r', '-z', at] : ['ls-files', '-s', '-v', '-z']);
@@ -487,7 +465,7 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
         } else for (const f of files) try { bodies.set(f, fs.readFileSync(path.join(i.root, f), 'utf8')); } catch { return null; }
         for (const [file, body] of bodies) {
           if (hashManifest(body.split('\n'))) continue;
-          for (const s of strings) if (body.includes(s) && !skip?.(s, file, body)) (found.get(s) ?? found.set(s, new Set()).get(s)!).add(file);
+          for (const s of index.holds(body)) if (!skip?.(s, file, body)) (found.get(s) ?? found.set(s, new Set()).get(s)!).add(file);
         }
       }
     }
@@ -711,15 +689,16 @@ function policyJson(patterns: readonly string[], floor?: string | null): string 
 const excludableByPath = (p: string) => !SOURCE.test(p) && (DATA_PATH.test(p) || /\.log$/i.test(p) || BINARY_CONTENT_EXT.test(p) || classifyPath(p) === 'docs');
 
 /**
- * Folders to suggest: the top directories holding the most bytes the policy could exclude (whole folders when only folder
- * sizes are known), until what is left would fit; none when they cannot get the reader under the ceiling (#4369).
+ * Folders to suggest: the top directories holding the most data, log and binary bytes the policy could exclude (whole folders
+ * when only folder sizes are known), until what is left would fit; none when they cannot get the reader under the ceiling
+ * (#4369). Docs never count and docs/ is never suggested: a results report is what the reviewer is there to read (GST-4003).
  */
 function suggest(d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byFile?: ReadonlyArray<[string, number]> }): string[] {
   let byDir = d.byDir;
   if (d.byFile?.length) {
     const excludable = new Map<string, number>();
     for (const [file, n] of d.byFile) {
-      if (!excludableByPath(file)) continue;
+      if (!excludableByPath(file) || classifyPath(file) === 'docs') continue;
       const dir = file.includes('/') ? file.split('/')[0]! : '(root)';
       excludable.set(dir, (excludable.get(dir) ?? 0) + n);
     }
@@ -729,7 +708,7 @@ function suggest(d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byF
   let left = d.bytes;
   for (const [dir, n] of byDir) {
     if (left <= REVIEW_DIFF_MAX_BYTES || out.length >= 3) break;
-    if (dir === '(root)') continue;
+    if (dir === '(root)' || dir === 'docs') continue;
     out.push(`${dir}/**`);
     left -= n;
   }
@@ -742,7 +721,8 @@ export function tooLargeLine(context: string, reader: string, d: { bytes: number
   const top = d.byDir.slice(0, 5).map(([dir, n]) => `${named(dir)}:${n}`).join(',') || 'none';
   const largest = (d.byFile ?? []).slice(0, 5);
   const split = largest.length ? `split the PR (largest files: ${largest.map(([f, n]) => `${named(f)} (${n} bytes)`).join(', ')})` : 'split the PR';
-  const land = (patterns: readonly string[]) => `ask the repo owner to land ${policyJson(patterns, c.floor)} in ${SHIP_POLICY_PATH} on ${c.base} as its own PR (docs/ship-policy.md#review-exclude-paths), then bring ${c.base} into this branch and rerun once; if it is still over, ${split}`;
+  const land = (patterns: readonly string[]) => excludeListTooLarge(patterns) ? `the base policy cannot take these folders as well: with them its review_exclude_paths fails validation (${excludeListTooLarge(patterns)}), so ask the repo owner to merge its patterns under fewer shared folder globs on ${c.base} as its own PR, or ${split}`
+    : `ask the repo owner to land ${policyJson(patterns, c.floor)} in ${SHIP_POLICY_PATH} on ${c.base} as its own PR (docs/ship-policy.md#review-exclude-paths), then bring ${c.base} into this branch and rerun once; if it is still over, ${split}`;
   const dirs = suggest(d);
   const fresh = dirs.filter(p => !c.record?.patterns.includes(p));
   const fix = c.state === 'head-only' ? `this branch declares review_exclude_paths, but only the copy on ${c.base} applies: ${land(c.headPatterns ?? [])}`

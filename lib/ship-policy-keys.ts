@@ -59,6 +59,20 @@ export const HISTORY_NO_REWRITE_KEY_VERSION = '1.100.0.0';
 export const LAND_MERGE_COMMIT_PATHS_KEY_VERSION = '1.100.0.0';
 export const REVIEW_CONTENT_KEY_VERSION = '1.102.0.0';
 export const REVIEW_VENDORED_KEY_VERSION = '1.103.0.0';
+/**
+ * The most review_exclude_paths patterns one policy may list (64, the cap on every other list, until GST-4003: harness-evals' results
+ * PRs needed more), and the most argument bytes their `:(top,exclude,glob)` pathspecs may take together, shell-quoted: every reader's
+ * one `git diff` carries all of them, so the sum stays under KEEP_ARG_MAX_BYTES (lib/review-exclude.ts) and Windows' command line.
+ * An older gstack reads a list over 64 as invalid and sets the key aside, which reviews every file.
+ */
+export const MAX_EXCLUDE_PATTERNS = 256;
+export const EXCLUDE_SPEC_MAX_BYTES = 24_000;
+/** The shell-quoted argument bytes of the exclude pathspecs `patterns` become on a reader's command, one separator each. */
+export const excludeSpecBytes = (patterns: readonly string[]) => patterns.reduce((n, p) => n + Buffer.byteLength(`':(top,exclude,glob)${p.replace(/'/g, "'\\''")}'`) + 1, 0);
+/** Why `patterns` cannot be a review_exclude_paths list for being too many or too long together, or null when they fit. */
+export const excludeListTooLarge = (patterns: readonly string[]) => patterns.length > MAX_EXCLUDE_PATTERNS ? `more than ${MAX_EXCLUDE_PATTERNS} patterns`
+  : excludeSpecBytes(patterns) > EXCLUDE_SPEC_MAX_BYTES ? `its patterns take ${excludeSpecBytes(patterns)} argument bytes as exclude pathspecs, more than ${EXCLUDE_SPEC_MAX_BYTES}; merge patterns under a shared folder glob` : null;
+
 export const POLICY_KEY_INTRODUCED: Record<PolicyKey, string> = {
   bump: '1.91.73.0', queue_mode: '1.91.73.0', release_tool: '1.91.73.0', release_outputs: '1.91.73.0', stamp_paths: '1.91.73.0',
   changelog: '1.91.73.0', mirror: '1.91.73.0', history: '1.91.73.0', preregistration_shas: '1.91.73.0', stamp_sensitive_gates: '1.91.73.0',

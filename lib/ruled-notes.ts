@@ -68,6 +68,14 @@ export const publicRuledNote = (n: RuledNote): RuledNote => !isSecurityFinding(n
   : n.not_security && RED_TEAM.test(n.finding) ? { ...n, finding: n.finding.replace(RED_TEAM, ' (red-team, ruled not security class)') }
   : { ...n, finding: REDACTED_FINDING, reason: REDACTED_REASON };
 
+/**
+ * A PR body line as the receipt checks read it: trimmed, with one leading `- ` or `* ` list bullet dropped, so a body that lists its
+ * `Ruled note: …` lines as bullets carries them. The rest must still equal the rendered line word for word.
+ */
+export const bodyLineText = (line: string) => line.trim().replace(/^[-*][ \t]+/, '');
+/** Whether `body` carries `line` as one whole line, bare or as a `- ` / `* ` list item (bodyLineText). */
+export const bodyListsLine = (body: string, line: string) => body.split(/\r?\n/).some(b => bodyLineText(b) === line);
+
 /** The one-line form finish prints after `RULED_NOTE: ` and the PR body carries after `Ruled note: `, from publicRuledNote. */
 export const ruledNoteText = (note: RuledNote) => { const n = publicRuledNote(note); return `${n.finding} at ${n.head.slice(0, 12)} ruled by ${n.by}${n.relayed ? ` (relayed from ${n.relayed})` : ''} at ${n.at}: ${n.reason} (approval ${n.approval})`; };
 
