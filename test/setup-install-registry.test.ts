@@ -5,7 +5,7 @@
  */
 import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanupFixtures, cleanupSeed, makeFixture, makeSource, put, registryRows, ROOT, runSetup, setVersion, tree } from './helpers/install-fixture';
 
@@ -150,6 +150,33 @@ describe.skipIf(process.platform === 'win32')('install ownership rules', () => {
     const set = spawnSync('bash', [join(loose, 'bin/gstack-config'), 'set', 'skill_prefix', 'false'], { cwd: f.dir, env: f.env, encoding: 'utf8', timeout: 30_000 });
     expect(set.stderr).toContain('relinking the installed skills failed');
   }, 90_000);
+
+  test('--refresh-registered from inside the checkout ignores its own .agents render and does not reinstall Codex (#4835)', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.home, '.claude/skills/gstack'));
+    expect(spawnSync('git', ['init', '-q', src], { env: f.env, encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    for (const host of ['claude', 'codex']) expect(runSetup(f, join(src, 'setup'), ['--host', host]).status).toBe(0);
+    expect(existsSync(join(src, '.agents/skills/gstack/SKILL.md'))).toBe(true);
+    const file = join(f.home, '.gstack/installs.tsv');
+    put(file, readFileSync(file, 'utf8').split('\n').filter(l => !l.startsWith('codex\t')).join('\n'), 0o600);
+    rmSync(join(f.home, '.codex/skills'), { recursive: true, force: true });
+    const r = runSetup(f, join(src, 'setup'), ['--refresh-registered'], { cwd: src });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(existsSync(join(f.home, '.codex/skills')) ? readdirSync(join(f.home, '.codex/skills')).filter(n => n.startsWith('gstack')) : []).toEqual([]);
+    expect(registryRows(f).map(row => row[0])).toEqual(['claude']);
+    expect(r.stdout).not.toMatch(/^\s*codex\s/m);
+  }, 120_000);
+
+  test('--refresh-registered still discovers a project that vendored gstack at .agents/skills/gstack', () => {
+    const f = makeFixture();
+    const project = join(f.dir, 'proj');
+    mkdirSync(project, { recursive: true });
+    expect(spawnSync('git', ['init', '-q', project], { env: f.env, encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    const vendored = makeSource(f, join(project, '.agents/skills/gstack'));
+    const r = runSetup(f, join(vendored, 'setup'), ['--refresh-registered'], { cwd: project });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(registryRows(f).filter(row => row[0] === 'codex').map(row => [row[1], row[5]])).toEqual([['project', realpathSync(vendored)]]);
+  }, 120_000);
 });
 
 describe.skipIf(process.platform === 'win32')('disabled_skills (#1206)', () => {
@@ -340,6 +367,29 @@ gstack_install_registry_rows | wc -l`;
     expect((lstatSync(join(state, 'installs.tsv')).mode & 0o777).toString(8)).toBe('600');
     expect(existsSync(join(state, 'installs.tsv.lock'))).toBe(false);
   }, 30_000);
+
+  test.skipIf(process.platform === 'win32')('known roots skip the checkout\'s own .agents render, through a symlinked path too, but keep a vendored copy (#4835)', () => {
+    const f = makeFixture();
+    const src = makeSource(f, join(f.dir, 'gstack'));
+    expect(spawnSync('git', ['init', '-q', src], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    mkdirSync(join(src, '.agents/skills/gstack'), { recursive: true });
+    symlinkSync(join(src, 'bin'), join(src, '.agents/skills/gstack/bin'));
+    symlinkSync(src, join(f.dir, 'via-link'));
+    const project = join(f.dir, 'proj');
+    mkdirSync(project, { recursive: true });
+    expect(spawnSync('git', ['init', '-q', project], { encoding: 'utf8', timeout: 30_000 }).status).toBe(0);
+    makeSource(f, join(project, '.agents/skills/gstack'));
+    const roots = (cwd: string) => spawnSync('bash', ['-c', `. "${helper}"; gstack_install_known_roots`], { cwd, env: { ...process.env, HOME: f.home }, encoding: 'utf8', timeout: 30_000 });
+    for (const cwd of [src, join(f.dir, 'via-link'), join(src, 'bin')]) {
+      const r = roots(cwd);
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).not.toContain('/.agents/skills/gstack');
+      expect(r.stdout).toContain('claude\tproject\t');
+    }
+    const r = roots(project);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(`codex\tproject\t${project}/.agents/skills\t${project}/.agents/skills/gstack\n`);
+  });
 
   test('a path with a tab is refused instead of corrupting the table', () => {
     const f = makeFixture();
