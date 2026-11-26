@@ -1045,11 +1045,16 @@ _backup_skill_md() {
 # name: line rewritten to NAME, which is how alias and prefixed copies differ),
 # or whose named source is gone, is a customized file: it is moved to the
 # backup root, never deleted, and if the backup fails it stays. Our
-# runtime-asset links go; the user's files stay. BACKUP_NAME (default NAME)
-# names the backup, so copies of one skill on several hosts never collide.
+# runtime-asset links go, dangling ones included, and with SRC_SKILL_MD so do
+# real files byte-identical to the same path beside it (Windows copies); both
+# are also removed one level into each real subdirectory such as sections/
+# (never through a linked one), which goes when left empty (GST-3999). The
+# user's files stay. BACKUP_NAME (default NAME) names the backup, so copies of
+# one skill on several hosts never collide.
 _cleanup_weak_dir() {
-  local d="$1" g="$2" src="${3:-}" name="${4:-${1##*/}}" e dest
+  local d="$1" g="$2" src="${3:-}" name="${4:-${1##*/}}" e dest had_md=0
   local bk="${5:-$name}"
+  { [ -e "$d/SKILL.md" ] || [ -L "$d/SKILL.md" ]; } && had_md=1
   if [ -f "$d/SKILL.md" ] && [ ! -L "$d/SKILL.md" ] && [ -n "$src" ] \
      && { [ ! -f "$src" ] || { ! cmp -s "$d/SKILL.md" "$src" \
      && ! sed "1,/^---\$/ s/^name:[[:space:]].*/name: $name/" "$src" | cmp -s - "$d/SKILL.md"; }; }; then
@@ -1061,12 +1066,19 @@ _cleanup_weak_dir() {
     rm -f "$d/SKILL.md"
   fi
   rm -f "$d/.gstack-owned"
-  for e in "$d"/* "$d"/.[!.]* "$d"/..?*; do
-    [ -L "$e" ] || continue
-    dest="$(_gstack_link_target_abs "$e")" || continue
-    if _gstack_target_is_ours "$dest" "$g"; then rm -f "$e"; fi
+  for e in "$d"/* "$d"/.[!.]* "$d"/..?* "$d"/*/* "$d"/*/.[!.]* "$d"/*/..?*; do
+    [ -L "${e%/*}" ] && continue
+    if [ -L "$e" ]; then
+      dest="$(_gstack_link_target_abs "$e")" || continue
+      if _gstack_target_is_ours "$dest" "$g"; then rm -f "$e"; fi
+    elif [ -f "$e" ] && [ -n "$src" ] && cmp -s "$e" "${src%/*}/${e#"$d"/}"; then
+      rm -f "$e"
+    fi
   done
-  rmdir "$d" 2>/dev/null || echo "  cleaned ${d##*/}/SKILL.md (other files in that directory were left in place)"
+  for e in "$d"/*/ "$d"/.[!.]*/; do
+    [ -L "${e%/}" ] || rmdir "${e%/}" 2>/dev/null || true
+  done
+  rmdir "$d" 2>/dev/null || [ "$had_md" -eq 0 ] || echo "  cleaned ${d##*/}/SKILL.md (other files in that directory were left in place)"
 }
 # _gstack_dir_only_links DIR GSTACK_DIR — true when deleting DIR whole loses
 # nothing of the user's: every entry is a symlink resolving into gstack, or
@@ -1175,6 +1187,12 @@ _prune_stale_generated() {
     _skill_source_exists "$gstack_dir" "$n" && continue
     for host in "$@"; do
       [ -n "$host" ] && { [ -e "$host/$n" ] || [ -L "$host/$n" ]; } || continue
+      # A real dir with no SKILL.md and no marker: an older cleanup stranded
+      # it with only our links left, such as sections/ (GST-3999).
+      if [ -d "$host/$n" ] && [ ! -L "$host/$n" ] && [ ! -e "$host/$n/SKILL.md" ] && [ ! -L "$host/$n/SKILL.md" ] && [ ! -f "$host/$n/.gstack-owned" ]; then
+        _cleanup_weak_dir "$host/$n" "$gstack_dir"
+        continue
+      fi
       _owned_for_windows_refresh "$host/$n" || continue
       if [ -L "$host/$n" ]; then
         # Strong proof only when the link resolves into gstack: the render tree
