@@ -1445,7 +1445,7 @@ fi
 bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(_bun_path "$SOURCE_GSTACK_DIR/scripts/preflight-codex-overlap.ts")" \
   --source "$(_bun_path "$SOURCE_GSTACK_DIR")" --namespace "$(_bun_path "$CODEX_SKILLS")" \
   --selected "$_CODEX_PREFLIGHT_SELECTED" --local "$CODEX_REPO_LOCAL" \
-  --windows "$IS_WINDOWS" --relocation "$HOME/.gstack/repos/gstack" || exit 1
+  --windows "$IS_WINDOWS" --relocation "$(_bun_path "$HOME/.gstack/repos/gstack")" || exit 1
 
 # ─── Resolve skill prefix preference ─────────────────────────
 # Priority: CLI flag > saved config > interactive prompt (or flat default for non-TTY)

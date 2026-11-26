@@ -38,8 +38,9 @@ describe('#4386: setup hands Bun paths it can open under an apostrophe home', ()
     expect(SETUP).toContain('SKILL_ROUTE_BIN="$(_bun_path "$SOURCE_GSTACK_DIR/bin/gstack-skill-route")"');
   });
 
-  test('the Codex preflight gets converted --source and --namespace paths', () => {
+  test('the Codex preflight gets converted --source, --namespace and --relocation paths', () => {
     expect(SETUP).toContain('--source "$(_bun_path "$SOURCE_GSTACK_DIR")" --namespace "$(_bun_path "$CODEX_SKILLS")"');
+    expect(SETUP).toContain('--relocation "$(_bun_path "$HOME/.gstack/repos/gstack")"');
   });
 
   test.skipIf(process.platform === 'win32')('_bun_path leaves a path unchanged off Windows, apostrophe included', () => {
