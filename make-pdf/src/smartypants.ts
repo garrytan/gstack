@@ -79,12 +79,14 @@ const OPENING_CONTEXT_RE = /[\s\(\[\{\-\uff1a\uff08\u3010\u300c\u300e\u3008\u300
  * counts as a word. A run that starts with a quote is transformed behind a
  * one-character prefix that stands for that context; any other run keeps the
  * placeholder's own character before it, so "--flag" at the start of a cell
- * stays as it was. Every rule keeps the character before its match, so the
- * prefix comes back unchanged and is cut.
+ * stays as it was, and a run that ends before a placeholder keeps that
+ * character after it, so "wait --" before a tag does too. No rule changes the
+ * character before or after its match, so both come back unchanged and are cut.
  */
 function transformSegments(s: string, preserved: string[]): string {
   let context = " ";
-  return s.split(PLACEHOLDER_SPLIT_RE).map((part, i) => {
+  const parts = s.split(PLACEHOLDER_SPLIT_RE);
+  return parts.map((part, i) => {
     if (i % 2 === 1) {
       const zone = preserved[parseInt(part.slice("\u0000SMARTPANTS_PRESERVED_".length), 10)] ?? "";
       if (BLOCK_TAG_RE.test(zone)) context = " ";
@@ -93,7 +95,8 @@ function transformSegments(s: string, preserved: string[]): string {
     }
     if (!part) return part;
     const prefix = QUOTE_START_RE.test(part) ? context : i === 0 ? "" : "\u0000";
-    const out = transformText(prefix + part).slice(prefix.length);
+    const suffix = i < parts.length - 1 ? "\u0000" : "";
+    const out = transformText(prefix + part + suffix).slice(prefix.length, suffix ? -1 : undefined);
     context = OPENING_CONTEXT_RE.test(part[part.length - 1]!) ? " " : "x";
     return out;
   }).join("");

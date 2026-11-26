@@ -104,6 +104,11 @@ describe("smartypants", () => {
       .toBe(`<td>--og</td><li>--check</li><p><strong>--resume</strong></p>`);
   });
 
+  test("dashes at the end of a run before a tag keep their dashes", () => {
+    expect(smartypants(`<p>wait --</p><p>run --<code>x</code></p>`))
+      .toBe(`<p>wait --</p><p>run --<code>x</code></p>`);
+  });
+
   test("a quote after an image or an unknown tag still closes", () => {
     expect(smartypants(`<p>"check out <PR link>" today</p>`)).toBe(`<p>\u201ccheck out <PR link>\u201d today</p>`);
     expect(smartypants(`<p>"see <img src="a.png">" here</p>`)).toBe(`<p>\u201csee <img src="a.png">\u201d here</p>`);
