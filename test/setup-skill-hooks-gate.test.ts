@@ -22,6 +22,7 @@ import {
 const setupSrc = fs.readFileSync(path.join(ROOT, 'setup'), 'utf8');
 const settingsHookSrc = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-settings-hook'), 'utf8');
 const gateFn = setupSrc.slice(setupSrc.indexOf('_skill_hook_gate() {'), setupSrc.indexOf('\n}\n', setupSrc.indexOf('_skill_hook_gate() {')) + 3);
+const bunPathFn = setupSrc.slice(setupSrc.indexOf('_bun_path() {'), setupSrc.indexOf('\n}\n', setupSrc.indexOf('_bun_path() {')) + 3);
 const gateTimeoutLine = setupSrc.match(/^SKILL_GATE_HOOK_TIMEOUT=.*$/m)?.[0] ?? 'echo "setup has no SKILL_GATE_HOOK_TIMEOUT line" >&2; exit 9';
 
 let state = '', home = '';
@@ -51,6 +52,7 @@ function gate(mode: string, env: Record<string, string> = {}, noTeam = 0, root =
     'SKILL_ROUTE_BIN="$2/bin/gstack-skill-route"',
     `IS_WINDOWS=0; NO_TEAM_MODE=${noTeam}`,
     'SOURCE_GSTACK_DIR="$2"',
+    bunPathFn,
     gateTimeoutLine,
     gateFn,
     `_skill_hook_gate ${key} "$1" ${GATES[key]}`,
@@ -429,13 +431,13 @@ describe('setup: the autoplan_gate switch (GST-1666) registers Stop, and PreTool
 
 describe('setup: both skill gates register the hook timeout lib/skill-gates.ts derives (GST-1615)', () => {
   test('source: one SKILL_GATE_HOOK_TIMEOUT from gstack-skill-gates hook-timeout, passed to both gates', () => {
-    expect(gateTimeoutLine).toBe('SKILL_GATE_HOOK_TIMEOUT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-skill-gates" hook-timeout 2>/dev/null || true)"');
+    expect(gateTimeoutLine).toBe('SKILL_GATE_HOOK_TIMEOUT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(_bun_path "$SOURCE_GSTACK_DIR/bin/gstack-skill-gates")" hook-timeout 2>/dev/null || true)"');
     expect(setupSrc).toContain('"$CEO_REVIEW_GATE_STOP" gstack-ceo-review-gate "$SKILL_GATE_HOOK_TIMEOUT" \\');
     expect(setupSrc).not.toMatch(/gstack-(ceo-review|autoplan)-gate \d/);
   });
 
   test('the setup line evaluates to HOOK_TIMEOUT_S', () => {
-    const r = spawnSync('bash', ['-c', `SOURCE_GSTACK_DIR="$1"\n${gateTimeoutLine}\nprintf %s "$SKILL_GATE_HOOK_TIMEOUT"`, 'gate', ROOT], { env: { PATH: process.env.PATH ?? '', HOME: home }, encoding: 'utf8', timeout: 30_000 });
+    const r = spawnSync('bash', ['-c', `SOURCE_GSTACK_DIR="$1"\n${bunPathFn}${gateTimeoutLine}\nprintf %s "$SKILL_GATE_HOOK_TIMEOUT"`, 'gate', ROOT], { env: { PATH: process.env.PATH ?? '', HOME: home }, encoding: 'utf8', timeout: 30_000 });
     expect(r.stdout).toBe(String(HOOK_TIMEOUT_S));
   });
 });
