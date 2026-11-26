@@ -18,12 +18,19 @@
  * input in the project's .gstack/tmp/autoplan/, the installed Phase 2 section)
  * must still raise no permission card.
  *
- * The actor stays on Claude Haiku 4.5. It acts out a scripted turn shape the
- * guard depends on and is not a model under test. On Haiku 5.5 (#4630) the actor
- * read the close packet and dispatched Phase 2 before the CEO reviewer's notice
- * arrived, so the notice-turn path never ran: 8 of 8 attempts failed in release
- * gate runs 44952328945, 44955253712 and 44956497475, against 11 of 11 passes on
- * Haiku 4.5 at bisect prefixes up to 79eea6d5 in runs 44954167348 and 44956497475.
+ * The actor is Claude Haiku 5.5. It acts out a scripted turn shape the guard
+ * depends on and is not a model under test, so the wait for the CEO reviewer's
+ * notice is the relay's, not the model's (GST-3441): the relay ends the actor's
+ * turn after the background dispatch until that notice arrives. Without it, Haiku
+ * 5.5 read the close packet and dispatched Phase 2 before the notice, so the
+ * notice-turn path never ran: 8 of 8 attempts failed in release gate runs
+ * 44952328945, 44955253712 and 44956497475 (#4639 pinned Haiku 4.5 meanwhile).
+ *
+ * The relay is a gateway to Claude Code, so auto mode's server-side checks cannot reach the session and the first
+ * reviewer action the local classifier checks waits on the "auto mode classifier billing" notice for Enter. The
+ * reviewer then never finishes and its notice never comes (run gsta796-guard-1). CLAUDE_CODE_AUTO_MODE_SERVER=0 is
+ * the documented setting for a gateway that cannot carry those checks: the same local classifier, with no notice.
+ * https://code.claude.com/docs/en/auto-mode-classifier-billing
  */
 import { expect } from 'bun:test';
 import * as path from 'node:path';
@@ -31,14 +38,14 @@ import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
 import { launchClaudePty, selectPtyNumberedOption } from './helpers/claude-pty-runner';
 import { closePacketReadAfterNotice, guardRunNeedsJournal, prepareGuardSession, startDispatchRelay, stoppedAtPhaseBoundary } from './helpers/autoplan-guard-pty';
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-haiku-5-5';
 
 describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty'], () => {
   testIfSelected('autoplan-guard-pty', async () => {
     if (!process.env.ANTHROPIC_API_KEY) throw new Error('autoplan-guard-pty requires ANTHROPIC_API_KEY; refusing to skip');
     const s = prepareGuardSession(process.env.ANTHROPIC_API_KEY);
     const relay = startDispatchRelay(path.join(s.project, '.gstack', 'tmp', 'autoplan'));
-    const session = await launchClaudePty({ permissionMode: null, model: MODEL, cwd: s.project, env: { ...s.env, ANTHROPIC_BASE_URL: relay.url },
+    const session = await launchClaudePty({ permissionMode: null, model: MODEL, cwd: s.project, env: { ...s.env, ANTHROPIC_BASE_URL: relay.url, CLAUDE_CODE_AUTO_MODE_SERVER: '0' },
       timeoutMs: 540_000, observeScreen: true }).catch(error => { relay.stop(); throw error; });
     const started = performance.now();
     const prompts: string[] = [];
@@ -65,15 +72,19 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
       }
       await Bun.sleep(3_000);
       const log = s.readLog(), evidence = s.noticeEvidence();
-      const summary = { prompts: prompts.length, substituted: relay.substituted, phase1Ms, totalMs: Math.round(performance.now() - started), evidence,
+      const summary = { prompts: prompts.length, substituted: relay.substituted, noticeWaits: relay.noticeWaits, noticeWithLaunch: relay.noticeWithLaunch, phase1Ms, totalMs: Math.round(performance.now() - started), evidence,
         decisions: log.map(e => ({ decision: e.decision, code: e.code, path: e.path, version: e.claude_code_version, ts: e.ts })) };
       console.log(`[autoplan-guard-pty] ${JSON.stringify(summary)}`);
       if (log.length < 4 && stoppedAtPhaseBoundary(session.visibleText())) console.log('[autoplan-guard-pty] PHASE_BOUNDARY_STOP: the actor ended its turn after "Phase 1 complete." instead of going on to step 7');
+      if (!guardRunNeedsJournal(log, prompts.length) && !closePacketReadAfterNotice(evidence.afterNotice))
+        console.log(`[autoplan-guard-pty] journal (no close packet read after the notice):\n${s.journalSummary().join('\n')}`);
       if (guardRunNeedsJournal(log, prompts.length))
         console.log(`[autoplan-guard-pty] journal:\n${s.journalSummary().join('\n')}\n[autoplan-guard-pty] screen:\n${session.visibleText().slice(-2_000)}\n[autoplan-guard-pty] last non-blank screen:\n${session.lastScreen?.() ?? ''}`);
       if (log.some(e => e.code === 'dispatch_prompt')) console.log(`[autoplan-guard-pty] dispatch prompt deltas:\n${s.dispatchPromptDeltas().join('\n')}`);
       for (const prompt of prompts) console.log(`[autoplan-guard-pty] permission card approved:\n${prompt}`);
       expect(log.filter(e => e.decision === 'deny')).toEqual([]);
+      // The relay held the actor until the hand-back, or the hand-back came with the launch result and there was nothing to hold.
+      expect(relay.noticeWaits + relay.noticeWithLaunch).toBeGreaterThan(0);
       // Phase 1 entry, the CEO reviewer dispatch (Cause A: run_in_background sent, stripped from the payload),
       // the Phase 2 transition and the Phase 2 reviewer dispatch: four guarded allows, each verified.
       expect(log.map(e => [e.decision, e.disposition])).toEqual(Array(4).fill(['allow', 'allow']));
