@@ -770,6 +770,11 @@ outside voice is not sliced: it keeps its single embedded diff, cut at the ceili
 with the files it left out named in its brief. A reader at or under the ceiling is
 unchanged, byte for byte.
 
+Each slice is its own subagent, so a stage of several over-ceiling readers can need
+more subagents than the thread may run at once. The Capy pass program queues the
+rest and starts them as slots free; a reader still queued after 20 minutes stops the
+pass with `still queued`, and rerunning the same program resumes from the manifest.
+
 ## What readers may fetch
 
 Every reader brief closes with the fetch rule, before the workspace paragraph:

@@ -308,3 +308,64 @@ describe('a sliced reader is still one reviewer (R51)', () => {
     expect(v.stdout).toContain('VERIFY: clean');
   }, 300_000);
 });
+
+describe.skipIf(!POSIX)('slice guards', () => {
+  const three = () => fixture(Object.fromEntries(['alpha', 'beta', 'gamma'].flatMap(d => Array.from({ length: 6 }, (_, k) => [`${d}/m${k}.ts`, src(`${d}${k}`, 290)]))));
+
+  // Value: protects=stage never renders slice briefs from a plan whose files moved; fails_when=a file added after pass reaches
+  //   no slice brief and the stage renders anyway; why_new=GST-4019 review (slicesMoved had no test); seam=pass, then stage
+  test.skipIf(!POSIX)('stage refuses slice readers whose files changed after pass planned them', () => {
+    const repo = three();
+    const { m, file } = runPassBin(repo);
+    expect(m!.readers.filter(x => x.role === 'adversarial-native' && x.state === 'planned').length).toBe(3);
+    commit(repo, { 'alpha/new.ts': src('new', 10) });
+    const s = runBin(repo, 'gstack-review-dispatch', ['stage', '--manifest', file, '--stage', 'voices']);
+    expect(s.status).not.toBe(EXIT.ok);
+    expect(s.err).toContain('planned its slices');
+    const after = JSON.parse(fs.readFileSync(file, 'utf8')) as Manifest;
+    expect(after.readers.filter(x => x.role === 'adversarial-native' && x.state === 'rendered')).toEqual([]);
+  }, 300_000);
+
+  // Value: protects=the targeted-reader record a receipt reads is done only when every slice was collected, and counts every
+  //   slice's findings; fails_when=a sliced targeted reader records done with a slice uncollected, or findings miss a slice;
+  //   why_new=GST-4019 review (targetedRecord's sliced path had no test); seam=pass, stage voices, collect, verify --targeted-out
+  test.skipIf(!POSIX)('a sliced targeted reader records done only when every slice is collected, with findings summed', () => {
+    const repo = fixture(Object.fromEntries(['billing', 'beta', 'gamma'].flatMap(d => Array.from({ length: 6 }, (_, k) => [`${d}/m${k}.ts`, `export const charge_limit_usd = ${k};\n` + src(`${d}${k}`, 290)]))));
+    const { m, file } = runPassBin(repo);
+    expect(runBin(repo, 'gstack-review-dispatch', ['stage', '--manifest', file, '--stage', 'voices']).status).toBe(EXIT.ok);
+    const staged = JSON.parse(fs.readFileSync(file, 'utf8')) as Manifest;
+    const targeted = staged.readers.filter(x => x.role === 'targeted');
+    expect(targeted.length).toBeGreaterThan(1);
+    expect(targeted.every(x => x.slice && x.state === 'rendered')).toBe(true);
+    const last = targeted.at(-1)!.reader;
+    const tree = `REVIEWED_TREE: ${repo.git('rev-parse', 'HEAD^{tree}')} ${fs.realpathSync(repo.work)}`;
+    const finding = JSON.stringify({ severity: 'INFORMATIONAL', confidence: 6, path: 'billing/m0.ts', line: 1, category: 'money', summary: 'a note' });
+    const send = (x: (typeof targeted)[number], reply: string) => {
+      const role = ['--role', x.role!, ...(x.name ? ['--name', x.name] : []), '--slice', `${x.slice!.index}/${x.slice!.total}`];
+      expect(runBin(repo, 'gstack-review-dispatch', ['sent', '--ledger', staged.ledger, ...role, '--sent', x.file!]).status).toBe(0);
+      const f = path.join(staged.out, `${x.reader.replace(/[^a-z0-9]/gi, '_')}.reply.txt`);
+      fs.writeFileSync(f, `${tree}\nREVIEW_VERDICT: blocking=0\n${reply}\n`);
+      expect(runBin(repo, 'gstack-review-dispatch', ['collect', '--ledger', staged.ledger, ...role, '--output', f, '--merged', staged.merged]).status).toBe(0);
+    };
+    for (const x of targeted.slice(1, -1)) send(x, 'NO FINDINGS');
+    send(targeted[0]!, finding);
+    const record = () => runBin(repo, 'gstack-review-dispatch', ['verify', '--ledger', staged.ledger]).out.match(/^TARGETED_RECORD: .*$/m)?.[0];
+    expect(record()).toContain('status=failed');
+    send(targeted.find(x => x.reader === last)!, finding);
+    expect(record()).toMatch(/status=done findings=2 /);
+  }, 300_000);
+
+  // Value: protects=a malformed --slice is a usage error before any ledger write; fails_when=3/2, 1/9, 0/1 or x is accepted;
+  //   why_new=GST-4019 review (the --slice usage path had no test); seam=gstack-review-dispatch collect and sent
+  test.each(['3/2', '1/9', '0/1', 'x'])('--slice %s is a usage error for collect and sent', s => {
+    const repo = fixture({ 'a.ts': 'export const a = 1;\n' });
+    const ledger = path.join(repo.root, 'ledger.jsonl');
+    for (const cmd of [['collect', '--output', ledger, '--merged', ledger], ['sent', '--sent', ledger]]) {
+      const r = runBin(repo, 'gstack-review-dispatch', [cmd[0]!, '--ledger', ledger, '--role', 'specialist', '--name', 'testing', '--slice', s, ...cmd.slice(1)]);
+      expect(r.status).toBe(EXIT.usage);
+      expect(r.err).toContain('--slice takes');
+    }
+    expect(fs.existsSync(ledger)).toBe(false);
+  });
+});
+
