@@ -1048,11 +1048,12 @@ _backup_skill_md() {
 # runtime-asset links go, dangling ones included, and with SRC_SKILL_MD so do
 # real files byte-identical to the same path beside it (Windows copies); both
 # are also removed one level into each real subdirectory such as sections/
-# (never through a linked one), which goes when left empty (GST-3999). The
-# user's files stay. BACKUP_NAME (default NAME) names the backup, so copies of
-# one skill on several hosts never collide.
+# (never through a linked one), which goes once emptied (GST-3999). The
+# user's files and directories stay, an empty one included. BACKUP_NAME
+# (default NAME) names the backup, so copies of one skill on several hosts
+# never collide.
 _cleanup_weak_dir() {
-  local d="$1" g="$2" src="${3:-}" name="${4:-${1##*/}}" e dest had_md=0
+  local d="$1" g="$2" src="${3:-}" name="${4:-${1##*/}}" e dest had_md=0 swept=0
   local bk="${5:-$name}"
   { [ -e "$d/SKILL.md" ] || [ -L "$d/SKILL.md" ]; } && had_md=1
   if [ -f "$d/SKILL.md" ] && [ ! -L "$d/SKILL.md" ] && [ -n "$src" ] \
@@ -1070,14 +1071,15 @@ _cleanup_weak_dir() {
     [ -L "${e%/*}" ] && continue
     if [ -L "$e" ]; then
       dest="$(_gstack_link_target_abs "$e")" || continue
-      if _gstack_target_is_ours "$dest" "$g"; then rm -f "$e"; fi
-    elif [ -f "$e" ] && [ -n "$src" ] && cmp -s "$e" "${src%/*}/${e#"$d"/}"; then
-      rm -f "$e"
+      _gstack_target_is_ours "$dest" "$g" || continue
+    elif [ ! -f "$e" ] || [ -z "$src" ] || ! cmp -s "$e" "${src%/*}/${e#"$d"/}"; then
+      continue
     fi
+    rm -f "$e"
+    swept=1
+    [ "${e%/*}" = "$d" ] || rmdir "${e%/*}" 2>/dev/null || true
   done
-  for e in "$d"/*/ "$d"/.[!.]*/; do
-    [ -L "${e%/}" ] || rmdir "${e%/}" 2>/dev/null || true
-  done
+  [ "$had_md" -eq 1 ] || [ "$swept" -eq 1 ] || return 0
   rmdir "$d" 2>/dev/null || [ "$had_md" -eq 0 ] || echo "  cleaned ${d##*/}/SKILL.md (other files in that directory were left in place)"
 }
 # _gstack_dir_only_links DIR GSTACK_DIR — true when deleting DIR whole loses

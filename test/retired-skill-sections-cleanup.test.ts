@@ -117,9 +117,12 @@ describe.skipIf(process.platform === 'win32')('gstack-relink: retired and rename
     fs.symlinkSync(notes, path.join(cso, 'sections', 'notes.md'));
     fs.mkdirSync(path.join(cso, 'sections', 'drafts'));
     fs.writeFileSync(path.join(cso, 'sections', 'drafts', 'd.md'), 'draft\n');
+    fs.mkdirSync(path.join(ship, 'empty'));
+    fs.mkdirSync(path.join(skills, 'gstack-cso', 'empty'), { recursive: true });
     const r = relink();
     expect(r.status, r.stderr).toBe(0);
-    expect(fs.readdirSync(ship).sort()).toEqual(['notes.md', 'sections']);
+    expect(fs.readdirSync(path.join(skills, 'gstack-cso'))).toEqual(['empty']);
+    expect(fs.readdirSync(ship).sort()).toEqual(['empty', 'notes.md', 'sections']);
     expect(fs.readdirSync(path.join(ship, 'sections'))).toEqual(['mine.md']);
     expect(fs.readFileSync(path.join(ship, 'notes.md'), 'utf8')).toBe('keep\n');
     expect(fs.readdirSync(path.join(cso, 'sections')).sort()).toEqual(['drafts', 'notes.md']);
@@ -224,9 +227,11 @@ describe.skipIf(process.platform === 'win32')('setup: retired host entries leave
     hostEntry('gstack-cso', false);
     const kept = hostEntry('gstack-investigate', false);
     fs.writeFileSync(path.join(kept, 'sections', 'mine.md'), 'mine\n');
+    fs.mkdirSync(path.join(host, 'gstack-verify', 'empty'), { recursive: true });
     const r = run(`_prune_stale_generated "${src}" "${gen}" "${host}"`);
     expect(r.status, r.stderr).toBe(0);
-    expect(fs.readdirSync(host)).toEqual(['gstack-investigate']);
+    expect(fs.readdirSync(host).sort()).toEqual(['gstack-investigate', 'gstack-verify']);
+    expect(fs.readdirSync(path.join(host, 'gstack-verify'))).toEqual(['empty']);
     expect(fs.readdirSync(path.join(kept, 'sections'))).toEqual(['mine.md']);
   });
 

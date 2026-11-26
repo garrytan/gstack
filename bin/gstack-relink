@@ -263,8 +263,7 @@ _cleanup_skill_entry() {
   # such as the sections/ an older cleanup stranded (1.104.0.0, GST-3999).
   # Those go, and the directory with them when nothing else is left.
   if [ -d "$entry" ] && [ ! -L "$entry" ] && [ ! -e "$entry/SKILL.md" ] && [ ! -L "$entry/SKILL.md" ] && [ ! -f "$entry/.gstack-owned" ]; then
-    _remove_our_assets "$entry"
-    rmdir "$entry" 2>/dev/null || true
+    if _remove_our_assets "$entry"; then rmdir "$entry" 2>/dev/null || true; fi
     return 0
   fi
   if ! _entry_is_ours "$entry" "$skill"; then
@@ -302,7 +301,7 @@ _cleanup_skill_entry() {
         fi
       fi
       rm -f "$entry/SKILL.md" "$entry/.gstack-owned"
-      if [ -n "$skill" ]; then _remove_our_assets "$entry" "$INSTALL_DIR/$skill" "$RENDER_DIR/$skill"; else _remove_our_assets "$entry"; fi
+      if [ -n "$skill" ]; then _remove_our_assets "$entry" "$INSTALL_DIR/$skill" "$RENDER_DIR/$skill" || true; else _remove_our_assets "$entry" || true; fi
       rmdir "$entry" 2>/dev/null || echo "  cleaned ${entry##*/}/SKILL.md (other files in that directory were left in place)"
     fi
   fi
@@ -312,24 +311,28 @@ _cleanup_skill_entry() {
 # skill included, and real files byte-identical to the same path under a
 # SRC_DIR (Windows copies). It also looks one level into each real
 # subdirectory such as sections/, never through a linked one, and removes a
-# subdirectory it leaves empty. The user's own files, links and directories stay.
+# subdirectory it empties. The user's own files, links and directories stay,
+# an empty one included. Returns 0 only when it removed something.
 _remove_our_assets() {
-  local d="$1" e dest s
+  local d="$1" e dest s ours removed=1
   shift
   for e in "$d"/* "$d"/.[!.]* "$d"/..?* "$d"/*/* "$d"/*/.[!.]* "$d"/*/..?*; do
     [ -L "${e%/*}" ] && continue
+    ours=0
     if [ -L "$e" ]; then
       dest="$(_link_target_abs "$e")" || continue
-      if _target_is_ours "$dest"; then rm -f "$e"; fi
+      if _target_is_ours "$dest"; then ours=1; fi
     elif [ -f "$e" ]; then
       for s in "$@"; do
-        if cmp -s "$e" "$s/${e#"$d"/}"; then rm -f "$e"; break; fi
+        if cmp -s "$e" "$s/${e#"$d"/}"; then ours=1; break; fi
       done
     fi
+    [ "$ours" -eq 1 ] || continue
+    rm -f "$e"
+    removed=0
+    [ "${e%/*}" = "$d" ] || rmdir "${e%/*}" 2>/dev/null || true
   done
-  for e in "$d"/*/ "$d"/.[!.]*/; do
-    [ -L "${e%/}" ] || rmdir "${e%/}" 2>/dev/null || true
-  done
+  return "$removed"
 }
 # _dir_only_links DIR — deleting DIR whole loses no real data: every entry is
 # a symlink or our marker.
