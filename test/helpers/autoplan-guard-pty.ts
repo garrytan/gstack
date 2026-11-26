@@ -152,7 +152,48 @@ export function dispatchEventRewriter(artifacts: string, substituted: (phase: Di
   };
 }
 
-export interface DispatchRelay { url: string; substituted: DispatchPhase[]; stop(): void }
+/**
+ * GST-3441: the actor's wait for the CEO reviewer's completion notice is the relay's job, not the model's. A request whose
+ * history holds the actor's CEO-token Agent call, that call's "Async agent launched" result and no notice for that agent
+ * is the actor about to act before the event step 5 waits on (Haiku 5.5 read the close packet there, 8 of 8 release
+ * gate attempts, GSTA-766). The relay answers it with an end_turn message itself, so the notice starts the next turn at any
+ * model speed. Claude Code journals the notice as a task-notification, but the Messages API request carries it as
+ * `<agent-message from="<agentId>">` (2.1.292 and 2.1.326, run gsta796-guard-3); either form releases the wait. Every other
+ * request, the reviewer's own included, goes upstream.
+ */
+export function waitingForNotice(request: any): boolean {
+  const messages: any[] = Array.isArray(request?.messages) ? request.messages : [];
+  const blocks = (m: any): any[] => (Array.isArray(m?.content) ? m.content : typeof m?.content === 'string' ? [{ type: 'text', text: m.content }] : []);
+  const text = (b: any): string => (typeof b?.content === 'string' ? b.content : Array.isArray(b?.content) ? b.content.map((c: any) => text(c)).join('') : typeof b?.text === 'string' ? b.text : '');
+  const call = messages.filter(m => m?.role === 'assistant').flatMap(blocks).find(b => b?.type === 'tool_use' && b.name === 'Agent' && b.input?.prompt === dispatchToken('ceo'));
+  if (!call) return false;
+  const user = messages.filter(m => m?.role === 'user').flatMap(blocks);
+  const launched = user.find(b => b?.type === 'tool_result' && b.tool_use_id === call.id && /^Async agent launched/.test(text(b).trimStart()));
+  if (!launched) return false;
+  const agent = /agentId: ([A-Za-z0-9_-]+)/.exec(text(launched))?.[1];
+  return !user.some(b => {
+    const t = text(b);
+    return (t.includes('<task-notification>') && t.includes(`<tool-use-id>${call.id}</tool-use-id>`)) || (agent !== undefined && t.includes(`<agent-message from="${agent}">`));
+  });
+}
+
+/** The relay's own end_turn reply to a waitingForNotice request, as a Messages API stream or JSON body. */
+export function noticeWaitResponse(request: any): Response {
+  const text = 'Waiting for the CEO review agent\'s completion notification.';
+  const message = { id: 'msg_relay_notice_wait', type: 'message', role: 'assistant', model: request?.model ?? 'relay', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } };
+  if (!request?.stream) return Response.json(message);
+  const frame = (data: Record<string, unknown>) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
+  return new Response([
+    frame({ type: 'message_start', message: { ...message, content: [], stop_reason: null } }),
+    frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+    frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }),
+    frame({ type: 'content_block_stop', index: 0 }),
+    frame({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } }),
+    frame({ type: 'message_stop' }),
+  ].join(''), { headers: { 'content-type': 'text/event-stream' } });
+}
+
+export interface DispatchRelay { url: string; substituted: DispatchPhase[]; noticeWaits: number; stop(): void }
 
 /**
  * A loopback relay to the Messages API for the live case (point ANTHROPIC_BASE_URL at url). Headers pass through and are
@@ -160,6 +201,7 @@ export interface DispatchRelay { url: string; substituted: DispatchPhase[]; stop
  */
 export function startDispatchRelay(artifacts: string, upstream = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'): DispatchRelay {
   const substituted: DispatchPhase[] = [];
+  const relay: DispatchRelay = { url: '', substituted, noticeWaits: 0, stop: () => {} };
   const server = Bun.serve({
     hostname: '127.0.0.1', port: 0, idleTimeout: 0,
     async fetch(req) {
@@ -168,7 +210,9 @@ export function startDispatchRelay(artifacts: string, upstream = process.env.ANT
       headers.set('accept-encoding', 'identity');
       let body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.text();
       if (body && url.pathname.endsWith('/messages')) {
-        try { const request = JSON.parse(body); restoreDispatchTokens(request, artifacts); body = JSON.stringify(request); } catch { /* not JSON: forward as sent */ }
+        let request: any;
+        try { request = JSON.parse(body); restoreDispatchTokens(request, artifacts); body = JSON.stringify(request); } catch { /* not JSON: forward as sent */ }
+        if (waitingForNotice(request)) { relay.noticeWaits++; return noticeWaitResponse(request); }
       }
       const res = await fetch(upstream.replace(/\/+$/, '') + url.pathname + url.search, { method: req.method, headers, body });
       const out = new Headers(res.headers);
@@ -190,7 +234,9 @@ export function startDispatchRelay(artifacts: string, upstream = process.env.ANT
       })), { status: res.status, headers: out });
     },
   });
-  return { url: `http://127.0.0.1:${server.port}`, substituted, stop: () => { server.stop(true); } };
+  relay.url = `http://127.0.0.1:${server.port}`;
+  relay.stop = () => { server.stop(true); };
+  return relay;
 }
 
 export function prepareGuardSession(apiKey: string | undefined): GuardSession {
@@ -262,11 +308,12 @@ console.log(close);
       if (!fs.existsSync(projects)) return ['(no journal)'];
       return fs.readdirSync(projects).flatMap(dir => fs.readdirSync(path.join(projects, dir)).filter(f => f.endsWith('.jsonl'))
         .flatMap(f => fs.readFileSync(path.join(projects, dir, f), 'utf8').split('\n').filter(Boolean).flatMap(line => {
-          const r = JSON.parse(line);
-          return (Array.isArray(r.message?.content) ? r.message.content : []).map((b: any) => b.type === 'tool_use'
+          const r = JSON.parse(line), origin = r.origin?.kind ? `[${r.origin.kind}] ` : '';
+          if (typeof r.message?.content === 'string') return [`${origin}${r.message.role} ${r.message.content.slice(0, 80)}`];
+          return (Array.isArray(r.message?.content) ? r.message.content : []).map((b: any) => origin + (b.type === 'tool_use'
             ? `use ${b.name} ${JSON.stringify(b.input).slice(0, 160)}`
             : b.type === 'tool_result' ? `result${b.is_error ? ' ERROR' : ''} ${JSON.stringify(b.content).slice(0, 240)}`
-            : b.type === 'text' ? `text ${String(b.text).slice(0, 80)}` : b.type);
+            : b.type === 'text' ? `text ${String(b.text).slice(0, 80)}` : b.type));
         })));
     },
     dispatchPromptDeltas: () => {
@@ -290,7 +337,11 @@ console.log(close);
       const rows = (file: string): any[] => fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
       const blocks = (rs: any[], type: string): any[] => rs.flatMap(r => Array.isArray(r.message?.content) ? r.message.content.filter((b: any) => b.type === type) : []);
       const parent = files.filter(f => !f.includes(sub)).flatMap(rows);
-      const notice = parent.findIndex(r => r.origin?.kind === 'task-notification');
+      // Claude Code 2.1.326 starts the actor's next turn on the reviewer's hand-back (`<agent-message from=...>`, run
+      // gsta796-guard-3); its task-notification record may come later, so the earlier of the two marks the notice.
+      const handBack = (r: any): boolean => r.message?.role === 'user' && /<agent-message from="[^"]+">\s*\[Subagent hand-back\]/.test(
+        typeof r.message.content === 'string' ? r.message.content : JSON.stringify(r.message.content ?? ''));
+      const notice = parent.findIndex(r => r.origin?.kind === 'task-notification' || handBack(r));
       const afterNotice = notice < 0 ? [] : blocks(parent.slice(notice), 'tool_use')
         .map(b => `${b.name} ${b.input?.file_path ?? b.input?.command ?? b.input?.description ?? ''}`);
       const reviewerReads = files.filter(f => f.includes(sub)).flatMap(f => {
