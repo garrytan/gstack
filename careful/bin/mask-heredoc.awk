@@ -22,13 +22,17 @@
 # backtick, (( )), <( ), >( ), a line continuation before a body, a pipe, an
 # output redirection to anything but /dev/null or another descriptor, <>, a
 # command named by a path or a variable, or a shell or interpreter name (sh,
-# bash, ssh, xargs, eval, python, node and others) anywhere in any word, as
-# in -c core.editor=bash or --exec 'bash m'.
+# bash, ssh, xargs, eval, python, node, awk, sed, at and others) anywhere in
+# any word, as in -c core.editor=bash or --exec 'bash m', or a glob character
+# in any word. Every command in the line must also start with one of a few
+# plain programs (git, gh, cat, echo, ls, grep and the like), so nothing in it
+# can define a function, alias or hash entry, or change PATH, under a
+# reader's name.
 
 function fail() { failed = 1 }
 function isrunner(b) {
   sub(/.*\//, "", b)
-  if (b ~ /^(source|eval|exec|sh|bash|zsh|dash|ksh|mksh|ash|yash|fish|csh|tcsh|busybox|xargs|ssh|sudo|doas|su|env|nohup|timeout|nice|watch|script|expect|parallel|make|node|nodejs|ruby|perl|php|deno|bun|bunx|npx|tsx|ts-node|npm|pnpm|yarn|uv|uvx|pwsh|powershell|cmd|osascript|tclsh|lua|Rscript)$/) return 1
+  if (b ~ /^(source|eval|exec|sh|bash|zsh|dash|ksh|mksh|ash|yash|fish|csh|tcsh|busybox|xargs|ssh|sudo|doas|su|env|nohup|timeout|nice|watch|script|expect|parallel|make|node|nodejs|ruby|perl|php|deno|bun|bunx|npx|tsx|ts-node|npm|pnpm|yarn|uv|uvx|pwsh|powershell|cmd|osascript|tclsh|lua|Rscript|rbash|lksh|pdksh|oksh|loksh|posh|sh\.distrib|elvish|xonsh|nu|awk|gawk|mawk|nawk|sed|at|batch|crontab|m4|ed|ex|vi|vim|nvim|emacs|gdb|find)$/) return 1
   if (b ~ /^python[0-9.]*$/) return 1
   return 0
 }
@@ -212,6 +216,8 @@ END {
     for (j = 0; j < nw[k]; j++) {
       if (runs(W[k, j])) { printf "%s", s; exit }
       if (j == 0 && (W[k, 0] ~ /[\/$]/ || W[k, 0] ~ /^(\.|command|builtin|coproc|time|trap|alias|function)$/)) { printf "%s", s; exit }
+      if (j == 0 && W[k, 0] !~ /^(git|gh|cat|echo|printf|true|pwd|ls|head|tail|wc|diff|grep)$/) { printf "%s", s; exit }
+      if (W[k, j] ~ /[*?[]/) { printf "%s", s; exit }
     }
   }
   for (h = 1; h <= nh; h++) {

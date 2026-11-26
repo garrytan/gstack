@@ -477,6 +477,17 @@ const HEREDOC_CASES: Array<[string, string, Decision, Tree]> = [
   ['gh with --editor (control)', 'gh pr create --editor --body-file - <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
   ['python resolving os.system through pydoc (control)', 'python3 - <<\'EOF\'\nimport pydoc\npydoc.locate(\'os.sy\' \'stem\')(\"rm -rf ~\")\nEOF', 'deny', 'clean'],
   ['python timeit running a code string (control)', 'python3 - <<\'EOF\'\nimport timeit\ntimeit.timeit(\"import os; os.sy\" \"stem(\'rm -rf src\')\", number=1)\nEOF', 'ask', 'clean'],
+  ['a function named cat runs the body through awk (control)', 'cat() { awk -f /dev/stdin; }; cat <<\'EOF\'\nBEGIN{system(\"rm -rf ~\")}\nEOF', 'deny', 'clean'],
+  ['a function named git runs the body through at (control)', 'git() { at now; }; git commit -F - <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['a function on its own line shadows cat (control)', 'cat() { awk -f /dev/stdin; }\ncat <<\'EOF\'\nBEGIN{system(\"rm -rf ~\")}\nEOF', 'deny', 'clean'],
+  ['hash -p points cat at a globbed shell (control)', 'hash -p /bin/[s]h cat; cat <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['hash -p on its own line (control)', 'hash -p /bin/[s]h cat\ncat <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['hash -p points cat at rbash (control)', 'hash -p /bin/rbash cat; cat <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['hash -p points cat at batch (control)', 'hash -p /usr/bin/batch cat; cat <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['PATH changed before the reader (control)', 'PATH=.:$PATH cat <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['PATH exported before the reader (control)', 'export PATH=.; cat <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['an alias for cat (control)', 'alias cat=bash; cat <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['enable -n cat (control)', 'enable -n cat; cat <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
   ['a SQL client reads the body (control)', 'psql <<\'EOF\'\nDROP TABLE users;\nEOF', 'ask', 'clean'],
   ['cat writes a script that bash runs (control)', 'cat > x.sh <<\'EOF\'\nrm -rf src\nEOF\nbash x.sh', 'ask', 'clean'],
   ['cat writes a file (control)', 'cat > notes.txt <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
@@ -624,7 +635,7 @@ describe('each new rule, with negative controls', () => {
 
   test('a 200 KB commit message from a quoted heredoc is masked well inside the guard hook\'s 8 s timeout', () => {
     const body = Array.from({ length: 4000 }, (_, i) => `- step ${i}: rm -rf build/${i} && git push -f origin main`).join('\n');
-    for (const [command, expected] of [[`git commit -F - <<'EOF'\n${body}\nEOF`, 'allow'], [`git commit -F - <<'EOF'\n${body}\nEOF\nrm -rf src`, 'ask']] as const) {
+    for (const [command, expected] of [[`git commit -F - <<'EOF'\n${body}\nEOF`, 'allow'], [`git commit -F - <<'EOF'\n${body}\nEOF\ngit push -f origin feature`, 'ask']] as const) {
       const started = Date.now();
       expect(decide(command, 'clean').decision).toBe(expected);
       expect(Date.now() - started).toBeLessThan(6000);
