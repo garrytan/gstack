@@ -5,6 +5,12 @@ GSTACK_BUN_CONFIG=/dev/null; case "${OSTYPE:-}" in msys*|cygwin*) if command -v 
 # Native Bun and Git cannot open a /c/x path: keep Git Bash's argument
 # conversion on for everything setup starts, even where a user turned it off (#4386).
 case "${OSTYPE:-}" in msys*|cygwin*) unset MSYS_NO_PATHCONV MSYS2_ARG_CONV_EXCL ;; esac
+# That conversion skips any path holding an apostrophe (C:/Users/O'Brien), so a
+# path handed to Bun goes through _bun_path, which spells it C:/... on Windows (#4386).
+_bun_path() {
+  case "${OSTYPE:-}" in msys*|cygwin*) if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; return; fi ;; esac
+  printf '%s\n' "$1"
+}
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
 # Heredoc delivery guard. bash 5.2+ writes a heredoc body <=64KiB through a
@@ -609,7 +615,7 @@ EOF
   grep -q '	failed	' "$_RF_SUMMARY" && _RF_FAILED=1
   if [ "$HARNESS_AUTO" -eq 1 ] && [ -d "$GSTACK_STATE_ROOT/harness" ]; then
     # Exit 4: every registration refreshed; a start hook this run turned on is not active (printed above).
-    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" refresh || [ "$?" -eq 4 ] || _RF_FAILED=1
+    bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(_bun_path "$SOURCE_GSTACK_DIR/bin/gstack-harness")" refresh || [ "$?" -eq 4 ] || _RF_FAILED=1
   fi
   echo ""
   if [ "$_RF_FAILED" -eq 1 ]; then
@@ -1436,8 +1442,8 @@ if [ "$LOCAL_INSTALL" -eq 0 ]; then
     _CODEX_PREFLIGHT_SELECTED=1
   fi
 fi
-bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/scripts/preflight-codex-overlap.ts" \
-  --source "$SOURCE_GSTACK_DIR" --namespace "$CODEX_SKILLS" \
+bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(_bun_path "$SOURCE_GSTACK_DIR/scripts/preflight-codex-overlap.ts")" \
+  --source "$(_bun_path "$SOURCE_GSTACK_DIR")" --namespace "$(_bun_path "$CODEX_SKILLS")" \
   --selected "$_CODEX_PREFLIGHT_SELECTED" --local "$CODEX_REPO_LOCAL" \
   --windows "$IS_WINDOWS" --relocation "$HOME/.gstack/repos/gstack" || exit 1
 
@@ -2475,7 +2481,7 @@ mkdir -p "$HOME/.gstack/projects"
 # gstack-config harness_start_hook; lib/harness-start-hook.ts). Exit 4 from
 # register means the skills are registered and the start hook is not active.
 # Nothing else in this run applies to them.
-_gstack_harness() { bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-harness" "$@"; }
+_gstack_harness() { bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(_bun_path "$SOURCE_GSTACK_DIR/bin/gstack-harness")" "$@"; }
 if [ -n "$INSTALL_HARNESS" ]; then
   _setup_arm_begin "$INSTALL_HARNESS" global "$INSTALL_HARNESS"
   _HARNESS_RC=0
@@ -4885,7 +4891,7 @@ _skill_hook_gate() {
   local decision src out def unrecognized=0 matcher="${9:-}"
   local -a regs=("$event" "$cmd" "$matcher")
   [ "$#" -gt 9 ] && regs+=("${@:10}")
-  def="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SKILL_ROUTE_BIN" --default "$key" 2>/dev/null || true)"
+  def="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(_bun_path "$SKILL_ROUTE_BIN")" --default "$key" 2>/dev/null || true)"
   [ "$def" = "on" ] || def="off"
   if [ -n "$mode" ]; then
     decision="$mode"; src="flag"
@@ -5043,7 +5049,7 @@ fi
 # gate deadline plus a margin (GST-1615): Claude Code kills a hook at its
 # timeout and lets the stop through unchecked. Empty if bun cannot run, which
 # omits the timeout and leaves Claude Code's default.
-SKILL_GATE_HOOK_TIMEOUT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$SOURCE_GSTACK_DIR/bin/gstack-skill-gates" hook-timeout 2>/dev/null || true)"
+SKILL_GATE_HOOK_TIMEOUT="$(bun --no-env-file --config="${GSTACK_BUN_CONFIG:-/dev/null}" "$(_bun_path "$SOURCE_GSTACK_DIR/bin/gstack-skill-gates")" hook-timeout 2>/dev/null || true)"
 # /investigate and its gate are retired (GST-1717): an earlier setup's
 # registration is removed whatever investigate_gate says, and the KNOWN_HOOKS
 # rows stay so the old entries are still recognized as ours.
