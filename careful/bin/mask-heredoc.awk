@@ -28,6 +28,13 @@
 # plain programs (git, gh, cat, echo, ls, grep and the like), so nothing in it
 # can define a function, alias or hash entry, or change PATH, under a
 # reader's name.
+#
+# Only one whole-command shape is masked: one quoted heredoc, opened on the
+# first line by the reader, which is the last command on that line; before it
+# at most one plain git add joined by &&; no ; | & > ( ) or backtick and no
+# other redirection anywhere outside the body; and nothing after the closing
+# line. So no other command can read the body, the commit message file
+# included, through an alias, an editor, a hook path or a later line.
 
 function fail() { failed = 1 }
 function isrunner(b) {
@@ -130,6 +137,21 @@ function ghbody(k,    j, m, body, w) {
   }
   return body
 }
+# gitadd K — statement K is a plain git [-C dir] add, with add options from a
+# fixed list only (no -c, --config-env, --exec-path, --git-dir, --work-tree).
+function gitadd(k,    j, m, w, dd) {
+  m = nw[k]; j = 1
+  if (W[k, 0] != "git") return 0
+  if (W[k, 1] == "-C") { if (W[k, 2] == "" || W[k, 2] ~ /^-/) return 0; j = 3 }
+  if (W[k, j] != "add") return 0
+  for (j++; j < m; j++) {
+    w = W[k, j]
+    if (dd) continue
+    if (w == "--") dd = 1
+    else if (w ~ /^-/ && w !~ /^(-A|--all|-u|--update|-v|--verbose|-N|--intent-to-add|-f|--force)$/) return 0
+  }
+  return 1
+}
 function textreader(k) {
   if (W[k, 0] == "cat" && (nw[k] == 1 || (nw[k] == 2 && W[k, 1] == "-"))) return 1
   return gitcommit(k) || ghbody(k)
@@ -220,17 +242,18 @@ END {
       if (W[k, j] ~ /[*?[]/) { printf "%s", s; exit }
     }
   }
-  for (h = 1; h <= nh; h++) {
-    k = HS[h]
-    ok[h] = HQ[h] && nhd[k] == 1 && stin[k] == 0 && textreader(k)
-  }
-  out = ""; p = 1
-  for (h = 1; h <= nh; h++) {
-    if (!ok[h]) continue
-    body = substr(s, HB[h], HE[h] - HB[h])
-    gsub(/[^\n]/, "", body)
-    out = out substr(s, p, HB[h] - p) body
-    p = HE[h]
-  }
-  printf "%s", out substr(s, p)
+  if (nh != 1 || !HQ[1]) { printf "%s", s; exit }
+  head = substr(s, 1, HB[1] - 2)
+  e = HE[1]
+  while (e <= n && substr(s, e, 1) != "\n") e++
+  h2 = head
+  gsub(/&&/, "", h2)
+  if (index(head, "\n") || substr(s, e + 1) !~ /^[ \t\n]*$/ || h2 ~ /[;|&>`()]/ || gsub(/</, "<", h2) != 2 || !index(h2, "<<")) { printf "%s", s; exit }
+  m = 0
+  for (k = 1; k < ns; k++) if (nw[k] > 0) L[++m] = k
+  k = HS[1]
+  if (L[m] != k || m > 2 || (m == 2 && !gitadd(L[1])) || nhd[k] != 1 || stin[k] != 0 || !textreader(k)) { printf "%s", s; exit }
+  body = substr(s, HB[1], HE[1] - HB[1])
+  gsub(/[^\n]/, "", body)
+  printf "%s", substr(s, 1, HB[1] - 1) body substr(s, HE[1])
 }
