@@ -1,1 +1,1 @@
-{"blob":"10f92d323fc94589f184ad00fd1228f1372b5470","since":8,"nonBehavioral":"Removes the deleted /cso cases and test file from the paid case and PR-profile lists; no remaining case's selection, trials or verdict changes"}
+{"blob":"28e17c19c0698deaeae35e8fb0c61bf7f5380d14","since":8,"nonBehavioral":"scripts/test-pr-profile.ts lists one more free-only file (careful/bin/mask-heredoc.awk); no paid case reads it, so no verdict can change"}

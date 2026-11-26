@@ -124,8 +124,8 @@ if [ "$_MAYBE_COMMIT" -eq 1 ] && [ -f "$_MASK_AWK" ]; then
 fi
 
 # --- Quoted heredoc bodies (#4843) ---
-# Bash expands nothing in the body of a heredoc with a quoted delimiter
-# (<<'EOF', <<"EOF", <<\EOF), so a body read only as text by git commit -F -,
+# Bash expands nothing in the body of a heredoc whose delimiter is quoted
+# ('EOF', "EOF" or \EOF), so a body read only as text by git commit -F -,
 # gh --body-file - or a bare cat is masked for every check below, as a commit
 # message is. A body that python reads as its program from stdin, and that
 # names no way to start a process, is masked for the shell-statement scan
