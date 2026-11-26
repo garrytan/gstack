@@ -159,7 +159,7 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   "$_CODEX_PROBE" log-event codex_nonzero_exit "$_LABEL:$_CODEX_EXIT"
 fi
 bun --no-env-file --config=/dev/null ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex consult' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPRESP.events" execution "$TMPRESP"
-rm -f "$PROMPT_FILE"
+rm -f "${PROMPT_FILE:?}"
 ```
 
 `VERDICT: unavailable` means Codex did not answer from a working

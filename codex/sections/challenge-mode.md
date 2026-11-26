@@ -113,7 +113,7 @@ if grep -qiE "auth|login|unauthorized" "$TMPERR" 2>/dev/null; then
   "$_CODEX_PROBE" log-event codex_auth_failed
 fi
 bun --no-env-file --config=/dev/null ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex challenge' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPRESP.events" execution "$TMPRESP"
-rm -f "$TMPRESP" "$TMPRESP.events" "$PROMPT_FILE"
+rm -f "$TMPRESP" "$TMPRESP.events" "${PROMPT_FILE:?}"
 ```
 
 `VERDICT: unavailable` means the challenge did not run (its line names why, such as a

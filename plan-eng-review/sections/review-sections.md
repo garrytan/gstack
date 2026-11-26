@@ -966,12 +966,12 @@ THE PLAN:
 
 **If `CODEX_MODE: ready` — run Codex:**
 
-Run this block for `ready`, in the one foreground Bash call described below.
+Run this block for `ready`, in the one foreground Bash call.
 Its opening harness guard rechecks the fresh shell: exit 78 uses the same Native
 fallback below, never a replacement provider. Finish termination before fallback and consume only
-completed output. Use private temporary paths, with no background jobs.
+completed output. No background jobs.
 
-Create a private prompt file: run `umask 077; mktemp "${TMPDIR:-/tmp}/gstack-plan-prompt.XXXXXXXX"` in Bash and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in that file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request severity (Critical, High, Medium or Low) per finding and the prompt's Recommendation and VERDICT lines.
+Create a private prompt file: run `[ ! -L .gstack -a ! -L .gstack/tmp ] && mkdir -p -m700 .gstack/tmp && mktemp "$PWD/.gstack/tmp/gstack-plan-prompt.XXXXXX"` and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in it. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request severity (Critical, High, Medium or Low) per finding and the prompt's Recommendation and VERDICT lines.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -1010,7 +1010,7 @@ esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation: <action> because <reason> markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation: <action> because <reason> markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, run `rm -- '<prepared-prompt-file>'`; scratch cleanup is automatic.
 
 Present the full output verbatim:
 

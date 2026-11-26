@@ -5,6 +5,10 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+// The plan skills' own prompt-file command (#4842): it creates the prompt in the project's .gstack/tmp/.
+const PROMPT_CREATE = [...fs.readFileSync(path.join(ROOT, 'plan-ceo-review/sections/review-sections.md'), 'utf8')
+  .matchAll(/`([^`\n]+)`/g)].map(m => m[1]).filter(s => s.includes('gstack-plan-prompt'));
+if (PROMPT_CREATE.length !== 1) throw Error('expected one plan prompt-file command, found ' + PROMPT_CREATE.length);
 const ORIGINAL_PLAN = `# Test Plan: add /greet skill
 
 ## Context
@@ -175,13 +179,13 @@ mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/session-runner.ts'))}
     if (scenario === 'temp' || scenario === 'temp-retry') {
       const {hermeticChildEnv, getHermeticDirs} = await import(${JSON.stringify(path.join(ROOT, 'test/helpers/hermetic-env.ts'))});
       // Same final environment merge as session-runner. The original cf74
-      // command created its file in inherited shard TMPDIR, beside both roots.
+      // command created its file in inherited shard TMPDIR, beside both roots;
+      // the generated command now creates it inside the project (#4842).
       const env = hermeticChildEnv({GSTACK_HEADLESS: '1', ...opts.env});
       const defaults = getHermeticDirs();
       const cleanupFiles = [];
       try {
-        const command = 'umask 077; mktemp "$' + '{TMPDIR:-/tmp}/gstack-plan-prompt.XXXXXXXX"';
-        const made = spawnSync('bash', ['-c', command], {cwd, env, encoding: 'utf8', timeout: 5000});
+        const made = spawnSync('bash', ['-c', ${JSON.stringify(PROMPT_CREATE[0])}], {cwd, env, encoding: 'utf8', timeout: 5000});
         if (made.error || made.status !== 0) throw Error('Actual prompt mktemp failed: ' + made.stderr);
         const prompt = made.stdout.trim();
         const freeRoot = fs.realpathSync(${JSON.stringify(directory)});
@@ -277,7 +281,7 @@ await import(${JSON.stringify(path.join(ROOT, 'test/skill-e2e-autoplan-dual-voic
           const temp = attempt.temp;
           const expected = path.join(attempt.env.HOME, 'tmp');
           expect(temp.env).toEqual({TMPDIR: expected, TEMP: expected, TMP: expected});
-          expect(path.dirname(temp.prompt)).toBe(expected);
+          expect(path.dirname(temp.prompt)).toBe(path.join(attempt.cwd, '.gstack', 'tmp'));
           expect(temp.directoryMode).toBe(0o700);
           expect(temp.promptMode).toBe(0o600);
           expect(temp.owned.claudeVoiceFired).toBe(true);
