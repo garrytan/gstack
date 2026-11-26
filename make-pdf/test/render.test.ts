@@ -612,6 +612,9 @@ describe("sanitizeUntrustedHtml — handlers and javascript: links in any spelli
   test("a later attribute is checked even when an earlier quote pairs with it", () => {
     const out = sanitizeUntrustedHtml(`<p title=' href='>x</p><a href='java&#9;script:alert(1)'>j</a>`);
     expect(liveScript(out)).toEqual([]);
+    for (const v of ["&#106;avascript:alert(1)", "java&Tab;script:alert(1)"]) {
+      expect(liveScript(sanitizeUntrustedHtml(`<a title='x href='href=${v}>b</a>`))).toEqual([]);
+    }
   });
 
   test("ordinary links are untouched", () => {

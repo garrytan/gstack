@@ -405,7 +405,7 @@ function sanitizePass(html: string): string {
   // that really closes an earlier attribute can't hide a later value, and no
   // quote is added or removed. A value longer than the window that is still
   // nothing but padding and the start of "javascript:" counts as one.
-  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*)(["']?)/gi,
+  s = s.replace(/(?<=[\s/"'])(\s*(?:href|src|action|formaction|xlink:href)\s*=\s*)(["']?)/gi,
     (m, pre, q, offset: number, str: string) => {
       const start = offset + m.length;
       let end = q ? str.indexOf(q, start) : str.slice(start, start + 2048).search(/[\s>]/);
