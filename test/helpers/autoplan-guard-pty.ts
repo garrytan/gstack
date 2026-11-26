@@ -193,7 +193,14 @@ export function noticeWaitResponse(request: any): Response {
   ].join(''), { headers: { 'content-type': 'text/event-stream' } });
 }
 
-export interface DispatchRelay { url: string; substituted: DispatchPhase[]; noticeWaits: number; stop(): void }
+/** The CEO reviewer's hand-back reached the actor in the same request as its launch result, so there was nothing to hold. */
+export function noticeWithLaunch(request: any): boolean {
+  const last = Array.isArray(request?.messages) ? request.messages.at(-1) : undefined;
+  return last?.role === 'user' && !waitingForNotice(request) && !waitingForNotice({ ...request, messages: request.messages.slice(0, -1) }) && waitingForNotice({ ...request, messages: [...request.messages.slice(0, -1),
+    { ...last, content: (Array.isArray(last.content) ? last.content : []).filter((b: any) => b?.type === 'tool_result') }] });
+}
+
+export interface DispatchRelay { url: string; substituted: DispatchPhase[]; noticeWaits: number; noticeWithLaunch: number; stop(): void }
 
 /**
  * A loopback relay to the Messages API for the live case (point ANTHROPIC_BASE_URL at url). Headers pass through and are
@@ -201,7 +208,7 @@ export interface DispatchRelay { url: string; substituted: DispatchPhase[]; noti
  */
 export function startDispatchRelay(artifacts: string, upstream = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'): DispatchRelay {
   const substituted: DispatchPhase[] = [];
-  const relay: DispatchRelay = { url: '', substituted, noticeWaits: 0, stop: () => {} };
+  const relay: DispatchRelay = { url: '', substituted, noticeWaits: 0, noticeWithLaunch: 0, stop: () => {} };
   const server = Bun.serve({
     hostname: '127.0.0.1', port: 0, idleTimeout: 0,
     async fetch(req) {
@@ -213,6 +220,7 @@ export function startDispatchRelay(artifacts: string, upstream = process.env.ANT
         let request: any;
         try { request = JSON.parse(body); restoreDispatchTokens(request, artifacts); body = JSON.stringify(request); } catch { /* not JSON: forward as sent */ }
         if (waitingForNotice(request)) { relay.noticeWaits++; return noticeWaitResponse(request); }
+        if (noticeWithLaunch(request)) relay.noticeWithLaunch++;
       }
       const res = await fetch(upstream.replace(/\/+$/, '') + url.pathname + url.search, { method: req.method, headers, body });
       const out = new Headers(res.headers);
@@ -339,8 +347,8 @@ console.log(close);
       const parent = files.filter(f => !f.includes(sub)).flatMap(rows);
       // Claude Code 2.1.326 starts the actor's next turn on the reviewer's hand-back (`<agent-message from=...>`, run
       // gsta796-guard-3); its task-notification record may come later, so the earlier of the two marks the notice.
-      const handBack = (r: any): boolean => r.message?.role === 'user' && /<agent-message from="[^"]+">\s*\[Subagent hand-back\]/.test(
-        typeof r.message.content === 'string' ? r.message.content : JSON.stringify(r.message.content ?? ''));
+      const text = (c: any): string => typeof c === 'string' ? c : Array.isArray(c) ? c.map(b => text(b?.text ?? b?.content ?? '')).join('\n') : '';
+      const handBack = (r: any): boolean => r.message?.role === 'user' && /<agent-message from="[^"]+">\s*\[Subagent hand-back\]/.test(text(r.message.content));
       const notice = parent.findIndex(r => r.origin?.kind === 'task-notification' || handBack(r));
       const afterNotice = notice < 0 ? [] : blocks(parent.slice(notice), 'tool_use')
         .map(b => `${b.name} ${b.input?.file_path ?? b.input?.command ?? b.input?.description ?? ''}`);

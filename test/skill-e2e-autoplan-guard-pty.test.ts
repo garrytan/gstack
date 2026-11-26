@@ -72,7 +72,7 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
       }
       await Bun.sleep(3_000);
       const log = s.readLog(), evidence = s.noticeEvidence();
-      const summary = { prompts: prompts.length, substituted: relay.substituted, noticeWaits: relay.noticeWaits, phase1Ms, totalMs: Math.round(performance.now() - started), evidence,
+      const summary = { prompts: prompts.length, substituted: relay.substituted, noticeWaits: relay.noticeWaits, noticeWithLaunch: relay.noticeWithLaunch, phase1Ms, totalMs: Math.round(performance.now() - started), evidence,
         decisions: log.map(e => ({ decision: e.decision, code: e.code, path: e.path, version: e.claude_code_version, ts: e.ts })) };
       console.log(`[autoplan-guard-pty] ${JSON.stringify(summary)}`);
       if (log.length < 4 && stoppedAtPhaseBoundary(session.visibleText())) console.log('[autoplan-guard-pty] PHASE_BOUNDARY_STOP: the actor ended its turn after "Phase 1 complete." instead of going on to step 7');
@@ -83,7 +83,8 @@ describeIfSelected('autoplan publication guard live PTY', ['autoplan-guard-pty']
       if (log.some(e => e.code === 'dispatch_prompt')) console.log(`[autoplan-guard-pty] dispatch prompt deltas:\n${s.dispatchPromptDeltas().join('\n')}`);
       for (const prompt of prompts) console.log(`[autoplan-guard-pty] permission card approved:\n${prompt}`);
       expect(log.filter(e => e.decision === 'deny')).toEqual([]);
-      expect(relay.noticeWaits).toBeGreaterThan(0);
+      // The relay held the actor until the hand-back, or the hand-back came with the launch result and there was nothing to hold.
+      expect(relay.noticeWaits + relay.noticeWithLaunch).toBeGreaterThan(0);
       // Phase 1 entry, the CEO reviewer dispatch (Cause A: run_in_background sent, stripped from the payload),
       // the Phase 2 transition and the Phase 2 reviewer dispatch: four guarded allows, each verified.
       expect(log.map(e => [e.decision, e.disposition])).toEqual(Array(4).fill(['allow', 'allow']));

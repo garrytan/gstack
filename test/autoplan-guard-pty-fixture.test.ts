@@ -205,13 +205,34 @@ test('the relay ends the actor\'s turn after the background CEO dispatch until t
     const waiting = { role: 'assistant', content: [{ type: 'text', text: 'Waiting.' }] };
     expect((await (await send([call, launched, waiting, handBack('a2')])).json() as any).id).toBe('msg_relay_notice_wait');
     expect((await (await send([call, launched, waiting, handBack('a1')])).json() as any).content[0].text).toBe('upstream');
+    // A hand-back batched into the launch result's own request releases at once and is counted, not held.
+    expect(relay.noticeWithLaunch).toBe(0);
+    const batched = { role: 'user', content: [...launched.content, ...handBack('a1').content] };
+    expect((await (await send([call, batched])).json() as any).content[0].text).toBe('upstream');
+    expect(relay.noticeWithLaunch).toBe(1);
     // The reviewer's own requests, whose dispatch is user text, and the Design dispatch's turn always go upstream.
     expect((await (await send([{ role: 'user', content: exact }])).json() as any).content[0].text).toBe('upstream');
     const design = { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_design', name: 'Agent', input: { prompt: dispatchToken('design') } }] };
     expect((await (await send([design, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_design', content: 'Async agent launched successfully.' }] }])).json() as any).content[0].text).toBe('upstream');
-    expect(seen).toHaveLength(5);
+    expect(seen).toHaveLength(6);
     expect(relay.noticeWaits).toBe(4);
   } finally { relay.stop(); upstream.stop(true); fs.rmSync(artifacts, { recursive: true, force: true }); }
+});
+
+// /ship second-model review on PR #4846: the journal stores the hand-back as text blocks, so the reader must not regex the JSON.
+test('the journal reader starts the notice turn at a hand-back stored as text blocks, ahead of a later task-notification record', () => {
+  const s = prepareGuardSession(undefined);
+  try {
+    const dir = path.join(s.home, '.claude', 'projects', 'p');
+    fs.mkdirSync(dir, { recursive: true });
+    const row = (message: unknown, origin?: string) => JSON.stringify({ message, ...(origin ? { origin: { kind: origin } } : {}) });
+    fs.writeFileSync(path.join(dir, 's.jsonl'), [
+      row({ role: 'user', content: [{ type: 'text', text: 'Another Claude session sent a message:\n<agent-message from="a1">\n[Subagent hand-back] The report follows:' }] }),
+      row({ role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/x/close-packet.md' } }] }),
+      row({ role: 'user', content: '<task-notification>\n<tool-use-id>toolu_ceo</tool-use-id>\n</task-notification>' }, 'task-notification'),
+    ].join('\n') + '\n');
+    expect(s.noticeEvidence().afterNotice).toEqual(['Read /x/close-packet.md']);
+  } finally { s.cleanup(); }
 });
 
 // /ship outside voice on PR #3953: a CRLF stream whose \r and \n land in separate chunks kept the token unsubstituted.
