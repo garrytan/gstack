@@ -21,7 +21,9 @@ import { checkReviewedTree, isReviewedTreeLine, promptHash, type TreeCheck } fro
 import { parseVerdict, withoutVerdictLines } from './review-verdict';
 
 export interface LedgerEvent { event: 'rendered' | 'sent' | 'output' | 'judgment' | 'judge' | 'program' | 'quarantined' | 'fetch-sweep'; [k: string]: unknown }
-export const readerKey = (role: string, name?: string) => (name ? `${role}/${name}` : role);
+export const readerKey = (role: string, name?: string, slice?: { index: number; total: number }) => `${name ? `${role}/${name}` : role}${slice ? `#${slice.index}/${slice.total}` : ''}`;
+/** A reader key's role: its first segment before a name (`/`) or a slice of an over-ceiling diff (`#i/k`, lib/review-slices.ts). */
+export const roleOf = (reader: string) => reader.split(/[/#]/)[0]!;
 
 export function appendEvent(ledger: string, e: LedgerEvent): void {
   fs.appendFileSync(ledger, JSON.stringify({ ...e, at: new Date().toISOString() }) + '\n', { mode: 0o600 });
@@ -102,7 +104,7 @@ const BLOCKS_FIELD = /(?<![A-Za-z0-9])Blocks\**\s*:\s*\**\s*(yes|no)(?![A-Za-z0-
 /** A native voice's finding whose reader stated `Blocks: no` and one Severity (GST-1031 ruling A): lead judgment may lower it to that Severity, never below, on record with a reason (GST-1406). */
 const statedLowering = (reader: string, raw: string, to: number) => {
   const ls = [...raw.matchAll(SEVERITY_FIELD)].flatMap(m => (m[1] ?? m[2]!).match(FIELD_LABELS)!);
-  return reader.split('/')[0] === 'adversarial-native' && statesNoBlocks(raw) && ls.length === 1 && to >= (rank(ls[0]!) || Infinity);
+  return roleOf(reader) === 'adversarial-native' && statesNoBlocks(raw) && ls.length === 1 && to >= (rank(ls[0]!) || Infinity);
 };
 export const statesNoBlocks = (raw: string) => { if (raw.startsWith('{') || BLOCKS_YES.test(raw)) return false; const said = [...raw.matchAll(BLOCKS_FIELD)].map(m => m[1]!.toLowerCase()); return said.length > 0 && !said.includes('yes'); };
 /**
@@ -214,7 +216,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
   let gap = false;
   let prev = '';
   let treeSeen = false;
-  const role = reader.split('/')[0];
+  const role = roleOf(reader);
   const named = (l: string) => (role === 'adversarial-native' && l.toUpperCase() === 'FIXABLE' ? 'CRITICAL' : l);
   const strongestOf = (labels: Array<string | undefined>) => labels.reduce<string | undefined>((a, b) => (a === undefined ? b : b === undefined ? a : stronger(a, b)), undefined);
   const strongest = (t: string) => strongestOf([...t.matchAll(ALL_LABELS)].map(m => named(m[1]!)));
@@ -407,7 +409,7 @@ const CLEAN_MARKERS: Record<string, Array<[string, RegExp]>> = {
   'adversarial-native': [NO_FINDINGS, RECOMMENDATION], 'outside-voice': [RECOMMENDATION],
 };
 /** The markers a reader's zero-finding reply may carry; a role outside the brief roles takes either. */
-export const cleanMarkers = (reader: string) => CLEAN_MARKERS[reader.split('/')[0]!] ?? [NO_FINDINGS, RECOMMENDATION];
+export const cleanMarkers = (reader: string) => CLEAN_MARKERS[roleOf(reader)] ?? [NO_FINDINGS, RECOMMENDATION];
 const hasCleanMarker = (reader: string, output: string) => output.replace(/\r\n/g, '\n').split('\n').some(l => cleanMarkers(reader).some(([, re]) => re.test(l.trim())));
 
 /**
@@ -434,7 +436,7 @@ export function collect(ledger: string, reader: string, output: string, mergedFi
   return { sha, lines, review, ...('verdict' in reply && reply.verdict ? { verdict: reply.verdict } : {}) };
 }
 /** The outside voice may fail without blocking (ship/sections/adversarial.md): its failure is recorded as unavailable coverage, never as a review. */
-export const mayBeUnavailable = (reader: string) => reader.split('/')[0] === 'outside-voice';
+export const mayBeUnavailable = (reader: string) => roleOf(reader) === 'outside-voice';
 const unavailableOutput = (o: LedgerEvent) => typeof o.unavailable === 'string' && mayBeUnavailable(String(o.reader));
 
 export function readJsonl<T>(file: string): T[] {
@@ -581,7 +583,7 @@ const collectedIds = (events: LedgerEvent[]) => {
   return events.filter(e => e.event === 'output').flatMap(idsOf).filter(id => !gone.has(id));
 };
 
-export interface VerifyRow { kind: 'BRIEF' | 'OUTPUT' | 'JUDGE' | 'FETCH' | 'VERDICT'; reader: string; status: string; detail: string }
+export interface VerifyRow { kind: 'BRIEF' | 'OUTPUT' | 'JUDGE' | 'FETCH' | 'VERDICT' | 'SLICE'; reader: string; status: string; detail: string }
 
 /** Replay every check from a finished run's ledger: briefs dispatched as rendered, outputs merged as returned, judgment without loss. */
 export function verify(ledger: string): { rows: VerifyRow[]; clean: boolean; briefs: number; voided: number; unavailable: number; verdicts: { asked: number; agree: number } } {

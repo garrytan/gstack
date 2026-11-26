@@ -4075,11 +4075,17 @@ of the base can cause that: fetch its history and rerun write).
 ### `REVIEW_DIFF_TOO_LARGE`
 
 **Meaning.** One reviewer's diff is over the 2,000,000-byte review ceiling
-(about 500K tokens). `gstack-review-dispatch pass`, `stage` and `render` read
-each reader's diff once before writing anything, and stop (exit 3, nothing
-written) rather than hand a reader more than it can read. The line names the
-reader, its bytes, the five largest top-level folders (`top=<dir>:<bytes>`) and
-the base policy commit.
+(about 500K tokens) and could not be reviewed in slices. `gstack-review-dispatch
+pass` splits a bigger diff into up to 8 slice readers
+([review slices](review-policy.md#review-ceiling)); this stop means one file is
+over the ceiling by itself (`slices=refused(file=<path>:<bytes>)`), the diff needs
+more than 8 slices (`slices=refused(needs=<n> cap=8)`), a slice's paths are past the
+command-line budget, the diff grew after the pass planned its readers, or a
+standalone `render` was asked for a reader the pass would slice (`slices=fits=<n>`:
+run it through the pass manifest). `pass`, `stage` and `render` read each reader's
+diff once before writing anything, and stop (exit 3, nothing written) rather than
+hand a reader more than it can read. The line names the reader, its bytes, the
+five largest top-level folders (`top=<dir>:<bytes>`) and the base policy commit.
 
 **Fix.** The line prints the fix for where the base policy stands:
 

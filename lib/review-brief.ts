@@ -138,13 +138,29 @@ export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): str
   const keys = ['findings', 'learnings'].filter(k => slots[k]?.trim());
   const held: Slots = { ...slots };
   for (const k of keys) held[k] = `\u0000${nonce}:${k}\u0000`;
-  const rendered = renderRole(role, held, t);
+  const rendered = slots.slice ? withSlice(role, renderRole(role, held, t), slots) : renderRole(role, held, t);
   const keep = slots.keep ? ` Read the files kept despite a match as well: \`git diff ${slots.diff_base} -- ${slots.keep}\`.` : '';
   const excerpt = slots.excerpt_file ? ` ${need(slots, 'excerpt_files')} kept files are in review only for a changed line that reads a credential or a changed line the gate scan tagged in a data file, so no git diff command above shows them: read every such line, with context, in the file ${slots.excerpt_file} (${need(slots, 'excerpt_bytes')} bytes, sha256 ${need(slots, 'excerpt_sha256')}).` : '';
   const text = slots.disclosure && role !== 'fix-check' && role !== 'outside-voice' ? `${rendered}\n\n${slots.disclosure}${keep}${excerpt}` : rendered;
   const left = role === 'fix-check' || role === 'outside-voice' ? [] : PLACEHOLDERS.filter(p => text.includes(p));
   if (left.length) throw new BriefError(`${role}: unfilled placeholder ${left.join(', ')}`);
   return keys.reduce((out, k) => out.split(held[k]!).join(slots[k]!.trim()), text);
+}
+
+/**
+ * A slice reader's role text (lib/review-slices.ts): every git diff command reads only the slice's paths, and a closing
+ * paragraph says which slice this is. A command the rewrite cannot reach (a section that changed) fails the render.
+ */
+function withSlice(role: BriefRole, text: string, slots: Slots): string {
+  const items = need(slots, 'slice_items');
+  const [index, total] = need(slots, 'slice').split('/');
+  const out = text.split('"$DIFF_BASE" -- . ').join(`"$DIFF_BASE" -- ${items} `)
+    .split(`"$DIFF_BASE" -- '*test*' '*fixture*' '*.spec.*'`).join(`"$DIFF_BASE" -- ${items}`)
+    .split('"$DIFF_BASE"`').join(`"$DIFF_BASE" -- ${items}\``);
+  const commands = [...out.matchAll(/git diff\b[^`]*/g)].map(m => m[0]);
+  const loose = commands.filter(c => !c.includes(` -- ${items}`));
+  if (!commands.length || loose.length) throw new BriefError(`${role} slice ${index}/${total}: a git diff command in the brief does not read the slice's paths (${JSON.stringify((loose[0] ?? 'none').slice(0, 120))}); update withSlice in lib/review-brief.ts`);
+  return `${out}\n\nThis review is slice ${index} of ${total}. The branch's diff is over the review ceiling, so ${total} readers review it in parts that share no file: every git diff command in this brief reads only this slice's ${need(slots, 'slice_files')} files (${need(slots, 'slice_bytes')} bytes), and the other slices' readers review the rest. Review this slice in full. Read any file in the checkout for context, but report only on changes in this slice.`;
 }
 
 function renderRole(role: BriefRole, slots: Slots, t: SectionTexts): string {
@@ -284,6 +300,6 @@ export function checkReviewedTree(output: string, expected: string | null): Tree
 }
 
 /** The file a rendered brief is written to under the run's briefs directory. */
-export function briefFile(role: BriefRole, name?: string): string {
-  return `${role}${name ? `-${name.replace(/[^a-zA-Z0-9._-]/g, '_')}` : ''}.prompt.md`;
+export function briefFile(role: BriefRole, name?: string, slice?: { index: number; total: number }): string {
+  return `${role}${name ? `-${name.replace(/[^a-zA-Z0-9._-]/g, '_')}` : ''}${slice ? `-slice${slice.index}of${slice.total}` : ''}.prompt.md`;
 }

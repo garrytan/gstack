@@ -23,7 +23,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, sliceDiff, sliceNote, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
-import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseReply, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerdictCheck, type VerifyRow } from '../lib/review-ledger';
+import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseReply, readJsonl, readLedger, readerKey, recordJudgment, recordSent, roleOf, appendEvent, verify, type JudgedLine, type MergedLine, type VerdictCheck, type VerifyRow } from '../lib/review-ledger';
+import { SLICE_CAP, listSha, planNote, planSlices, selectionNames, sliceMembers, sliceOf, sliceSelection, verifySlices } from '../lib/review-slices';
 import { buildManifest, checklistFile, chunkCount, chunkOf, manifestPath, markReader, planCyberRetry, readManifest, renderStage, withAuditModel, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import { classifyOutsideReview } from '../lib/outside-review-result';
 import { gateOutcomeLine } from '../lib/gate-outcomes';
@@ -37,7 +38,7 @@ import { resolveBaseBranch } from '../lib/ship-policy';
 import { auditVerdict, eventsDigest, loadReaders, readersLine, scanEvents, type ToolEvent } from '../lib/review-fetch';
 import { effectiveReaders, READERS_POLICY_DEFAULT, type EffectiveReaders } from '../lib/ship-policy-readers';
 import { defaultRoots, foundLines, ignoredLines, inventory, quarantineStage, rerunBlocked, sweepResult, type Inventory } from '../lib/review-sweep';
-import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff } from '../lib/review-exclude';
+import { REVIEW_DIFF_MAX_BYTES, ceilingContext, disclosureDigest, disclosureLine, parseTail, readSelection, tooLargeLine, unreadableLine, type PlanExclude, type ReaderDiff, type SliceNote } from '../lib/review-exclude';
 import { logShipCall } from '../lib/ship-call-log';
 
 logShipCall('gstack-review-dispatch');
@@ -324,7 +325,51 @@ function ceiling(context: string, base: string, outDir: string, readers: Readonl
     const at = r.diff_base ?? diffBase;
     const d = selectionOf(at, r.exclude, r.keep, r.excerpt);
     if (!d.ok) return { exit: EXIT.fail, line: unreadableLine(context, r.reader, d, at, base, outDir) };
-    if (d.bytes > REVIEW_DIFF_MAX_BYTES && r.role !== 'outside-voice') return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known)).line };
+    if (d.bytes > REVIEW_DIFF_MAX_BYTES && r.role !== 'outside-voice') return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known), unsliced(context, d)).line };
+  }
+  return null;
+}
+
+/** Why a reader the ceiling stops was not reviewed in slices: only pass plans them, and a stage refuses a diff that grew after. */
+function unsliced(context: string, d: Extract<ReaderDiff, { ok: true }>): SliceNote {
+  const plan = planSlices(d.units ?? []);
+  if (!plan.ok) return planNote(plan);
+  return { field: `fits=${plan.slices.length}`, fix: context.endsWith(' render')
+    ? `this reader's diff fits ${plan.slices.length} slices, which only gstack-review-dispatch pass stages (Step 11's voices: pass --voices): run it through the pass manifest instead of a standalone render`
+    : `this reader's diff grew past the ceiling after its pass planned its readers: start a fresh pass under a new --pass and --out, which reviews it in ${plan.slices.length} slices` };
+}
+
+/**
+ * Each reader over the review ceiling becomes slice readers R#1/k..R#k/k in place (lib/review-slices.ts), before the ceiling
+ * check; one that cannot be sliced stops the pass with REVIEW_DIFF_TOO_LARGE and the reason. The outside voice keeps its own
+ * cut diff and a fix-check reads named hunks, so neither is sliced; a reader at or under the ceiling is untouched.
+ */
+function sliceManifest(context: string, base: string, m: Manifest, known: PlanExclude | undefined): { exit: number; line: string } | null {
+  const readers: PassReader[] = [];
+  for (const r of m.readers) {
+    const at = r.diff_base ?? m.diff_base;
+    const d = r.prompt_file || r.role === 'outside-voice' || r.role === 'fix-check' ? null : selectionOf(at, r.exclude, r.keep, r.excerpt);
+    if (!d?.ok || d.bytes <= REVIEW_DIFF_MAX_BYTES) { readers.push(r); continue; }
+    const plan = planSlices(d.units ?? []);
+    const s = plan.ok ? sliceSelection(checkoutRoot(), at, r, plan.slices) : null;
+    if (!s?.ok) return { exit: EXIT.refused, line: tooLargeLine(context, r.reader, d, ceilingContext(process.cwd(), base, known), plan.ok ? (s as Extract<typeof s, { ok: false }>).note : planNote(plan as Extract<typeof plan, { ok: false }>)).line };
+    for (const x of s.slices) {
+      const { keep: _k, excerpt: _x, ...rest } = r;
+      readers.push({ ...rest, reader: `${r.reader}#${x.index}/${x.total}`, title: `${r.title}#${x.index}/${x.total}`, exclude: x.exclude, ...(x.keep.length ? { keep: [...x.keep] } : {}), ...(x.excerpt.length ? { excerpt: [...x.excerpt] } : {}), slice: x });
+    }
+  }
+  m.readers = readers;
+  return null;
+}
+
+/** A pending slice reader whose files moved since pass planned it: its slice no longer partitions the reader's selection. */
+function slicesMoved(readers: readonly PassReader[]): string | null {
+  const kept = new Map<string, boolean>();
+  for (const r of readers.filter(x => x.slice)) {
+    const s = r.slice!;
+    const same = (sel: Parameters<typeof selectionNames>[3], sha: string) => { const n = selectionNames(checkoutRoot(), s.diff_base, undefined, sel); return n.ok && listSha(n.names) === sha; };
+    if (!kept.has(s.of)) kept.set(s.of, same(s.base, s.kept_sha256));
+    if (!kept.get(s.of) || !same(s, s.files_sha256)) return r.reader;
   }
   return null;
 }
@@ -439,7 +484,7 @@ function pass(): number {
     voiceBase: mergeBase && diffBase !== mergeBase && !planArgs.includes('--adversarial-ran') ? mergeBase : undefined,
     fixCheck: step === 'fix-check' && (flag('--fix-list') || flag('--hunks') || flag('--tests')) ? { fix_list: flag('--fix-list')!, hunks: flag('--hunks')!, tests: flag('--tests')!, callers: flag('--callers') } : undefined,
     ...planExclude(p.review_exclude), ...(p.readers ? { readers: p.readers } : {}), voices: own.includes('--voices') });
-  const over = ceiling('gstack-review-dispatch pass', base, m.out, m.readers, m.diff_base, (m.review_exclude as PlanExclude) ?? null);
+  const over = sliceManifest('gstack-review-dispatch pass', base, m, (m.review_exclude as PlanExclude) ?? null) ?? ceiling('gstack-review-dispatch pass', base, m.out, m.readers, m.diff_base, (m.review_exclude as PlanExclude) ?? null);
   if (over) { process.stdout.write(planLines.join('\n') + '\n'); process.stderr.write(over.line + '\n'); return over.exit; }
   fs.mkdirSync(m.out, { recursive: true, mode: 0o700 });
   settleExcerpts(m);
@@ -468,6 +513,8 @@ function passStep(cmd: string): number {
     const stage = flag('--stage') as Stage | undefined;
     if (!stage || !STAGES.includes(stage)) { process.stderr.write(`gstack-review-dispatch stage: --stage ${STAGES.join('|')}\n`); return EXIT.usage; }
     const pending = m.readers.filter(r => r.stage === stage && r.state === 'planned');
+    const moved = slicesMoved(pending);
+    if (moved) throw new BriefError(`${moved}'s files changed since pass ${m.pass} planned its slices, so its slices no longer cover that reader's diff exactly; start a fresh pass under a new --pass and --out, which plans them again`);
     const over = ceiling('gstack-review-dispatch stage', m.base, m.out, pending, m.diff_base, (m.review_exclude as PlanExclude) ?? null);
     if (over) { process.stderr.write(over.line + '\n'); return over.exit; }
     const done = renderStage(m, stage, sectionTexts(ROOT), branchDiff);
@@ -557,17 +604,23 @@ function program(): number {
  */
 function targetedRecord(ledger: string, rows: VerifyRow[]): { classes: string[]; rules: string; brief_sha: string; status: 'done' | 'failed'; findings: number; raised_by: string; head: string | null } | null {
   const events = readLedger(ledger);
-  const render = events.filter(e => e.event === 'rendered' && (e.reader === 'targeted' || (e.reader === 'adversarial-native' && typeof e.brief_sha === 'string'))).at(-1);
+  const keyOf = (e: Record<string, unknown>) => sliceOf(e as never)?.of ?? String(e.reader);
+  const render = events.filter(e => e.event === 'rendered' && (keyOf(e) === 'targeted' || (keyOf(e) === 'adversarial-native' && typeof e.brief_sha === 'string'))).at(-1);
   if (!render) return null;
-  const key = String(render.reader);
-  const label = rows.filter(r => r.kind === 'BRIEF' && r.reader.split('@')[0] === key).at(-1)?.reader;
-  const brief = rows.filter(r => r.kind === 'BRIEF' && r.reader === label).at(-1);
-  const output = rows.filter(r => r.kind === 'OUTPUT' && r.reader === label).at(-1);
-  const head = typeof render.head === 'string' && /^[0-9a-f]{40,64}$/.test(render.head) ? render.head : null;
-  const committed = typeof render.patch_id === 'string' && !['uncommitted', 'none'].includes(render.patch_id) && head !== null;
-  const done = brief?.status === 'MATCH' && output?.status === 'MATCH' && committed;
-  const ids = events.filter(e => e.event === 'output' && e.reader === key).at(-1)?.ids;
-  return { classes: (render.classes as string[]) ?? [], rules: String(render.rules), brief_sha: String(render.brief_sha), status: done ? 'done' : 'failed', findings: Array.isArray(ids) ? ids.length : 0, raised_by: key, head };
+  const headOf = (e: Record<string, unknown>) => (typeof e.head === 'string' && /^[0-9a-f]{40,64}$/.test(e.head) ? e.head : null);
+  const head = headOf(render);
+  const read = (sliceOf(render as never) ? sliceMembers(events as never, render as never) : [render]).map(e => {
+    if (!e) return { done: false, findings: 0 };
+    const key = String(e.reader);
+    const label = rows.filter(r => r.kind === 'BRIEF' && r.reader.split('@')[0] === key).at(-1)?.reader;
+    const brief = rows.filter(r => r.kind === 'BRIEF' && r.reader === label).at(-1);
+    const output = rows.filter(r => r.kind === 'OUTPUT' && r.reader === label).at(-1);
+    const committed = typeof e.patch_id === 'string' && !['uncommitted', 'none'].includes(e.patch_id) && headOf(e) !== null && headOf(e) === head;
+    const ids = events.filter(x => x.event === 'output' && x.reader === key).at(-1)?.ids;
+    return { done: brief?.status === 'MATCH' && output?.status === 'MATCH' && committed, findings: Array.isArray(ids) ? ids.length : 0 };
+  });
+  const done = read.every(x => x.done);
+  return { classes: (render.classes as string[]) ?? [], rules: String(render.rules), brief_sha: String(render.brief_sha), status: done ? 'done' : 'failed', findings: read.reduce((n, x) => n + x.findings, 0), raised_by: keyOf(render), head };
 }
 
 /**
@@ -594,7 +647,10 @@ function main(): number {
   if (['show', 'stage', 'chunk', 'mark', 'retry'].includes(cmd)) return passStep(cmd);
   const ledger = flag('--ledger');
   if (!ledger) { process.stderr.write(`gstack-review-dispatch ${cmd}: --ledger <file> is required\n`); return EXIT.usage; }
-  const reader = flag('--role') ? readerKey(flag('--role')!, flag('--name')) : '';
+  const sliceArg = flag('--slice');
+  const slice = sliceArg?.match(/^([1-9]\d*)\/([1-9]\d*)$/);
+  if (sliceArg !== undefined && (!slice || Number(slice[1]) > Number(slice[2]) || Number(slice[2]) > SLICE_CAP)) { process.stderr.write(`gstack-review-dispatch ${cmd}: --slice takes <i>/<k> with 1 <= i <= k <= ${SLICE_CAP}, got ${JSON.stringify(sliceArg)}\n`); return EXIT.usage; }
+  const reader = flag('--role') ? readerKey(flag('--role')!, flag('--name'), slice ? { index: Number(slice[1]), total: Number(slice[2]) } : undefined) : '';
   if (cmd === 'sent') {
     const sent = readFile(flag('--sent'), 'sent prompt');
     if (!reader || sent === undefined) { process.stderr.write('gstack-review-dispatch sent: needs --role and --sent <file>\n'); return EXIT.usage; }
@@ -672,7 +728,9 @@ function main(): number {
     const sel = excludeRecord(ledger);
     if (sel && 'digest' in sel) process.stdout.write(`REVIEW_EXCLUDE_RECORD: digest=${sel.digest} (gstack-ship-receipt write --review-exclude ${sel.digest})\n`);
     if (sel && 'mixed' in sel) process.stdout.write(`REVIEW_EXCLUDE_RECORD: mixed digests=${sel.mixed.join(',')} (readers read different review_exclude_paths selections; rerun the review so every reader reads HEAD's)\n`);
-    const clean = v.clean && !(sel && 'mixed' in sel);
+    const slices = verifySlices(readLedger(ledger), v.rows);
+    for (const r of slices) process.stdout.write(`${r.kind} ${r.reader} ${r.status} ${r.detail}\n`);
+    const clean = v.clean && !(sel && 'mixed' in sel) && slices.every(r => r.status === 'MATCH');
     if (v.verdicts.asked) process.stdout.write(`VERIFY_VERDICT: agree=${v.verdicts.agree} asked=${v.verdicts.asked} (informational: a disagreeing count already counts its blockers; docs/review-policy.md#verdict-line)\n`);
     process.stdout.write(`VERIFY: ${clean ? 'clean' : 'dirty'} briefs=${v.briefs} outputs=${v.rows.filter(r => r.kind === 'OUTPUT').length} voided=${v.voided}${v.unavailable ? ` unavailable=${v.unavailable}` : ''}\n`);
     return clean ? EXIT.ok : EXIT.fail;

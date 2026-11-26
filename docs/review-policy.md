@@ -729,9 +729,46 @@ how many files and bytes were left out and that the reader must not report on
 their absence. Excluded paths count as docs for the depth and never trigger the
 numeric-claim scan or a targeted class; kept files keep their own class.
 
+<a id="review-ceiling"></a>
 Independently of the key, no reader is handed more than 2,000,000 bytes of
-diff: `gstack-review-dispatch` stops with `REVIEW_DIFF_TOO_LARGE` before it writes
-anything, instead of a review of the part a reader happened to see.
+diff. When one reader's kept diff is bigger than that, `gstack-review-dispatch pass`
+reviews it in slices instead of cutting it (`lib/review-slices.ts`):
+
+1. **Plan once.** From the diff it already read, pass packs the reader's files into
+   at most 8 slices of at most 2,000,000 bytes each. It keeps each top-level folder
+   in one slice when the folder fits, and otherwise splits the folder by its
+   subfolders and files in sorted path order. Both sides of a rename stay in one
+   slice, and so does a file beside the folder that replaces it.
+2. **Each slice is a reader.** Reader `R` becomes `R#1/k` … `R#k/k` in the manifest.
+   Every `git diff` command in a slice's brief names that slice's paths as
+   `:(top,literal)` items next to the reader's exclude items (a folder whose every
+   file is in the slice is named once), kept files under the base policy's patterns
+   come back through the slice's own keep command, and the brief says it is slice
+   `i` of `k`. Collect and sent take `--slice i/k`.
+3. **Coverage is checked twice.** Before anything is written, pass asks git for each
+   slice's file list and refuses unless the lists share no file, together equal the
+   reader's whole kept-file list, and each slice's diff is at or under the ceiling.
+   The manifest and each slice's ledger render record the sha256 of the kept-file
+   list and of the slice's list. `verify` recomputes them with git at the reviewed
+   tree and prints one `SLICE <reader>` row: `MATCH` only when every slice 1..k was
+   rendered from one plan on one tree and collected, no two slices share a file and
+   no kept file is in no slice. `MISSING`, `NOT_COLLECTED`, `MIXED`, `CHANGED`,
+   `OVERLAP`, `DROPPED`, `OVER` or `UNREADABLE` makes it `VERIFY: dirty`, so the
+   pass binds no review row and no receipt. A `stage` whose tree moved after pass
+   planned the slices refuses before rendering them.
+4. **One reviewer.** A sliced reader is still one reviewer: one plan entry, one
+   review-log row and one start token (Step 11 takes one `adversarial-review`
+   start for a native voice however many slices it has), and one R51 round. Its
+   findings are collected under each slice's key and judged together.
+
+What still stops with `REVIEW_DIFF_TOO_LARGE`: one file (one diff section) over
+2,000,000 bytes by itself (`slices=refused(file=…)` names it), a diff that needs
+more than 8 slices (`slices=refused(needs=N cap=8)`), and a slice whose paths
+would take more than the 24,000 argument bytes one command may carry. A standalone
+`render` never slices; its refusal says how many slices the pass would use. The
+outside voice is not sliced: it keeps its single embedded diff, cut at the ceiling
+with the files it left out named in its brief. A reader at or under the ceiling is
+unchanged, byte for byte.
 
 ## What readers may fetch
 
