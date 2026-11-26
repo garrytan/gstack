@@ -744,7 +744,8 @@ reviews it in slices instead of cutting it (`lib/review-slices.ts`):
    `:(top,literal)` items next to the reader's exclude items (a folder whose every
    file is in the slice is named once), kept files under the base policy's patterns
    come back through the slice's own keep command, and the brief says it is slice
-   `i` of `k`. Collect and sent take `--slice i/k`.
+   `i` of `k`. A native reader's fixture summary lists only that slice's test,
+   fixture and spec files. Collect and sent take `--slice i/k`.
 3. **Coverage is checked twice.** Before anything is written, pass asks git for each
    slice's file list and refuses unless the lists share no file, together equal the
    reader's whole kept-file list, and each slice's diff is at or under the ceiling.

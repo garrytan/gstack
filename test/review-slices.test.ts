@@ -10,6 +10,8 @@ import { EXIT } from '../lib/headless-artifacts';
 import { REVIEW_DIFF_MAX_BYTES, type DiffUnit } from '../lib/review-exclude';
 import { SLICE_CAP, planSlices } from '../lib/review-slices';
 import type { Manifest } from '../lib/review-pass';
+import { quarantinedIds, readLedger } from '../lib/review-ledger';
+import { quarantineStage } from '../lib/review-sweep';
 import { REVIEW_EXCLUDE_KEY_VERSION } from '../lib/ship-policy';
 import { cleanup, commit, makeFixtureRepo, runBin, type FixtureRepo } from './helpers/pregate-fixture';
 import { bin, host, repo as harnessRepo, runPass } from './helpers/review-pass-harness';
@@ -369,3 +371,62 @@ describe.skipIf(!POSIX)('slice guards', () => {
   });
 });
 
+
+describe.skipIf(!POSIX)('slice readers in the fetch quarantine and the native test summary', () => {
+  const reply = (repo: FixtureRepo, m: Manifest, x: Manifest['readers'][number], body: string) => {
+    const role = ['--role', x.role!, ...(x.name ? ['--name', x.name] : []), '--slice', `${x.slice!.index}/${x.slice!.total}`];
+    expect(runBin(repo, 'gstack-review-dispatch', ['sent', '--ledger', m.ledger, ...role, '--sent', x.file!]).status).toBe(0);
+    const f = path.join(m.out, `${x.reader.replace(/[^a-z0-9]/gi, '_')}.reply.txt`);
+    fs.writeFileSync(f, `REVIEWED_TREE: ${repo.git('rev-parse', 'HEAD^{tree}')} ${fs.realpathSync(repo.work)}\nREVIEW_VERDICT: blocking=0\n${body}\n`);
+    expect(runBin(repo, 'gstack-review-dispatch', ['collect', '--ledger', m.ledger, ...role, '--output', f, '--merged', m.merged]).status).toBe(0);
+  };
+
+  // Value: protects=a slice reader that broke the fetch rule has its findings removed and its quarantine recorded under its
+  //   own key; fails_when=quarantineStage looks a slice reader up without its slice and removes nothing; why_new=GST-4019
+  //   final review (lib/review-sweep.ts:259); seam=pass, sent and collect, then quarantineStage and the ledger
+  test('a quarantined slice reader loses its findings and its quarantine names the slice', () => {
+    const repo = fixture(Object.fromEntries(['alpha', 'beta', 'gamma'].flatMap(d => Array.from({ length: 6 }, (_, k) => [`${d}/m${k}.ts`, src(`${d}${k}`, 290)]))));
+    const { m } = runPassBin(repo);
+    const first = m!.readers.find(x => x.reader === 'specialist-batched#1/3')!;
+    reply(repo, m!, first, JSON.stringify({ severity: 'INFORMATIONAL', confidence: 6, path: 'alpha/m0.ts', line: 1, category: 'testing', summary: 'a note' }));
+    const ids = () => fs.readFileSync(m!.merged, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l) as { id: string; reader: string });
+    const mine = ids().filter(f => f.reader === first.reader).map(f => f.id);
+    expect(mine.length).toBe(1);
+    const { lines } = quarantineStage(m!, 'specialists', 1);
+    expect(lines.find(l => l.startsWith(`QUARANTINED: reader=${first.reader} `))).toContain('findings_removed=1');
+    expect(ids().map(f => f.id)).not.toContain(mine[0]);
+    const events = readLedger(m!.ledger);
+    expect([...quarantinedIds(events)]).toContain(mine[0]);
+    expect(events.filter(e => e.event === 'quarantined').map(e => e.reader)).toContain(first.reader);
+  }, 300_000);
+
+  // Value: protects=a native slice's fixture summary command lists only that slice's test, fixture and spec files, and never
+  //   a file the base policy excludes; fails_when=the summary command reads the whole slice or an excluded output;
+  //   why_new=GST-4019 final review (lib/review-brief.ts:158); seam=pass and stage voices, the native briefs run by git
+  test('a native slice summarizes only its own test and fixture files and no excluded output', () => {
+    const files: Record<string, string> = {
+      ...Object.fromEntries(['alpha', 'beta', 'gamma'].flatMap(d => Array.from({ length: 6 }, (_, k) => [`${d}/m${k}.ts`, src(`${d}${k}`, 290)]))),
+      'alpha/m0.test.ts': src('t0', 2), 'beta/fixtures/f.json': src('f', 2), 'gamma/x.spec.ts': src('s', 2), 'testkit/big.ts': src('kit', 1_200),
+      'results/a/test-out.json': src('out', 2),
+    };
+    const repo = fixture(files, { '.gstack/ship-policy.json': JSON.stringify({ review_exclude_paths: ['results/**'], min_gstack_version: REVIEW_EXCLUDE_KEY_VERSION }) + '\n' });
+    const { r, file } = runPassBin(repo);
+    expect({ status: r.status, err: r.err }).toEqual({ status: EXIT.ok, err: '' });
+    expect(runBin(repo, 'gstack-review-dispatch', ['stage', '--manifest', file, '--stage', 'voices']).status).toBe(EXIT.ok);
+    const m = JSON.parse(fs.readFileSync(file, 'utf8')) as Manifest;
+    const mb = mergeBase(repo);
+    const native = m.readers.filter(x => x.role === 'adversarial-native' && x.slice && x.state === 'rendered');
+    expect(native.length).toBeGreaterThan(1);
+    const summarized: string[] = [];
+    for (const x of native) {
+      const brief = fs.readFileSync(x.file!, 'utf8');
+      const stat = [...brief.matchAll(/`(git diff --stat [^`]*)`/g)].map(c => c[1]!);
+      expect(stat.length).toBe(1);
+      const own = new Set(briefNames(repo, brief.replace(/`git diff --stat [^`]*`/, ''), mb).flat());
+      const names = briefNames(repo, `\`${stat[0]}\``, mb).flat();
+      for (const n of names) { expect(own.has(n)).toBe(true); expect(n).toMatch(/test|fixture|\.spec\./); expect(n.startsWith('results/')).toBe(false); }
+      summarized.push(...names);
+    }
+    expect(summarized.sort()).toEqual(['alpha/m0.test.ts', 'beta/fixtures/f.json', 'gamma/x.spec.ts', 'testkit/big.ts']);
+  }, 300_000);
+});

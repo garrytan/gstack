@@ -152,13 +152,13 @@ export function renderBrief(role: BriefRole, slots: Slots, t: SectionTexts): str
  * paragraph says which slice this is. A command the rewrite cannot reach (a section that changed) fails the render.
  */
 function withSlice(role: BriefRole, text: string, slots: Slots): string {
-  const items = need(slots, 'slice_items');
+  const items = need(slots, 'slice_items'), tests = need(slots, 'slice_tests');
   const [index, total] = need(slots, 'slice').split('/');
   const out = text.split('"$DIFF_BASE" -- . ').join(`"$DIFF_BASE" -- ${items} `)
-    .split(`"$DIFF_BASE" -- '*test*' '*fixture*' '*.spec.*'`).join(`"$DIFF_BASE" -- ${items}`)
+    .split(`"$DIFF_BASE" -- '*test*' '*fixture*' '*.spec.*'`).join(`"$DIFF_BASE" -- ${tests}`)
     .split('"$DIFF_BASE"`').join(`"$DIFF_BASE" -- ${items}\``);
   const commands = [...out.matchAll(/git diff\b[^`]*/g)].map(m => m[0]);
-  const loose = commands.filter(c => !c.includes(` -- ${items}`));
+  const loose = commands.filter(c => !c.includes(` -- ${items}`) && !c.includes(` -- ${tests}`));
   if (!commands.length || loose.length) throw new BriefError(`${role} slice ${index}/${total}: a git diff command in the brief does not read the slice's paths (${JSON.stringify((loose[0] ?? 'none').slice(0, 120))}); update withSlice in lib/review-brief.ts`);
   return `${out}\n\nThis review is slice ${index} of ${total}. The branch's diff is over the review ceiling, so ${total} readers review it in parts that share no file: every git diff command in this brief reads only this slice's ${need(slots, 'slice_files')} files (${need(slots, 'slice_bytes')} bytes), and the other slices' readers review the rest. Review this slice in full. Read any file in the checkout for context, but report only on changes in this slice.`;
 }

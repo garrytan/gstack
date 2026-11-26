@@ -235,7 +235,7 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       ...(m.disclosure && r.excerpt_file ? { excerpt_file: r.excerpt_file.file, excerpt_bytes: String(r.excerpt_file.bytes), excerpt_sha256: r.excerpt_file.sha256, excerpt_files: String(r.excerpt_file.files) } : {}) };
     if (role === 'specialist') slots.checklist = checklistFile(m.checklist_root, r.name ?? '');
     if (r.read_only) slots.read_only = '1';
-    if (r.slice) Object.assign(slots, { slice: `${r.slice.index}/${r.slice.total}`, slice_items: r.slice.items, slice_files: String(r.slice.files), slice_bytes: String(r.slice.bytes) });
+    if (r.slice) Object.assign(slots, { slice: `${r.slice.index}/${r.slice.total}`, slice_items: r.slice.items, slice_tests: r.slice.tests, slice_files: String(r.slice.files), slice_bytes: String(r.slice.bytes) });
     let findingsSha: string | undefined;
     if (role === 'red-team') {
       const findings = specialistFindings(m.merged);

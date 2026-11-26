@@ -90,7 +90,7 @@ export function planSlices(units: readonly DiffUnit[], max = REVIEW_DIFF_MAX_BYT
 /** A slice reader's manifest entry: its command tail, keep and excerpt lists, and the hashes verify recomputes. */
 export interface Slice {
   index: number; total: number; of: string; diff_base: string;
-  exclude: string; keep: string[]; excerpt: string[]; items: string;
+  exclude: string; keep: string[]; excerpt: string[]; items: string; tests: string;
   files: number; files_sha256: string; kept: number; kept_sha256: string; bytes: number;
   /** The reader's whole selection the slices partition. */
   base: { exclude?: string; keep?: string[]; excerpt?: string[] };
@@ -99,6 +99,12 @@ export interface Slice {
 const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 const LITERAL = ':(top,literal)';
 const literal = (p: string) => `${LITERAL}${p}`;
+const SUMMARY = ['test', 'fixture', '.spec.'];
+/** The native summary's '*test*' '*fixture*' '*.spec.*' inside one slice: an item whose path already matches, else the patterns under it. */
+const summaryItems = (positives: readonly string[]) => positives.flatMap(p => {
+  const q = p.slice(LITERAL.length);
+  return SUMMARY.some(w => q.includes(w)) ? [p] : SUMMARY.map(w => ':(top)' + q.replace(/[*?[\\]/g, '\\$&') + '/*' + w + '*');
+});
 const isExclude = (s: string) => /^:(?:\([^)]*\bexclude\b[^)]*\)|[!^])/.test(s);
 export const listSha = (names: readonly string[]) => createHash('sha256').update(names.join('\0')).digest('hex');
 
@@ -150,7 +156,8 @@ export function sliceSelection(root: string, at: string, r: Reader, plan: Array<
     const excerpt = (r.excerpt ?? []).filter(k => s.paths.includes(k.slice(LITERAL.length)));
     const positives = items.size ? [...items].sort().map(literal) : [...keep, ...excerpt];
     if (!positives.length || (!items.size && !excl.length)) return fail('shape', `slice ${i + 1} has no path its main command can name`);
-    const args = positives.reduce((n, p) => n + Buffer.byteLength(shellQuote(p)) + 1, 0);
+    const tests = summaryItems(positives);
+    const args = Math.max(...[positives, tests].map(l => l.reduce((n, p) => n + Buffer.byteLength(shellQuote(p)) + 1, 0)));
     if (args > KEEP_ARG_MAX_BYTES) return fail(`args=${i + 1}:${args}`, `slice ${i + 1}'s paths take ${args} argument bytes, more than the ${KEEP_ARG_MAX_BYTES} one reader command may carry`);
     const exclude = `-- ${[...positives, ...excl].map(shellQuote).join(' ')}`;
     const names = selectionNames(root, at, undefined, { exclude, keep, excerpt });
@@ -161,7 +168,7 @@ export function sliceSelection(root: string, at: string, r: Reader, plan: Array<
     const d = readSelection(root, at, parseTail(exclude), keep, excerpt);
     if (!d.ok) return fail('unreadable', `git could not read slice ${i + 1}'s diff`);
     if (d.bytes > max) return fail(`over=${i + 1}:${d.bytes}`, `slice ${i + 1} reads ${d.bytes} bytes, over the ceiling`);
-    slices.push({ index: i + 1, total: plan.length, of: r.reader, diff_base: at, exclude, keep, excerpt, items: positives.map(shellQuote).join(' '),
+    slices.push({ index: i + 1, total: plan.length, of: r.reader, diff_base: at, exclude, keep, excerpt, items: positives.map(shellQuote).join(' '), tests: tests.map(shellQuote).join(' '),
       files: names.names.length, files_sha256: listSha(names.names), kept: full.names.length, kept_sha256: listSha(full.names), bytes: d.bytes,
       base: { ...(r.exclude ? { exclude: r.exclude } : {}), ...(r.keep?.length ? { keep: [...r.keep] } : {}), ...(r.excerpt?.length ? { excerpt: [...r.excerpt] } : {}) } });
   }
@@ -178,7 +185,6 @@ export function planNote(p: Extract<SlicePlan, { ok: false }>, max = REVIEW_DIFF
 }
 
 export const sliceOf = (e: LedgerEvent): Slice | undefined => (e.slice && typeof e.slice === 'object' ? e.slice as Slice : undefined);
-const baseKey = (reader: string) => reader.replace(/#\d+\/\d+$/, '');
 
 /** For a sliced reader's newest render, the newest render of each of its slices 1..k (undefined for one never rendered). */
 export function sliceMembers(events: readonly LedgerEvent[], render: LedgerEvent): Array<LedgerEvent | undefined> {
@@ -233,4 +239,3 @@ export function verifySlices(events: readonly LedgerEvent[], rows: readonly Veri
   }
   return out;
 }
-export { baseKey as sliceBase };

@@ -256,7 +256,7 @@ export function quarantineStage(m: Manifest, stage: Stage, attempt: number): { q
     if (r.output && fs.existsSync(r.output)) { fs.renameSync(r.output, file); fs.chmodSync(file, 0o600); }
     let ids: string[] = [];
     if (!r.prompt_file && r.role) {
-      const key = readerKey(r.role, r.name);
+      const key = readerKey(r.role, r.name, r.slice);
       const mine = events.filter(e => e.reader === key && (e.event === 'output' || e.event === 'rendered'));
       ids = mine.slice(mine.findLastIndex(e => e.event === 'rendered') + 1).flatMap(e => (Array.isArray(e.ids) ? (e.ids as string[]) : []));
       const gone = new Set(ids);

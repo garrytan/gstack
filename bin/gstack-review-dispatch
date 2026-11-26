@@ -23,7 +23,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { BRIEF_ROLES, BriefError, briefFile, checkReviewedTree, checkoutRoot, checkoutTree, promptHash, renderBrief, sectionTexts, sliceDiff, sliceNote, withWorkspace, type BriefRole, type Slots, type TreeCheck } from '../lib/review-brief';
-import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseReply, readJsonl, readLedger, readerKey, recordJudgment, recordSent, roleOf, appendEvent, verify, type JudgedLine, type MergedLine, type VerdictCheck, type VerifyRow } from '../lib/review-ledger';
+import { cleanMarkers, collect, fixableRaises, mayBeUnavailable, parseReply, readJsonl, readLedger, readerKey, recordJudgment, recordSent, appendEvent, verify, type JudgedLine, type MergedLine, type VerdictCheck, type VerifyRow } from '../lib/review-ledger';
 import { SLICE_CAP, listSha, planNote, planSlices, selectionNames, sliceMembers, sliceOf, sliceSelection, verifySlices } from '../lib/review-slices';
 import { buildManifest, checklistFile, chunkCount, chunkOf, manifestPath, markReader, planCyberRetry, readManifest, renderStage, withAuditModel, writeManifest, STAGES, type Extra, type Manifest, type PassReader, type ReaderState, type Stage } from '../lib/review-pass';
 import { classifyOutsideReview } from '../lib/outside-review-result';
