@@ -27,6 +27,10 @@ describe('the review_exclude_paths cap', () => {
     const widest = Array.from({ length: 64 }, (_, i) => `d${String(i).padStart(2, '0')}/${'x'.repeat(251)}`);
     expect(widest.every(p => p.length === 255)).toBe(true);
     expect(codes(policy(widest))).toEqual([]);
+    const wide = Array.from({ length: 64 }, (_, i) => `d${String(i).padStart(2, '0')}/${'é'.repeat(230)}/**`);
+    expect(excludeSpecBytes(wide)).toBeGreaterThan(EXCLUDE_SPEC_MAX_BYTES);
+    expect(codes(policy(wide))).toEqual([]);
+    expect(codes(policy([...wide, 'x/**']))[0]).toContain('argument bytes as exclude pathspecs');
   });
 });
 

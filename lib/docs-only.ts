@@ -175,15 +175,23 @@ export function referencesToAll(root: string, paths: readonly string[], tree?: s
   const named = git(root, ['grep', '-l', '-z', '-F', '-I', '-f', '-', ...(tree ? [tree] : []), '--'], [0, 1], plain.join('\n') + '\n').split('\0').filter(Boolean)
     .map(f => (f.startsWith(prefix) ? f.slice(prefix.length) : f)).filter(f => !PROSE_REFERENCE.test(f) && pathRefusal(f, root, gen, repo) !== null);
   const needles = plain.map(p => [p, Buffer.from(p)] as const);
+  const fromIndex = tree ? new Set<string>() : indexRead(root);
   for (let i = 0; i < named.length; i += 256) {
     const files = named.slice(i, i + 256);
-    const texts = tree ? treeBlobs(root, tree, files) : files.map(f => fs.readFileSync(path.join(root, f)));
+    const cached = files.filter(f => fromIndex.has(f));
+    const blobs = new Map(cached.length ? treeBlobs(root, '', cached).map((b, k) => [cached[k]!, b] as const) : []);
+    const texts = tree ? treeBlobs(root, tree, files) : files.map(f => blobs.get(f) ?? fs.readFileSync(path.join(root, f)));
     files.forEach((f, k) => { for (const [p, needle] of needles) if (f !== p && texts[k]!.includes(needle)) out.get(p)!.push(f); });
   }
   return out;
 }
 
-/** The blobs of `files` at `tree`, through one `git cat-file --batch` (a name with a newline is read alone); any git failure throws DocsOnlyError. */
+/** Tracked paths a working-tree `git grep` reads from the index, as it does for skip-worktree and assume-unchanged entries (`git ls-files -v` tags them S or in lowercase). */
+function indexRead(root: string): Set<string> {
+  return new Set(git(root, ['ls-files', '-v', '-z']).split('\0').filter(e => e.length > 2 && (e[0] === 'S' || e[0] !== e[0]!.toUpperCase())).map(e => e.slice(2)));
+}
+
+/** The blobs of `files` at `tree` (the index when it is ''), through one `git cat-file --batch` (a name with a newline is read alone); any git failure throws DocsOnlyError. */
 function treeBlobs(root: string, tree: string, files: readonly string[]): Buffer[] {
   const fail = (what: string): never => { throw new DocsOnlyError(`git cat-file ${tree}`, what, 'rerun in a git checkout of this repository'); };
   const one = (f: string) => { const r = spawnSync('git', ['cat-file', 'blob', `${tree}:${f}`], { cwd: root, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }); return r.status === 0 && Buffer.isBuffer(r.stdout) ? r.stdout : fail(`cannot read ${f}`); };

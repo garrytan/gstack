@@ -447,25 +447,34 @@ function grepFixed(i: Scope, strings: readonly string[], candidates: ReadonlySet
         const hits = git(i.root, ['grep', ...flags, '-I', '-F', '-l', '-z', '--no-color', '-f', list], undefined, env);
         if (hits.status !== 0 && hits.status !== 1) return null;
         const files = hits.out.split('\0').filter(Boolean);
-        const bodies = new Map<string, string>();
-        if (flags.length && files.length) {
-          const shas = new Map(entries.map(e => [e.slice(e.indexOf('\t') + 1), e.slice(0, e.indexOf('\t')).split(' ')[1]!]));
-          const want = files.map(f => shas.get(f));
-          if (want.some(s => !s)) return null;
-          const b = spawnSync('git', ['cat-file', '--batch'], { cwd: i.root, input: want.join('\n') + '\n', timeout: 120_000, maxBuffer: MAX_BUFFER });
+        const scan = (file: string, body: string) => {
+          if (hashManifest(body.split('\n'))) return;
+          for (const s of index.holds(body)) if (!skip?.(s, file, body)) (found.get(s) ?? found.set(s, new Set()).get(s)!).add(file);
+        };
+        if (!flags.length) {
+          for (const f of files) { let body: string; try { body = fs.readFileSync(path.join(i.root, f), 'utf8'); } catch { return null; } scan(f, body); }
+          continue;
+        }
+        if (!files.length) continue;
+        const shas = new Map(entries.map(e => [e.slice(e.indexOf('\t') + 1), e.slice(0, e.indexOf('\t')).split(' ')[1]!]));
+        const want = files.map(f => shas.get(f));
+        if (want.some(s => !s)) return null;
+        const sized = git(i.root, ['cat-file', '--batch-check'], want.join('\n') + '\n');
+        const sizes = sized.out.split('\n').slice(0, want.length).map(l => Number(l.split(' ')[2]));
+        if (!sized.ok || sizes.length !== want.length || sizes.some(n => !Number.isInteger(n))) return null;
+        for (let k = 0, end = 0; k < files.length; k = end) {
+          let bytes = 0;
+          for (end = k; end < files.length && (end === k || bytes + sizes[end]! <= BLOB_BATCH_BYTES); end++) bytes += sizes[end]!;
+          const b = spawnSync('git', ['cat-file', '--batch'], { cwd: i.root, input: want.slice(k, end).join('\n') + '\n', timeout: 120_000, maxBuffer: bytes + (end - k) * 128 + 1024 });
           if (b.status !== 0 || !b.stdout) return null;
           let at = 0;
-          for (const f of files) {
+          for (const f of files.slice(k, end)) {
             const nl = b.stdout.indexOf(10, at);
             const size = Number(b.stdout.subarray(at, nl).toString().split(' ')[2]);
             if (nl < 0 || !Number.isInteger(size)) return null;
-            bodies.set(f, b.stdout.subarray(nl + 1, nl + 1 + size).toString('utf8'));
+            scan(f, b.stdout.subarray(nl + 1, nl + 1 + size).toString('utf8'));
             at = nl + 2 + size;
           }
-        } else for (const f of files) try { bodies.set(f, fs.readFileSync(path.join(i.root, f), 'utf8')); } catch { return null; }
-        for (const [file, body] of bodies) {
-          if (hashManifest(body.split('\n'))) continue;
-          for (const s of index.holds(body)) if (!skip?.(s, file, body)) (found.get(s) ?? found.set(s, new Set()).get(s)!).add(file);
         }
       }
     }

@@ -55,6 +55,18 @@ describe('batched reference scan', () => {
     expect(head.get('docs/guide.md')).toEqual([]);
   });
 
+  test('on the working tree, a file git grep reads from the index is matched on its index bytes, as referencesTo is', () => {
+    put('lib/a.ts', 'export {};\n');
+    git('update-index', '--assume-unchanged', 'lib/a.ts');
+    try {
+      expect(referencesTo(repo, 'README.md')).toEqual(['lib/a.ts']);
+      expect(referencesToAll(repo, DOCS).get('README.md')).toEqual(['lib/a.ts']);
+    } finally {
+      git('update-index', '--no-assume-unchanged', 'lib/a.ts');
+      git('checkout', '--', 'lib/a.ts');
+    }
+  });
+
   test('classifyDocsOnly runs a bounded number of git grep calls however many docs change', () => {
     const trace = path.join(repo, '..', `${path.basename(repo)}.trace`);
     const before = process.env.GIT_TRACE;

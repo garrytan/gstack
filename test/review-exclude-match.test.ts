@@ -72,20 +72,38 @@ describe('select', () => {
 
   test('a file that replaces a directory of the same name stays matched (one index cannot hold both)', () => {
     const head = git('rev-parse', 'HEAD').trim();
-    put('data/x/a.json', '{}\n');
-    git('add', '-A'); git('commit', '-qm', 'dir');
-    const before = git('rev-parse', 'HEAD').trim();
-    fs.rmSync(path.join(root, 'data/x'), { recursive: true });
-    put('data/x', '#!/bin/sh\necho hi\n');
-    fs.chmodSync(path.join(root, 'data/x'), 0o755);
-    git('add', '-A'); git('commit', '-qm', 'swap');
-    const after = git('rev-parse', 'HEAD').trim();
-    const patterns = ['data/**', '**/*.json'];
-    const one = (p: string) => git('diff', '--raw', '-z', '--no-abbrev', '--no-renames', before, after, '--', `:(top,glob)${p}`).split('\0').filter((_, k) => k % 2 === 1).filter(Boolean);
-    const s = select({ root, mergeBase: before, head: after }, patterns);
-    if ('error' in s) throw new Error(s.error);
-    expect(s.byPattern.get('data/**')).toEqual(['data/x', 'data/x/a.json']);
-    for (const p of patterns) expect(s.byPattern.get(p)).toEqual(one(p));
-    git('reset', '-q', '--hard', head);
+    try {
+      put('data/x/a.json', '{}\n');
+      git('add', '-A'); git('commit', '-qm', 'dir');
+      const before = git('rev-parse', 'HEAD').trim();
+      fs.rmSync(path.join(root, 'data/x'), { recursive: true });
+      put('data/x', '#!/bin/sh\necho hi\n');
+      fs.chmodSync(path.join(root, 'data/x'), 0o755);
+      git('add', '-A'); git('commit', '-qm', 'swap');
+      const after = git('rev-parse', 'HEAD').trim();
+      const patterns = ['data/**', '**/*.json'];
+      const one = (p: string) => git('diff', '--raw', '-z', '--no-abbrev', '--no-renames', before, after, '--', `:(top,glob)${p}`).split('\0').filter((_, k) => k % 2 === 1).filter(Boolean);
+      const s = select({ root, mergeBase: before, head: after }, patterns);
+      if ('error' in s) throw new Error(s.error);
+      expect(s.byPattern.get('data/**')).toEqual(['data/x', 'data/x/a.json']);
+      for (const p of patterns) expect(s.byPattern.get(p)).toEqual(one(p));
+    } finally { git('reset', '-q', '--hard', head); }
+  });
+
+  test.skipIf(process.platform === 'win32')('a bracket pattern matches what git diff matches, a directory that spells it out included', () => {
+    const head = git('rev-parse', 'HEAD').trim();
+    try {
+      put('res/1/a.json', '{}\n');
+      put('res/[0-9]*/evil.ts', 'export {};\n');
+      put('lit\\x/b.json', '{}\n');
+      git('add', '-A'); git('commit', '-qm', 'brackets');
+      const after = git('rev-parse', 'HEAD').trim();
+      const patterns = ['res/[0-9]*/**', 'lit\\\\x/**', '**/*.json'];
+      const one = (p: string) => git('diff', '--raw', '-z', '--no-abbrev', '--no-renames', head, after, '--', `:(top,glob)${p}`).split('\0').filter((_, k) => k % 2 === 1).filter(Boolean);
+      const s = select({ root, mergeBase: head, head: after }, patterns);
+      if ('error' in s) throw new Error(s.error);
+      expect(s.byPattern.get('res/[0-9]*/**')).toEqual(['res/1/a.json', 'res/[0-9]*/evil.ts']);
+      for (const p of patterns) expect(s.byPattern.get(p)).toEqual(one(p));
+    } finally { git('reset', '-q', '--hard', head); }
   });
 });

@@ -36,7 +36,8 @@ export function select(i: SelectInput, patterns: readonly string[]): { byPattern
   // those paths (a diff per pattern took 0.2 s each over harness-evals#616's 16,165 files, and the cap is now 256 patterns).
   // A deleted path and a new one can be a file and a directory of the same name (data/x/a.json gone, data/x added), which one
   // index cannot hold, so the head side and the deleted side get an index each; one that does not list every path it was
-  // given sends every pattern back to its own diff.
+  // given sends every pattern back to its own diff. A pattern with a bracket class or a backslash gets its own diff too: git's
+  // tree walk also matches a directory whose name spells the pattern out (res/[0-9]*/), and ls-files' wildmatch does not.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-select-'));
   try {
     const sides = [[...files].filter(([, m]) => m.newMode !== '000000'), [...files].filter(([, m]) => m.newMode === '000000')].filter(s => s.length);
@@ -54,6 +55,10 @@ export function select(i: SelectInput, patterns: readonly string[]): { byPattern
     }
     for (const [k, p] of patterns.entries()) byPattern.set(p, [...files.keys()].filter(f => hits[k]!.has(f)));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  const literal = patterns.filter(p => /[[\\]/.test(p));
+  const own = literal.length ? perPattern(i, literal, range, files) : null;
+  if (own && 'error' in own) return own;
+  for (const [p, matched] of own?.byPattern ?? []) byPattern.set(p, matched);
   return { byPattern, files };
 }
 

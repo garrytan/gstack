@@ -156,6 +156,8 @@ function scratchNames(part: { file: string; keep?: number[] }): string[] {
   return gitMangledPath(part.file) && name !== 'added.txt' ? [name, 'added.txt'] : [name];
 }
 const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
+/** Postimage text the full-context diff may hold in all: past it every file is scanned on its added lines, as when that diff overran its 256 MiB buffer. */
+const FULL_CONTEXT_MAX_BYTES = 256 * 1024 * 1024;
 
 /**
  * Added lines from the merge-base to the working tree, plus every line of
@@ -184,14 +186,18 @@ export function addedLines(ctx: PregateContext): Array<{ file: string; texts: st
   const whole = new Map<string, { text: string; keep: number[] }>();
   const sources = [...numbers.keys()].filter(file => LEXICAL_CONTEXT_SOURCE.test(file));
   if (sources.length) {
-    const posts = new Map<string, string[]>();
-    const full = gitDiffInParts(['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=100000000', '--diff-filter=ACMR', ctx.mergeBase, '--', ...sources.map(file => `:(literal)${file}`)], run, part => mergeParts(posts, parsePostimages(part)));
-    for (const [file, post] of full.ok ? posts : []) {
-      const keep = numbers.get(file) ?? [];
-      const added = files.get(file) ?? [];
-      const text = post.join('\n');
-      if (text.length <= WHOLE_FILE_MAX_BYTES && keep.length === added.length && keep.every((n, k) => post[n - 1] === added[k])) whole.set(file, { text, keep });
-    }
+    let held = 0;
+    const full = gitDiffInParts(['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--unified=100000000', '--diff-filter=ACMR', ctx.mergeBase, '--', ...sources.map(file => `:(literal)${file}`)], run, part => {
+      if (held > FULL_CONTEXT_MAX_BYTES) return;
+      for (const [file, post] of parsePostimages(part)) {
+        const size = post.reduce((n, line) => n + line.length + 1, 0) - 1;
+        held += size;
+        const keep = numbers.get(file) ?? [];
+        const added = files.get(file) ?? [];
+        if (size <= WHOLE_FILE_MAX_BYTES && keep.length === added.length && keep.every((n, k) => post[n - 1] === added[k])) whole.set(file, { text: post.join('\n'), keep });
+      }
+    });
+    if (!full.ok || held > FULL_CONTEXT_MAX_BYTES) whole.clear();
   }
   for (const t of ctx.touched) {
     if (!t.uncommitted || t.status === 'D') continue;
