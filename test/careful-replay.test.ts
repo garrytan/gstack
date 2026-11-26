@@ -410,13 +410,13 @@ const SPELLING_CASES: Array<[string, string, Decision, Tree]> = [
   ['a quoted gh title (negative: bash -c runs it)', 'bash -c "git push -f origin main"', 'deny', 'clean'],
 ];
 
-// #4843: the body of a heredoc with a quoted delimiter (<<'EOF', <<"EOF", <<\EOF, <<-) is never expanded, so a body
-// that only git commit -F -, gh --body-file - or a bare cat reads is text, and a body python reads as its program is
-// text to the shell-statement scan when it names no way to start a process. Each fix row asked or denied at 8982588;
-// every control keeps 8982588's decision: a shell, ssh, eval or SQL client reading the body, an unquoted or unclosed
-// delimiter, a pipe, a file the body is written to, and anything chained on the header line or after the closing line.
+// #4843: bash expands nothing in the body of a heredoc with a quoted delimiter (<<'EOF', <<"EOF", <<\EOF, <<-), so a
+// body that only git commit -F -, gh --body-file - or a bare cat reads is text. Each fix row asked or denied at 8982588;
+// every control keeps 8982588's decision: a shell, ssh, eval, python or SQL client reading the body, an editor or exec
+// option, an unquoted or unclosed delimiter, a pipe, a file the body is written to, and anything chained on the header
+// line or after the closing line.
 const HEREDOC_CASES: Array<[string, string, Decision, Tree]> = [
-  ['the #4843 python repro (ask at 8982588)', 'python - <<\'EOF\'\nt = \"the script runs rm -rf on the staging lib folder\"\nprint(t)\nEOF', 'allow', 'clean'],
+  ['python runs its program from the body, so the #4843 python repro still asks (control)', 'python - <<\'EOF\'\nt = \"the script runs rm -rf on the staging lib folder\"\nprint(t)\nEOF', 'ask', 'clean'],
   ['the #4843 commit-message repro (ask at 8982588)', 'git commit -F - <<\'EOF\'\nstaging: rm -rf the lib folder before copying\nEOF', 'allow', 'clean'],
   ['a double-quoted delimiter (deny at 8982588)', 'git commit -F - <<\"EOF\"\ndocs: never run rm -rf /\nEOF', 'allow', 'clean'],
   ['a backslashed delimiter (deny at 8982588)', 'git commit -F - <<\\EOF\nrevert: git push -f origin main was a mistake\nEOF', 'allow', 'clean'],
@@ -427,7 +427,7 @@ const HEREDOC_CASES: Array<[string, string, Decision, Tree]> = [
   ['gh pr create --body-file - (ask at 8982588)', 'gh pr create --title x --body-file - <<\'EOF\'\nRemoves the rm -rf ~/x step\nEOF', 'allow', 'clean'],
   ['gh issue comment -F - (ask at 8982588)', 'gh issue comment 12 -F - <<\'EOF\'\nrepro: rm -rf ~/work deletes the wrong folder\nEOF', 'allow', 'clean'],
   ['a commit after git add (ask at 8982588)', 'git add -A && git commit -F - <<\'EOF\'\nfix: rm -rf the build folder first\nEOF', 'allow', 'clean'],
-  ['python after a cd, then git diff (ask at 8982588)', 'cd src && python3 - <<\'EOF\'\nimport pathlib\np = pathlib.Path(\'notes.md\')\np.write_text(p.read_text().replace(\'rm -rf dist\', \'rm -rf build\'))\nEOF\ngit diff --stat', 'allow', 'clean'],
+  ['python after a cd, then git diff (control)', 'cd src && python3 - <<\'EOF\'\nimport pathlib\np = pathlib.Path(\'notes.md\')\np.write_text(p.read_text().replace(\'rm -rf dist\', \'rm -rf build\'))\nEOF\ngit diff --stat', 'ask', 'clean'],
   ['a body line quoting the delimiter stays in the body (ask at 8982588)', 'git commit -F - <<\'EOF\'\necho \'EOF\'\nrm -rf src\nEOF', 'allow', 'clean'],
   ['two text heredocs on one line (deny at 8982588)', 'cat <<\'A\'; cat <<\'B\'\nrm -rf src\nA\ngit push -f origin main\nB', 'allow', 'clean'],
   ['a delete chained on the header line (control)', 'git commit -F - <<\'EOF\' && rm -rf /\nmsg\nEOF', 'deny', 'clean'],
@@ -469,6 +469,14 @@ const HEREDOC_CASES: Array<[string, string, Decision, Tree]> = [
   ['python running a script that reads stdin (control)', 'python manage.py shell <<\'EOF\'\nprint(\'rm -rf src\')\nEOF', 'ask', 'clean'],
   ['python -c beside a heredoc (control)', 'python -c \'import sys; exec(sys.stdin.read())\' <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
   ['python runs SQL (control)', 'python - <<\'EOF\'\nimport sqlite3\nsqlite3.connect(\'x\').execute(\'DROP TABLE users\')\nEOF', 'ask', 'clean'],
+  ['a git -c editor runs the message (control)', 'git -c core.editor=bash commit -F - -e <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['git commit -e opens an editor on the message (control)', 'git commit -e -F - <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['a later amend with a bash editor (control)', 'git commit -F - <<\'EOF\'\nrm -rf src\nEOF\ngit -c core.editor=bash commit --amend -e', 'ask', 'clean'],
+  ['a later rebase --exec runs the message (control)', 'git commit -F - <<\'EOF\'\nrm -rf src\nEOF\ngit rebase --exec \'git show -s --format=%B HEAD > m && bash m\' HEAD~1', 'ask', 'clean'],
+  ['GIT_EDITOR set before the commit (control)', 'GIT_EDITOR=bash git commit -e -F - <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['gh with --editor (control)', 'gh pr create --editor --body-file - <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['python resolving os.system through pydoc (control)', 'python3 - <<\'EOF\'\nimport pydoc\npydoc.locate(\'os.sy\' \'stem\')(\"rm -rf ~\")\nEOF', 'deny', 'clean'],
+  ['python timeit running a code string (control)', 'python3 - <<\'EOF\'\nimport timeit\ntimeit.timeit(\"import os; os.sy\" \"stem(\'rm -rf src\')\", number=1)\nEOF', 'ask', 'clean'],
   ['a SQL client reads the body (control)', 'psql <<\'EOF\'\nDROP TABLE users;\nEOF', 'ask', 'clean'],
   ['cat writes a script that bash runs (control)', 'cat > x.sh <<\'EOF\'\nrm -rf src\nEOF\nbash x.sh', 'ask', 'clean'],
   ['cat writes a file (control)', 'cat > notes.txt <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],

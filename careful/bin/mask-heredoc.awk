@@ -6,36 +6,37 @@
 # in the body, so the body is text unless the command that reads it runs it.
 #
 # Security invariant: a body is masked only when its reader is on the list
-# below. A shell, ssh, eval, source, xargs, a SQL client or any other command
-# that may run what it reads is not on it, so "bash <<'EOF'", "ssh host sh
-# <<'EOF'" and "psql <<'EOF'" keep their bodies, as do unquoted heredocs,
-# whose command substitutions and backticks run. Readers, by mode:
-#   text   git commit -F - (or --file -), gh issue|pr create|comment|edit
-#          -F - (or --body-file -), and a bare cat that prints to the screen.
-#   python the text readers, plus python or python3 reading its program from
-#          stdin (no script, -c or -m) when the body names no way to start a
-#          process or reach one by name (system, subprocess, exec, getattr,
-#          a dunder and the like). check-careful.sh uses this mode only for
-#          its shell-statement scan; the SQL, database and cloud checks still
-#          read a python body.
+# below, a reader that treats it as text and never runs it: git commit -F -
+# (or --file -), gh issue|pr create|comment|edit -F - (or --body-file -), and
+# a bare cat that prints to the screen. git and gh qualify only with options
+# from a fixed list, so no -c setting, editor or exec option rides along. A
+# shell, ssh, eval, source, xargs, a SQL client, python or any other program
+# that may run what it reads is not on the list, so "bash <<'EOF'", "ssh host
+# sh <<'EOF'", "psql <<'EOF'" and "python - <<'EOF'" keep their bodies, as do
+# unquoted heredocs, whose command substitutions and backticks run.
 #
 # Nothing is masked when the command holds anything this scanner does not
-# follow the way bash does, or anything that could hand a body to a shell
+# follow the way bash does, or anything that could hand a body to a program
 # later in the same command: an unclosed heredoc, an unterminated quote, a
 # command or parameter substitution with parentheses or braces, $'...', a
 # backtick, (( )), <( ), >( ), a line continuation before a body, a pipe, an
-# output redirection to anything but /dev/null or another descriptor, <>, or
-# a word naming a shell or interpreter (sh, bash, ssh, xargs, python, node and
-# others) outside the python reader itself, or a command named by a path or a
-# variable. A python reader also needs every other command in the line to be
-# one that only reads (cd, ls, echo, cat, git diff and the like).
+# output redirection to anything but /dev/null or another descriptor, <>, a
+# command named by a path or a variable, or a shell or interpreter name (sh,
+# bash, ssh, xargs, eval, python, node and others) anywhere in any word, as
+# in -c core.editor=bash or --exec 'bash m'.
 
 function fail() { failed = 1 }
-function isrunner(w,    b) {
-  b = w
+function isrunner(b) {
   sub(/.*\//, "", b)
-  if (b ~ /^(sh|bash|zsh|dash|ksh|mksh|ash|yash|fish|csh|tcsh|busybox|xargs|ssh|sudo|doas|su|env|nohup|timeout|nice|watch|script|expect|parallel|make|node|nodejs|ruby|perl|php|deno|bun|bunx|npx|tsx|ts-node|npm|pnpm|yarn|uv|uvx|pwsh|powershell|cmd|osascript|tclsh|lua|Rscript)$/) return 1
+  if (b ~ /^(source|eval|exec|sh|bash|zsh|dash|ksh|mksh|ash|yash|fish|csh|tcsh|busybox|xargs|ssh|sudo|doas|su|env|nohup|timeout|nice|watch|script|expect|parallel|make|node|nodejs|ruby|perl|php|deno|bun|bunx|npx|tsx|ts-node|npm|pnpm|yarn|uv|uvx|pwsh|powershell|cmd|osascript|tclsh|lua|Rscript)$/) return 1
   if (b ~ /^python[0-9.]*$/) return 1
+  return 0
+}
+# runs W — 1 when any piece of word W, split at characters that end a command
+# name, names a shell or interpreter.
+function runs(w,    m, k, P) {
+  m = split(w, P, /[^A-Za-z0-9_.\/+-]+/)
+  for (k = 1; k <= m; k++) if (P[k] != "" && isrunner(P[k])) return 1
   return 0
 }
 function endword() {
@@ -95,49 +96,39 @@ function bodies(s, p, n,    k, h, e, line) {
   npq = 0
   return p
 }
-function gitcommit(k,    j, m) {
-  if (W[k, 0] != "git") return 0
+# gitcommit K — statement K is git commit reading its message from stdin,
+# with git's -C and commit options from a fixed list only.
+function gitcommit(k,    j, m, file) {
   m = nw[k]; j = 1
-  while (j < m && W[k, j] ~ /^-/) {
-    if (W[k, j] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) j++
-    j++
-  }
-  if (j >= m || W[k, j] != "commit") return 0
+  if (W[k, 0] != "git") return 0
+  if (W[k, 1] == "-C") j = 3
+  if (W[k, j] != "commit") return 0
   for (j++; j < m; j++) {
-    if (W[k, j] == "--file=-") return 1
-    if ((W[k, j] == "-F" || W[k, j] == "--file") && j + 1 < m && W[k, j + 1] == "-") return 1
+    if (W[k, j] == "--file=-") file = 1
+    else if ((W[k, j] == "-F" || W[k, j] == "--file") && W[k, j + 1] == "-") { file = 1; j++ }
+    else if (W[k, j] !~ /^(-a|--all|-q|--quiet|-s|--signoff|--allow-empty|--amend|--no-edit|--cleanup=[a-z]+)$/) return 0
   }
-  return 0
+  return file
 }
-function ghbody(k,    j, m) {
+# ghbody K — statement K is gh issue|pr create|comment|edit reading its body
+# from stdin, with options from a fixed list only (no --editor, no --web).
+function ghbody(k,    j, m, body, w) {
   m = nw[k]
   if (m < 3 || W[k, 0] != "gh" || W[k, 1] !~ /^(issue|pr)$/ || W[k, 2] !~ /^(create|comment|edit)$/) return 0
   for (j = 3; j < m; j++) {
-    if (W[k, j] == "--body-file=-") return 1
-    if ((W[k, j] == "-F" || W[k, j] == "--body-file") && j + 1 < m && W[k, j + 1] == "-") return 1
+    w = W[k, j]
+    if (w == "--body-file=-") body = 1
+    else if ((w == "-F" || w == "--body-file") && W[k, j + 1] == "-") { body = 1; j++ }
+    else if (w ~ /^(-t|--title|-B|--base|-H|--head|-R|--repo|-l|--label|-a|--assignee|-r|--reviewer|-m|--milestone|--add-label|--remove-label)$/) j++
+    else if (w ~ /^(--title|--base|--head|--repo|--label|--assignee|--reviewer|--milestone|--add-label|--remove-label)=/) continue
+    else if (w ~ /^(-d|--draft)$/) continue
+    else if (w ~ /^-/) return 0
   }
-  return 0
+  return body
 }
 function textreader(k) {
   if (W[k, 0] == "cat" && (nw[k] == 1 || (nw[k] == 2 && W[k, 1] == "-"))) return 1
   return gitcommit(k) || ghbody(k)
-}
-function pyreader(k,    j) {
-  if (nw[k] < 1 || W[k, 0] !~ /^python(3(\.[0-9]+)?)?$/) return 0
-  for (j = 1; j < nw[k]; j++) if (W[k, j] !~ /^(-|-u|-B|-I|-E|-s|-S|-q)$/) return 0
-  return 1
-}
-function readonly(k) {
-  if (nw[k] == 0) return 1
-  if (W[k, 0] ~ /^(cd|pwd|ls|echo|printf|true|cat|head|tail|wc|diff)$/) return 1
-  return W[k, 0] == "git" && nw[k] > 1 && W[k, 1] ~ /^(diff|status|log|show)$/
-}
-function pybody(b,    t) {
-  if (b ~ /system|popen|spawn|exec|eval|subprocess|getattr|setattr|attrgetter|methodcaller|getmembers|import_module|importlib|builtins|globals|locals|ctypes|cffi|pexpect|plumbum|fabric|invoke|commands|startfile|runpy|marshal|pickle|shelve|FunctionType|CodeType/) return 0
-  if (b ~ /vars[ \t]*\(/ || b ~ /(^|[^A-Za-z0-9_])(sh|pty)([^A-Za-z0-9_]|$)/) return 0
-  t = b
-  gsub(/__(name|main|file|future|init)__/, "", t)
-  return index(t, "__") == 0
 }
 { cmd = (NR > 1) ? cmd "\n" $0 : $0 }
 END {
@@ -217,24 +208,15 @@ END {
   }
   if (!failed) endstmt()
   if (failed || sq || dq || target != "" || npq > 0) { printf "%s", s; exit }
-  py = (mode == "python")
-  pyk = 0
-  for (h = 1; h <= nh; h++) {
-    k = HS[h]; ok[h] = 0
-    if (!HQ[h] || nhd[k] != 1 || stin[k] != 0) continue
-    if (textreader(k)) ok[h] = 1
-    else if (py && pyreader(k) && pybody(substr(s, HB[h], HE[h] - HB[h]))) { ok[h] = 2; pyk = k }
-  }
   for (k = 1; k < ns; k++) {
     for (j = 0; j < nw[k]; j++) {
-      if (j == 0 && k == pyk) continue
-      if (isrunner(W[k, j])) { printf "%s", s; exit }
-      if (j == 0 && (W[k, 0] ~ /[\/$]/ || W[k, 0] ~ /^(\.|source|eval|exec|command|builtin|coproc|time|trap|alias|function)$/)) { printf "%s", s; exit }
+      if (runs(W[k, j])) { printf "%s", s; exit }
+      if (j == 0 && (W[k, 0] ~ /[\/$]/ || W[k, 0] ~ /^(\.|command|builtin|coproc|time|trap|alias|function)$/)) { printf "%s", s; exit }
     }
-    if (pyk && k != pyk && !readonly(k)) {
-      for (h = 1; h <= nh; h++) if (ok[h] == 2) ok[h] = 0
-      pyk = 0
-    }
+  }
+  for (h = 1; h <= nh; h++) {
+    k = HS[h]
+    ok[h] = HQ[h] && nhd[k] == 1 && stin[k] == 0 && textreader(k)
   }
   out = ""; p = 1
   for (h = 1; h <= nh; h++) {

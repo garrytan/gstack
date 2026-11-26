@@ -125,28 +125,22 @@ fi
 
 # --- Quoted heredoc bodies (#4843) ---
 # Bash expands nothing in the body of a heredoc whose delimiter is quoted
-# ('EOF', "EOF" or \EOF), so a body read only as text by git commit -F -,
-# gh --body-file - or a bare cat is masked for every check below, as a commit
-# message is. A body that python reads as its program from stdin, and that
-# names no way to start a process, is masked for the shell-statement scan
-# only (CMD_SCAN). mask-heredoc.awk leaves every body in place when the reader
-# could run it (a shell, ssh, eval, xargs, a SQL client), when the delimiter
-# is unquoted, and when anything else in the command could hand a body to a
-# shell; its header lists the conditions. The header line and every other
-# line are still read, and a missing program or an awk failure masks nothing.
-# PowerShell has no heredocs, so its commands are never masked.
-CMD_SCAN="$CMD_MEDIUM"
+# ('EOF', "EOF" or \EOF), so a body that only git commit -F -, gh
+# --body-file - or a bare cat reads is text, and is masked for every check
+# below, as a commit message is. mask-heredoc.awk leaves every body in place
+# when its reader could run it (a shell, ssh, eval, xargs, a SQL client,
+# python), when the delimiter is unquoted, and when anything else in the
+# command could hand a body to a program; its header lists the conditions.
+# The header line and every other line are still read, and a missing program
+# or an awk failure masks nothing. PowerShell has no heredocs, so its commands
+# are never masked.
 _HEREDOC_AWK="$_HOOK_DIR/mask-heredoc.awk"
 case "$CMD_MEDIUM" in
   *'<<'*)
     if [ "$TOOL_NAME" != "PowerShell" ] && [ -f "$_HEREDOC_AWK" ]; then
-      if _cmd_masked=$(printf '%s' "$CMD_MEDIUM" | awk -v mode=text -f "$_HEREDOC_AWK" 2>/dev/null); then
+      if _cmd_masked=$(printf '%s' "$CMD_MEDIUM" | awk -f "$_HEREDOC_AWK" 2>/dev/null); then
         CMD_MEDIUM="$_cmd_masked"
         CMD_MEDIUM_LOWER=$(printf '%s' "$CMD_MEDIUM" | tr '[:upper:]' '[:lower:]')
-      fi
-      CMD_SCAN="$CMD_MEDIUM"
-      if _cmd_masked=$(printf '%s' "$CMD_MEDIUM" | awk -v mode=python -f "$_HEREDOC_AWK" 2>/dev/null); then
-        CMD_SCAN="$_cmd_masked"
       fi
     fi
     ;;
@@ -859,7 +853,7 @@ _careful_pop() {
 }
 _careful_scan() {
   local s seg t i n bt=0 track=0
-  s=$(printf '%s\n' "$CMD_SCAN" | awk '{ gsub(/[0-9]*>&|<&|&>/, ">"); gsub(/[|][|]/, "\n\005\n"); gsub(/&&/, "\n\004\n"); gsub(/[|]/, "\n\006\n"); gsub(/[;&]/, "\n\005\n"); gsub(/[(]/, "\n\001\n"); gsub(/[)]/, "\n\002\n"); gsub(/`/, "\n\003\n"); print; print "\005" }' 2>/dev/null) || s="$CMD_SCAN"
+  s=$(printf '%s\n' "$CMD_MEDIUM" | awk '{ gsub(/[0-9]*>&|<&|&>/, ">"); gsub(/[|][|]/, "\n\005\n"); gsub(/&&/, "\n\004\n"); gsub(/[|]/, "\n\006\n"); gsub(/[;&]/, "\n\005\n"); gsub(/[(]/, "\n\001\n"); gsub(/[)]/, "\n\002\n"); gsub(/`/, "\n\003\n"); print; print "\005" }' 2>/dev/null) || s="$CMD_MEDIUM"
   local IFS="$_NL"
   set -f
   local segs=( $s )
