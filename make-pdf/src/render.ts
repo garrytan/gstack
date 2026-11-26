@@ -251,11 +251,12 @@ function sanitizePass(html: string): string {
   // handler's name is always removed, even before a value that starts with
   // "<" (onerror=<!--&#10;… runs its second line). Matching runs over the
   // whole page, text included, so "/on…=" inside a URL or code goes too.
-  // A quoted value goes with its name only when it holds no "<" or ">":
-  // otherwise the quote may belong to a later element, so the last rule
-  // removes just the name and the rest stays where it was.
-  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"<>]*"/gi, "");
-  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^'<>]*'/gi, "");
+  // A quoted value goes with its name only when it holds no "<": a ">" may
+  // sit inside a quoted value, but a "<" means the quote may belong to a
+  // later element, so the last rule removes just the name and the rest stays
+  // where it was.
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"<]*"/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^'<]*'/gi, "");
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`<]*/gi, "");
 
   // javascript: URLs in href/src/action/formaction (same attribute starts).
@@ -264,8 +265,9 @@ function sanitizePass(html: string): string {
     '$1"#"',
   );
   // Any other javascript: value (unquoted, or quoted around "<" or ">") loses
-  // only its scheme, so no quote is added or removed.
-  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*["']?[\s\x01-\x20]*)javascript(?::|&colon;|&#0*58;?|&#x0*3a;?)/gi, "$1#");
+  // only its scheme, so no quote is added or removed. A numeric reference
+  // with more digits after 58 or 3a is another character, not a colon.
+  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*["']?[\s\x01-\x20]*)javascript(?::|&colon;|&#0*58(?![0-9]);?|&#x0*3a(?![0-9a-f]);?)/gi, "$1#");
 
   // srcdoc attribute (iframe escape hatch — already stripped via iframe above,
   // but defense-in-depth).
@@ -352,6 +354,28 @@ function sanitizePass(html: string): string {
       if (dec !== undefined) return refCodePoint(parseInt(dec, 10));
       if (named !== undefined) return NAMED_REFS[named] ?? m;
       return NAMED_REFS[legacy];
+    });
+
+  // javascript: spelled the way only the browser reads it: entity letters
+  // (&#106;avascript:), or a tab or line break anywhere in the scheme, which
+  // URL parsing drops (java&Tab;script:). Decode the start of each URL
+  // attribute value as the parser will, drop tabs and line breaks, and when
+  // it is still javascript: put "#" in front, which makes the whole value a
+  // fragment. Only the name and the opening quote are matched, so a quote
+  // that really closes an earlier attribute can't hide a later value, and no
+  // quote is added or removed. A value longer than the window that is still
+  // nothing but padding and the start of "javascript:" counts as one.
+  s = s.replace(/([\s/"']\s*(?:href|src|action|formaction|xlink:href)\s*=\s*)(["']?)/gi,
+    (m, pre, q, offset: number, str: string) => {
+      const start = offset + m.length;
+      let end = q ? str.indexOf(q, start) : str.slice(start, start + 2048).search(/[\s>]/);
+      end = end === -1 ? str.length : q ? end : start + end;
+      const truncated = end - start > 2048;
+      let value = str.slice(start, Math.min(end, start + 2048));
+      if (truncated) value = value.replace(/&[#\w]*$/, "");
+      const url = decodeStyleAttrEntities(value).replace(/[\t\n\r]/g, "").replace(/^[\x00-\x20]+/, "").toLowerCase();
+      const live = url.startsWith("javascript:") || (truncated && "javascript:".startsWith(url));
+      return live ? `${pre}${q}#` : m;
     });
 
   // Inline style attributes — quoted AND unquoted. HTML spec: an unquoted

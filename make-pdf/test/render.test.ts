@@ -99,6 +99,11 @@ describe("smartypants", () => {
     expect(smartypants(`<p><em>Garry</em>'s book</p>`)).toBe(`<p><em>Garry</em>\u2019s book</p>`);
   });
 
+  test("a flag at the start of a cell, list item or bold run keeps its dashes", () => {
+    expect(smartypants(`<td>--og</td><li>--check</li><p><strong>--resume</strong></p>`))
+      .toBe(`<td>--og</td><li>--check</li><p><strong>--resume</strong></p>`);
+  });
+
   test("a quote after an image or an unknown tag still closes", () => {
     expect(smartypants(`<p>"check out <PR link>" today</p>`)).toBe(`<p>\u201ccheck out <PR link>\u201d today</p>`);
     expect(smartypants(`<p>"see <img src="a.png">" here</p>`)).toBe(`<p>\u201csee <img src="a.png">\u201d here</p>`);
@@ -410,16 +415,22 @@ function browserAttrs(html: string): Array<{ tag: string; name: string; value: s
 }
 
 function decodeAttr(v: string): string {
-  return v.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(quot|apos|amp));?/gi, (_m, hex, dec, named) =>
+  return v.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(quot|apos|amp)|(Tab|NewLine|colon););?/gi, (m, hex, dec, named, withSemi) =>
     hex ? String.fromCodePoint(parseInt(hex, 16))
       : dec ? String.fromCodePoint(parseInt(dec, 10))
-      : ({ quot: '"', apos: "'", amp: "&" } as Record<string, string>)[named.toLowerCase()]!);
+      : named ? ({ quot: '"', apos: "'", amp: "&" } as Record<string, string>)[named.toLowerCase()]!
+      : ({ Tab: "\t", NewLine: "\n", colon: ":" } as Record<string, string>)[withSemi] ?? m);
+}
+
+/** A URL the way the browser reads it: decoded, tabs and line breaks removed. */
+function browserUrl(v: string): string {
+  return decodeAttr(v).replace(/[\t\n\r]/g, "");
 }
 
 function liveScript(html: string): string[] {
   return browserAttrs(html)
     .filter((a) => a.name.startsWith("on") ||
-      (/^(?:href|src|xlink:href|action|formaction)$/.test(a.name) && /^\s*javascript:/i.test(decodeAttr(a.value))))
+      (/^(?:href|src|xlink:href|action|formaction)$/.test(a.name) && /^[\x00-\x20]*javascript:/i.test(browserUrl(a.value))))
     .map((a) => `<${a.tag} ${a.name}=${a.value}>`);
 }
 
@@ -534,6 +545,78 @@ describe("render() — characters dropped after sanitizing cannot revive script"
     const out = sanitizeUntrustedHtml("<svg on\u0000load=alert(1)><circle r=\"2\"/></svg>");
     expect(out).not.toContain("\u0000");
     expect(liveScript(out)).toEqual([]);
+  });
+});
+
+describe("sanitizeUntrustedHtml — handlers and javascript: links in any spelling the browser reads", () => {
+  // A ">" inside a quoted handler value is still part of that value, so the
+  // whole handler goes and the attributes after it stay.
+  test("a handler whose quoted value holds > is removed with its value", () => {
+    expect(sanitizeUntrustedHtml(`<div onclick="return a > b" class="notice">Keep me</div>`))
+      .toBe(`<div class="notice">Keep me</div>`);
+    expect(sanitizeUntrustedHtml(`<div onclick='return a > b' class="notice">Keep me</div>`))
+      .toBe(`<div class="notice">Keep me</div>`);
+  });
+
+  // &#x3ab; is the character U+03AB, not a colon followed by "b".
+  test("an entity that only starts like a colon is left alone", () => {
+    for (const href of ["javascript&#x3ab;guide", "javascript&#5899;guide", "javascript&#x3A0;x"]) {
+      const html = `<a href="${href}">g</a>`;
+      expect(sanitizeUntrustedHtml(html)).toBe(html);
+    }
+    expect(liveScript(sanitizeUntrustedHtml(`<a href="javascript&#x3a;alert(1)">g</a>`))).toEqual([]);
+    expect(liveScript(sanitizeUntrustedHtml(`<a href="javascript&#58alert(1)">g</a>`))).toEqual([]);
+  });
+
+  // Browsers drop tabs and line breaks from a URL and decode entities first,
+  // so all of these still run as javascript: links.
+  test("javascript: written with tabs, line breaks or entity letters is neutralized", () => {
+    const spellings = [
+      "java\tscript:alert(1)", "java\nscript:alert(1)", "java\rscript:alert(1)",
+      "java&Tab;script:alert(1)", "java&#9;script:alert(1)", "java&#x9;script:alert(1)", "java&NewLine;script:alert(1)",
+      "&#106;avascript:alert(1)", "&#x6A;avascript:alert(1)", "&#106avascript:alert(1)",
+      "&#32;javascript:alert(1)", "j&#97;v&#97;script&colon;alert(1)",
+    ];
+    for (const v of spellings) {
+      for (const attr of [`href="${v}"`, `href='${v}'`, `src="${v}"`, `formaction="${v}"`]) {
+        const out = sanitizeUntrustedHtml(`<a ${attr}>j</a>`);
+        expect(liveScript(out)).toEqual([]);
+        expect(out).toContain(">j</a>");
+      }
+      if (!/\s/.test(v)) expect(liveScript(sanitizeUntrustedHtml(`<a href=${v}>j</a>`))).toEqual([]);
+    }
+  });
+
+  test("a javascript: value holding < or > keeps its quotes and loses its scheme", () => {
+    const out = sanitizeUntrustedHtml(`<a href='java&#9;script:a>b' title="t">j</a><p>after</p>`);
+    expect(liveScript(out)).toEqual([]);
+    expect(attrsOf(out, "a")).toEqual(["href", "title"]);
+    expect(out).toContain("<p>after</p>");
+  });
+
+  test("a later attribute is checked even when an earlier quote pairs with it", () => {
+    const out = sanitizeUntrustedHtml(`<p title=' href='>x</p><a href='java&#9;script:alert(1)'>j</a>`);
+    expect(liveScript(out)).toEqual([]);
+  });
+
+  test("ordinary links are untouched", () => {
+    const html = `<a href="https://example.com/a?b=1&amp;c=2">a</a><a href="#top">t</a><a href="java.html">j</a><img src="javascript.png">`;
+    expect(sanitizeUntrustedHtml(html)).toBe(html);
+  });
+
+  test("render() neutralizes the same spellings in raw HTML and links", () => {
+    const md = [
+      "<div>",
+      `<a href="java&#9;script:alert(1)">a</a>`,
+      `<a href="&#106;avascript:alert(1)">b</a>`,
+      "</div>",
+      "",
+      "[c](java&#9;script:alert(1)) [d](&#106;avascript:alert(1))",
+      "",
+    ].join("\n");
+    const html = render({ markdown: md }).bodyHtml;
+    expect(liveScript(html)).toEqual([]);
+    for (const t of [">a</a>", ">b</a>"]) expect(html).toContain(t);
   });
 });
 

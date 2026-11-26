@@ -68,6 +68,7 @@ export function smartypants(html: string): string {
 const PLACEHOLDER_SPLIT_RE = /(\u0000SMARTPANTS_PRESERVED_\d+\u0000)/;
 const BLOCK_TAG_RE = /^<\/?(?:address|article|aside|blockquote|br|caption|dd|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tbody|td|tfoot|th|thead|tr|ul)\b/i;
 const INLINE_TAG_RE = /^<\/?(?:a|abbr|b|cite|del|dfn|em|i|ins|mark|q|s|small|span|strong|sub|sup|u)\b/i;
+const QUOTE_START_RE = /^(?:["']|&quot;|&#39;|&apos;|&#x27;)/;
 const OPENING_CONTEXT_RE = /[\s\(\[\{\-\uff1a\uff08\u3010\u300c\u300e\u3008\u300a]/;
 
 /**
@@ -75,9 +76,11 @@ const OPENING_CONTEXT_RE = /[\s\(\[\{\-\uff1a\uff08\u3010\u300c\u300e\u3008\u300
  * start of a run by the visible text before it: a block tag (<p>, <li>, <h1>)
  * or the start of the document opens, an inline tag that wraps text (<em>,
  * <a>) is skipped, and anything else (code, a URL, an image, an unknown tag)
- * counts as a word. Each run is transformed behind a one-character prefix
- * that stands for that context; every rule keeps the character before its
- * match, so the prefix comes back unchanged and is cut.
+ * counts as a word. A run that starts with a quote is transformed behind a
+ * one-character prefix that stands for that context; any other run keeps the
+ * placeholder's own character before it, so "--flag" at the start of a cell
+ * stays as it was. Every rule keeps the character before its match, so the
+ * prefix comes back unchanged and is cut.
  */
 function transformSegments(s: string, preserved: string[]): string {
   let context = " ";
@@ -89,7 +92,8 @@ function transformSegments(s: string, preserved: string[]): string {
       return part;
     }
     if (!part) return part;
-    const out = transformText(context + part).slice(1);
+    const prefix = QUOTE_START_RE.test(part) ? context : i === 0 ? "" : "\u0000";
+    const out = transformText(prefix + part).slice(prefix.length);
     context = OPENING_CONTEXT_RE.test(part[part.length - 1]!) ? " " : "x";
     return out;
   }).join("");
