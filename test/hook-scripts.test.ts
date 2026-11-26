@@ -521,13 +521,21 @@ describe('check-careful.sh', () => {
       [heredocMessage('drop table $(rm -rf src)', 'EOF'), 'recursive delete'],
       [`git commit -m "$(echo " -m 'x" ; rm -rf src ; echo ')"`, 'recursive delete'],
       ['git commit -m "\`rm -rf src\`"', 'recursive delete'],
-      ["git commit -F - <<'EOF'\ndocs: rm -rf src\nEOF", 'recursive delete'],
+      ["git commit -F - <<EOF\ndocs: $(rm -rf src)\nEOF", 'recursive delete'],
       ["git commit -m $'psql -c \"drop table notes\"\\n'", 'SQL DROP'],
     ])('other substitutions and heredocs stay unmasked: %j', (command, reason) => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
       expect(exitCode).toBe(0);
       expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
       expect(output.hookSpecificOutput?.permissionDecisionReason).toContain(reason);
+    });
+
+    // #4843: a heredoc with a quoted delimiter is never expanded, so git commit -F - reads its body as the message.
+    // The unquoted twin above still asks, because its $( ) runs.
+    test('a quoted heredoc read by git commit -F - is masked like -m (#4843)', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput("git commit -F - <<'EOF'\ndocs: rm -rf src\nEOF"));
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
     });
 
     // git prints the message on stdout, so any pipe after a masked message,

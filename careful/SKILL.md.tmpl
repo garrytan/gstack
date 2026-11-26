@@ -84,6 +84,12 @@ A recursive delete never asks when every target is scratch: under `/tmp/` or
 cache (`~/.cache`, `~/.npm` and the like), or a build artifact
 (`node_modules`, `dist`, `build`, `.next`, `.venv` and the like). A path containing `..` is never scratch.
 
+A heredoc with a quoted delimiter (`<<'EOF'`) is never expanded, so its body is
+text when `git commit -F -`, `gh ... --body-file -` or a bare `cat` reads it, or
+when `python -` reads it as a program that starts no process. A body read by a
+shell, `ssh`, `eval` or a SQL client, an unquoted delimiter, a pipe, and every
+command outside the body are still checked.
+
 ## How it works
 
 The hook checks each command against the patterns above and returns

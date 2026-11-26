@@ -410,6 +410,74 @@ const SPELLING_CASES: Array<[string, string, Decision, Tree]> = [
   ['a quoted gh title (negative: bash -c runs it)', 'bash -c "git push -f origin main"', 'deny', 'clean'],
 ];
 
+// #4843: the body of a heredoc with a quoted delimiter (<<'EOF', <<"EOF", <<\EOF, <<-) is never expanded, so a body
+// that only git commit -F -, gh --body-file - or a bare cat reads is text, and a body python reads as its program is
+// text to the shell-statement scan when it names no way to start a process. Each fix row asked or denied at 8982588;
+// every control keeps 8982588's decision: a shell, ssh, eval or SQL client reading the body, an unquoted or unclosed
+// delimiter, a pipe, a file the body is written to, and anything chained on the header line or after the closing line.
+const HEREDOC_CASES: Array<[string, string, Decision, Tree]> = [
+  ['the #4843 python repro (ask at 8982588)', 'python - <<\'EOF\'\nt = \"the script runs rm -rf on the staging lib folder\"\nprint(t)\nEOF', 'allow', 'clean'],
+  ['the #4843 commit-message repro (ask at 8982588)', 'git commit -F - <<\'EOF\'\nstaging: rm -rf the lib folder before copying\nEOF', 'allow', 'clean'],
+  ['a double-quoted delimiter (deny at 8982588)', 'git commit -F - <<\"EOF\"\ndocs: never run rm -rf /\nEOF', 'allow', 'clean'],
+  ['a backslashed delimiter (deny at 8982588)', 'git commit -F - <<\\EOF\nrevert: git push -f origin main was a mistake\nEOF', 'allow', 'clean'],
+  ['<<- strips the tabs before the body and the delimiter (deny at 8982588)', 'git commit -F - <<-\'EOF\'\n\tnotes: rm -rf ~ in the old script\n\tEOF', 'allow', 'clean'],
+  ['--file=- and a SQL example in the message (ask at 8982588)', 'git commit --file=- <<\'EOF\'\ndocs: psql -c \"DROP TABLE users\" example\nEOF', 'allow', 'clean'],
+  ['a bare cat prints the body (deny at 8982588)', 'cat <<\'EOF\'\nrm -rf ~\nEOF', 'allow', 'clean'],
+  ['a bare cat printing to stderr (ask at 8982588)', 'cat <<\'EOF\' >&2\nrm -rf src\nEOF', 'allow', 'clean'],
+  ['gh pr create --body-file - (ask at 8982588)', 'gh pr create --title x --body-file - <<\'EOF\'\nRemoves the rm -rf ~/x step\nEOF', 'allow', 'clean'],
+  ['gh issue comment -F - (ask at 8982588)', 'gh issue comment 12 -F - <<\'EOF\'\nrepro: rm -rf ~/work deletes the wrong folder\nEOF', 'allow', 'clean'],
+  ['a commit after git add (ask at 8982588)', 'git add -A && git commit -F - <<\'EOF\'\nfix: rm -rf the build folder first\nEOF', 'allow', 'clean'],
+  ['python after a cd, then git diff (ask at 8982588)', 'cd src && python3 - <<\'EOF\'\nimport pathlib\np = pathlib.Path(\'notes.md\')\np.write_text(p.read_text().replace(\'rm -rf dist\', \'rm -rf build\'))\nEOF\ngit diff --stat', 'allow', 'clean'],
+  ['a body line quoting the delimiter stays in the body (ask at 8982588)', 'git commit -F - <<\'EOF\'\necho \'EOF\'\nrm -rf src\nEOF', 'allow', 'clean'],
+  ['two text heredocs on one line (deny at 8982588)', 'cat <<\'A\'; cat <<\'B\'\nrm -rf src\nA\ngit push -f origin main\nB', 'allow', 'clean'],
+  ['a delete chained on the header line (control)', 'git commit -F - <<\'EOF\' && rm -rf /\nmsg\nEOF', 'deny', 'clean'],
+  ['a delete after ; on the header line (control)', 'python - <<\'EOF\'; rm -rf /\nprint(1)\nEOF', 'deny', 'clean'],
+  ['a delete after || on the header line (control)', 'cat <<\'EOF\' || rm -rf src\nx\nEOF', 'ask', 'clean'],
+  ['the body piped to sh (control)', 'cat <<\'EOF\' | sh\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['python output piped to sh (control)', 'python - <<\'EOF\' | sh\nprint(\'rm -rf src\')\nEOF', 'ask', 'clean'],
+  ['a group piped to sh (control)', '{ cat <<\'EOF\'; } | sh\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['bash reads the body (control)', 'bash <<\'EOF\'\nrm -rf ~\nEOF', 'deny', 'clean'],
+  ['sh reads the body (control)', 'sh <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['sh -s reads the body (control)', 'sh -s <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['zsh reads the body (control)', 'zsh <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['dash reads the body (control)', 'dash <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['sudo bash reads the body (control)', 'sudo bash <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['env bash reads the body (control)', 'env bash <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['ssh host sh reads the body (control)', 'ssh host sh <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['ssh with no command runs a remote shell (control)', 'ssh host <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['source /dev/stdin (control)', 'source /dev/stdin <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['. /dev/stdin (control)', '. /dev/stdin <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['eval of a cat heredoc (control)', 'eval \"$(cat <<\'EOF\'\nrm -rf src\nEOF\n)\"', 'ask', 'clean'],
+  ['eval in a read loop (control)', 'while read -r l; do eval \"$l\"; done <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['a here-string to bash (control)', 'bash <<< \'rm -rf src\'', 'ask', 'clean'],
+  ['an unquoted delimiter runs $( ) (control)', 'git commit -F - <<EOF\n$(rm -rf src)\nEOF', 'ask', 'clean'],
+  ['an unquoted delimiter runs backticks (control)', 'cat <<EOF\n`rm -rf src`\nEOF', 'ask', 'clean'],
+  ['an unquoted <<- delimiter (control)', 'cat <<-EOF\n\t$(rm -rf src)\n\tEOF', 'ask', 'clean'],
+  ['an unclosed heredoc (control)', 'git commit -F - <<\'EOF\'\nrm -rf src', 'ask', 'clean'],
+  ['an indented delimiter without <<- does not close it (control)', 'git commit -F - <<\'EOF\'\nmsg\n  EOF\nrm -rf src', 'ask', 'clean'],
+  ['a CRLF delimiter does not close it (control)', 'git commit -F - <<\'EOF\'\r\nmsg\r\nEOF\r\nrm -rf src', 'ask', 'clean'],
+  ['a delete after the closing line (control)', 'git commit -F - <<\'EOF\'\nmsg\nEOF\nrm -rf src', 'ask', 'clean'],
+  ['a shell heredoc beside a text one (control)', 'cat <<\'A\'; bash <<\'B\'\nrm -rf src\nA\nrm -rf src\nB', 'ask', 'clean'],
+  ['a heredoc marker in a comment (control)', 'echo hi # <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['a heredoc marker in quotes (control)', 'echo \"<<\'EOF\'\"\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['python runs a shell (control)', 'python - <<\'EOF\'\nimport os\nos.system(\'rm -rf src\')\nEOF', 'ask', 'clean'],
+  ['python subprocess with a shell (control)', 'python3 - <<\'EOF\'\nimport subprocess\nsubprocess.run(\'rm -rf src\', shell=True)\nEOF', 'ask', 'clean'],
+  ['python reaching os.system by name (control)', 'python - <<\'EOF\'\nimport os\ngetattr(os, \'sys\' + \'tem\')(\'rm -rf src\')\nEOF', 'ask', 'clean'],
+  ['python reaching os.system through a dunder (control)', 'python - <<\'EOF\'\nimport os\nos.__dict__[\'sys\' + \'tem\'](\'rm -rf src\')\nEOF', 'ask', 'clean'],
+  ['python writes a script that bash runs (control)', 'python - <<\'EOF\'\nopen(\'x.sh\', \'w\').write(\'rm -rf src\')\nEOF\nbash x.sh', 'ask', 'clean'],
+  ['python then a command that is not read-only (control)', 'python - <<\'EOF\'\nopen(\'x.txt\', \'w\').write(\'rm -rf src\')\nEOF\nchmod +x x.txt && ./x.txt', 'ask', 'clean'],
+  ['python running a script that reads stdin (control)', 'python manage.py shell <<\'EOF\'\nprint(\'rm -rf src\')\nEOF', 'ask', 'clean'],
+  ['python -c beside a heredoc (control)', 'python -c \'import sys; exec(sys.stdin.read())\' <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['python runs SQL (control)', 'python - <<\'EOF\'\nimport sqlite3\nsqlite3.connect(\'x\').execute(\'DROP TABLE users\')\nEOF', 'ask', 'clean'],
+  ['a SQL client reads the body (control)', 'psql <<\'EOF\'\nDROP TABLE users;\nEOF', 'ask', 'clean'],
+  ['cat writes a script that bash runs (control)', 'cat > x.sh <<\'EOF\'\nrm -rf src\nEOF\nbash x.sh', 'ask', 'clean'],
+  ['cat writes a file (control)', 'cat > notes.txt <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['a commit then a shell (control)', 'git commit -F - <<\'EOF\' && bash deploy.sh\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['a commit message read back into a shell (control)', 'git commit -F - <<\'EOF\'\nrm -rf src\nEOF\nsh -c \"$(git log -1 --format=%B)\"', 'ask', 'clean'],
+  ['tee writes the body (control)', 'tee x.sh <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+  ['git commit without -F - (control)', 'git commit -m wip <<\'EOF\'\nrm -rf src\nEOF', 'ask', 'clean'],
+];
+
 let base = '';
 const trees = {} as Record<Tree, string>;
 
@@ -520,6 +588,10 @@ describe('each new rule, with negative controls', () => {
     expect(decide(command, tree).decision).toBe(expected);
   });
 
+  test.each(HEREDOC_CASES)('%s: %j -> %s (%s tree)', (_item, command, expected, tree) => {
+    expect(decide(command, tree).decision).toBe(expected);
+  });
+
   test('a long command full of redirect-like words is still checked well inside the guard hook\'s 8 s timeout', () => {
     const body = Array.from({ length: 12000 }, (_, i) => `a > d${i}/sdb`).join(' ');
     const started = Date.now();
@@ -541,4 +613,13 @@ describe('each new rule, with negative controls', () => {
     expect(decide(`cat > x.ts <<'EOF'\n${body}\nEOF\nrm -rf src`, 'clean').decision).toBe('ask');
     expect(Date.now() - started).toBeLessThan(6000);
   });
+
+  test('a 200 KB commit message from a quoted heredoc is masked well inside the guard hook\'s 8 s timeout', () => {
+    const body = Array.from({ length: 4000 }, (_, i) => `- step ${i}: rm -rf build/${i} && git push -f origin main`).join('\n');
+    for (const [command, expected] of [[`git commit -F - <<'EOF'\n${body}\nEOF`, 'allow'], [`git commit -F - <<'EOF'\n${body}\nEOF\nrm -rf src`, 'ask']] as const) {
+      const started = Date.now();
+      expect(decide(command, 'clean').decision).toBe(expected);
+      expect(Date.now() - started).toBeLessThan(6000);
+    }
+  }, 20_000);
 });

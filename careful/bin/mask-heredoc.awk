@@ -1,0 +1,248 @@
+# mask-heredoc.awk — read by careful/bin/check-careful.sh (#4843).
+# Prints the command with the body of each quoted heredoc that feeds a known
+# reader replaced by empty lines; everything else, the header line and the
+# closing delimiter included, is printed unchanged. With a quoted delimiter
+# (<<'EOF', <<"EOF", <<\EOF, and the <<- forms of each) bash expands nothing
+# in the body, so the body is text unless the command that reads it runs it.
+#
+# Security invariant: a body is masked only when its reader is on the list
+# below. A shell, ssh, eval, source, xargs, a SQL client or any other command
+# that may run what it reads is not on it, so "bash <<'EOF'", "ssh host sh
+# <<'EOF'" and "psql <<'EOF'" keep their bodies, as do unquoted heredocs,
+# whose command substitutions and backticks run. Readers, by mode:
+#   text   git commit -F - (or --file -), gh issue|pr create|comment|edit
+#          -F - (or --body-file -), and a bare cat that prints to the screen.
+#   python the text readers, plus python or python3 reading its program from
+#          stdin (no script, -c or -m) when the body names no way to start a
+#          process or reach one by name (system, subprocess, exec, getattr,
+#          a dunder and the like). check-careful.sh uses this mode only for
+#          its shell-statement scan; the SQL, database and cloud checks still
+#          read a python body.
+#
+# Nothing is masked when the command holds anything this scanner does not
+# follow the way bash does, or anything that could hand a body to a shell
+# later in the same command: an unclosed heredoc, an unterminated quote, a
+# command or parameter substitution with parentheses or braces, $'...', a
+# backtick, (( )), <( ), >( ), a line continuation before a body, a pipe, an
+# output redirection to anything but /dev/null or another descriptor, <>, or
+# a word naming a shell or interpreter (sh, bash, ssh, xargs, python, node and
+# others) outside the python reader itself, or a command named by a path or a
+# variable. A python reader also needs every other command in the line to be
+# one that only reads (cd, ls, echo, cat, git diff and the like).
+
+function fail() { failed = 1 }
+function isrunner(w,    b) {
+  b = w
+  sub(/.*\//, "", b)
+  if (b ~ /^(sh|bash|zsh|dash|ksh|mksh|ash|yash|fish|csh|tcsh|busybox|xargs|ssh|sudo|doas|su|env|nohup|timeout|nice|watch|script|expect|parallel|make|node|nodejs|ruby|perl|php|deno|bun|bunx|npx|tsx|ts-node|npm|pnpm|yarn|uv|uvx|pwsh|powershell|cmd|osascript|tclsh|lua|Rscript)$/) return 1
+  if (b ~ /^python[0-9.]*$/) return 1
+  return 0
+}
+function endword() {
+  if (!inword) return
+  if (target != "") {
+    if (target == "dup") {
+      if (word !~ /^([0-9]+-?|-)$/ && word != "/dev/null") fail()
+    } else if (target == "out") {
+      if (word != "/dev/null") fail()
+    } else stin[ns]++
+    target = ""
+  } else {
+    W[ns, nw[ns]] = word
+    nw[ns]++
+  }
+  word = ""; inword = 0; wq = 0
+}
+function endstmt() {
+  endword()
+  if (target != "") fail()
+  ns++; nw[ns] = 0; nhd[ns] = 0; stin[ns] = 0
+}
+# heredoc S I STRIP — parses the delimiter after the << (and its -) at S[I]:
+# the index after it, recording one pending heredoc, or 0.
+function heredoc(s, i, strip,    rest, q, d, nx) {
+  while (substr(s, i, 1) ~ /[ \t]/) i++
+  rest = substr(s, i, 200)
+  if (match(rest, /^'[A-Za-z_][A-Za-z0-9_]*'/) || match(rest, /^"[A-Za-z_][A-Za-z0-9_]*"/)) { q = 1; d = substr(rest, 2, RLENGTH - 2) }
+  else if (match(rest, /^\\[A-Za-z_][A-Za-z0-9_]*/)) { q = 1; d = substr(rest, 2, RLENGTH - 1) }
+  else if (match(rest, /^[A-Za-z_][A-Za-z0-9_]*/)) { q = 0; d = substr(rest, 1, RLENGTH) }
+  else return 0
+  i += RLENGTH
+  nx = substr(s, i, 1)
+  if (nx != "" && nx !~ /[ \t\n;&|<>()]/) return 0
+  nh++
+  HS[nh] = ns; HQ[nh] = q; HD[nh] = d; HT[nh] = strip
+  nhd[ns]++
+  pq[++npq] = nh
+  return i
+}
+# bodies S P N — reads the pending heredocs' bodies from the line at S[P]:
+# the index after the last closing line, or 0 when one never closes.
+function bodies(s, p, n,    k, h, e, line) {
+  for (k = 1; k <= npq; k++) {
+    h = pq[k]
+    HB[h] = p
+    for (;;) {
+      if (p > n) return 0
+      e = p
+      while (e <= n && substr(s, e, 1) != "\n") e++
+      line = substr(s, p, e - p)
+      if (HT[h]) sub(/^\t+/, "", line)
+      if (line == HD[h]) { HE[h] = p; p = e + 1; break }
+      p = e + 1
+    }
+  }
+  npq = 0
+  return p
+}
+function gitcommit(k,    j, m) {
+  if (W[k, 0] != "git") return 0
+  m = nw[k]; j = 1
+  while (j < m && W[k, j] ~ /^-/) {
+    if (W[k, j] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) j++
+    j++
+  }
+  if (j >= m || W[k, j] != "commit") return 0
+  for (j++; j < m; j++) {
+    if (W[k, j] == "--file=-") return 1
+    if ((W[k, j] == "-F" || W[k, j] == "--file") && j + 1 < m && W[k, j + 1] == "-") return 1
+  }
+  return 0
+}
+function ghbody(k,    j, m) {
+  m = nw[k]
+  if (m < 3 || W[k, 0] != "gh" || W[k, 1] !~ /^(issue|pr)$/ || W[k, 2] !~ /^(create|comment|edit)$/) return 0
+  for (j = 3; j < m; j++) {
+    if (W[k, j] == "--body-file=-") return 1
+    if ((W[k, j] == "-F" || W[k, j] == "--body-file") && j + 1 < m && W[k, j + 1] == "-") return 1
+  }
+  return 0
+}
+function textreader(k) {
+  if (W[k, 0] == "cat" && (nw[k] == 1 || (nw[k] == 2 && W[k, 1] == "-"))) return 1
+  return gitcommit(k) || ghbody(k)
+}
+function pyreader(k,    j) {
+  if (nw[k] < 1 || W[k, 0] !~ /^python(3(\.[0-9]+)?)?$/) return 0
+  for (j = 1; j < nw[k]; j++) if (W[k, j] !~ /^(-|-u|-B|-I|-E|-s|-S|-q)$/) return 0
+  return 1
+}
+function readonly(k) {
+  if (nw[k] == 0) return 1
+  if (W[k, 0] ~ /^(cd|pwd|ls|echo|printf|true|cat|head|tail|wc|diff)$/) return 1
+  return W[k, 0] == "git" && nw[k] > 1 && W[k, 1] ~ /^(diff|status|log|show)$/
+}
+function pybody(b,    t) {
+  if (b ~ /system|popen|spawn|exec|eval|subprocess|getattr|setattr|attrgetter|methodcaller|getmembers|import_module|importlib|builtins|globals|locals|ctypes|cffi|pexpect|plumbum|fabric|invoke|commands|startfile|runpy|marshal|pickle|shelve|FunctionType|CodeType/) return 0
+  if (b ~ /vars[ \t]*\(/ || b ~ /(^|[^A-Za-z0-9_])(sh|pty)([^A-Za-z0-9_]|$)/) return 0
+  t = b
+  gsub(/__(name|main|file|future|init)__/, "", t)
+  return index(t, "__") == 0
+}
+{ cmd = (NR > 1) ? cmd "\n" $0 : $0 }
+END {
+  s = cmd; n = length(s); i = 1
+  ns = 1; nw[1] = 0; nhd[1] = 0; stin[1] = 0
+  sq = 0; dq = 0; inword = 0; wq = 0; word = ""; target = ""; npq = 0; nh = 0; failed = 0
+  while (i <= n && !failed) {
+    c = substr(s, i, 1)
+    if (sq) { if (c == "'") sq = 0; else word = word c; i++; continue }
+    if (dq) {
+      if (c == "\\") {
+        nx = substr(s, i + 1, 1)
+        if (nx ~ /[$`"\\]/) { word = word nx; i += 2; continue }
+        if (nx == "\n") { i += 2; continue }
+      }
+      else if (c == "\"") { dq = 0; i++; continue }
+      else if (c == "`") { fail(); continue }
+      else if (c == "$" && substr(s, i + 1, 1) ~ /[({]/) { fail(); continue }
+      word = word c; i++; continue
+    }
+    if (c == "\\") {
+      if (i == n || substr(s, i + 1, 1) == "\n") { fail(); continue }
+      word = word substr(s, i + 1, 1); inword = 1; wq = 1; i += 2; continue
+    }
+    if (c == "'") { sq = 1; inword = 1; wq = 1; i++; continue }
+    if (c == "\"") { dq = 1; inword = 1; wq = 1; i++; continue }
+    if (c == "`") { fail(); continue }
+    if (c == "$") {
+      nx = substr(s, i + 1, 1)
+      if (nx ~ /[({']/) { fail(); continue }
+      if (nx == "\"") { inword = 1; i++; continue }
+      word = word c; inword = 1; i++; continue
+    }
+    if (c == "#" && !inword) { while (i <= n && substr(s, i, 1) != "\n") i++; continue }
+    if (c == " " || c == "\t") { endword(); i++; continue }
+    if (c == "\n") {
+      endstmt(); i++
+      if (npq > 0 && (i = bodies(s, i, n)) == 0) fail()
+      continue
+    }
+    if (c == ";") { endstmt(); i++; continue }
+    if (c == "&") {
+      if (substr(s, i + 1, 1) == ">") { endword(); i += 2; if (substr(s, i, 1) == ">") i++; target = "out"; continue }
+      endstmt(); i++; if (substr(s, i, 1) == "&") i++
+      continue
+    }
+    if (c == "|") {
+      if (substr(s, i + 1, 1) == "|") { endstmt(); i += 2; continue }
+      fail(); continue
+    }
+    if (c == "(" || c == ")") {
+      if (substr(s, i + 1, 1) == c) { fail(); continue }
+      endstmt(); i++; continue
+    }
+    if (c == "<" || c == ">") {
+      if (target != "") { fail(); continue }
+      if (inword && !wq && word ~ /^[0-9]+$/) { word = ""; inword = 0 } else endword()
+      nx = substr(s, i + 1, 1)
+      if (nx == "(" || (c == "<" && nx == ">")) { fail(); continue }
+      if (nx == "&") { i += 2; target = "dup"; continue }
+      if (c == "<") {
+        if (substr(s, i, 3) == "<<<") { i += 3; target = "in"; continue }
+        if (nx == "<") {
+          i += 2; st = 0
+          if (substr(s, i, 1) == "-") { st = 1; i++ }
+          if ((i = heredoc(s, i, st)) == 0) fail()
+          continue
+        }
+        i++; target = "in"; continue
+      }
+      i++
+      if (substr(s, i, 1) ~ /[>|]/) i++
+      if (substr(s, i, 1) == "(") { fail(); continue }
+      target = "out"; continue
+    }
+    word = word c; inword = 1; i++
+  }
+  if (!failed) endstmt()
+  if (failed || sq || dq || target != "" || npq > 0) { printf "%s", s; exit }
+  py = (mode == "python")
+  pyk = 0
+  for (h = 1; h <= nh; h++) {
+    k = HS[h]; ok[h] = 0
+    if (!HQ[h] || nhd[k] != 1 || stin[k] != 0) continue
+    if (textreader(k)) ok[h] = 1
+    else if (py && pyreader(k) && pybody(substr(s, HB[h], HE[h] - HB[h]))) { ok[h] = 2; pyk = k }
+  }
+  for (k = 1; k < ns; k++) {
+    for (j = 0; j < nw[k]; j++) {
+      if (j == 0 && k == pyk) continue
+      if (isrunner(W[k, j])) { printf "%s", s; exit }
+      if (j == 0 && (W[k, 0] ~ /[\/$]/ || W[k, 0] ~ /^(\.|source|eval|exec|command|builtin|coproc|time|trap|alias|function)$/)) { printf "%s", s; exit }
+    }
+    if (pyk && k != pyk && !readonly(k)) {
+      for (h = 1; h <= nh; h++) if (ok[h] == 2) ok[h] = 0
+      pyk = 0
+    }
+  }
+  out = ""; p = 1
+  for (h = 1; h <= nh; h++) {
+    if (!ok[h]) continue
+    body = substr(s, HB[h], HE[h] - HB[h])
+    gsub(/[^\n]/, "", body)
+    out = out substr(s, p, HB[h] - p) body
+    p = HE[h]
+  }
+  printf "%s", out substr(s, p)
+}
