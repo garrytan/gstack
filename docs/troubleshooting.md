@@ -3758,8 +3758,9 @@ a typo never silently means "default".
 `gstack-ship-policy init --explain` prints each key, its meaning and default.
 
 When the invalid file is the base branch's and its only errors are in
-`review_exclude_paths` or `review_content_patterns` (for example `more than 64
-patterns`), /gstack-ship does not stop: `gstack-review-plan` prints `REVIEW_EXCLUDE:
+`review_exclude_paths` or `review_content_patterns` (for example `more than 256
+patterns` in `review_exclude_paths`, or `more than 64 patterns` in
+`review_content_patterns`), /gstack-ship does not stop: `gstack-review-plan` prints `REVIEW_EXCLUDE:
 fallback (WARNING: …)`, reviews every file and applies the base's other keys,
 so open a PR that corrects the list and ship it as usual
 ([review_exclude_paths](ship-policy.md#review-exclude-paths)). Any other error
