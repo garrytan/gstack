@@ -98,9 +98,17 @@ consulted): it scans the render tree and every host skills dir,
 deletes a real render directory, removes a host symlink only when it resolves
 into gstack, cleans a bannered real directory through `_cleanup_weak_dir`,
 never follows a symlink inside the render tree, and recognizes a skill renamed
-through its frontmatter `name:`. Pinned by `test/setup-link-ownership.test.ts`,
+through its frontmatter `name:`. A real directory with neither a SKILL.md nor
+the marker (one an earlier upgrade left holding only `sections/`) is also passed
+to `_cleanup_weak_dir` with no source, so only gstack's links leave it. That
+cleanup, and relink's `_remove_our_assets`, remove gstack's links (dangling ones
+included) and, when the skill's source is known, real files byte-identical to it
+(Windows copies), at the top level and one level into each real subdirectory
+such as `sections/`, never through a linked one; they remove only a
+subdirectory they emptied, so the user's files, links and directories stay.
+Pinned by `test/setup-link-ownership.test.ts`,
 `test/setup-cleanup-orphans.test.ts`, `test/setup-prune-stale-generated.test.ts`,
-and `test/relink.test.ts`.
+`test/retired-skill-sections-cleanup.test.ts` and `test/relink.test.ts`.
 
 ## Redaction guard
 
