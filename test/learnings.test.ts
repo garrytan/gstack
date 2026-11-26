@@ -254,6 +254,13 @@ describe('gstack-learnings-log edge cases', () => {
     const parsed = JSON.parse(fs.readFileSync(f!, 'utf-8').trim());
     expect(parsed.files).toEqual(['src/auth.ts', 'src/db.ts']);
   });
+
+  test('stores a single files string as a one-item list', () => {
+    runLog(JSON.stringify({ skill: 'review', type: 'pitfall', key: 'files-string', insight: 'test', confidence: 7, source: 'observed', files: 'src/auth.ts' }));
+
+    const parsed = JSON.parse(fs.readFileSync(findLearningsFile()!, 'utf-8').trim());
+    expect(parsed.files).toEqual(['src/auth.ts']);
+  });
 });
 
 describe('gstack-learnings-search edge cases', () => {
@@ -301,6 +308,18 @@ describe('gstack-learnings-search edge cases', () => {
     expect(output).toContain('valid');
     expect(output).not.toContain('no key');
     expect(output).not.toContain('no-type');
+  });
+
+  test('a stored row whose files is not a list does not break the search', () => {
+    runLog(JSON.stringify({ skill: 'review', type: 'pattern', key: 'good-row', insight: 'good entry', confidence: 7, source: 'observed' }));
+    const f = findLearningsFile();
+    expect(f).not.toBeNull();
+    fs.appendFileSync(f!, JSON.stringify({ skill: 'review', type: 'pitfall', key: 'string-files', insight: 'files as a string', confidence: 7, source: 'observed', files: 'src/auth.ts', ts: new Date().toISOString() }) + '\n');
+
+    const output = runSearch();
+    expect(output).toContain('good-row');
+    expect(output).toContain('[string-files]');
+    expect(output).toContain('files as a string (files: src/auth.ts)');
   });
 
   test('confidence decay floors at 0 (never negative)', () => {

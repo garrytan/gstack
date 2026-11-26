@@ -89,6 +89,9 @@ if (j.source && !ALLOWED_SOURCES.includes(j.source)) {
   process.exit(1);
 }
 
+// files is a list of paths; one path given as a string is stored as a one-item list.
+if (typeof j.files === 'string') j.files = [j.files];
+
 // Content sanitization: shared injection patterns (lib/jsonl-store.ts, D2A) —
 // one audited list across learnings + decisions, no drift.
 if (j.insight && hasInjection(j.insight)) {
