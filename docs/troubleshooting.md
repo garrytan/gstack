@@ -4089,6 +4089,10 @@ five largest top-level folders (`top=<dir>:<bytes>`) and the base policy commit.
 
 **Fix.** The line prints the fix for where the base policy stands:
 
+- **`slices=fits=<n>`:** the diff fits in slices, so nothing is wrong with the
+  policy. A standalone `render` never slices: run the reader through the pass
+  manifest instead. If the diff grew after the pass planned its readers, start a
+  fresh pass under a new `--pass` and `--out`, which plans the slices again.
 - **No key:** copy the printed JSON (`{"review_exclude_paths":[…],"min_gstack_version":"…"}`)
   into `.gstack/ship-policy.json` on the base as its own PR. A lane cannot land on
   the base itself: ask the repo owner or the coordinator. Once it merges, bring

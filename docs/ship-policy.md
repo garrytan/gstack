@@ -1731,7 +1731,8 @@ each reviewer's diff once before it writes a manifest or a brief (`pass`, `stage
 and `render`). `pass` reviews a diff over 2,000,000 bytes (about 500K tokens)
 in up to 8 slices that share no file and together cover it
 ([review slices](review-policy.md#review-ceiling)). One file over the ceiling by
-itself, a diff that needs more than 8 slices, or a standalone `render` stops with
+itself, a diff that needs more than 8 slices, a slice whose paths take more than
+the 24,000 argument bytes one command may carry, or a standalone `render` stops with
 [`REVIEW_DIFF_TOO_LARGE`](troubleshooting.md#review-diff-too-large), exit 3, and a
 fix chosen by where the policy stands; a `git diff` that fails or runs past
 120 seconds stops with
