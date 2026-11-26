@@ -9,7 +9,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { classifyDocsOnly, referencesTo, referencesToAll } from '../lib/docs-only';
 
-const env = { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'F', GIT_AUTHOR_EMAIL: 'f@example.test', GIT_COMMITTER_NAME: 'F', GIT_COMMITTER_EMAIL: 'f@example.test' };
+/** An empty global git config (os.devNull is not a file git can read on Windows). */
+const EMPTY_CONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gitcfg-')), 'config');
+fs.writeFileSync(EMPTY_CONFIG, '');
+afterAll(() => fs.rmSync(path.dirname(EMPTY_CONFIG), { recursive: true, force: true }));
+
+const env = { ...process.env, GIT_CONFIG_GLOBAL: EMPTY_CONFIG, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'F', GIT_AUTHOR_EMAIL: 'f@example.test', GIT_COMMITTER_NAME: 'F', GIT_COMMITTER_EMAIL: 'f@example.test' };
 let repo = '';
 const git = (...args: string[]) => {
   const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env, timeout: 30_000 });

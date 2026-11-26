@@ -10,6 +10,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fixedIndex, select } from '../lib/review-exclude-match';
 
+/** An empty global git config (os.devNull is not a file git can read on Windows). */
+const EMPTY_CONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gitcfg-')), 'config');
+fs.writeFileSync(EMPTY_CONFIG, '');
+afterAll(() => fs.rmSync(path.dirname(EMPTY_CONFIG), { recursive: true, force: true }));
+
 describe('fixedIndex', () => {
   const strings = ['docs/a.json', 'a.json', 'results/run-1/a.json', 'results/', 'LICENSE', 'vendor/x/LICENSE', 'data/b.jsonl', 'c.', 'é/ü.json'];
   const naive = (body: string) => new Set(strings.filter(s => body.includes(s)));
@@ -31,7 +36,7 @@ describe('fixedIndex', () => {
 describe('select', () => {
   let root = '';
   let base = '';
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'F', GIT_AUTHOR_EMAIL: 'f@example.test', GIT_COMMITTER_NAME: 'F', GIT_COMMITTER_EMAIL: 'f@example.test' };
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: EMPTY_CONFIG, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'F', GIT_AUTHOR_EMAIL: 'f@example.test', GIT_COMMITTER_NAME: 'F', GIT_COMMITTER_EMAIL: 'f@example.test' };
   const git = (...args: string[]) => { const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env, timeout: 30_000 }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout; };
   const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
   beforeAll(() => {
