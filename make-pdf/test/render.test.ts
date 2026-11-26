@@ -561,6 +561,16 @@ describe("sanitizeUntrustedHtml — handlers and javascript: links in any spelli
       .toBe(`<div class="notice">Keep me</div>`);
     expect(sanitizeUntrustedHtml(`<div onclick='return a > b' class="notice">Keep me</div>`))
       .toBe(`<div class="notice">Keep me</div>`);
+    expect(sanitizeUntrustedHtml(`<input disabled onclick="a > b" x=1 onfocus='c > d' name=n>`))
+      .toBe(`<input disabled x=1 name=n>`);
+  });
+
+  // Handler-looking text inside another attribute's value is not an
+  // attribute, so a quote after it may be text: only the name goes.
+  test("handler text inside an attribute value never swallows the text after the tag", () => {
+    const out = sanitizeUntrustedHtml(`<div title="docs/onload='example">Keep me ' and the rest</div>`);
+    expect(out).toContain("Keep me ' and the rest</div>");
+    expect(liveScript(out)).toEqual([]);
   });
 
   // &#x3ab; is the character U+03AB, not a colon followed by "b".

@@ -219,6 +219,42 @@ export function sanitizeUntrustedHtml(html: string): string {
   return escapeHtml(s);
 }
 
+/**
+ * Whether the text at offset starts an attribute of the tag that contains it,
+ * read the way the browser's tokenizer reads that tag from its "<": not
+ * inside a name or a value, and the tag not yet closed.
+ */
+function startsAttribute(str: string, offset: number): boolean {
+  const tagStart = str.lastIndexOf("<", offset);
+  if (tagStart === -1 || !/[a-zA-Z]/.test(str[tagStart + 1] ?? "")) return false;
+  const endsAtSpace = /\s/.test(str[offset] ?? "");
+  let i = tagStart + 1;
+  while (i < offset && !/[\s/>]/.test(str[i]!)) i++;
+  while (i < offset) {
+    if (/[\s/]/.test(str[i]!)) { i++; continue; }
+    if (str[i] === ">") return false;
+    while (i < offset && !/[\s/>=]/.test(str[i]!)) i++;
+    if (i === offset) return endsAtSpace;
+    let j = i;
+    while (j < offset && /\s/.test(str[j]!)) j++;
+    if (str[j] !== "=") continue;
+    j++;
+    while (j < offset && /\s/.test(str[j]!)) j++;
+    if (j >= offset) return false;
+    const q = str[j];
+    if (q === '"' || q === "'") {
+      const close = str.indexOf(q, j + 1);
+      if (close === -1 || close >= offset) return false;
+      i = close + 1;
+      continue;
+    }
+    while (j < offset && !/[\s>]/.test(str[j]!)) j++;
+    if (j === offset) return endsAtSpace;
+    i = j;
+  }
+  return true;
+}
+
 function sanitizePass(html: string): string {
   let s = html;
 
@@ -251,12 +287,16 @@ function sanitizePass(html: string): string {
   // handler's name is always removed, even before a value that starts with
   // "<" (onerror=<!--&#10;… runs its second line). Matching runs over the
   // whole page, text included, so "/on…=" inside a URL or code goes too.
-  // A quoted value goes with its name only when it holds no "<": a ">" may
-  // sit inside a quoted value, but a "<" means the quote may belong to a
-  // later element, so the last rule removes just the name and the rest stays
-  // where it was.
-  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"<]*"/gi, "");
-  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^'<]*'/gi, "");
+  // A quoted value goes with its name only when it holds no "<" or ">":
+  // otherwise the quote may belong to a later element, so the last rule
+  // removes just the name and the rest stays where it was. A value holding
+  // ">" but no "<" also goes when the handler starts an attribute of the tag
+  // it sits in (<div onclick="a > b" class="x">); inside another attribute's
+  // value (title="docs/onload='x">…') the quote may be text, so it stays.
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*"[^"<>]*"/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*'[^'<>]*'/gi, "");
+  s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*(?:"[^"<]*"|'[^'<]*')/gi, (m, offset: number, str: string) =>
+    startsAttribute(str, offset) ? "" : m);
   s = s.replace(/(?:\s+|(?<=[/"']))on[a-zA-Z]+\s*=\s*[^\s>"'`<]*/gi, "");
 
   // javascript: URLs in href/src/action/formaction (same attribute starts).
