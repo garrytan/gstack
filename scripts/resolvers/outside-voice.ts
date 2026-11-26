@@ -179,7 +179,7 @@ export function outsideVoiceInvocation(ctx: TemplateContext, requested: OutsideC
           : `Request severity (Critical, High, Medium or Low) per finding, a Recommendation: <action> because <reason> line, and ${VERDICT_LAST_LINE}.`;
   const planPrompt = ['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName);
   const preparation = `${planPrompt
-      ? 'Create a private prompt file: run `[ ! -L .gstack ] && [ ! -L .gstack/tmp ] && mkdir -pm700 .gstack/tmp && mktemp "$PWD/.gstack/tmp/gstack-plan-prompt.XXXXXX"` and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in it'
+      ? 'Create a private prompt file: run `[ ! -L .gstack -a ! -L .gstack/tmp ] && mkdir -p -m700 .gstack/tmp && mktemp "$PWD/.gstack/tmp/gstack-plan-prompt.XXXXXX"` and keep the returned path. Use Write to put the **complete prompt and context**, including actual plan/spec/source, in it'
       : 'Write the **complete prompt and context**, including actual plan/spec/source, to a private file'}${outsideVoiceFor(ctx).id === 'claude-code' ? ' (Claude Code has no tools, git or path access)' : ''}. Substitute its shell-quoted path for \`<prepared-prompt-file>\`; never interpolate user text into shell source. ${completion}`;
   return `${preparation}
 
