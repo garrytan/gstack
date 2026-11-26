@@ -224,7 +224,8 @@ const PLAN_FLOOR_ASSESSMENT_SCHEMA = JSON.stringify({
   },
 });
 
-/** The first StructuredOutput call the CLI accepted is the assessment. A call
+/** The first StructuredOutput call the CLI accepted is the assessment. Lines
+ * that are not JSON events (CLI notices) are skipped; a broken event fails. A call
  * the CLI rejects (an extra "metadata" key in a local replay) is no assessment,
  * so the second turn lets the model resend the same answer in the schema; the
  * CLI may then end at its turn limit (exit 1, error_max_turns) after accepting it. The
@@ -233,8 +234,10 @@ const PLAN_FLOOR_ASSESSMENT_SCHEMA = JSON.stringify({
 function firstStructuredAssessment(stream: string): unknown {
   const calls = new Map<string, unknown>();
   for (const line of stream.split('\n')) {
-    if (!line.trim()) continue;
-    const event = JSON.parse(line) as { type?: string;
+    if (!line.trimStart().startsWith('{')) continue;
+    let parsed: unknown;
+    try { parsed = JSON.parse(line); } catch { throw Error('Floor assessment stream has a malformed JSON event'); }
+    const event = parsed as { type?: string;
       message?: { content?: Array<{ type?: string; id?: string; name?: string; input?: unknown; tool_use_id?: string; is_error?: boolean }> } };
     for (const block of event.message?.content ?? []) {
       if (event.type === 'assistant' && block.type === 'tool_use' && block.name === 'StructuredOutput' && block.id)
@@ -283,14 +286,17 @@ export function judgePlanFloorReview(input: PlanFloorReview, opts: {
     const result = (opts.invoke ?? spawnSync)(opts.binary,
       ['-p', '--model', opts.model, '--max-turns', '2', '--tools', '',
         '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disallowedTools', 'mcp__*',
+        '--disable-slash-commands', '--settings', '{"disableAllHooks":true}',
         '--output-format', 'stream-json', '--verbose', '--json-schema', PLAN_FLOOR_ASSESSMENT_SCHEMA],
       { input: prompt, stdio: ['pipe', 'pipe', 'pipe'], timeout: Math.min(PLAN_FLOOR_ASSESSMENT_CAP_MS, remaining), encoding: 'utf8' });
     const stdout = String(result.stdout ?? '');
     Object.assign(diagnostic, { rawOutput: assessmentEvents(stdout), stderr: String(result.stderr ?? ''), status: result.status });
-    const turnLimit = result.status === 1 && stdout.split('\n').some(line => {
-      try { const event = JSON.parse(line); return event.type === 'result' && event.subtype === 'error_max_turns'; } catch { return false; }
+    const results = stdout.split('\n').flatMap(line => {
+      try { const event = JSON.parse(line); return event?.type === 'result' ? [event] : []; } catch { return []; }
     });
-    if (result.error || (result.status !== 0 && !turnLimit) || Date.now() >= opts.deadlineAt)
+    const turnLimit = result.status === 1 && results.some(event => event.subtype === 'error_max_turns');
+    const failedResult = result.status === 0 && results.some(event => event.is_error === true);
+    if (result.error || (result.status !== 0 && !turnLimit) || failedResult || Date.now() >= opts.deadlineAt)
       throw Error(`Floor assessment did not complete: ${result.error?.message ?? `exit ${result.status}`} ${String(result.stderr ?? '').slice(-3000)}`.trim());
     const assessment = resolvePlanFloorCitations(input, firstStructuredAssessment(stdout));
     console.log(JSON.stringify({ ...diagnostic, assessment }));

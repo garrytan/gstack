@@ -1269,7 +1269,7 @@ describe('gstack-brain-sync per-file hold', () => {
       write(CLEAN, '# a plan\n');
       expect(drain().status).toBe(0);
       const s = statusJson();
-      expect(s.status).toBe('ok');
+      expect(s).toMatchObject({ status: 'ok' });
       expect(remoteShow(SHARED).stdout).toBe('{"note":"shared from the peer"}\n');
       expect(fs.readFileSync(path.join(tmpHome, SHARED), 'utf-8')).toBe('{"note":"shared from the peer"}\n');
       expect(unmerged()).toBe('');

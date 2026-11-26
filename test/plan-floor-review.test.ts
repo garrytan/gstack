@@ -72,7 +72,8 @@ test('replacement judge retains the original CLI model, a tool-free schema sessi
   const actual=judgePlanFloorReview(review(),{binary:'/fake/claude',model:'unchanged-warmup',deadlineAt,invoke:((file,args,opts)=>{
    calls++;expect(file).toBe('/fake/claude');expect(args.slice(0,7)).toEqual(['-p','--model','unchanged-warmup','--max-turns','2','--tools','']);
    expect(args.slice(7,12)).toEqual(['--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disallowedTools','mcp__*']);
-   expect(args.slice(12,16)).toEqual(['--output-format','stream-json','--verbose','--json-schema']);expect(JSON.parse(args[16]!).required).toEqual(['kind','seedId','questionId','optionId','reason']);expect(args).toHaveLength(17);
+   expect(args.slice(12,15)).toEqual(['--disable-slash-commands','--settings','{"disableAllHooks":true}']);
+   expect(args.slice(15,19)).toEqual(['--output-format','stream-json','--verbose','--json-schema']);expect(JSON.parse(args[19]!).required).toEqual(['kind','seedId','questionId','optionId','reason']);expect(args).toHaveLength(20);
    expect(opts.stdio).toEqual(['pipe','pipe','pipe']);expect(opts.encoding).toBe('utf8');
    expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
    expect(opts.timeout).toBeGreaterThan(0);expect(opts.timeout).toBeLessThanOrEqual(Math.min(PLAN_FLOOR_ASSESSMENT_CAP_MS,remaining));
@@ -332,6 +333,28 @@ test('the first structured call the CLI accepted is the assessment',()=>{
   expect(()=>exit(1,stream(rejected)+'\n'+limit)).toThrow('no accepted structured output');
   expect(()=>exit(1,stream({input:citationFinding()}))).toThrow('did not complete');
   expect(()=>exit(2,stream({input:citationFinding()})+'\n'+limit)).toThrow('did not complete');
+ } finally {log.mockRestore();}
+});
+test('an exit 0 whose result event reports an error is no assessment, even after an accepted call',()=>{
+ const log=spyOn(console,'log').mockImplementation(()=>{});
+ try {
+  const run=(result:object)=>judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
+   invoke:(()=>({status:0,stdout:answer(citationFinding())+'\n'+JSON.stringify({type:'result',...result}),stderr:''})) as any});
+  expect(()=>run({subtype:'success',is_error:true})).toThrow('did not complete');
+  expect(()=>run({subtype:'error_during_execution',is_error:true})).toThrow('did not complete');
+  expect(run({subtype:'success',is_error:false}).kind).toBe('finding');
+ } finally {log.mockRestore();}
+});
+test('a CLI notice line is skipped, but a broken JSON event still fails the assessment',()=>{
+ const log=spyOn(console,'log').mockImplementation(()=>{});
+ try {
+  const run=(stdout:string)=>judgePlanFloorReview(review(),{binary:'fake',model:'warmup',deadlineAt:Date.now()+30_000,
+   invoke:(()=>({status:0,stdout,stderr:''})) as any});
+  const kept=answer(citationFinding());
+  expect(run('Note: update available\n'+kept).kind).toBe('finding');
+  expect(()=>run('{"type":"assistant","message":\n'+kept)).toThrow('malformed JSON event');
+  expect(()=>run(kept.split('\n')[0]!+'\n'+kept.split('\n')[1]!.slice(0,-2))).toThrow('malformed JSON event');
+  expect(()=>run('Note: update available')).toThrow('no accepted structured output');
  } finally {log.mockRestore();}
 });
 test('failed assessment retains the complete public response and input identity before throwing',()=>{
