@@ -36,6 +36,7 @@ function slice(from: string, to: string | null): string {
 }
 
 const HOOK_SECTIONS = [
+  slice('_bun_path() {', '\n}\n') + '\n}\n',
   slice('_setup_ready_line() {', '\n}\n') + '\n}\n',
   slice('CANONICAL_GSTACK_ROOT="$(gstack_canonical_claude_root)"', '# ─── GBrain detection'),
   slice('# 11. Plan-tune cathedral hook install', '# ─── Redact pre-push guard consent'),
