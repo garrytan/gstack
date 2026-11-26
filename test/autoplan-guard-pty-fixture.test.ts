@@ -199,7 +199,7 @@ test('the relay ends the actor\'s turn after the background CEO dispatch until t
     expect((await (await send([call, launched, notice('toolu_other')])).json() as any).id).toBe('msg_relay_notice_wait');
     expect((await (await send([call, launched, { role: 'assistant', content: [{ type: 'text', text: 'Waiting.' }] }, notice('toolu_ceo')])).json() as any).content[0].text).toBe('upstream');
     expect((await (await send([call, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_ceo', content: 'Review done.' }] }])).json() as any).content[0].text).toBe('upstream');
-    // The Messages API carries the notice as the reviewer's hand-back (Claude Code 2.1.292 and 2.1.326, run gsta796-guard-3);
+    // The Messages API carries the notice as the reviewer's hand-back (seen on Claude Code 2.1.326, run gsta796-guard-3);
     // another agent's hand-back does not release the wait, this agent's does.
     const handBack = (agent: string) => ({ role: 'user', content: [{ type: 'text', text: `Another Claude session sent a message:\n<agent-message from="${agent}">\n[Subagent hand-back] The report follows:\n  Findings` }] });
     const waiting = { role: 'assistant', content: [{ type: 'text', text: 'Waiting.' }] };

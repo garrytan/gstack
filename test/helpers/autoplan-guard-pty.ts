@@ -158,7 +158,7 @@ export function dispatchEventRewriter(artifacts: string, substituted: (phase: Di
  * is the actor about to act before the event step 5 waits on (Haiku 5.5 read the close packet there, 8 of 8 release
  * gate attempts, GSTA-766). The relay answers it with an end_turn message itself, so the notice starts the next turn at any
  * model speed. Claude Code journals the notice as a task-notification, but the Messages API request carries it as
- * `<agent-message from="<agentId>">` (2.1.292 and 2.1.326, run gsta796-guard-3); either form releases the wait. Every other
+ * `<agent-message from="<agentId>">` (seen on 2.1.326, run gsta796-guard-3); either form releases the wait. Every other
  * request, the reviewer's own included, goes upstream.
  */
 export function waitingForNotice(request: any): boolean {
