@@ -25,6 +25,7 @@ import { TARGETED_RULES, parseClassList, targetedBriefSha, targetedRead } from '
 import type { FetchHit } from './review-fetch';
 import type { EffectiveReaders } from './ship-policy-readers';
 import type { StageSweep } from './review-sweep';
+import type { Slice } from './review-slices';
 
 export const STAGES = ['first', 'specialists', 'red-team', 'voices'] as const;
 export type Stage = typeof STAGES[number];
@@ -56,6 +57,8 @@ export interface PassReader {
   /** Set when the stage's sweep found a fetch: the reply's new home under <out>/quarantine/; it is never merged, judged or returned. */
   quarantined?: { file: string; at: string };
   path?: string; output?: string; error?: string; state_at?: string;
+  /** One slice of a reader whose kept diff is over the review ceiling (lib/review-slices.ts): reader R#i/k, its exclude, keep and excerpt cut to the slice. */
+  slice?: Slice;
 }
 export interface Manifest {
   version: 1; pass: string; out: string; ledger: string; merged: string; base: string; diff_base: string;
@@ -232,12 +235,13 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       ...(m.disclosure && r.excerpt_file ? { excerpt_file: r.excerpt_file.file, excerpt_bytes: String(r.excerpt_file.bytes), excerpt_sha256: r.excerpt_file.sha256, excerpt_files: String(r.excerpt_file.files) } : {}) };
     if (role === 'specialist') slots.checklist = checklistFile(m.checklist_root, r.name ?? '');
     if (r.read_only) slots.read_only = '1';
+    if (r.slice) Object.assign(slots, { slice: `${r.slice.index}/${r.slice.total}`, slice_items: r.slice.items, slice_tests: r.slice.tests, slice_files: String(r.slice.files), slice_bytes: String(r.slice.bytes) });
     let findingsSha: string | undefined;
     if (role === 'red-team') {
       const findings = specialistFindings(m.merged);
       fs.writeFileSync(path.join(briefs, 'specialist-findings.jsonl'), findings, { mode: 0o600 });
       findingsSha = promptHash(findings);
-      const specialists = m.readers.reduce((n, x) => n + (x.role === 'specialist' ? 1 : x.role === 'specialist-batched' ? (x.checklists ?? []).filter(c => c !== 'red-team').length : 0), 0);
+      const specialists = m.readers.filter(x => (x.slice?.index ?? 1) === 1).reduce((n, x) => n + (x.role === 'specialist' ? 1 : x.role === 'specialist-batched' ? (x.checklists ?? []).filter(c => c !== 'red-team').length : 0), 0);
       Object.assign(slots, { checklist: path.join(m.checklist_root, 'review/specialists/red-team.md'), findings, specialists: String(specialists) });
     }
     let slice: Record<string, unknown> = {};
@@ -262,11 +266,11 @@ export function renderStage(m: Manifest, stage: Stage, t: SectionTexts, diffFor:
       targeted = { classes: parseClassList(slots.classes!), rules: TARGETED_RULES, brief_sha: targetedBriefSha(checklist), diff_base: slots.diff_base, ...targetedRead(process.cwd(), slots.diff_base!) };
     }
     const text = withWorkspace(renderBrief(role, slots, t), workdir, m.fetch_policy, { verdict: true });
-    const file = path.join(briefs, briefFile(role, r.name));
+    const file = path.join(briefs, briefFile(role, r.name, r.slice));
     fs.writeFileSync(file, text, { mode: 0o600 });
     const sha = promptHash(text);
     const bytes = Buffer.byteLength(text);
-    appendEvent(m.ledger, { event: 'rendered', reader: readerKey(role, r.name), role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, verdict: 1, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}), ...(m.fetch_policy ? { readers: m.fetch_policy.digest } : {}) });
+    appendEvent(m.ledger, { event: 'rendered', reader: readerKey(role, r.name, r.slice), role, name: r.name ?? null, file, sha256: sha, bytes, pass: m.pass, stage, workdir, tree, verdict: 1, ...(findingsSha ? { findings_sha256: findingsSha } : {}), ...targeted, ...slice, ...(disclosureDigest(m.disclosure) ? { exclude: disclosureDigest(m.disclosure) } : {}), ...(m.fetch_policy ? { readers: m.fetch_policy.digest } : {}), ...(r.slice ? { slice: r.slice } : {}) });
     Object.assign(r, { file, sha256: sha, bytes, chunks: chunkCount(text), state: 'rendered', tree, ...(findingsSha ? { findings_sha256: findingsSha } : {}) });
     done.push(r);
   }

@@ -34,7 +34,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { collectLive } from './review-collect';
 import { classifyPath as gateFloor, parseGateIntegrityBlock } from './gate-diff/classify';
-import { readClaudeMd, splitDiffGitLine } from './gate-diff/git';
+import { readClaudeMd, splitDiffGitLine, unquoteGitPath } from './gate-diff/git';
 import { lineTags, swallowsAcrossLines, tagHunk } from './gate-diff/tags';
 import { DATA_PATH, classifyPath, isAgentProse, isDataConfig, isGatePath, type PathLines } from './review-depth';
 import { scan } from './redact-engine';
@@ -162,7 +162,7 @@ function renamedPaths(i: ExcludeInput): Set<string> | null {
 }
 
 /** `paths` in order, split so each chunk's literal pathspecs (`size` bytes each) stay within KEEP_ARG_MAX_BYTES (one path past it is its own chunk). */
-function argChunks(paths: readonly string[], size = (p: string) => argBytes([p])): string[][] {
+export function argChunks(paths: readonly string[], size = (p: string) => argBytes([p])): string[][] {
   const chunks: string[][] = [];
   let bytes = Infinity;
   for (const p of paths) {
@@ -633,7 +633,7 @@ export function parseTail(tail: string | undefined): string[] {
 }
 
 export type ReaderDiff =
-  | { ok: true; text: string; bytes: number; byDir: Array<[string, number]>; byFile: Array<[string, number]>; excerpt?: string; whole?: string[] }
+  | { ok: true; text: string; bytes: number; byDir: Array<[string, number]>; byFile: Array<[string, number]>; excerpt?: string; whole?: string[]; units?: DiffUnit[] }
   | { ok: false; reason: 'timeout' | 'git-exit'; exit: number | null; stderr: string; timeoutMs: number };
 
 /** The excerpt of one `git diff --text` over the excerpt files; any throw sends every file whole (fail closed). */
@@ -653,7 +653,7 @@ function excerptOf(out: string, specs: readonly string[]): { text: string; whole
  * excerpt, appended to `text` and returned as `excerpt`; a file the excerpt could not be built for counts whole, its
  * section joins `text` and its item is listed in `whole` for the caller's keep command.
  */
-export function readSelection(root: string, diffBase: string, pathspecs: readonly string[], keep: readonly string[] = [], excerpt: readonly string[] = [], timeoutMs = REVIEW_DIFF_TIMEOUT_MS): ReaderDiff {
+export function readSelection(root: string, diffBase: string, pathspecs: readonly string[], keep: readonly string[] = [], excerpt: readonly string[] = [], timeoutMs = REVIEW_DIFF_TIMEOUT_MS, head?: string): ReaderDiff {
   let text = '';
   let raw = '';
   let full = false;
@@ -663,7 +663,7 @@ export function readSelection(root: string, diffBase: string, pathspecs: readonl
     ...argChunks(excerpt, size).map(c => [c, textFlags] as [readonly string[], string[]])];
   for (const [specs, flags] of reads) {
     const tail = specs.length ? (specs[0] === '--' ? specs : ['--', ...specs]) : [];
-    const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', ...flags, diffBase, ...tail], { cwd: root, encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER });
+    const r = spawnSync('git', ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', ...flags, diffBase, ...(head ? [head] : []), ...tail], { cwd: root, encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BUFFER });
     const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
     if (code === 'ENOBUFS') { text += raw + (r.stdout ?? ''); full = true; break; }
     if (code === 'ETIMEDOUT' || (r.signal && r.status === null)) return { ok: false, reason: 'timeout', exit: null, stderr: r.stderr ?? '', timeoutMs };
@@ -679,7 +679,18 @@ export function readSelection(root: string, diffBase: string, pathspecs: readonl
   starts.forEach((m, k) => add(splitDiffGitLine(m[1]!)[1], Buffer.byteLength(text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length))));
   for (const f of ex?.files ?? []) add(f.path, Buffer.byteLength(f.text));
   const all = ex?.text ? `${text}${text && !text.endsWith('\n') ? '\n' : ''}${ex.text}` : text;
-  return { ok: true, text: all, bytes: Buffer.byteLength(all), byDir: [...byDir].sort((a, b) => b[1] - a[1]), byFile: [...byFile].sort((a, b) => b[1] - a[1]), ...(ex ? { excerpt: ex.text, whole: ex.whole } : {}) };
+  const bytes = Buffer.byteLength(all);
+  const units = bytes > REVIEW_DIFF_MAX_BYTES ? [...starts.map((m, k) => sectionUnit(text.slice(m.index!, k + 1 < starts.length ? starts[k + 1]!.index! : text.length), m[1]!)), ...(ex?.files ?? []).map(f => ({ paths: [f.path], bytes: Buffer.byteLength(f.text) }))] : undefined;
+  return { ok: true, text: all, bytes, byDir: [...byDir].sort((a, b) => b[1] - a[1]), byFile: [...byFile].sort((a, b) => b[1] - a[1]), ...(ex ? { excerpt: ex.text, whole: ex.whole } : {}), ...(units ? { units } : {}) };
+}
+
+/** One `diff --git` section of an over-ceiling selection (lib/review-slices.ts): the paths it shows (both sides of a rename) and its bytes. */
+export interface DiffUnit { paths: string[]; bytes: number }
+function sectionUnit(section: string, header: string): DiffUnit {
+  const head = section.slice(0, (/^(?:--- |@@ |Binary files )/m.exec(section)?.index) ?? section.length);
+  const from = /^rename from (.*)$/m.exec(head)?.[1], to = /^rename to (.*)$/m.exec(head)?.[1];
+  const [a, b] = from !== undefined && to !== undefined ? [unquoteGitPath(from), unquoteGitPath(to)] : splitDiffGitLine(header);
+  return { paths: a === b ? [a] : [a, b], bytes: Buffer.byteLength(section) };
 }
 
 /** Credential-bearing remote URLs and scp-style remotes out of git's stderr. */
@@ -725,7 +736,7 @@ function suggest(d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byF
 }
 
 /** The REVIEW_DIFF_TOO_LARGE line and object: the reader's bytes, the largest folders and files, and a fix chosen by where the policy stands. */
-export function tooLargeLine(context: string, reader: string, d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byFile?: ReadonlyArray<[string, number]> }, c: CeilingContext): { line: string; json: Record<string, unknown> } {
+export function tooLargeLine(context: string, reader: string, d: { bytes: number; byDir: ReadonlyArray<[string, number]>; byFile?: ReadonlyArray<[string, number]> }, c: CeilingContext, slices?: SliceNote): { line: string; json: Record<string, unknown> } {
   const named = (name: string) => (/[\x00-\x1f\x7f]/.test(name) ? JSON.stringify(name) : name);
   const top = d.byDir.slice(0, 5).map(([dir, n]) => `${named(dir)}:${n}`).join(',') || 'none';
   const largest = (d.byFile ?? []).slice(0, 5);
@@ -738,8 +749,13 @@ export function tooLargeLine(context: string, reader: string, d: { bytes: number
     : c.state === 'active' ? `still over after excluding ${c.record?.excluded ?? 0} files; ${fresh.length ? land([...(c.record?.patterns ?? []), ...fresh]) : split}`
     : dirs.length ? land(dirs) : split;
   const files = largest.length ? ` files=${largest.map(([f, n]) => `${/[\s,:"]/.test(f) ? JSON.stringify(f) : f}:${n}`).join(',')}` : '';
-  const line = `${context}: the reader's diff is over the review ceiling (reader=${reader} bytes=${d.bytes} max=${REVIEW_DIFF_MAX_BYTES} top=${top}${files} policy=${c.source}); fix: ${fix}; nothing was written (REVIEW_DIFF_TOO_LARGE)`;
-  return { line, json: { code: 'REVIEW_DIFF_TOO_LARGE', reader, bytes: d.bytes, max: REVIEW_DIFF_MAX_BYTES, top: d.byDir.slice(0, 5).map(([dir, bytes]) => ({ dir, bytes })), files: largest.map(([file, bytes]) => ({ file, bytes })), policy: c.source, state: c.state, fix, side_effects: 'none' } };
+  const said = slices ? slices.fix ?? `${slices.lead}: ${fix}` : fix;
+  const line = `${context}: the reader's diff is over the review ceiling (reader=${reader} bytes=${d.bytes} max=${REVIEW_DIFF_MAX_BYTES} top=${top}${files} policy=${c.source}${slices ? ` slices=${slices.field}` : ''}); fix: ${said}; nothing was written (REVIEW_DIFF_TOO_LARGE)`;
+  return { line, json: { code: 'REVIEW_DIFF_TOO_LARGE', reader, bytes: d.bytes, max: REVIEW_DIFF_MAX_BYTES, top: d.byDir.slice(0, 5).map(([dir, bytes]) => ({ dir, bytes })), files: largest.map(([file, bytes]) => ({ file, bytes })), policy: c.source, state: c.state, fix: said, ...(slices ? { slices: slices.field } : {}), side_effects: 'none' } };
+}
+
+/** Why an over-ceiling reader was not split into slices (lib/review-slices.ts): the line's `slices=` field, and the sentence that leads its fix, or a fix of its own. */
+export interface SliceNote { field: string; lead?: string; fix?: string
 }
 
 /** The REVIEW_DIFF_UNREADABLE line: timeout or git exit, the timeout, the base, a redacted first stderr line, and the whole (redacted) stderr written under `logDir`. */

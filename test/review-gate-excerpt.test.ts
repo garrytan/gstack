@@ -118,12 +118,13 @@ describe('gate-tagged data files go to readers as their tagged lines', () => {
   // Value: protects=a diff still over the ceiling after the cut tells the lane which files to move, not only "split", and a
   //   gate-tagged file whose path holds a space stays in review; fails_when=REVIEW_DIFF_TOO_LARGE names folders alone or cuts
   //   a name at its first space, or the gate scan records the path with git's trailing tab so the file is excluded unread;
-  //   why_new=GST-3273 (#494's only printed fix was "split the PR"); seam=gstack-review-dispatch pass on a real repository
+  //   why_new=GST-3273 (#494's only printed fix was "split the PR"); seam=gstack-review-dispatch pass on a real repository;
+  //   each session is over the ceiling by itself, since a diff of smaller files is reviewed in slices (GST-4019)
   test('a diff still over the ceiling after the cut names its largest files', () => {
     const line = (k: number, n: number) => JSON.stringify({ role: 'tool', content: `// eslint-disable-next-line f${k} n${n} ${'x'.repeat(200)}` });
     const files: Record<string, string> = {};
     for (let k = 0; k < 3; k++) {
-      files[`${TRIALS}/big ${k}/session.jsonl`] = Array.from({ length: 3600 + k * 100 }, (_, n) => line(k, n)).join('\n') + '\n';
+      files[`${TRIALS}/big ${k}/session.jsonl`] = Array.from({ length: 7600 + k * 100 }, (_, n) => line(k, n)).join('\n') + '\n';
       files[`${TRIALS}/big${k}/summary.json`] = `{"trial": ${k}}\n`;
     }
     const repo = branch(files);
