@@ -223,7 +223,7 @@ function cmdSummary(rest: string[], json: boolean): number {
   const fixCheckRows = new Set(logged.filter(r => r.skill === FIX_CHECK_SKILL).map(r => JSON.stringify([r.pass ?? null, r.commit_full ?? r.commit ?? '', r.review_binding?.started_at ?? r.timestamp ?? '', (Array.isArray(r.findings) ? r.findings : []).map((f: any) => f?.ledger_id ?? f?.fingerprint ?? '').sort()])));
   const ran = ledgerPasses.filter(p => !(p.started < sinceMs));
   const fixCheckLedgers = ran.filter(p => p.fixCheck);
-  const unloggedPasses = !logged.length ? ran.filter(p => !p.fixCheck) : ran.filter(p => !p.fixCheck && /^p\d+$/.test(p.name ?? '') && !passRows.some(r => `p${r.pass}` === p.name));
+  const unloggedPasses = !logged.length ? ran.filter(p => !p.fixCheck) : ran.filter(p => !p.fixCheck && !p.targetedOnly && /^p\d+$/.test(p.name ?? '') && !passRows.some(r => `p${r.pass}` === p.name));
   const unlogged = [...unloggedPasses, ...(fixCheckLedgers.length > fixCheckRows.size ? fixCheckLedgers : [])];
   if (unlogged.length) process.stderr.write(`REVIEW_ROWS_MISSING: ${unloggedPasses.length ? 'readers ran' : 'a fix-check reader ran'} (ledger ${unlogged.map(p => p.name).join(', ')}) with no ${!logged.length ? 'review-log' : unloggedPasses.length ? 'review' : 'review-fix-check'} row from this run since ${since}: Step 9.4's persistence never ran for ${unlogged.length === 1 ? 'it' : 'them'}, so a stop, a fix-check grant or finish cannot bind ${unlogged.length === 1 ? 'it' : 'them'}; log each pass and fix-check with gstack-review-log --start/--finish, and never hand-run a reader\n`);
   for (const v of summary.voided ?? []) process.stderr.write(`REVIEW_SCOPE_VOIDED: ${v}\n`);

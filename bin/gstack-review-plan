@@ -39,8 +39,8 @@ import { policySelection, selectFor } from '../lib/review-selection';
 import { effectiveReaders, READERS_POLICY_DEFAULT } from '../lib/ship-policy-readers';
 import { classifyDiff, diffCommand, keepCommand, planReview, reviewDepthLine, reviewPlanLine, scanNumbers, ROLE_EFFORT, SCOPED_RANGE_LINES, type Depth, type History } from '../lib/review-depth';
 import { classList, targetedBriefSha, targetedClasses, targetedPatchId } from '../lib/review-targeted';
-import { targetedDelta } from '../lib/review-targeted-delta';
-import { ownChangeSince } from '../lib/ship-receipt-depth';
+import { ruledCarries, targetedDelta } from '../lib/review-targeted-delta';
+import { ownChangeSince, stampPathsSince } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { readRuledNotes, ruledEditLine, ruledEdits } from '../lib/ruled-notes';
 
@@ -190,6 +190,7 @@ function main(): number {
   let fixRange: { base: string; runtime_lines: number | null; error?: string; touched_gate?: true; ruled?: string[] } | undefined;
   let routed: ReturnType<typeof ruledEdits> | null = null;
   let ruledAll = false;
+  let stamps = new Set<string>();
   let own: string | null = null;
   if (rangeBase) {
     const unread = (error: string) => ({ base: rangeBase, runtime_lines: null, error });
@@ -202,10 +203,12 @@ function main(): number {
       const commit = collectCommit(root, resolved, own);
       const range = classifyDiff({ ...commit, registry, scope: scopeOf([resolved, '--head', own]), gateTagged: gateTagsOf(['--commit', own]), ...riskPaths, ...(active ? { excluded: active.excluded } : {}) });
       const edits = readRuledNotes(root).filter(n => n.finding.startsWith('edit:'));
-      routed = edits.length && commit.paths.length && !range.errors.length ? ruledEdits(root, commit.paths, head, edits) : null;
+      stamps = edits.length ? new Set(stampPathsSince(root, ref, resolved, own, head)) : stamps;
+      const toRule = commit.paths.filter(p => !stamps.has(p));
+      routed = edits.length && toRule.length && !range.errors.length ? ruledEdits(root, toRule, head, edits) : null;
       const tagsBeyond = (ruled: ReadonlyMap<string, unknown>) => { const g = runGateDiff(['--commit', own!, '--format', 'jsonl']);
-        return g.status !== 0 || (g.stdout ?? '').split('\n').slice(1).some(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return !!h.tags?.length && !ruled.has(h.path ?? ''); } catch { return false; } }); };
-      ruledAll = !!routed && routed.ruled.size === commit.paths.length && !tagsBeyond(routed.ruled);
+        return g.status !== 0 || (g.stdout ?? '').split('\n').slice(1).some(l => { try { const h = JSON.parse(l) as { path?: string; tags?: unknown[] }; return !!h.tags?.length && !ruled.has(h.path ?? '') && !stamps.has(h.path ?? ''); } catch { return false; } }); };
+      ruledAll = !!routed && routed.ruled.size === toRule.length && !tagsBeyond(routed.ruled);
       fixRange = range.errors.length ? unread([...range.errors.slice(0, 5).map(e => `${e.code} ${e.input}`), ...(range.errors.length > 5 ? [`+${range.errors.length - 5} more`] : [])].join('; '))
         : !commit.paths.length ? unread('the fix range is empty: commit the fix after the range base (a base merge alone is not the PR\'s own change)')
         : ruledAll ? { base: rangeBase, runtime_lines: 0, ruled: [...routed!.ruled.keys()].sort() }
@@ -230,7 +233,7 @@ function main(): number {
     const pairs = status ? Array.from({ length: status.length >> 1 }, (_, i) => [status[2 * i]!, status[2 * i + 1]!] as const) : undefined;
     const edited = pairs?.filter(([s]) => s !== 'D').map(([, p]) => p), deleted = pairs?.filter(([s]) => s === 'D').map(([, p]) => p) ?? [];
     const spaced = edited?.filter(p => /\s/.test(p)) ?? [];
-    const rulable = edited?.filter(p => !spaced.includes(p) && !routed?.ruled.has(p));
+    const rulable = edited?.filter(p => !spaced.includes(p) && !routed?.ruled.has(p) && !stamps.has(p));
     const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
     const rule = (finding: string) => `gstack-approvals rule --finding ${finding} --head ${head} --reason '<why it ships as a note>' --by '<the owner>' --words '<their exact words>' --owner-ref <thread code>:<message id>`;
     plan.next.reason += `; if the owner rules instead that the edit ships as a disclosed note, record that ruling once per edited path (each path shell-quoted; the owner-ref is the relay this open /gstack-ship run needs): ${rulable?.length ? rulable.map(p => rule(quote(`edit:${p}`))).join(' && ') : rule("'edit:<path>'")}, then rerun finish, which routes each ruled path at the ruled bytes as RULED_EDIT${spaced.length ? `; ${spaced.map(quote).join(', ')} cannot be ruled (a finding holds no whitespace), so an edit there keeps the fix and runs /gstack-ship again` : ''}${deleted.length ? `; a deletion (${deleted.map(quote).join(', ')}) cannot be ruled, so it keeps the fix and runs /gstack-ship again` : ''}`;
@@ -238,7 +241,9 @@ function main(): number {
   const ranArg = flag('--targeted-ran');
   const delta = plan.next.step !== 'done' || !targeted.classes.length || ran ? null
     : rangeBase && ranArg ? targetedDelta(root, ref, rangeBase, ranArg) : null;
-  const ruledRead = ruledAll && plan.next.step === 'done' && targeted.classes.length > 0 && !ran && !(delta?.state === 'skip' && delta.carried);
+  const ruledCarry = ruledAll && plan.next.step === 'done' && targeted.classes.length > 0 && !ran && !!rangeBase && !!ranArg && ruledCarries(root, ref, rangeBase, ranArg, active?.excluded);
+  const ruledRead = ruledAll && plan.next.step === 'done' && targeted.classes.length > 0 && !ran && !(delta?.state === 'skip' && delta.carried) && !ruledCarry;
+  if (ruledCarry) plan.skipped.push(`targeted-only read (every edit since --range-base is ruled a note and none carries a targeted class, so the record read at ${rangeBase!.slice(0, 12)} carries with the rulings; gstack-ship-receipt write records them)`);
   if (delta?.state === 'dispatch' || ruledRead) {
     const why = delta?.state === 'dispatch' ? `the only change since is docs whose claim the record cannot carry (${delta.paths.join(', ')}) after the targeted read at ${delta.range_base.slice(0, 12)}`
       : 'every edit since --range-base is ruled a note, but no targeted record covers the ruled bytes';

@@ -21,6 +21,7 @@ import { comparePath, type PatchSides } from './ship-patch';
 import { matchesAny } from './ship-policy';
 import { constantValue, fieldValue, VALUE_SLOT, type MechanicalConstant } from './ship-policy-mechanical';
 import { sidecarLine } from './ship-sidecar';
+import { gitPath } from './git-path';
 
 export interface MechanicalRefusal { path: string; reason: string }
 export interface MechanicalInput { sides?: PatchSides; base: string; candidates: readonly string[]; declared: readonly MechanicalConstant[] }
@@ -133,14 +134,13 @@ export function mechanicalPaths(cwd: string, i: MechanicalInput): { proven: Reco
 /** The PR body and receipt line for one mechanical path. */
 export const mechanicalLine = (p: string, what: string) => `Mechanical retake: ${p} (${what})`;
 
-function recordFile(cwd: string, tree: string): string {
-  const rel = spawnSync('git', ['rev-parse', '--git-path', `gstack/mechanical-${tree.slice(0, 12)}.json`], { cwd, encoding: 'utf8', timeout: 30_000 }).stdout?.trim();
-  return path.resolve(cwd, rel || `.git/gstack/mechanical-${tree.slice(0, 12)}.json`);
-}
+const recordFile = (cwd: string, tree: string) => gitPath(cwd, `gstack/mechanical-${tree.slice(0, 12)}.json`);
 
 /** Saves finish's mechanical paths and Godot UID sidecars (path -> sibling) for the tree it routed, for gstack-ship-receipt write; the error message when it cannot. */
 export function writeMechanicalRecord(cwd: string, tree: string, proven: Readonly<Record<string, string>>, sidecars: Readonly<Record<string, string>> = {}): string | null {
-  const file = recordFile(cwd, tree);
+  const where = recordFile(cwd, tree);
+  if (!where.ok) return where.error;
+  const file = where.path;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify({ tree, paths: proven, sidecars }) + '\n');
@@ -153,7 +153,9 @@ export function writeMechanicalRecord(cwd: string, tree: string, proven: Readonl
 /** The mechanical and sidecar lines finish recorded for exactly this tree, which the receipt's `mechanical` lists; none when it recorded none. */
 export function readMechanicalLines(cwd: string, tree: string): string[] {
   try {
-    const v = JSON.parse(fs.readFileSync(recordFile(cwd, tree), 'utf8'));
+    const where = recordFile(cwd, tree);
+    if (!where.ok) return [];
+    const v = JSON.parse(fs.readFileSync(where.path, 'utf8'));
     if (v?.tree !== tree || !v.paths || typeof v.paths !== 'object') return [];
     const lines = (o: unknown, line: (p: string, w: string) => string) => Object.entries(o && typeof o === 'object' ? o : {}).filter(([, w]) => typeof w === 'string').map(([p, w]) => line(p, w as string));
     return [...lines(v.paths, mechanicalLine), ...lines(v.sidecars, sidecarLine)].sort();

@@ -451,3 +451,36 @@ export function readScopedReview(file: string, bind: { head?: string; tree?: str
   if (missing.length) return { ok: false, message: `the scoped review does not cover ${missing.slice(0, 5).join(', ')}` };
   return { ok: true, review: { paths: covered, reviewer: v.reviewer.trim(), verdict: 'clean', ...(v.head ? { head: v.head } : {}), ...(v.tree ? { tree: v.tree } : {}), ...(typeof v.packet_sha256 === 'string' ? { packet_sha256: v.packet_sha256 } : {}) } };
 }
+
+/**
+ * Whether a path the carry calls changed is the reviewed branch change replayed onto the current base and nothing else
+ * (HARN-172 on harness-evals #625): the base's own change landed some of the branch's hunks byte for byte (both sides deleted
+ * the same JSON entry), so they left the branch's diff, which the product patch-id reads as a change. Absorbed only when
+ * `git merge-file` of reviewedBase -> reviewed onto currentBase is clean and gives current's exact bytes, with the mode the same
+ * three-way rule gives; a conflict, a hunk dropped or edited in the resolution, a binary or a non-file entry is not.
+ */
+export function absorbedByBase(repoRoot: string, s: PatchSides, rel: string): boolean {
+  const entry = (ref: string) => {
+    const r = spawnSync('git', ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', ref, '--', rel], { cwd: repoRoot, encoding: 'utf8', timeout: 60_000 });
+    if (r.status !== 0) return null;
+    const rows = r.stdout.split('\0').filter(Boolean);
+    if (rows.length > 1 || rows.some(e => e.slice(e.indexOf('\t') + 1) !== rel)) return null;
+    const [mode, type, sha] = (rows[0] ?? '').split('\t')[0]!.split(' ');
+    return rows.length ? (type === 'blob' ? { key: `${mode} ${sha}`, mode: mode!, sha: sha! } : null) : { key: '', mode: '', sha: '' };
+  };
+  const [rb, rv, cb, cv] = [s.reviewedBase, s.reviewed, s.currentBase, s.current].map(entry);
+  if (!rb || !rv || !cb || !cv) return false;
+  const replay = (b: string, r: string, c: string) => (r === b ? c : c === b || c === r ? r : null);
+  if (!rb.sha || !rv.sha || !cb.sha || !cv.sha) return replay(rb.key, rv.key, cb.key) === cv.key;
+  if (replay(rb.mode, rv.mode, cb.mode) !== cv.mode) return false;
+  if ([rb, rv, cb, cv].some(e => e.mode !== '100644' && e.mode !== '100755')) return false;
+  const blobs = [cb, rb, rv, cv].map(e => spawnSync('git', ['cat-file', 'blob', e.sha], { cwd: repoRoot, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }));
+  if (blobs.some(b => b.status !== 0 || b.stdout.includes(0))) return false;
+  let dir: string;
+  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-patch-absorbed-')); } catch { return false; }
+  try {
+    const files = ['current-base', 'reviewed-base', 'reviewed'].map((n, i) => { const f = path.join(dir, n); fs.writeFileSync(f, blobs[i]!.stdout); return f; });
+    const merged = spawnSync('git', ['merge-file', '-p', '-q', ...files], { cwd: repoRoot, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+    return merged.status === 0 && Buffer.from(merged.stdout).equals(blobs[3]!.stdout);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}

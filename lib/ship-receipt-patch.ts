@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from './spawn-sync';
 import { isRegistryUnavailable, loadRegistryFromBase } from './regen';
+import { gitPath } from './git-path';
 import { readPregateFile } from './pregate/index';
 import { isUnavailable, loadPolicyFromBase, matchesAny, type ShipPolicy } from './ship-policy';
 import { stampOnlyLine, type BranchSide } from './stamp-only';
@@ -28,7 +29,9 @@ function git(args: string[], cwd?: string): string | undefined {
  */
 export function patchId(repoRoot: string, from: string, to: string, pathspec: string[]): string | { error: string } {
   const firstLine = (s: string | null | undefined, fallback: string) => (s ?? '').trim().split('\n')[0]?.slice(0, 200) || fallback;
-  const root = path.resolve(repoRoot, git(['rev-parse', '--git-path', 'gstack-patch-id'], repoRoot)?.trim() || '.git/gstack-patch-id');
+  const where = gitPath(repoRoot, 'gstack-patch-id');
+  if (!where.ok) return { error: where.error };
+  const root = where.path;
   sweepStalePatchDirs(root);
   let dir: string;
   try { fs.mkdirSync(root, { recursive: true }); dir = fs.mkdtempSync(path.join(root, 'run-')); } catch (e) { return { error: `cannot create a temp file under ${root} (${firstLine((e as Error).message, 'mkdtemp failed')}); make that directory writable` }; }

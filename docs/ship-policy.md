@@ -1940,8 +1940,9 @@ base merge moved, and names deletions apart, because a deletion cannot be ruled.
 One ruling never covers another path, and a path edited again after its ruling
 stops finish again, even when a later commit restores the ruled bytes. A path with
 whitespace cannot be ruled, so an edit there keeps the fix and runs /gstack-ship again.
-The ruling clears only the review stop: a changed file the documentation audit
-hashed still needs the stage 3 recovery finish's stop names. The ruling is an ordinary
+A ruled path the documentation audit hashed also stays fresh at stage 3
+(`DOCS: fresh … ruled=<n>`, GBRA-108); an unruled doc edit still needs the
+stage 3 recovery finish's stop names. The ruling is an ordinary
 ruled note, so it prints as `RULED_NOTE:`, marked `(no RULED_EDIT at this head; not
 applied)` when it cleared no path, the receipt records it and the PR body lists its
 `Ruled note:` line.
@@ -1950,9 +1951,14 @@ applied)` when it cleared no path, the receipt records it and the PR body lists 
 it prints `RULED_EDIT:` for each cleared path and `RULED_EDIT_REFUSED:` for each
 that did not clear, and when every path the fix range changed is cleared and the
 gate scan tags no other path in it, `FIX_RANGE:` reports `runtime_lines=0 ruled=<n>`
-and the range plans as no fix instead of asking for every voice again. A PR with
-targeted classes still gets one targeted reader on HEAD when no targeted record
-covers the ruled bytes; that read is not a review round.
+and the range plans as no fix instead of asking for every voice again. Release
+stamps in the range (Step 12's VERSION and CHANGELOG) need no ruling (HARN-1).
+A PR with targeted classes still gets one targeted reader on HEAD when no
+targeted record covers the ruled bytes; that read is not a review round, and its
+ledger needs no review row. When none of the ruled edits carries a targeted
+class, the record read at `--range-base` (`--targeted-ran`) carries: the plan
+skips the reader and `gstack-ship-receipt write` accepts that record, printing
+`TARGETED_RULED:` and listing the rulings in `review_targeted.ruled_edits`.
 
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier
@@ -2336,6 +2342,7 @@ receipt when the base moves:
 | a merge of the base that edited lines next to the branch's unchanged hunks (the branch's +/- lines, file modes and symlink targets identical and in the same places) | carries with no reader; CI on the merged head is the check (reason `base context moved next to unchanged own lines`, GST-3562) |
 | a merge of the base that spliced lines into one of the branch's hunks (the base replaced the very lines the branch replaces and the merge kept both, GST-2975) | carries after one scoped reader reads the hunks and comes back clean (`RECEIPT_CARRY_SCOPED_REVIEW`, then `carry --scoped-review <record.json>`) |
 | a merge of the base that only re-records the harness pin of a product file (`scripts/harness-pins/<file>.json`; a pinned test or metadata file's pin stays product): at both heads the pin is a regular file (not a symlink), both pinned files resolve, the pin's `blob` is its file's blob, its other fields are the reviewed ones, and `scripts/harness-version.json`'s version and patterns did not move; the pinned file itself still counts as product | carries (reason `regenerated outputs`, GSTA-749) |
+| a merge of the base that itself made some of the branch's exact changes (for example, both sides deleted the same entry), so those hunks left the branch's diff: a clean three-way replay of the reviewed change onto the new base gives the current file's exact bytes and mode, regular files only | carries (reason `branch hunks the base landed identically (<paths>; …)`, HARN-172) |
 | a merge of the base whose resolution changed product code, or moved the branch's lines elsewhere | a fresh /gstack-ship (`RECEIPT_CARRY_PRODUCT_CHANGED`) |
 | a rebase or force-push onto a tree the receipt covers, product diff against the new base unchanged | carries (`carry.ancestry: rewritten`) |
 | any other rebase or force-push | a fresh /gstack-ship (`RECEIPT_CARRY_TREE_MISMATCH`) |

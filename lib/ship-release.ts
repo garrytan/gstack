@@ -35,6 +35,7 @@ import { finishPlan, recordFinishPlan } from './plan-record';
 import { PREPUSH_CHECK_IDS } from './pregate/index';
 import { checkBranch, loadPlainTitlePolicy, type PlainFinding } from './plain-title';
 import { buildRunCheck } from './pregate/run-check';
+import { gitPath } from './git-path';
 import { bin, carryLane, carryNoneLines, evidenceExempt, firstLine, flagReader, fragmentPath, gh, git, hostedOrigin, laneLine, lanes, mappedLanes, recordCiTimeout, releasePaths, Report, runLanes, sh, shipPolicy, short, stampedFiles } from './ship-bin-common';
 
 export const RELEASE_HELP = `gstack-ship-release — /ship Steps 12 and 15-17 (ship/SKILL.md)
@@ -207,7 +208,7 @@ function harnessRepin(cwd: string, from: string, to: string, p: string): boolean
  * fingerprint, head in range, lib/gate-dispositions.ts) as GATE_DISPOSITION (GST-2491). Authored docs keep the stage 2.2
  * recheck. A granted fix-check no longer counts as a review (GST-3562 part 4): an edit after the review bound is behavior.
  */
-type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'mechanical' | 'sidecar', string[]>;
+type Routed = Record<'behavior' | 'docs' | 'metadata' | 'tests' | 'base' | 'context' | 'bounded' | 'mechanical' | 'sidecar' | 'ruled', string[]>;
 type ReviewedBase = { commit: string; parent: boolean };
 type RouteOpts = { docsRechecked: boolean; contextReviewed?: string; audited: Record<string, string | null> | null; bookkeeping: readonly string[]; mechanical: readonly MechanicalConstant[]; testCode: readonly string[]; excluded: readonly string[]; baseRelease?: string[] };
 
@@ -271,7 +272,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     touched = new Set([...a, ...b]);
     shipped = b;
   }
-  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], mechanical: [], sidecar: [] };
+  const by: Routed = { behavior: [], docs: [], metadata: [], tests: [], base: [], context: [], bounded: [], mechanical: [], sidecar: [], ruled: [] };
   const isMetadata = (p: string) => parent && shipped.has(p) ? opts.baseRelease!.includes(p) || harnessRepin(cwd, sides!.currentBase, now, p) : release.includes(p) || harnessRepin(cwd, reviewed, now, p);
   const onlyShipped = new Set(parent ? [...shipped].filter(p => !changedSet.has(p)) : []);
   const baseSide = new Set<string>();
@@ -300,8 +301,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
   }
   printRulings(cwd, r);
   const edits = readRuledNotes(cwd).filter(n => n.finding.startsWith('edit:'));
-  const { ruled, refused: refusedEdits } = ruledEdits(cwd, by.behavior, now, edits);
+  const { ruled, refused: refusedEdits } = ruledEdits(cwd, [...by.behavior, ...by.docs], now, edits);
   by.behavior = by.behavior.filter(p => !ruled.has(p));
+  by.ruled = [...ruled.keys()].sort();
   const uid = uidSidecars(cwd, { sides, candidates: parent ? [] : by.behavior, excluded: opts.excluded });
   by.sidecar = Object.keys(uid.proven).sort();
   by.behavior = by.behavior.filter(p => !by.sidecar.includes(p));
@@ -319,7 +321,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
   if (kept) { r.stop(`the mechanical and sidecar paths cannot be recorded for gstack-ship-receipt write (${kept}): make that directory writable, then rerun finish (stage 2.1)`); return null; }
   const scoped = [...by.context, ...by.tests, ...by.bounded].sort();
   if (scoped.length && sides) {
-    const packet = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/scoped-review-${now.slice(0, 12)}.md`]).stdout.trim() || `.git/gstack/scoped-review-${now.slice(0, 12)}.md`);
+    const where = gitPath(cwd, `gstack/scoped-review-${now.slice(0, 12)}.md`);
+    if (!where.ok) { r.stop(`the scoped-review packet has no place to go (${where.error}); rerun finish (stage 2.1)`); return null; }
+    const packet = where.path;
     const built = contextPacket(cwd, sides, by.context, by.tests, late());
     if (!opts.contextReviewed) {
       const why = [by.context.length ? `the base merge spliced lines into the reviewed hunks in ${short(by.context)}` : '', by.tests.length ? `test code changed since review in ${short(by.tests)}` : '',
@@ -349,7 +353,7 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
  * version, each against the audited bytes; GST-906), and --docs-requested fixes the audit's own result asked for do not
  * stale the audit (GST-391).
  */
-function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], requested: string[], resultFile: string | undefined, parent: string | undefined, testCode: readonly string[], r: Report): boolean {
+function docsFresh(cwd: string, base: string, postFile: string, moved: readonly string[], ruled: readonly string[], requested: string[], resultFile: string | undefined, parent: string | undefined, testCode: readonly string[], r: Report): boolean {
   const cmp = bin(cwd, 'gstack-docs-candidate', ['compare', postFile], 120_000);
   let stale: string[] | null = null;
   try { stale = JSON.parse(cmp.stdout).content_changed; } catch { stale = null; }
@@ -403,10 +407,10 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     return kept !== null && merged !== null && normalizeChangelog(kept) === normalizeChangelog(audited.stdout) && normalizeChangelog(merged) === normalizeChangelog(now);
   });
   const carried = { tests: stale.filter(p => isTestCode(p, testCode)), base: stale.filter(p => !isTestCode(p, testCode) && (moved.includes(p) || restamped.includes(p) || (!!auditBase && !!nowBase && !branchAtAudit.has(p) && !branchNow.has(p))
-    || (!!auditBase && !!nowBase && /^[0-9a-f]{40,64}$/.test(nowTree) && ![...record.staged, ...record.unstaged, ...record.untracked].includes(p) && comparePath(cwd, { reviewedBase: auditBase, reviewed: record.head, currentBase: nowBase, current: nowTree }, p) === 'same'))), requested: [] as string[], accepted: [] as string[], fix_checked: [] as string[] };
+    || (!!auditBase && !!nowBase && /^[0-9a-f]{40,64}$/.test(nowTree) && ![...record.staged, ...record.unstaged, ...record.untracked].includes(p) && comparePath(cwd, { reviewedBase: auditBase, reviewed: record.head, currentBase: nowBase, current: nowTree }, p) === 'same'))), requested: [] as string[], accepted: [] as string[], fix_checked: [] as string[], ruled: stale.filter(p => ruled.includes(p)) };
   let audit: any = null;
   try { audit = resultFile ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null; } catch { audit = null; }
-  for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q))) {
+  for (const p of requested.filter(q => stale!.includes(q) && !carried.tests.includes(q) && !carried.base.includes(q) && !carried.ruled.includes(q))) {
     const asked = [...(Array.isArray(audit?.blockers) ? audit.blockers : []), ...(Array.isArray(audit?.decisions) ? audit.decisions : [])].filter((s: unknown) => typeof s === 'string');
     const token = new RegExp(`(^|[\\s\`'"(\\[])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?::\\d+(?::\\d+)?)?(?=$|[\\s\`'")\\]]|[,.:;](?:$|\\s))`);
     const stat = git(cwd, ['diff', '--numstat', '--no-renames', record.head, '--', `:(literal)${p}`]).stdout.trim().split(/\s+/);
@@ -420,9 +424,9 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     if (why) { r.stop(`--docs-requested ${p} ${why}: use stage 3 recovery`); return false; }
     carried.requested.push(p);
   }
-  if (carried.requested.length && bin(cwd, 'gstack-ship-receipt', ['docs-caps', '--base', base], 60_000).status !== 0) { r.stop('a --docs-requested fix breaks a doc cap (gstack-ship-receipt docs-caps): trim the file, then rerun finish'); return false; }
-  const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p));
-  const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length})`;
+  if ((carried.requested.length || carried.ruled.length) && bin(cwd, 'gstack-ship-receipt', ['docs-caps', '--base', base], 60_000).status !== 0) { r.stop('a --docs-requested fix or a ruled doc edit breaks a doc cap (gstack-ship-receipt docs-caps): trim the file, then rerun finish'); return false; }
+  const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p) && !carried.ruled.includes(p));
+  const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length}${carried.ruled.length ? ` ruled=${carried.ruled.length}` : ''})`;
   const exception = record.exception ? ` (blocked; documentation exception accepted by ${record.exception.accepted_by} ${record.exception.date} via ${record.exception.via})` : '';
   r.add(`DOCS: ${left.length ? `stale (${short(left)})` : `fresh against the Step 14.5 post-audit snapshot${note}${exception}`}`);
   if (left.length) { r.stop('documentation inputs changed since the accepted audit: use stage 3 recovery (the remaining re-audit, a fix the audit\'s result asked for via --docs-requested <path> --docs-result <audit-id>-result.json, or a named risk); never refresh hashes'); return false; }
@@ -480,7 +484,7 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   const baseRelease = reviewedBase?.parent ? releasePaths(policy, cwd, git(cwd, ['merge-base', `origin/${base.replace(/^origin\//, '')}`, 'HEAD']).stdout.trim(), base, true) : undefined;
   const routed = route(cwd, base, flag('--reviewed-tree')!, reviewedBase, release, { docsRechecked: has('--docs-rechecked'), contextReviewed: flag('--context-reviewed'), audited, bookkeeping, mechanical, testCode: globs('test_code'), excluded: [...globs('review_exclude_paths'), ...forbidden], baseRelease }, r);
   if (!routed) return r;
-  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...routed.mechanical, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], all('--docs-requested'), flag('--docs-result'), reviewedBase?.parent ? reviewedBase.commit : undefined, globs('test_code'), r)) return r;
+  if (!docsFresh(cwd, base, flag('--docs-post')!, [...routed.base, ...routed.context, ...routed.mechanical, ...stampedFiles(policy, cwd, flag('--reviewed-tree')!, base)], routed.ruled, all('--docs-requested'), flag('--docs-result'), reviewedBase?.parent ? reviewedBase.commit : undefined, globs('test_code'), r)) return r;
   if (!list.length && !has('--no-lanes-approved')) return r.stop('no test lanes: require Step 5\'s explicit untested-scope approval (rerun with --no-lanes-approved) or run Steps 5-15');
   const allow = evidenceExempt(release).join(',');
   const check = (l: { label: string; command: string }) => bin(cwd, 'gstack-evidence', ['check', '--label', l.label, '--expect-cmd', l.command, '--max-age', '24', '--allow-paths', allow], 60_000).stdout;
@@ -508,7 +512,9 @@ async function finishStages(argv: readonly string[], cwd: string): Promise<Repor
   }
   const laneArgs = list.map(l => `--lane '${l.label}=${l.command.replace(/'/g, `'\\''`)}'`).join(' ');
   if (deferred.length) {
-    const out = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', 'gstack/pregate-finish-preflight.json']).stdout.trim() || '.git/gstack/pregate-finish-preflight.json');
+    const where = gitPath(cwd, 'gstack/pregate-finish-preflight.json');
+    if (!where.ok) return r.stop(`the preflight record has no place to go (${where.error}); rerun finish`);
+    const out = where.path;
     const pg = bin(cwd, 'gstack-pregate', ['--allow-repo-commands', '--base', base, '--stage', 'preflight', '--out', out], 3_600_000);
     const verdict = /^PREGATE: (.+?) tree=/m.exec(pg.stdout + pg.stderr)?.[1] ?? `unreadable (exit ${pg.status})`;
     r.add(`PREGATE: preflight ${verdict} on the stamped tree (the tests stage runs in accept, carried from CI)`);
@@ -597,10 +603,11 @@ export async function accept(argv: readonly string[], cwd: string): Promise<Repo
  * exact tree by this step or by finish's preflight (both under .git, which no commit can carry) is reused, never rerun.
  */
 function prepushGuards(cwd: string, branch: string, base: string | undefined): { line: string; stop?: string; code?: PushFailure } {
-  const gitPath = (name: string) => path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', `gstack/${name}`]).stdout.trim() || `.git/gstack/${name}`);
+  const [guards, preflight] = ['pregate-guards.json', 'pregate-finish-preflight.json'].map(n => gitPath(cwd, `gstack/${n}`));
+  if (!guards!.ok || !preflight!.ok) return { line: 'GUARDS: not run (no git directory path for their record)', stop: `${[guards, preflight].map(g => (g!.ok ? '' : g!.error)).find(Boolean)}: rerun push` };
   const tree = git(cwd, ['rev-parse', 'HEAD^{tree}']).stdout.trim();
-  const out = gitPath('pregate-guards.json');
-  for (const file of [out, gitPath('pregate-finish-preflight.json')]) {
+  const out = guards!.path;
+  for (const file of [out, preflight!.path]) {
     let rec: { tree?: string; checks?: { id: string; status: string; detail?: string }[] };
     try { rec = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
     const rows = PREPUSH_CHECK_IDS.map(id => rec.checks?.find(c => c.id === id));
@@ -655,7 +662,9 @@ function pushOnce(argv: readonly string[], cwd: string, r: Report): string {
   if (sealed.status === 1) return refuse(`sealed output would be published: ${firstLine(sealed.stderr)}; remove it from the commits, then repeat Step 16`);
   if (sealed.status !== 0) return refuse(`the sealed-output guard did not run (exit ${sealed.status}: ${firstLine(sealed.stderr || sealed.stdout)}); repair it, then rerun push`);
   if (has('--early')) {
-    const out = path.resolve(cwd, git(cwd, ['rev-parse', '--git-path', 'gstack/pregate-early-push.json']).stdout.trim() || '.git/gstack/pregate-early-push.json');
+    const where = gitPath(cwd, 'gstack/pregate-early-push.json');
+    if (!where.ok) return refuse(`the early-push secrets scan has no place for its record (${where.error}); rerun push --early`);
+    const out = where.path;
     const scan = bin(cwd, 'gstack-pregate', ['--stage', 'preflight', '--only', 'secrets', '--out', out, ...(flag('--base') ? ['--base', flag('--base')!] : [])], 600_000);
     const verdict = /^PREGATE: (.+?) tree=/m.exec(scan.stdout + scan.stderr)?.[1] ?? `unreadable (exit ${scan.status})`;
     r.add(`SECRETS: ${verdict} (early push)`);

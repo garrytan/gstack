@@ -38,6 +38,7 @@ import { mergeChangelogs } from './changelog-check';
 import { bindReceipt, type ReceiptBindingCode } from './ship-receipt';
 import { READ_REASONS, docsAuditPacket, readDocsAuditRead, type DocsAuditRead } from './docs-audit-read';
 import { carriedAudits, docsExceptionLine, parseReceiptDocs, sameRun, type CarriedAudit } from './ship-receipt-docs';
+import { readRuledNotes, ruledEdits, type RuledNote } from './ruled-notes';
 
 export type ReceiptDepth = NonNullable<ShipReceipt['review_depth']>;
 const RANK: Record<Depth | 'platform', number> = { platform: -1, light: 0, standard: 1, full: 2 };
@@ -183,7 +184,7 @@ export type ReviewTargeted = NonNullable<ShipReceipt['review_targeted']>;
  * test change the gate scan tags is gate class though the product patch leaves tests out), so a record never vouches for work it
  * did not read (GST-986). `ancestor` only words the refusal: a read commit that is not HEAD's ancestor is named as such (GST-1700).
  */
-export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined, classesSince?: (read: string) => readonly TargetedClass[] | null, plainDocs?: (read: string) => boolean, ancestor?: (read: string) => boolean): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
+export function parseReviewTargeted(value: unknown, productPatchId: string, productPatchOf: (head: string) => string | undefined, classesSince?: (read: string) => readonly TargetedClass[] | null, plainDocs?: (read: string) => boolean, ancestor?: (read: string) => boolean, ruledSince?: (read: string) => readonly RuledNote[] | null): { ok: true; targeted: ReviewTargeted } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
   if (!value || typeof value !== 'object' || Array.isArray(value)) return bad('review_targeted must be { classes, rules, brief_sha, status, findings, raised_by, head }');
   const v = value as Record<string, unknown>;
@@ -195,9 +196,11 @@ export function parseReviewTargeted(value: unknown, productPatchId: string, prod
   if (typeof v.findings !== 'number' || !Number.isInteger(v.findings) || v.findings < 0) return bad('review_targeted.findings must be an integer >= 0');
   if (typeof v.head !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.head)) return bad('review_targeted.head must be the commit the targeted reader read (rerun gstack-review-dispatch verify --targeted-out with this gstack)');
   const read = productPatchOf(v.head);
-  if ((read !== productPatchId && !plainDocs?.(v.head)) || (classesSince && classesSince(v.head)?.length !== 0)) return bad(ancestor && !ancestor(v.head) ? `the targeted reader read ${v.head.slice(0, 12)}, which is not an ancestor of HEAD (usually after a rebase or a redone merge resolution, which rewrites the commit the reader read): a targeted record carries only from HEAD or an ancestor of it${read === productPatchId ? ', even when the product patch is unchanged' : ''}, so run the targeted reader on HEAD, rerun gstack-review-dispatch verify --targeted-out and write again` : `the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read (only release stamps and a docs change with no numeric, results, prereg, eval, money or security claim carry the record), so run the targeted reader on HEAD and verify again`);
+  const moved = read !== productPatchId && !plainDocs?.(v.head);
+  const ruled = moved ? ruledSince?.(v.head) ?? null : null;
+  if ((moved && !ruled) || (classesSince && classesSince(v.head)?.length !== 0)) return bad(ancestor && !ancestor(v.head) ? `the targeted reader read ${v.head.slice(0, 12)}, which is not an ancestor of HEAD (usually after a rebase or a redone merge resolution, which rewrites the commit the reader read): a targeted record carries only from HEAD or an ancestor of it${read === productPatchId ? ', even when the product patch is unchanged' : ''}, so run the targeted reader on HEAD, rerun gstack-review-dispatch verify --targeted-out and write again` : `the targeted reader read ${v.head.slice(0, 12)}, whose product patch ${read?.slice(0, 12) ?? 'cannot be read'} is not this receipt's ${productPatchId.slice(0, 12)}: the product changed after the read (only release stamps and a docs change with no numeric, results, prereg, eval, money or security claim carry the record, and so does a change whose every path the owner ruled with no targeted class in it), so run the targeted reader on HEAD and verify again`);
   const classes = TARGETED_CLASSES.filter(c => (v.classes as string[]).includes(c));
-  return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim() } };
+  return { ok: true, targeted: { classes, rules: v.rules as string, brief_sha: v.brief_sha, product_patch_id: productPatchId, status: v.status as ReviewTargeted['status'], findings: v.findings, raised_by: (v.raised_by as string).trim(), ...(ruled ? { read: v.head, ruled_edits: ruled.map(n => ({ path: n.finding.slice('edit:'.length), approval: n.approval, by: n.by })) } : {}) } };
 }
 
 export interface DepthVerdict { ok: boolean; line: string; message?: string }
@@ -612,6 +615,21 @@ export function docsChangeSince(root: string, from: string, head: string, base: 
 export const plainDocsSince = (root: string, from: string, head: string, base: string): boolean => docsChangeSince(root, from, head, base)?.verdict === 'plain';
 
 /**
+ * The owner's `edit:<path>` rulings (docs/ship-policy.md#ruled-edits) that clear every path the PR's own change moved from `from`
+ * to `head`, release stamps aside (productChangeSince), each at its ruled bytes as finish and gstack-review-plan read them
+ * (ruledEdits); null when a path has no clearing ruling, is deleted, or the change cannot be built. A targeted record carries
+ * across such a change only when nothing in it carries a targeted class (parseReviewTargeted, HARN-1 #638).
+ */
+export function ruledChangeSince(root: string, from: string, head: string, base: string): RuledNote[] | null {
+  const edits = readRuledNotes(root).filter(n => n.finding.startsWith('edit:'));
+  const change = edits.length ? productChangeSince(root, base, from, head) : null;
+  const c = change ? collectCommit(root, from, change.since) : null;
+  if (!c || c.errors.length || !c.paths.length) return null;
+  const { ruled } = ruledEdits(root, c.paths, head, edits);
+  return ruled.size === c.paths.length ? [...ruled.values()] : null;
+}
+
+/**
  * ownChangeSince less its release stamps: `since` holds the PR's own change after `from` with every path whose change is a
  * release stamp under the base policy (`stamps`, stampPathsSince) kept at `from`, the change the targeted classes and the docs
  * rule read, since a stamp moves only versions and always carries a targeted record (GST-1689). Null when git cannot build it.
@@ -631,7 +649,7 @@ function productChangeSince(root: string, base: string, from: string, head: stri
  * the CHANGELOG is read against `from`'s merged with the base's (mergeChangelogs, as a base merge resolves it), so the released
  * sections a base merge brings are not counted as the PR's own change; an unmergeable pair keeps `from`'s and fails closed.
  */
-function stampPathsSince(root: string, base: string, from: string, since: string, head: string): string[] {
+export function stampPathsSince(root: string, base: string, from: string, since: string, head: string): string[] {
   const { ref, sha } = writeBase(root, base);
   const load = sha ? loadPolicyAt(root, sha, ref) : null;
   if (!sha || !load || isUnavailable(load) || load.errors.length) return [];
