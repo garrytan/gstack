@@ -54,7 +54,7 @@ export function collectFiles(paths: string[], warn: (l: string) => void = () => 
   const visit = (p: string, top: boolean) => {
     let abs = path.resolve(p);
     let st: fs.Stats;
-    try { abs = fs.realpathSync(abs); st = fs.statSync(abs); } catch { warn(`design-lint: cannot read ${p}`); if (top) skipped.push({ file: abs, kind: 'unreadable', why: 'it cannot be read' }); return; }
+    try { abs = fs.realpathSync(abs); st = fs.statSync(abs); } catch { warn(`design-lint: cannot read ${p}`); if (top) skipped.push({ file: realDir(abs), kind: 'unreadable', why: 'it cannot be read' }); return; }
     if (seen.has(abs)) return;
     if (st.isDirectory()) {
       seen.add(abs);
@@ -343,8 +343,15 @@ export function lintStaticRaw(paths: string[], opts: StaticOptions = {}): RawSta
   return { files, contexts, raw, skipped: skippedReporter.findings };
 }
 
-/** A directory's real path, so a cwd or lint root reached through a symlink still matches the files collected under it. */
-export const realDir = (p: string): string => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+/** A path's real path, so a cwd or lint root reached through a symlink still matches the files collected under it; a path that cannot be resolved (missing, a dangling or looping link, no permission) keeps its unresolved tail under the real path of its nearest resolvable ancestor. */
+export const realDir = (p: string): string => {
+  const tail: string[] = [];
+  for (let dir = path.resolve(p); ; dir = path.dirname(dir)) {
+    try { return path.join(fs.realpathSync(dir), ...tail.reverse()); } catch {}
+    if (path.dirname(dir) === dir) return path.resolve(p);
+    tail.push(path.basename(dir));
+  }
+};
 
 export function lintStatic(paths: string[], opts: StaticOptions = {}): StaticResult {
   const cwd = realDir(opts.cwd ?? process.cwd());
