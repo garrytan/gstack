@@ -77,7 +77,7 @@ async function settleOwnedBrowser(directory: string, deadlineEpochMs: number): P
     const fixtureAgents = matches.stdout.split('\n').map(Number).filter(pid => {
       if (!Number.isSafeInteger(pid) || pid <= 1 || !/terminal-agent/.test(readPidCmdline(pid))) return false;
       const cwd = processCwd(pid);
-      if (!cwd && isProcessAlive(pid)) fail(`terminal agent ${pid} has no readable working directory`);
+      if (!cwd && isProcessAlive(pid) && /terminal-agent/.test(readPidCmdline(pid))) fail(`terminal agent ${pid} has no readable working directory`);
       return cwd === root;
     });
     const port = fs.existsSync(path.join(stateDir, 'terminal-port'));

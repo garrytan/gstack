@@ -162,6 +162,52 @@ Bun.spawnSync = (...args) => {
   }
 }, 15_000);
 
+// Free Tests 45856565667 (missing-terminal): the fixture's agent exited between the helper's command-line and working
+// directory reads, and its unreaped pid still answered kill(0), so cleanup refused on an agent that was no longer running.
+test.skipIf(process.platform !== 'linux')('an agent that exits between its identity reads is not a running fixture agent', async () => {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qa-exit-'));
+  const stateDir = path.join(dir, '.gstack');
+  fs.mkdirSync(stateDir);
+  fs.writeFileSync(path.join(stateDir, 'browse.json'), JSON.stringify({ pid: process.pid, instanceId: 'owned' }));
+  fs.writeFileSync(path.join(stateDir, 'terminal-port'), '1');
+  const marker = path.join(dir, 'agent-exited');
+  const parent = Bun.spawn(['sh', '-c', '"$0" -e "setInterval(() => {}, 1000)" browse/src/terminal-agent.ts --agent-gen=exiting & echo $! > agent-pid; exec sleep 30',
+    process.execPath], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
+  let restore: (() => void) | undefined;
+  try {
+    await waitFor(() => readPidCmdline(parent.pid) === 'sleep 30' && fs.existsSync(path.join(dir, 'agent-pid')) && /terminal-agent/.test(readPidCmdline(Number(fs.readFileSync(path.join(dir, 'agent-pid'), 'utf8')))));
+    const agentPid = Number(fs.readFileSync(path.join(dir, 'agent-pid'), 'utf8'));
+    const preload = path.join(dir, 'exit-after-cmdline.ts');
+    fs.writeFileSync(preload, `
+import { plugin } from 'bun';
+import * as fs from 'node:fs';
+globalThis.exitFixtureAgent = () => {
+  process.kill(${agentPid}, 'SIGKILL');
+  while (!/^\\d+ \\(.*\\) Z/.test(fs.readFileSync('/proc/${agentPid}/stat', 'utf8'))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  fs.writeFileSync(${JSON.stringify(marker)}, 'zombie');
+};
+plugin({ name: 'exit-after-cmdline', setup(build) {
+  build.onLoad({ filter: /\\/browse\\/src\\/xvfb\\.ts$/ }, async args => ({ loader: 'ts', contents: (await Bun.file(args.path).text()).replace(
+    'export function readPidCmdline(pid: number): string {',
+    'export function readPidCmdline(pid: number): string { const value = readPidCmdlineNow(pid); if (pid === ${agentPid} && value) globalThis.exitFixtureAgent(); return value; }\\nfunction readPidCmdlineNow(pid: number): string {') }));
+} });
+`);
+    const original = Bun.spawn;
+    const spy = spyOn(Bun, 'spawn').mockImplementation(((args: string[], options: any) => {
+      expect(args[1]).toBe(path.join(ROOT, 'test/helpers/qa-only-cleanup.ts'));
+      return original([args[0], '--preload', preload, ...args.slice(1)], options);
+    }) as typeof Bun.spawn);
+    restore = () => spy.mockRestore();
+    await expect(stopQaOnlyBrowser(dir, 3000)).rejects.toThrow(/terminal identity is unavailable \(record absent; terminal-port present; running fixture agents: none;/);
+    expect(fs.readFileSync(marker, 'utf8')).toBe('zombie');
+  } finally {
+    restore?.();
+    parent.kill('SIGKILL');
+    await parent.exited;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}, 15_000);
+
 // Census 45122546426 (qa-only-no-fix): cleanup ran 58 s after a headless daemon started, before its first 60 s watchdog
 // tick spawned a terminal agent, and failed on the record that had never been written ("daemon log terminal-agent
 // lines: none"). The same daemon before its first tick settles with Chromium and no terminal.
