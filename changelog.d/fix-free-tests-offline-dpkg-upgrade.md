@@ -1,0 +1,1 @@
+Free Tests no longer breaks the runner's package database when its saved system packages upgrade one the runner image already has. The offline install now lets dpkg set the older package aside while it upgrades both, and a failed offline install is repaired before Playwright installs its dependencies online.
