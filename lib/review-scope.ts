@@ -16,7 +16,7 @@
  */
 import * as path from 'node:path';
 import { SPECIALISTS } from './review-depth';
-import { quarantinedIds, rank, readLedger, type LedgerBlocker } from './review-ledger';
+import { quarantinedIds, rank, readLedger, roleOf, type LedgerBlocker } from './review-ledger';
 import { isSecurityFinding, opaqueFindingId, REDACTED_REASON } from './security-findings';
 import { parseSpecialistOutput } from './state-matrix';
 
@@ -375,6 +375,8 @@ function rowLocus(f: Record<string, any>): string | null {
  */
 export interface LedgerPass {
   started: number; fixCheck: boolean; ids?: string[]; /** The ledger's pass directory (p1, p2, fc): a pN with no review row of pass N is named unbound. */ name?: string;
+  /** Every reader it collected was the targeted reader: the targeted-only read after the loop or a ruled edit (gstack-review-plan NEXT: targeted), which is not a review round, so no review row of its pass number backs it (GSTA-876 on #4853). */
+  targetedOnly?: true;
   /** Whether judge ran on it at all (a rejected judgment counts): a pN pass never judged that no row names, replaced by a later judged or named pass, was abandoned (voided) and counts nothing (GBEV-3); a fix-check ledger and the last pass are never voided. */ judged?: boolean;
 }
 export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass {
@@ -383,7 +385,9 @@ export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass
   const fixCheck = events.some(e => e.event === 'output' && e.reader === 'fix-check' && e.tree_ok !== false && ((Array.isArray(e.ids) && e.ids.length > 0) || e.review === true));
   const gone = quarantinedIds(events);
   const ids = events.flatMap(e => (e.event === 'output' && Array.isArray(e.ids) ? (e.ids as string[]).filter(id => !gone.has(id)) : e.event === 'judgment' && e.kind === 'added' && typeof e.id === 'string' ? [e.id] : [])).map(key);
-  return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge') };
+  const outputs = events.filter(e => e.event === 'output');
+  const targetedOnly = outputs.length > 0 && outputs.every(e => typeof e.reader === 'string' && roleOf(e.reader) === 'targeted');
+  return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge'), ...(targetedOnly ? { targetedOnly: true as const } : {}) };
 }
 
 /** A fix commit's `Review-Finding: <ledger_id or fingerprint> reader=<role>` trailer (receipt attribution): the finding that commit fixed. */
@@ -461,7 +465,7 @@ export function summarizeReviewLoop(rows: readonly Record<string, any>[], since:
   }
   for (const p of ledgerPasses) {
     const n = passNo(p);
-    if (n !== undefined && Number.isFinite(n) && !passes.some(r => String(r.pass) === String(n))) unbound.push(`pass ${n} (ledger ${p.name}): no review-log row, so its fixes and dispositions cannot be counted`);
+    if (n !== undefined && Number.isFinite(n) && !p.targetedOnly && !passes.some(r => String(r.pass) === String(n))) unbound.push(`pass ${n} (ledger ${p.name}): no review-log row, so its fixes and dispositions cannot be counted`);
   }
   const known = ledgerPasses.some(p => p.ids) ? new Set(ledgerPasses.flatMap(p => p.ids ?? [])) : null;
   if (known) for (const [, s] of seen) if (s.ledgerId && !known.has(s.ledgerId)) unbound.push(`ledger_id ${s.ledgerId}: no dispatch ledger of this run collected it`);

@@ -171,7 +171,9 @@ type Hit = { name: string; sha?: string };
 /** One `git grep -l` of `patterns` over a scratch index holding `entries` (`--cached` reads their blobs, otherwise the working tree), kept under the git dir as patch-id diffs are, so an unwritable TMPDIR cannot fail the scan; a spot it cannot write is a named scan failure. */
 function grepIndex(root: string, entries: readonly string[], each: readonly string[], cached: boolean, deadline: number): string[] | GrepFailure {
   if (!entries.length) return [];
-  const at = path.resolve(root, gitUntil(root, ['rev-parse', '--git-path', 'gstack-consumers'], deadline).out.trim() || '.git/gstack-consumers');
+  const where = gitUntil(root, ['rev-parse', '--git-path', 'gstack-consumers'], deadline);
+  if (where.status !== 0 || !where.out.trim()) return { status: where.status, err: `git rev-parse --git-path gstack-consumers gave no path (${where.err || `exit ${where.status}`}), and the scan does not guess .git/gstack-consumers: in a linked worktree .git is a file`, timedOut: where.timedOut };
+  const at = path.resolve(root, where.out.trim());
   let dir: string;
   try { fs.mkdirSync(at, { recursive: true }); dir = fs.mkdtempSync(path.join(at, 'scan-')); } catch (e) { return { status: null, err: `cannot create a scratch index under ${at} (${(e as Error).message.split('\n')[0]}); make that directory writable`, timedOut: false }; }
   try {

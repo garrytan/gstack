@@ -12,16 +12,37 @@
  */
 import { spawnSync } from './spawn-sync';
 import { comparePath, touchedPaths } from './ship-patch';
-import { docsChangeSince } from './ship-receipt-depth';
+import { docsChangeSince, targetedClassesSince } from './ship-receipt-depth';
 
 export type TargetedDelta = { state: 'dispatch'; range_base: string; paths: string[] } | { state: 'skip'; reason: string; carried?: true };
 
 /** Whether the change since `rangeBase` (where the targeted reader read the patch `ran`) earns the targeted-only read. */
+const gitIn = (root: string) => (args: string[], input?: string) => {
+  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
+  return r.status === 0 ? r.stdout : null;
+};
+/** The targeted patch-id at `read` (its committed diff against its merge base with `base`), as the TARGETED line prints it. */
+function patchAt(git: ReturnType<typeof gitIn>, base: string, read: string): string | undefined {
+  const readBase = git(['merge-base', base, read])?.trim();
+  const diff = readBase ? git(['diff', '--no-color', '--no-ext-diff', readBase, read]) : null;
+  return diff?.trim() ? git(['patch-id', '--verbatim'], diff)?.trim().split(/\s+/)[0] : undefined;
+}
+
+/**
+ * Whether the targeted record a reader made at `rangeBase` (patch `ran`) carries to HEAD across a fix range every path of which
+ * the owner ruled (gstack-review-plan's RULED_EDIT): only when nothing the PR changed since carries a targeted class, the rule
+ * gstack-ship-receipt write's ruled carry applies (parseReviewTargeted, HARN-1 #638). Otherwise the plan dispatches the reader.
+ */
+export function ruledCarries(root: string, base: string, rangeBase: string, ran: string, excluded?: ReadonlySet<string>): boolean {
+  const git = gitIn(root);
+  const read = git(['rev-parse', '--verify', '--quiet', `${rangeBase}^{commit}`])?.trim();
+  const head = git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])?.trim();
+  if (!read || !head || patchAt(git, base, read) !== ran) return false;
+  return targetedClassesSince(root, read, head, base, excluded)?.length === 0;
+}
+
 export function targetedDelta(root: string, base: string, rangeBase: string, ran: string): TargetedDelta {
-  const git = (args: string[], input?: string) => {
-    const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: root, input, encoding: 'utf8', timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
-    return r.status === 0 ? r.stdout : null;
-  };
+  const git = gitIn(root);
   const skip = (reason: string, carried?: true): TargetedDelta => ({ state: 'skip', reason, ...(carried ? { carried } : {}) });
   const read = git(['rev-parse', '--verify', '--quiet', `${rangeBase}^{commit}`])?.trim();
   const head = git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])?.trim();
@@ -30,8 +51,7 @@ export function targetedDelta(root: string, base: string, rangeBase: string, ran
   const readBase = git(['merge-base', base, read])?.trim();
   const headBase = git(['merge-base', base, head])?.trim();
   if (!readBase || !headBase) return skip(`no merge base with ${base}`);
-  const diff = git(['diff', '--no-color', '--no-ext-diff', readBase, read]);
-  const readPatch = diff?.trim() ? git(['patch-id', '--verbatim'], diff)?.trim().split(/\s+/)[0] : undefined;
+  const readPatch = patchAt(git, base, read);
   if (!readPatch || readPatch !== ran) return skip(`--targeted-ran ${ran} is not the targeted patch at range_base ${read.slice(0, 12)} (${readPatch ?? 'unreadable'}), so it does not say what the reader read`);
   const before = touchedPaths(root, readBase, read);
   const now = touchedPaths(root, headBase, head);

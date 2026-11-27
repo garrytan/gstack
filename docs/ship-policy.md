@@ -1940,8 +1940,9 @@ base merge moved, and names deletions apart, because a deletion cannot be ruled.
 One ruling never covers another path, and a path edited again after its ruling
 stops finish again, even when a later commit restores the ruled bytes. A path with
 whitespace cannot be ruled, so an edit there keeps the fix and runs /gstack-ship again.
-The ruling clears only the review stop: a changed file the documentation audit
-hashed still needs the stage 3 recovery finish's stop names. The ruling is an ordinary
+A ruled path the documentation audit hashed also stays fresh at stage 3
+(`DOCS: fresh … ruled=<n>`, GBRA-108); an unruled doc edit still needs the
+stage 3 recovery finish's stop names. The ruling is an ordinary
 ruled note, so it prints as `RULED_NOTE:`, marked `(no RULED_EDIT at this head; not
 applied)` when it cleared no path, the receipt records it and the PR body lists its
 `Ruled note:` line.
@@ -1950,9 +1951,14 @@ applied)` when it cleared no path, the receipt records it and the PR body lists 
 it prints `RULED_EDIT:` for each cleared path and `RULED_EDIT_REFUSED:` for each
 that did not clear, and when every path the fix range changed is cleared and the
 gate scan tags no other path in it, `FIX_RANGE:` reports `runtime_lines=0 ruled=<n>`
-and the range plans as no fix instead of asking for every voice again. A PR with
-targeted classes still gets one targeted reader on HEAD when no targeted record
-covers the ruled bytes; that read is not a review round.
+and the range plans as no fix instead of asking for every voice again. Release
+stamps in the range (Step 12's VERSION and CHANGELOG) need no ruling (HARN-1).
+A PR with targeted classes still gets one targeted reader on HEAD when no
+targeted record covers the ruled bytes; that read is not a review round, and its
+ledger needs no review row. When none of the ruled edits carries a targeted
+class, the record read at `--range-base` (`--targeted-ran`) carries: the plan
+skips the reader and `gstack-ship-receipt write` accepts that record, printing
+`TARGETED_RULED:` and listing the rulings in `review_targeted.ruled_edits`.
 
 <a id="security-findings-stay-private"></a>
 **Security findings stay private (GST-3076).** A PR body keeps every earlier

@@ -113,3 +113,44 @@ describe('finish honours an edit ruling after the final review (GST-3775)', () =
     expect(lineOf(r.stdout, 'RULED_EDIT_REFUSED')).toStartWith(`RULED_EDIT_REFUSED: ${routed} (its spelling holds a replacement character (U+FFFD)`);
   });
 });
+
+/** GBRA-108 (gbrain #10492, #10494): Step 14.5's audit hashed `file`, an edit to it followed the final review, and the owner ruled it. */
+function docEditedAfterAudit(file: string) {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n', [file]: '# Notes\n\nOne line.\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+  ships.push(f);
+  const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
+  const post = path.join(f.root, 'post.json');
+  expect(f.run(path.join(BIN, 'gstack-docs-candidate'), ['snapshot', '--out', post, '--audit-id', 'a1', '--mode', 'edit', '--base', 'main', '--docs', file]).status).toBe(0);
+  f.write({ [file]: '# Notes\n\nOne line.\nA second line the audit asked for.\n' }); f.commit('docs audit edit after the final review');
+  return { f, stopHead: f.git('rev-parse', 'HEAD').stdout.trim(), reviewed, post };
+}
+const finishRechecked = (f: ShipFx, reviewed: string, post: string) => f.run(RELEASE, ['finish', '--base', 'main', '--reviewed-tree', reviewed, '--docs-post', post, '--docs-rechecked', '--lane', LANE]);
+
+// Value: protects=a ruled edit to a doc the docs audit hashed carries finish's freshness check, at the ruled bytes only;
+//   fails_when=finish prints DOCS: stale (<path>) after RULED_EDIT (GBRA-108), or an unruled doc edit, or one edited again after
+//   its ruling, passes as fresh; seam=lib/ship-release.ts route's ruled paths into docsFresh
+describe('a ruled edit to an audited doc keeps the docs audit fresh (GBRA-108)', () => {
+  test('agent-prose policy doc (behavior) and a plain doc: ruled, each carries as ruled=1', () => {
+    for (const file of ['docs/ship-policy.md', 'README.md']) {
+      const { f, stopHead, reviewed, post } = docEditedAfterAudit(file);
+      const before = finishRechecked(f, reviewed, post);
+      expect([file, before.status]).toEqual([file, 3]);
+      expect(rule(f, file, stopHead).status).toBe(0);
+      const r = finishRechecked(f, reviewed, post);
+      expect([file, lineOf(r.stdout, 'RULED_EDIT')]).toEqual([file, expect.stringContaining(`RULED_EDIT: ${file} (ruled at ${stopHead.slice(0, 12)}`)]);
+      expect([file, lineOf(r.stdout, 'DOCS')]).toEqual([file, 'DOCS: fresh against the Step 14.5 post-audit snapshot (carried: tests=0 base=0 requested=0 ruled=1)']);
+    }
+  });
+
+  test('an unruled doc edit, or a doc edited again after its ruling, is still stale', () => {
+    const plain = docEditedAfterAudit('README.md');
+    expect(lineOf(finishRechecked(plain.f, plain.reviewed, plain.post).stdout, 'DOCS')).toBe('DOCS: stale (README.md)');
+    const later = docEditedAfterAudit('README.md');
+    expect(rule(later.f, 'README.md', later.stopHead).status).toBe(0);
+    later.f.write({ 'README.md': '# Notes\n\nOne line.\nA different line.\n' }); later.f.commit('edit it again');
+    const r = finishRechecked(later.f, later.reviewed, later.post);
+    expect(lineOf(r.stdout, 'RULED_EDIT_REFUSED')).toStartWith('RULED_EDIT_REFUSED: README.md (');
+    expect(lineOf(r.stdout, 'DOCS')).toBe('DOCS: stale (README.md)');
+  });
+});
+
