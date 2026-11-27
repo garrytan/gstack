@@ -147,7 +147,7 @@ describe('contributor mode', () => {
     const r = bin('gstack-contributor-mode', ['instructions']);
     expect(r.status).toBe(EXIT.ok);
     expect(r.out.trim()).toBe(CONTRIBUTOR_INSTRUCTIONS);
-    const forced = bin('gstack-contributor-mode', ['detect', '--contributor', '--author', 'x']);
+    const forced = bin('gstack-contributor-mode', ['detect', '--contributor', '--author', 'x', '--base', 'main']);
     expect(forced.out.split('\n')[0]).toMatch(/^CONTRIBUTOR_MODE: on author=x source=flag/);
     expect(forced.out).toContain('CONTRIBUTOR-PR MODE');
   });
