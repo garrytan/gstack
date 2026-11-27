@@ -262,7 +262,11 @@ describe('free-tests workflow wiring', () => {
       expect(retry, name).toBe(install + 1);
       for (const step of [steps[install], steps[retry]]) {
         expect(step['timeout-minutes'], name).toBe(5);
-        expect(step.run.trim(), name).toBe('if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi');
+        expect(step.run.trim().split('\n'), name).toEqual([
+          'if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; exit; fi',
+          'if [ "$SYSTEM_PACKAGES" = failure ]; then sudo dpkg --configure -a || true; sudo apt-get update; sudo apt-get install -f -y; fi',
+          'npx playwright install --with-deps chromium',
+        ]);
         expect(step.env, name).toEqual({ SYSTEM_PACKAGES: '${{ steps.apt_offline.outcome }}' });
       }
       expect(steps[install]['continue-on-error'], name).toBe(true);
@@ -307,22 +311,18 @@ describe('free-tests workflow wiring', () => {
     }
   });
 
-  test('a failed offline package install is repaired before --with-deps runs apt (run 46017056376)', () => {
+  test('a failed offline package install is repaired inside each bounded online attempt, so the retry still runs (run 46017056376)', () => {
     const jobs = (Bun.YAML.parse(source) as any).jobs;
     for (const name of ['free-suite', 'quick-bun-default']) {
       const steps = jobs[name].steps;
       const offline = steps.findIndex((step: any) => step.id === 'apt_offline');
       const install = steps.findIndex((step: any) => step.id === 'playwright_install');
-      const repair = steps.findIndex((step: any) => step.if === "steps.apt_offline.outcome == 'failure'");
-      expect(repair, name).toBe(offline + 1);
-      expect(install, name).toBe(repair + 1);
-      expect(steps[repair]['timeout-minutes'], name).toBe(5);
-      expect(steps[repair]['continue-on-error'], name).toBeUndefined();
-      expect(steps[repair].run.trim().split('\n'), name).toEqual([
-        'sudo dpkg --configure -a || true',
-        'sudo apt-get update',
-        'sudo apt-get install -f -y',
-      ]);
+      expect(install, name).toBe(offline + 1);
+      for (const step of [steps[install], steps[install + 1]]) {
+        const lines = step.run.trim().split('\n');
+        expect(lines.findIndex((line: string) => line.includes('sudo apt-get install -f -y')), name).toBeLessThan(lines.indexOf('npx playwright install --with-deps chromium'));
+      }
+      expect(steps.filter((step: any) => /dpkg --configure|apt-get install -f/.test(step.run ?? '')).length, name).toBe(2);
     }
   });
 

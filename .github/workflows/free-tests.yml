@@ -418,22 +418,14 @@ jobs:
         if: steps.apt_cache.outputs.cache-hit == 'true'
         continue-on-error: true
         run: sudo dpkg -i --auto-deconfigure "$HOME"/.cache/gstack-apt-debs/*.deb
-      # A failed dpkg -i leaves packages unpacked but unconfigured, and every
-      # later apt-get, including the one --with-deps runs, then exits 100 on
-      # unmet dependencies. Finish or roll forward what it left before going online.
-      - name: Repair the package database after a failed offline install
-        if: steps.apt_offline.outcome == 'failure'
-        timeout-minutes: 5
-        run: |
-          sudo dpkg --configure -a || true
-          sudo apt-get update
-          sudo apt-get install -f -y
       # The cache restores the browser; --with-deps still runs apt for system
       # libraries. On 2026-10-21 apt stalled on an archive.ubuntu.com fetch and
       # held free-suite (12) for the whole 20-minute job timeout (run
       # 39641712129). Each attempt gets 5 minutes (a warm install takes about
       # 15 s) and the install alone is retried once. This retries infrastructure,
-      # never a test.
+      # never a test. A failed offline dpkg -i leaves packages unpacked but
+      # unconfigured, and every later apt-get then exits 100 on unmet
+      # dependencies, so each online attempt first repairs what it left.
       - name: Install Playwright Chromium
         id: playwright_install
         timeout-minutes: 5
@@ -441,14 +433,18 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
         run: |
-          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; exit; fi
+          if [ "$SYSTEM_PACKAGES" = failure ]; then sudo dpkg --configure -a || true; sudo apt-get update; sudo apt-get install -f -y; fi
+          npx playwright install --with-deps chromium
       - name: Retry the Playwright Chromium install once
         if: steps.playwright_install.outcome == 'failure'
         timeout-minutes: 5
         env:
           SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
         run: |
-          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; exit; fi
+          if [ "$SYSTEM_PACKAGES" = failure ]; then sudo dpkg --configure -a || true; sudo apt-get update; sudo apt-get install -f -y; fi
+          npx playwright install --with-deps chromium
       - name: Configure the bundled Chromium sandbox helper
         run: |
           set -euo pipefail
@@ -627,22 +623,14 @@ jobs:
         if: steps.apt_cache.outputs.cache-hit == 'true'
         continue-on-error: true
         run: sudo dpkg -i --auto-deconfigure "$HOME"/.cache/gstack-apt-debs/*.deb
-      # A failed dpkg -i leaves packages unpacked but unconfigured, and every
-      # later apt-get, including the one --with-deps runs, then exits 100 on
-      # unmet dependencies. Finish or roll forward what it left before going online.
-      - name: Repair the package database after a failed offline install
-        if: steps.apt_offline.outcome == 'failure'
-        timeout-minutes: 5
-        run: |
-          sudo dpkg --configure -a || true
-          sudo apt-get update
-          sudo apt-get install -f -y
       # The cache restores the browser; --with-deps still runs apt for system
       # libraries. On 2026-10-21 apt stalled on an archive.ubuntu.com fetch and
       # held free-suite (12) for the whole 20-minute job timeout (run
       # 39641712129). Each attempt gets 5 minutes (a warm install takes about
       # 15 s) and the install alone is retried once. This retries infrastructure,
-      # never a test.
+      # never a test. A failed offline dpkg -i leaves packages unpacked but
+      # unconfigured, and every later apt-get then exits 100 on unmet
+      # dependencies, so each online attempt first repairs what it left.
       - name: Install Playwright Chromium
         id: playwright_install
         timeout-minutes: 5
@@ -650,7 +638,9 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
         run: |
-          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; exit; fi
+          if [ "$SYSTEM_PACKAGES" = failure ]; then sudo dpkg --configure -a || true; sudo apt-get update; sudo apt-get install -f -y; fi
+          npx playwright install --with-deps chromium
 
       - name: Retry the Playwright Chromium install once
         if: steps.playwright_install.outcome == 'failure'
@@ -658,7 +648,9 @@ jobs:
         env:
           SYSTEM_PACKAGES: ${{ steps.apt_offline.outcome }}
         run: |
-          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi
+          if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; exit; fi
+          if [ "$SYSTEM_PACKAGES" = failure ]; then sudo dpkg --configure -a || true; sudo apt-get update; sudo apt-get install -f -y; fi
+          npx playwright install --with-deps chromium
 
       - name: Configure the bundled Chromium sandbox helper
         run: |
