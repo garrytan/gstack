@@ -64,3 +64,7 @@ lib/diagram-render/dist/*.json text eol=lf
 # Byte-for-byte golden CSS for make-pdf --style plain; CRLF on a Windows
 # checkout would break the exact comparison.
 make-pdf/test/fixtures/print-css-plain/*.css text eol=lf
+
+# /design-html splices the vendored Pretext bundle in at the scaffold's PRETEXT_BUNDLE
+# line with awk, which would not match a CRLF line on a Windows checkout.
+design-html/vendor/pretext-embed.html text eol=lf

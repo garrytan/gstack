@@ -385,7 +385,7 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 - If `VENDOR` found: pasted into a module script, its renamed exports leave
   `prepare` etc. undefined. Copy `pretext-embed.html` beside it into the page,
   splice the bundle in at `PRETEXT_BUNDLE` with
-  `awk -v f="<VENDOR>" '$1=="PRETEXT_BUNDLE"{while((getline l<f)>0)print l;next}1' finalized.html >t&&mv t finalized.html`
+  `awk -v f="<VENDOR>" '$(1)=="PRETEXT_BUNDLE"{while((getline l<f)>0)print l;next}1' finalized.html >t&&mv t finalized.html`
   and put page code at `// page code`.
 - If `VENDOR_MISSING`: a module script keeps the patterns' imports, from `'https://esm.sh/@chenglou/pretext'`.
   Add a comment: `<!-- FALLBACK: vendor/pretext.js missing, using CDN -->`
