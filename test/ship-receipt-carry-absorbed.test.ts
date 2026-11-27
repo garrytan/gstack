@@ -71,6 +71,14 @@ describe('receipt carry across a base merge that landed one of the branch\'s hun
     expect([r.status === EXIT.ok, r.stderr.includes('RECEIPT_CARRY_PRODUCT_CHANGED')]).toEqual([false, true]);
   });
 
+  test('a symlink is never absorbed: its target is not text to merge', () => {
+    const f = shipFixture({ [LIST]: list(ALL) }, { [CODE]: code(6) });
+    ships.push(f);
+    const link = (to: string, msg: string) => { fs.rmSync(path.join(f.work, 'link'), { force: true }); fs.symlinkSync(to, path.join(f.work, 'link')); f.commit(msg); return f.git('rev-parse', 'HEAD').stdout.trim(); };
+    const before = link('a', 'link to a'), after = link('b', 'link to b');
+    expect(absorbedByBase(f.work, { reviewedBase: before, reviewed: after, currentBase: after, current: after }, 'link')).toBe(false);
+  });
+
   // Value: protects=the fail-closed controls; fails_when=a resolution that drops or edits a branch hunk main never landed, or that
   //   restores an entry main deleted, carries; seam=absorbedByBase and gstack-ship-receipt carry
   test('a resolution that also drops a hunk main never landed, edits a line, or keeps an entry main removed still refuses', () => {

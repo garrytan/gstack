@@ -473,6 +473,7 @@ export function absorbedByBase(repoRoot: string, s: PatchSides, rel: string): bo
   const replay = (b: string, r: string, c: string) => (r === b ? c : c === b || c === r ? r : null);
   if (!rb.sha || !rv.sha || !cb.sha || !cv.sha) return replay(rb.key, rv.key, cb.key) === cv.key;
   if (replay(rb.mode, rv.mode, cb.mode) !== cv.mode) return false;
+  if ([rb, rv, cb, cv].some(e => e.mode !== '100644' && e.mode !== '100755')) return false;
   const blobs = [cb, rb, rv, cv].map(e => spawnSync('git', ['cat-file', 'blob', e.sha], { cwd: repoRoot, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }));
   if (blobs.some(b => b.status !== 0 || b.stdout.includes(0))) return false;
   let dir: string;

@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { DOCS_CAPS_KEY_VERSION } from '../lib/ship-policy';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
 
 setDefaultTimeout(90_000);
@@ -115,8 +116,8 @@ describe('finish honours an edit ruling after the final review (GST-3775)', () =
 });
 
 /** GBRA-108 (gbrain #10492, #10494): Step 14.5's audit hashed `file`, an edit to it followed the final review, and the owner ruled it. */
-function docEditedAfterAudit(file: string) {
-  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n', [file]: '# Notes\n\nOne line.\n' }, { 'src/x.ts': 'export const x = 2;\n' });
+function docEditedAfterAudit(file: string, base: Record<string, string> = {}) {
+  const f = shipFixture({ 'src/x.ts': 'export const x = 1;\n', [file]: '# Notes\n\nOne line.\n', ...base }, { 'src/x.ts': 'export const x = 2;\n' });
   ships.push(f);
   const reviewed = f.run(path.join(BIN, 'gstack-wtree'), []).stdout.trim();
   const post = path.join(f.root, 'post.json');
@@ -151,6 +152,14 @@ describe('a ruled edit to an audited doc keeps the docs audit fresh (GBRA-108)',
     const r = finishRechecked(later.f, later.reviewed, later.post);
     expect(lineOf(r.stdout, 'RULED_EDIT_REFUSED')).toStartWith('RULED_EDIT_REFUSED: README.md (');
     expect(lineOf(r.stdout, 'DOCS')).toBe('DOCS: stale (README.md)');
+  });
+
+  test('a ruled doc edit that breaks a doc cap the base declares stops finish', () => {
+    const policy = JSON.stringify({ docs: { caps: [{ path: 'README.md', max_bytes: 30 }] }, min_gstack_version: DOCS_CAPS_KEY_VERSION });
+    const { f, stopHead, reviewed, post } = docEditedAfterAudit('README.md', { '.gstack/ship-policy.json': policy });
+    expect(rule(f, 'README.md', stopHead).status).toBe(0);
+    const r = finishRechecked(f, reviewed, post);
+    expect([r.status, r.stdout]).toEqual([3, expect.stringContaining('a ruled doc edit breaks a doc cap')]);
   });
 });
 

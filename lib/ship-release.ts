@@ -424,7 +424,7 @@ function docsFresh(cwd: string, base: string, postFile: string, moved: readonly 
     if (why) { r.stop(`--docs-requested ${p} ${why}: use stage 3 recovery`); return false; }
     carried.requested.push(p);
   }
-  if (carried.requested.length && bin(cwd, 'gstack-ship-receipt', ['docs-caps', '--base', base], 60_000).status !== 0) { r.stop('a --docs-requested fix breaks a doc cap (gstack-ship-receipt docs-caps): trim the file, then rerun finish'); return false; }
+  if ((carried.requested.length || carried.ruled.length) && bin(cwd, 'gstack-ship-receipt', ['docs-caps', '--base', base], 60_000).status !== 0) { r.stop('a --docs-requested fix or a ruled doc edit breaks a doc cap (gstack-ship-receipt docs-caps): trim the file, then rerun finish'); return false; }
   const left = stale.filter(p => !carried.tests.includes(p) && !carried.base.includes(p) && !carried.requested.includes(p) && !carried.ruled.includes(p));
   const note = left.length || stale.length === 0 ? '' : ` (carried: tests=${carried.tests.length} base=${carried.base.length} requested=${carried.requested.length}${carried.ruled.length ? ` ruled=${carried.ruled.length}` : ''})`;
   const exception = record.exception ? ` (blocked; documentation exception accepted by ${record.exception.accepted_by} ${record.exception.date} via ${record.exception.via})` : '';

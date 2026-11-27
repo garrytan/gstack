@@ -37,7 +37,7 @@ function worktree() {
 }
 /** A PATH whose git fails the calls whose arguments match the shell pattern `only` (every call by default), as a hung or killed git looks to the callers. */
 function brokenGit(only = '*'): void {
-  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+  const real = path.join(spawnSync('git', ['--exec-path'], { encoding: 'utf8', timeout: 10_000 }).stdout.trim(), 'git');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'git-path-bin-'));
   dirs.push(bin);
   fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\ncase "$*" in ${only}) echo "fatal: simulated failure" >&2; exit 128;; esac\nexec '${real}' "$@"\n`, { mode: 0o755 });
