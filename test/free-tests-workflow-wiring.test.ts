@@ -262,7 +262,11 @@ describe('free-tests workflow wiring', () => {
       expect(retry, name).toBe(install + 1);
       for (const step of [steps[install], steps[retry]]) {
         expect(step['timeout-minutes'], name).toBe(5);
-        expect(step.run.trim(), name).toBe('if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; else npx playwright install --with-deps chromium; fi');
+        expect(step.run.trim().split('\n'), name).toEqual([
+          'if [ "$SYSTEM_PACKAGES" = success ]; then npx playwright install chromium; exit; fi',
+          'if [ "$SYSTEM_PACKAGES" = failure ]; then sudo dpkg --configure -a || true; sudo apt-get update; sudo apt-get install -f -y; fi',
+          'npx playwright install --with-deps chromium',
+        ]);
         expect(step.env, name).toEqual({ SYSTEM_PACKAGES: '${{ steps.apt_offline.outcome }}' });
       }
       expect(steps[install]['continue-on-error'], name).toBe(true);
@@ -294,7 +298,7 @@ describe('free-tests workflow wiring', () => {
       expect(steps[base].run, name).toContain(')-playwright-$PLAYWRIGHT_VERSION" >> "$GITHUB_OUTPUT"');
       expect(steps[restore].with, name).toEqual({ path: '~/.cache/gstack-apt-debs', key: '${{ steps.apt_base.outputs.cache_key }}' });
       expect(steps[offline].if, name).toBe("steps.apt_cache.outputs.cache-hit == 'true'");
-      expect(steps[offline].run, name).toBe('sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb');
+      expect(steps[offline].run, name).toBe('sudo dpkg -i --auto-deconfigure "$HOME"/.cache/gstack-apt-debs/*.deb');
       expect(steps[keep].if, name).toBe("steps.apt_cache.outputs.cache-hit != 'true'");
       expect(steps[keep].run, name).toContain('cp /var/cache/apt/archives/*.deb ~/.cache/gstack-apt-debs/');
       expect(steps[save].uses, name).toStartWith('actions/cache/save@');
@@ -304,6 +308,21 @@ describe('free-tests workflow wiring', () => {
       expect(config, name).toBeGreaterThan(-1);
       expect(xvfb, name).toBeGreaterThan(install);
       expect(keep, name).toBe(xvfb + 1);
+    }
+  });
+
+  test('a failed offline package install is repaired inside each bounded online attempt, so the retry still runs (run 46017056376)', () => {
+    const jobs = (Bun.YAML.parse(source) as any).jobs;
+    for (const name of ['free-suite', 'quick-bun-default']) {
+      const steps = jobs[name].steps;
+      const offline = steps.findIndex((step: any) => step.id === 'apt_offline');
+      const install = steps.findIndex((step: any) => step.id === 'playwright_install');
+      expect(install, name).toBe(offline + 1);
+      for (const step of [steps[install], steps[install + 1]]) {
+        const lines = step.run.trim().split('\n');
+        expect(lines.findIndex((line: string) => line.includes('sudo apt-get install -f -y')), name).toBeLessThan(lines.indexOf('npx playwright install --with-deps chromium'));
+      }
+      expect(steps.filter((step: any) => /dpkg --configure|apt-get install -f/.test(step.run ?? '')).length, name).toBe(2);
     }
   });
 
