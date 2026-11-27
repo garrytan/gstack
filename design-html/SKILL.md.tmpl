@@ -242,11 +242,26 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -n "$_PRETEXT_VENDOR" ] && echo "VENDOR: $_PRETEXT_VENDOR" || echo "VENDOR_MISSING"
 ```
 
-- If `VENDOR` found: inline the file in a `<script type="module">` and put the page's
-  Pretext code after it in that same script; the bundle ends in `export {...}` and sets
-  no global. The HTML file is fully self-contained with zero network dependencies.
-- If `VENDOR_MISSING`: use CDN import as fallback:
-  `<script type="module">import { prepare, layout, prepareWithSegments, walkLineRanges, layoutNextLine, layoutWithLines } from 'https://esm.sh/@chenglou/pretext'</script>`
+- If `VENDOR` found: embed the bundle as inert text and import it as its own module.
+  Never paste it into the page's module: its `export {...}` clause renames minified
+  locals (`X1 as prepare`), so there `prepare` and the rest are undefined, and page
+  variables collide with its minified names.
+  ```html
+  <script type="text/plain" id="pretext-src">
+  PRETEXT_BUNDLE
+  </script>
+  <script type="module">
+  const pretextURL = URL.createObjectURL(new Blob([document.getElementById('pretext-src').textContent], { type: 'text/javascript' }))
+  const { prepare, layout, prepareWithSegments, walkLineRanges, layoutNextLine, layoutWithLines } = await import(pretextURL)
+  // The page's Pretext code (the patterns above) follows here.
+  </script>
+  ```
+  Replace the `PRETEXT_BUNDLE` line with the VENDOR file's contents, byte for byte;
+  splice it in with a shell command rather than retyping it (its lines run past 20KB).
+  The page stays self-contained with zero network dependencies, from `file://` or a
+  local server.
+- If `VENDOR_MISSING`: drop the `pretext-src` block; the module's first line is the CDN import:
+  `import { prepare, layout, prepareWithSegments, walkLineRanges, layoutNextLine, layoutWithLines } from 'https://esm.sh/@chenglou/pretext'`
   Add a comment: `<!-- FALLBACK: vendor/pretext.js missing, using CDN -->`
 
 For **framework output**, add to the project's dependencies instead:

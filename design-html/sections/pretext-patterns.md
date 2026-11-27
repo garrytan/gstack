@@ -8,7 +8,7 @@ Pretext API usage patterns. Follow them exactly.
 **Pattern 1: Basic height computation (Simple layout, Card/grid)**
 ```js
 import { prepare, layout } from '@chenglou/pretext'
-// Vanilla HTML: omit the import; this code follows the inlined bundle in the same <script type="module">
+// Vanilla HTML: omit every import line; the page module's first lines bind these names (Pretext Source Embedding)
 
 // 1. PREPARE — one-time, after fonts load
 await document.fonts.ready
