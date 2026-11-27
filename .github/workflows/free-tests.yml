@@ -408,11 +408,26 @@ jobs:
         with:
           path: ~/.cache/gstack-apt-debs
           key: ${{ steps.apt_base.outputs.cache_key }}
+      # The cache can hold a newer version of a package the image already has.
+      # dpkg installs the files in name order, so on run 46017056376
+      # libasound2-data 0.5 came before libasound2t64 and was refused because it
+      # breaks the installed libasound2t64 0.3. --auto-deconfigure lets dpkg set
+      # libasound2t64 aside until its own upgrade in the same call lands.
       - name: Install the cached system packages without the network
         id: apt_offline
         if: steps.apt_cache.outputs.cache-hit == 'true'
         continue-on-error: true
-        run: sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb
+        run: sudo dpkg -i --auto-deconfigure "$HOME"/.cache/gstack-apt-debs/*.deb
+      # A failed dpkg -i leaves packages unpacked but unconfigured, and every
+      # later apt-get, including the one --with-deps runs, then exits 100 on
+      # unmet dependencies. Finish or roll forward what it left before going online.
+      - name: Repair the package database after a failed offline install
+        if: steps.apt_offline.outcome == 'failure'
+        timeout-minutes: 5
+        run: |
+          sudo dpkg --configure -a || true
+          sudo apt-get update
+          sudo apt-get install -f -y
       # The cache restores the browser; --with-deps still runs apt for system
       # libraries. On 2026-10-21 apt stalled on an archive.ubuntu.com fetch and
       # held free-suite (12) for the whole 20-minute job timeout (run
@@ -602,11 +617,26 @@ jobs:
         with:
           path: ~/.cache/gstack-apt-debs
           key: ${{ steps.apt_base.outputs.cache_key }}
+      # The cache can hold a newer version of a package the image already has.
+      # dpkg installs the files in name order, so on run 46017056376
+      # libasound2-data 0.5 came before libasound2t64 and was refused because it
+      # breaks the installed libasound2t64 0.3. --auto-deconfigure lets dpkg set
+      # libasound2t64 aside until its own upgrade in the same call lands.
       - name: Install the cached system packages without the network
         id: apt_offline
         if: steps.apt_cache.outputs.cache-hit == 'true'
         continue-on-error: true
-        run: sudo dpkg -i "$HOME"/.cache/gstack-apt-debs/*.deb
+        run: sudo dpkg -i --auto-deconfigure "$HOME"/.cache/gstack-apt-debs/*.deb
+      # A failed dpkg -i leaves packages unpacked but unconfigured, and every
+      # later apt-get, including the one --with-deps runs, then exits 100 on
+      # unmet dependencies. Finish or roll forward what it left before going online.
+      - name: Repair the package database after a failed offline install
+        if: steps.apt_offline.outcome == 'failure'
+        timeout-minutes: 5
+        run: |
+          sudo dpkg --configure -a || true
+          sudo apt-get update
+          sudo apt-get install -f -y
       # The cache restores the browser; --with-deps still runs apt for system
       # libraries. On 2026-10-21 apt stalled on an archive.ubuntu.com fetch and
       # held free-suite (12) for the whole 20-minute job timeout (run
