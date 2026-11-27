@@ -1,0 +1,9 @@
+<!-- Pretext (vendored) sits here as inert text and loads as its own module from a blob: URL, so the page needs no network. A Content-Security-Policy must allow blob: scripts. -->
+<script type="text/plain" id="pretext-src">
+PRETEXT_BUNDLE
+</script>
+<script type="module">
+const pretextURL = URL.createObjectURL(new Blob([document.getElementById('pretext-src').text], { type: 'text/javascript' }))
+const { prepare, layout, prepareWithSegments, walkLineRanges, layoutNextLine, layoutWithLines } = await import(pretextURL).finally(() => URL.revokeObjectURL(pretextURL))
+// page code
+</script>
