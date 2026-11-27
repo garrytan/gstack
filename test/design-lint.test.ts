@@ -43,9 +43,10 @@ function tmpPage(html: string, name = 'index.html'): string {
   return file;
 }
 
-/** A temporary tree: each key is a relative path (parent directories are created), each value the file's text. */
+// Value: protects=tree tests compare the paths the lint walks, not the tmp dir's symlink; fails_when=os.tmpdir() is behind a symlink (macOS /var -> /private/var); why_new=tmpTree returned the unresolved path, failing 3 tests on every Mac; seam=none
+/** A temporary tree: each key is a relative path (parent directories are created), each value the file's text. The root is realpath'd, as the lint realpaths what it walks. */
 function tmpTree(files: Record<string, string>): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'design-lint-tree-'));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'design-lint-tree-')));
   tmpDirs.push(dir);
   for (const [rel, text] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
