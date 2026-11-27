@@ -54,7 +54,7 @@ export function collectFiles(paths: string[], warn: (l: string) => void = () => 
   const visit = (p: string, top: boolean) => {
     let abs = path.resolve(p);
     let st: fs.Stats;
-    try { abs = fs.realpathSync(abs); st = fs.statSync(abs); } catch { warn(`design-lint: cannot read ${p}`); if (top) skipped.push({ file: abs, kind: 'unreadable', why: 'it cannot be read' }); return; }
+    try { abs = fs.realpathSync(abs); st = fs.statSync(abs); } catch { warn(`design-lint: cannot read ${p}`); if (top) skipped.push({ file: realDir(abs), kind: 'unreadable', why: 'it cannot be read' }); return; }
     if (seen.has(abs)) return;
     if (st.isDirectory()) {
       seen.add(abs);
@@ -343,8 +343,13 @@ export function lintStaticRaw(paths: string[], opts: StaticOptions = {}): RawSta
   return { files, contexts, raw, skipped: skippedReporter.findings };
 }
 
-/** A directory's real path, so a cwd or lint root reached through a symlink still matches the files collected under it. */
-export const realDir = (p: string): string => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+/** A directory's real path, so a cwd or lint root reached through a symlink still matches the files collected under it; a missing path resolves through its nearest existing ancestor, so it still prints relative to that cwd. */
+export const realDir = (p: string): string => {
+  try { return fs.realpathSync(p); } catch {
+    const abs = path.resolve(p), parent = path.dirname(abs);
+    return parent === abs ? abs : path.join(realDir(parent), path.basename(abs));
+  }
+};
 
 export function lintStatic(paths: string[], opts: StaticOptions = {}): StaticResult {
   const cwd = realDir(opts.cwd ?? process.cwd());
