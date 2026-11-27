@@ -314,6 +314,8 @@ describe('design-lint: the copy tier', () => {
     expect(copy(CLEAN)).toEqual([]);
     const pretext = fs.readFileSync(path.join(ROOT, 'design-html', 'vendor', 'pretext.js'), 'utf-8');
     expect(copy(CLEAN.replace('</body>', `<script type="module">${pretext}</script></body>`))).toEqual([]);
+    const embed = fs.readFileSync(path.join(ROOT, 'design-html', 'vendor', 'pretext-embed.html'), 'utf-8').replace('PRETEXT_BUNDLE', () => pretext);
+    expect(copy(CLEAN.replace('</body>', `${embed}</body>`))).toEqual([]);
   });
 
   test('every copy-tier id is a lint rule; each but the shell check is a grep-detectable catalog entry whose fix the lint prints', () => {
