@@ -43,9 +43,9 @@ function tmpPage(html: string, name = 'index.html'): string {
   return file;
 }
 
-/** A temporary tree: each key is a relative path (parent directories are created), each value the file's text. */
+/** A temporary tree: each key is a relative path (parent directories are created), each value the file's text. Its root is the real path, as the lint walks real paths. */
 function tmpTree(files: Record<string, string>): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'design-lint-tree-'));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'design-lint-tree-')));
   tmpDirs.push(dir);
   for (const [rel, text] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });

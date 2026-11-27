@@ -87,11 +87,18 @@ describe('design-lint fifth cycle: dead markup and hostile inputs', () => {
     expect(resolveRef('../outside.css', path.join(dir, 'site'), path.join(dir, 'site'))).toBeNull();
   });
 
-  test('an unreadable top-level path beside a readable page is one internal-error finding with its own fix', () => {
+  // Value: protects=an unreadable top-level path prints relative to a cwd reached through a symlink; fails_when=the finding keeps the unresolved path while cwd is resolved; why_new=only a symlinked tmpdir (macOS) hit it; seam=none
+  test('an unreadable top-level path beside a readable page is one internal-error finding with its own fix, also through a symlink', () => {
     const dir = tree({ 'index.html': page('', '<main><h1>Hi</h1><p>Body.</p></main>') });
     const r = lintStatic([dir, path.join(dir, 'nowhere.html')], { cwd: dir, ...quiet });
     expect(r.files.map((f) => path.basename(f))).toEqual(['index.html']);
     expect(only(r.findings, 'internal-error').map((f) => [f.grade, f.file, f.line, /cannot be read/.test(f.evidence), f.fix])).toEqual([['ask', 'nowhere.html', 1, true, 'check the path']]);
+    const link = dir + '-link';
+    fs.symlinkSync(dir, link);
+    tmpDirs.push(link);
+    fs.symlinkSync(path.join(dir, 'self'), path.join(dir, 'self'));
+    const via = lintStatic([link, path.join(link, 'gone', 'nowhere.html'), path.join(link, 'self')], { cwd: link, ...quiet });
+    expect(only(via.findings, 'internal-error').map((f) => f.file)).toEqual(['gone/nowhere.html', 'self']);
   });
 });
 
