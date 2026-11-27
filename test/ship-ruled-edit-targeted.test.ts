@@ -119,12 +119,12 @@ describe('a Captain-ruled edit after the read-only final review (HARN-1)', () =>
 describe('a targeted-only read has no review row and is not unbound (GSTA-876)', () => {
   const since = '2026-11-26T19:00:00Z';
   const rows = [1, 2].map(pass => ({ skill: 'review', via: 'ship', pass, timestamp: `2026-11-26T19:0${pass}:00Z`, commit_full: String(pass).repeat(40), findings: [] }));
-  function ledger(reader: string): string {
+  function ledger(reader: string, more: Record<string, unknown>[] = []): string {
     const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'targeted-only-')), 'p3');
     fs.mkdirSync(dir);
     dirs.push(path.dirname(dir));
     const file = path.join(dir, 'review-ledger.jsonl');
-    fs.writeFileSync(file, [{ event: 'rendered', reader, at: '2026-11-26T19:10:00Z' }, { event: 'output', reader, ids: [] }].map(e => JSON.stringify(e)).join('\n') + '\n');
+    fs.writeFileSync(file, [{ event: 'rendered', reader, at: '2026-11-26T19:10:00Z' }, ...more, { event: 'output', reader, ids: [] }].map(e => JSON.stringify(e)).join('\n') + '\n');
     return file;
   }
   test('p3 with only the targeted reader is bound; p3 with any other reader is still unbound', () => {
@@ -134,6 +134,9 @@ describe('a targeted-only read has no review row and is not unbound (GSTA-876)',
     const other = ledgerPass(ledger('red-team'));
     expect(other.targetedOnly).toBeUndefined();
     expect(summarizeReviewLoop(rows, since, [[]], [other]).unbound).toEqual(['pass 3 (ledger p3): no review-log row, so its fixes and dispositions cannot be counted']);
+    const silent = ledgerPass(ledger('targeted', [{ event: 'rendered', reader: 'red-team' }, { event: 'sent', reader: 'red-team' }]));
+    expect(silent.targetedOnly).toBeUndefined();
+    expect(summarizeReviewLoop(rows, since, [[]], [silent]).unbound).toEqual(['pass 3 (ledger p3): no review-log row, so its fixes and dispositions cannot be counted']);
   });
 });
 

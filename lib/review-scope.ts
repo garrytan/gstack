@@ -385,8 +385,8 @@ export function ledgerPass(ledger: string, key = (id: string) => id): LedgerPass
   const fixCheck = events.some(e => e.event === 'output' && e.reader === 'fix-check' && e.tree_ok !== false && ((Array.isArray(e.ids) && e.ids.length > 0) || e.review === true));
   const gone = quarantinedIds(events);
   const ids = events.flatMap(e => (e.event === 'output' && Array.isArray(e.ids) ? (e.ids as string[]).filter(id => !gone.has(id)) : e.event === 'judgment' && e.kind === 'added' && typeof e.id === 'string' ? [e.id] : [])).map(key);
-  const outputs = events.filter(e => e.event === 'output');
-  const targetedOnly = outputs.length > 0 && outputs.every(e => typeof e.reader === 'string' && roleOf(e.reader) === 'targeted');
+  const readers = events.filter(e => e.event === 'rendered' || e.event === 'sent' || e.event === 'output');
+  const targetedOnly = readers.some(e => e.event === 'output') && readers.every(e => typeof e.reader === 'string' && roleOf(e.reader) === 'targeted');
   return { started: Number.isFinite(started) ? started : NaN, fixCheck, ids, name: path.basename(path.dirname(path.resolve(ledger))), judged: events.some(e => e.event === 'judge'), ...(targetedOnly ? { targetedOnly: true as const } : {}) };
 }
 

@@ -65,6 +65,12 @@ describe('receipt carry across a base merge that landed one of the branch\'s hun
     expect(x.carry().status).toBe(EXIT.ok);
   });
 
+  test('a TMPDIR it cannot write reads as not absorbed instead of crashing the carry', () => {
+    const x = absorbed(without('c'));
+    const r = x.f.run(RECEIPT, ['carry', '--body', x.body, '--base', 'main'], { ...UNATTENDED, TMPDIR: path.join(x.f.root, 'missing', 'tmp') });
+    expect([r.status === EXIT.ok, r.stderr.includes('RECEIPT_CARRY_PRODUCT_CHANGED')]).toEqual([false, true]);
+  });
+
   // Value: protects=the fail-closed controls; fails_when=a resolution that drops or edits a branch hunk main never landed, or that
   //   restores an entry main deleted, carries; seam=absorbedByBase and gstack-ship-receipt carry
   test('a resolution that also drops a hunk main never landed, edits a line, or keeps an entry main removed still refuses', () => {

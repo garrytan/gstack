@@ -475,7 +475,8 @@ export function absorbedByBase(repoRoot: string, s: PatchSides, rel: string): bo
   if (replay(rb.mode, rv.mode, cb.mode) !== cv.mode) return false;
   const blobs = [cb, rb, rv, cv].map(e => spawnSync('git', ['cat-file', 'blob', e.sha], { cwd: repoRoot, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }));
   if (blobs.some(b => b.status !== 0 || b.stdout.includes(0))) return false;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-patch-absorbed-'));
+  let dir: string;
+  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-patch-absorbed-')); } catch { return false; }
   try {
     const files = ['current-base', 'reviewed-base', 'reviewed'].map((n, i) => { const f = path.join(dir, n); fs.writeFileSync(f, blobs[i]!.stdout); return f; });
     const merged = spawnSync('git', ['merge-file', '-p', '-q', ...files], { cwd: repoRoot, timeout: 60_000, maxBuffer: 256 * 1024 * 1024 });
