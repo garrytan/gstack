@@ -1,1 +1,0 @@
-**Two gstack tests no longer fail at random.** The QA-only cleanup check no longer refuses on a terminal agent that exited a moment ago and has not been collected by its parent yet, and the contributor-mode test names its base branch so it no longer waits on GitHub and the network, which pushed it past Bun's default five-second limit under load.
