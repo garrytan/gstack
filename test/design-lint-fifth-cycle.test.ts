@@ -98,7 +98,7 @@ describe('design-lint fifth cycle: dead markup and hostile inputs', () => {
     tmpDirs.push(link);
     fs.symlinkSync(path.join(dir, 'self'), path.join(dir, 'self'));
     const via = lintStatic([link, path.join(link, 'gone', 'nowhere.html'), path.join(link, 'self')], { cwd: link, ...quiet });
-    expect(only(via.findings, 'internal-error').map((f) => f.file)).toEqual(['gone/nowhere.html', 'self']);
+    expect(only(via.findings, 'internal-error').map((f) => f.file)).toEqual([path.join('gone', 'nowhere.html'), 'self']);
   });
 });
 
