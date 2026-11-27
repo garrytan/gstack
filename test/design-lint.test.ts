@@ -313,7 +313,7 @@ describe('design-lint: the copy tier', () => {
   test('a finished page is clean: CSS 100%, in-page anchors, a showAlert helper and inlined Pretext are not flagged', () => {
     expect(copy(CLEAN)).toEqual([]);
     const pretext = fs.readFileSync(path.join(ROOT, 'design-html', 'vendor', 'pretext.js'), 'utf-8');
-    expect(copy(CLEAN.replace('</body>', `<script type="module">${pretext}</script></body>`))).toEqual([]);
+    expect(copy(CLEAN.replace('</body>', `<script type="text/plain" id="pretext-src">${pretext}</script></body>`))).toEqual([]);
   });
 
   test('every copy-tier id is a lint rule; each but the shell check is a grep-detectable catalog entry whose fix the lint prints', () => {
