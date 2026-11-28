@@ -14,7 +14,7 @@ import { gitDiffInParts, mergeParts } from '../../diff-parts';
 import { spawnSync } from '../../spawn-sync';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { credentialEnvValues, normalizeWithMap } from '../../redact-engine';
+import { base64Forms, credentialEnvValues, normalizeWithMap } from '../../redact-engine';
 import { runScriptSync } from '../../script-invocation';
 import { allowlistDigest, applyAllowlist, describeAllowlisted, describeMissed, describeUntested, displayPath, type AllowlistFinding } from '../allowlist';
 import { baseInputs, sha256 } from '../context';
@@ -294,7 +294,7 @@ function run(ctx: PregateContext): CheckResult {
     let medium = false;
     let parsedAll = true;
     const unsplit = new Set<string>();
-    const overlapChars = Math.max(SCAN_OVERLAP_CHARS, ...credentialEnvValues(ctx.env ?? process.env).map(({ value }) => normalizeWithMap(value).normalized.length));
+    const overlapChars = Math.max(SCAN_OVERLAP_CHARS, ...credentialEnvValues(ctx.env ?? process.env).flatMap(({ value }) => { const normalized = normalizeWithMap(value).normalized; return [normalized, ...base64Forms(normalized), ...base64Forms(value)].map((form) => form.length); }));
     for (const [i, part] of parts.entries()) for (const [j, reading] of part.texts.entries()) {
       const pieces = scanParts(reading, SCAN_MAX_BYTES, SCAN_OVERLAP_LINES, overlapChars);
       if (!Array.isArray(pieces)) { unsplit.add(`${part.file ? `${displayPath(part.file)}, ` : ''}${part.keep ? 'line' : 'added line'} ${pieces.line} (${pieces.why})`); continue; }

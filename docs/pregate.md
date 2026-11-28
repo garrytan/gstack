@@ -2068,6 +2068,57 @@ those, each with its scope and its reason:
   no path in the hook), so it never reports less than before. A name too long
   to write once decoded is scanned as `added` plus its extension, and a name
   holding a control character is printed quoted.
+- JavaScript, TypeScript and Go declarations (GST-3500): a key bound by
+  `const`, `let` or `var` (with or without `export` or a type), or by a class
+  field (`private apiKey = "<key>";`), reports as `env.kv.js` in a `.js`,
+  `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts` or `.cts` file, and Go's
+  `token := "<key>"`, `var token = "<key>"` and `const apiKey string = "<key>"`
+  report as `env.kv.go` in a `.go` file. Names like these are everywhere in
+  code, so the name never decides: the literal must look like a secret. It
+  either starts with a provider key prefix (`sk-`, `sk_live_`, `ghp_`, `AKIA`,
+  `xox…-`, …) and is not a word, or it is random text: at least 16
+  characters, at least 3.5 bits per character (3.0 for hex such as a UUID or
+  digest), with a run of 8 or more letters and digits that is not a word
+  followed by a number. A `+` chain of quoted pieces is joined first, and a
+  template's text beside its `${…}` slots is read piece by piece. So
+  `const API_KEY = "AUTHENTICATION"`, `"MY_SERVICE_API_KEY"`,
+  `'CorrectHorseBatteryStaple'`, `'terminalFontSize'` and paths give nothing,
+  and neither do types, destructuring, imports, calls and `process.env` reads.
+  Known limits, not read by these rules: a low-entropy human password
+  (`"hunter2hunter2"`); a random token of 16 to 20 characters falls under the
+  bar about one time in six; a fallback after an environment read
+  (`process.env.TOKEN ?? "<key>"`); a declaration that does not start its
+  line; a value on the line after its `=`; `.vue`, `.svelte` and other files.
+- JSON key paths (GBRA-108): in a `.json`, `.json5`, `.jsonc` or `.jsonl`
+  file, a field named exactly `"key"` whose value is a short lowercase path of
+  words (`"key": "sources/vector-index"` in a
+  check's golden output) no longer reports as `env.kv`. A secret, a long mixed
+  run of letters and digits, an uppercase letter in the path or another field
+  name still reports. An environment-variable name as a value
+  (`API_KEY=OPENAI_API_KEY`) still reports too: a dotenv file stores it
+  literally, so it may be a password; allowlist it by value.
+- Run-folder stamps (TRUT-39): `pii.phone.e164` no longer reads a
+  `YYYYMMDD-HHMM` date and minute with a real calendar date
+  (`runs/20261123-1711/`) as a phone number. An impossible date (February 31),
+  hour or minute, and every other grouping, still reports. Known limit: a
+  12-digit number written as 8 digits, a dash and 4 digits that also reads as
+  a real date and time is not reported.
+- Base64 (HARN-108): a credential from the environment is also found by its
+  base64 and base64url text at each of the three byte alignments (of its
+  normalized form and of its bytes as given), so a key inside an encoded blob,
+  `data:` URI or config reports as `env.value` (HIGH). Two short provider
+  shapes can turn up by chance in long base64: Google's `AIza…` inside
+  standard base64 and OpenAI's bare `sk-…` inside base64url. Such a match that
+  starts at least 64 characters into a 200-character run of one alphabet, where
+  the text before it reads as encoded data (mixed case and digits, no `=`, few
+  separators, so never a path or a long name), no longer reports. Keys with a
+  longer fixed prefix (`sk-ant-`, `sk-or-v1-`, `sk-proj-`, `AQ.`) always
+  report, and an exact value is still found by value. Known limits: an `AIza…`
+  key glued after 64 or more random-looking characters of one alphabet reads as
+  chance; base64 wrapped across
+  lines (the `base64` command's and MIME's 76-column output, PEM's 64) is
+  matched line by line, so an encoded value that crosses a line break is not
+  found.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with

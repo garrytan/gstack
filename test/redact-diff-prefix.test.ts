@@ -52,6 +52,8 @@ const SAMPLES: Record<string, string> = {
   "jwt": ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"].join("."),
   "env.kv": j("API_TOKEN=", "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ"),
   "env.kv.rust": j('let api_token = "', "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ", '";'),
+  "env.kv.js": j('const api_token = "', "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ", '";'),
+  "env.kv.go": j('api_token := "', "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ", '"'),
   "auth.bearer": j("Authorization: Bearer ", "a1B2c3D4e5F6g7H8i9J0k1L2"),
   "pii.email": j("dana.whitfield@", "acmecorp.io"),
   "pii.phone.e164": j("+1415", "5552671"),
@@ -67,13 +69,15 @@ const SAMPLES: Record<string, string> = {
   "hygiene.todo": j("TO", "DO(dana)"),
 };
 
-const ids = (text: string) => scan(text, { repoVisibility: "public", processEnv: {} }).findings.map((f) => f.id);
+const ids = (text: string, sourcePath?: string) => scan(text, { repoVisibility: "public", processEnv: {}, ...(sourcePath ? { sourcePath } : {}) }).findings.map((f) => f.id);
+/** A pattern that reads only one language's files gets its sample under that file type. */
+const SAMPLE_PATHS: Record<string, string> = { "env.kv.js": "src/config.ts", "env.kv.go": "cmd/config.go" };
 const hunk = (body: string) => ["diff --git a/x b/x", "--- a/x", "+++ b/x", "@@ -0,0 +1 @@", body, ""].join("\n");
 
 describe("GST-543: a diff line prefix never hides a finding", () => {
   test("every pattern has a sample that reports bare", () => {
     expect(PATTERNS.map((p) => p.id).filter((id) => !SAMPLES[id])).toEqual([]);
-    expect(PATTERNS.filter((p) => !ids(SAMPLES[p.id]!).includes(p.id)).map((p) => p.id)).toEqual([]);
+    expect(PATTERNS.filter((p) => !ids(SAMPLES[p.id]!, SAMPLE_PATHS[p.id]).includes(p.id)).map((p) => p.id)).toEqual([]);
   });
 
   test("each sample still reports behind +, - and a space, and on an added line inside a hunk", () => {
@@ -81,7 +85,7 @@ describe("GST-543: a diff line prefix never hides a finding", () => {
     for (const p of PATTERNS) {
       const s = SAMPLES[p.id]!;
       for (const [label, text] of [["+", "+" + s], ["-", "-" + s], ["space", " " + s], ["hunk", hunk("+" + s)], ["indented hunk", hunk("+    " + s)], ["indented removed", hunk("-    " + s)], ["tab removed", hunk("-\t" + s)], ["combined ++", hunk("++" + s)], ["combined space+", hunk(" +  " + s)], ["combined +-", hunk("+-" + s)]] as const)
-        if (!ids(text).includes(p.id)) missed.push(`${p.id} (${label})`);
+        if (!ids(text, SAMPLE_PATHS[p.id]).includes(p.id)) missed.push(`${p.id} (${label})`);
     }
     expect(missed).toEqual([]);
   });

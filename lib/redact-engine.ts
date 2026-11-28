@@ -476,41 +476,46 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
   clearStringSpanCache();
 
   // Environment values, by exact value: a credential that is already in the
-  // process environment needs no shape to be recognized.
+  // process environment needs no shape to be recognized. HARN-108: so is its
+  // base64 or base64url encoding at any byte alignment (a key inside an
+  // encoded blob, data: URI or config), of its normalized form and of its
+  // bytes as given, found the same way and just as HIGH.
   for (const { name, value: raw } of credentialEnvValues(opts.processEnv ?? process.env)) {
     // The text was normalized before matching; the value takes the same form,
     // and the allowlist and placeholder rules see both forms.
     const value = normalizeOriginal(raw).normalized;
     if (allow.has(raw) || allow.has(value) || value.length < MIN_ENV_VALUE_LENGTH || isPlaceholderSpan(value)) continue;
-    let from = 0;
-    let normOffset: number;
-    while ((normOffset = normalized.indexOf(value, from)) !== -1) {
-      from = normOffset + value.length;
-      const origOffset = map[Math.min(normOffset, map.length - 1)] ?? 0;
-      // Keyed on the span, not the offset alone: when one credential's value is
-      // a prefix of another's, both findings exist and their spans coalesce.
-      const key = `env.value:${origOffset}:${value.length}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      starts ??= lineStarts(input);
-      const { line, col } = lineColAt(starts, input, origOffset);
-      const finding: Finding = {
-        id: "env.value",
-        tier: "HIGH",
-        severity: "HIGH",
-        category: "secret",
-        description: `Value of the ${name} environment variable`,
-        line,
-        col,
-        // A live credential: the name already says what leaked; show no bytes.
-        preview: "********",
-        autoRedactable: false,
-        repoVisibility,
-      };
-      findings.push(finding);
-      if (spans) {
-        const end = spanEnds?.[normOffset + value.length - 1];
-        if (end !== undefined && end > origOffset) spans.set(finding, { start: origOffset, end });
+    for (const form of new Set([value, ...base64Forms(value), ...base64Forms(raw)])) {
+      let from = 0;
+      let normOffset: number;
+      while ((normOffset = normalized.indexOf(form, from)) !== -1) {
+        from = normOffset + form.length;
+        const origOffset = map[Math.min(normOffset, map.length - 1)] ?? 0;
+        // Keyed on the span, not the offset alone: when one credential's value is
+        // a prefix of another's, both findings exist and their spans coalesce.
+        const key = `env.value:${origOffset}:${form.length}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        starts ??= lineStarts(input);
+        const { line, col } = lineColAt(starts, input, origOffset);
+        const finding: Finding = {
+          id: "env.value",
+          tier: "HIGH",
+          severity: "HIGH",
+          category: "secret",
+          description: `Value of the ${name} environment variable${form === value ? "" : ", base64-encoded"}`,
+          line,
+          col,
+          // A live credential: the name already says what leaked; show no bytes.
+          preview: "********",
+          autoRedactable: false,
+          repoVisibility,
+        };
+        findings.push(finding);
+        if (spans) {
+          const end = spanEnds?.[normOffset + form.length - 1];
+          if (end !== undefined && end > origOffset) spans.set(finding, { start: origOffset, end });
+        }
       }
     }
   }
@@ -547,6 +552,28 @@ const MIN_ENV_VALUE_LENGTH = 8;
  * leaked form; it is matched against the normalized text in its own normalized
  * form, so a value NFKC rewrites still finds its leaked bytes.
  */
+/**
+ * HARN-108: the stable base64 and base64url text of `value` at each of the
+ * three byte alignments it can take inside a longer encoded stream (up to six
+ * distinct strings). Each alignment encodes the value after 0, 1 or 2 filler
+ * bytes and drops the characters that also carry bits of a neighbouring byte:
+ * 0, 2 or 3 at the front, and the last one when the value does not end on a
+ * 3-byte boundary. Forms shorter than the minimum value length are dropped.
+ */
+const BASE64_LEAD = [0, 2, 3];
+export function base64Forms(value: string): string[] {
+  const bytes = Buffer.from(value, "utf8");
+  const forms = new Set<string>();
+  for (const [shift, lead] of BASE64_LEAD.entries()) {
+    const encoded = Buffer.concat([Buffer.alloc(shift), bytes]).toString("base64").replace(/=+$/, "");
+    const core = encoded.slice(lead, encoded.length - ((shift + bytes.length) % 3 === 0 ? 0 : 1));
+    if (core.length < MIN_ENV_VALUE_LENGTH) continue;
+    forms.add(core);
+    forms.add(core.replace(/\+/g, "-").replace(/\//g, "_"));
+  }
+  return [...forms];
+}
+
 export function credentialEnvValues(env: Record<string, string | undefined>): Array<{ name: string; value: string }> {
   const out: Array<{ name: string; value: string }> = [];
   for (const [name, raw] of Object.entries(env)) {
