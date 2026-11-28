@@ -45,7 +45,7 @@ import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { readRuledNotes, ruledEditLine, ruledEdits } from '../lib/ruled-notes';
 import { readRunRecord } from '../lib/ship-run-record';
 import { reviewPaths } from '../lib/ship-budget';
-import { rowTime } from '../lib/review-scope';
+import { summarizeReviewLoop } from '../lib/review-scope';
 
 const HELP = `gstack-review-plan — the review depth of the next /ship step (docs/review-policy.md#review-depth)
 
@@ -113,25 +113,16 @@ const list = (n: string) => (flag(n) ?? '').split(',').map(s => s.trim()).filter
 const git = (a: string[]) => { const r = spawnSync('git', ['-c', 'core.quotePath=false', ...a], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
 
 /**
- * The full passes the checkout's open /ship run already logged: distinct pass numbers on this branch's via:ship review rows written
- * since the run record started, as gstack-review-scope summary reads them for the receipt. Null when no run is open or a row names
- * no pass, so the check never guesses.
+ * The full passes the checkout's open /ship run already logged, counted the way the receipt counts them: gstack-review-scope's
+ * summarizeReviewLoop over this branch's review log since the run record started. Null when no run is open or the log cannot be read.
  */
 function loggedPasses(root: string): { passes: number; run: string } | null {
   const read = readRunRecord(root);
   if (read.kind !== 'record' || read.record.state !== 'open') return null;
-  const since = Date.parse(read.record.started_at);
   let text = '';
   try { text = fs.readFileSync(reviewPaths(root, process.env).reviewLog, 'utf8'); } catch (e: any) { if (e?.code !== 'ENOENT') return null; }
-  const passes = new Set<number>();
-  for (const line of text.split('\n')) {
-    let row: Record<string, any>;
-    try { row = JSON.parse(line); } catch { continue; }
-    if (row?.skill !== 'review' || row.via !== 'ship' || !(rowTime(row) >= since)) continue;
-    if (!Number.isInteger(row.pass)) return null;
-    passes.add(row.pass);
-  }
-  return { passes: passes.size, run: read.record.run };
+  const rows = text.split('\n').flatMap(line => { try { return [JSON.parse(line) as Record<string, any>]; } catch { return []; } });
+  return { passes: summarizeReviewLoop(rows, read.record.started_at).passes, run: read.record.run };
 }
 
 function main(): number {

@@ -404,7 +404,7 @@ describe('gstack-review-plan: --pass is the finished pass count', () => {
     const dir = path.join(r.state, 'projects', slug);
     fs.mkdirSync(dir, { recursive: true });
     const old = { skill: 'review', via: 'ship', pass: 1, timestamp: new Date(Date.now() - 3_600_000).toISOString() };
-    fs.writeFileSync(path.join(dir, 'feat-reviews.jsonl'), [old, ...passes.map(pass => ({ skill: 'review', via: 'ship', pass, timestamp: new Date().toISOString() }))].map(row => JSON.stringify(row) + '\n').join(''));
+    fs.writeFileSync(path.join(dir, 'feat-reviews.jsonl'), [old, ...passes.map(pass => ({ skill: 'review', via: 'ship', pass, commit_full: `head${pass}`, timestamp: new Date().toISOString() }))].map(row => JSON.stringify(row) + '\n').join(''));
   };
 
   test('the help says --pass is the passes already finished, not the next pass number', () => {

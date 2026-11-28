@@ -39,27 +39,41 @@ function classify(body: string): Line[] {
   return out;
 }
 
-const INLINE_CODE = /(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/g;
+const INLINE_CODE = /(`+)(?!`).*?(?<!`)\1(?!`)/y;
 /**
- * HTML comments render as nothing, so they never count as text; the Agent notes marker, itself a comment, is kept. A `<!--` or
- * `-->` inside a code fence or an inline code span renders as written, so it neither opens nor closes a comment (GSTA-881: a
- * quoted `<!--` above the marker swallowed it, and the Agent notes section read as body text).
+ * HTML comments render as nothing, so they never count as text; the Agent notes marker, itself a comment, is kept. One scan
+ * tracks comments and code fences together: a `<!--` or `-->` inside a code fence or an inline code span renders as written, so
+ * it neither opens nor closes a comment (GSTA-881: a quoted `<!--` above the marker swallowed it, and the Agent notes section
+ * read as body text), and a fence or code span inside an open comment is comment text, so the comment ends at its first `-->`.
  */
 function stripComments(body: string): string {
-  let fence: string | null = null;
-  const prose = body.split('\n').map(line => {
-    if (fence !== null) { if (closesFence(fence, line)) fence = null; return ' '.repeat(line.length); }
-    const open = FENCE_OPEN.exec(line);
-    if (open) { fence = open[1]!; return ' '.repeat(line.length); }
-    return line.replace(INLINE_CODE, m => ' '.repeat(m.length));
+  let fence: string | null = null, comment = false;
+  return body.split('\n').map(line => {
+    let i = 0, out = '';
+    if (comment) {
+      const close = line.indexOf('-->');
+      if (close < 0) return '';
+      comment = false;
+      i = close + 3;
+    } else if (fence !== null) {
+      if (closesFence(fence, line)) fence = null;
+      return line;
+    } else {
+      const open = FENCE_OPEN.exec(line);
+      if (open) { fence = open[1]!; return line; }
+    }
+    while (i < line.length) {
+      INLINE_CODE.lastIndex = i;
+      const code = line[i] === '`' ? INLINE_CODE.exec(line) : null;
+      if (code) { out += code[0]; i += code[0].length; continue; }
+      if (line.startsWith(AGENT_NOTES_MARKER, i)) { out += AGENT_NOTES_MARKER; i += AGENT_NOTES_MARKER.length; continue; }
+      if (!line.startsWith('<!--', i)) { const run = line[i] === '`' ? /`+/y : /[^`<]+|</y; run.lastIndex = i; const m = run.exec(line)![0]; out += m; i += m.length; continue; }
+      const close = line.indexOf('-->', i + 4);
+      if (close < 0) { comment = true; break; }
+      i = close + 3;
+    }
+    return out;
   }).join('\n');
-  let out = '', at = 0;
-  for (const m of prose.matchAll(/<!--[\s\S]*?-->/g)) {
-    const text = body.slice(m.index, m.index + m[0].length);
-    out += body.slice(at, m.index) + (text === AGENT_NOTES_MARKER ? text : text.replace(/[^\n]/g, ''));
-    at = m.index + m[0].length;
-  }
-  return out + body.slice(at);
 }
 const blankRun = (lines: string[]) => { while (lines.length && !lines[0]!.trim()) lines.shift(); while (lines.length && !lines.at(-1)!.trim()) lines.pop(); return lines; };
 

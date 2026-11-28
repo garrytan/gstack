@@ -75,6 +75,17 @@ describe('the Agent notes section ends the body', () => {
     expect(visibleOpening(closed)[0]).toBe('Readers see `<!-- foo -->` as written.');
     expect(kinds('<!-- a note\nfor tools -->\n' + withAgentNotes(OPENING, RECEIPT))).toEqual([]);
   });
+
+  // Value: protects=a code fence or code span inside a real HTML comment is comment text, so the comment still ends at its own first
+  //   -->; fails_when=the comment runs on to a later --> (the marker's) and hides visible lines or the Agent notes section;
+  //   why_new=review of GSTA-881's fix (specialist-batched#1, red-team#1)
+  test('a fence inside an HTML comment neither hides the Agent notes marker nor hides visible lines after the comment', () => {
+    expect(kinds(withAgentNotes(OPENING + '\n<!-- template hint: wrap logs in\n```\n-->\n', RECEIPT))).toEqual([]);
+    expect(kinds(withAgentNotes(OPENING + '\n<!-- a `-->` inside a comment ends it --> after\n', RECEIPT))).toEqual([`visible-lines:4 lines, ${[...visibleOpening(withAgentNotes(OPENING + '\n<!-- a `-->` inside a comment ends it --> after\n', RECEIPT)).join('\n')].length} characters before the first fold`]);
+    const hidden = 'One line of what changed.\n\n<!-- template hint\n```\n-->\nTwo.\nThree.\nFour.\nFive.\n```\n<!-- end -->\n' + withAgentNotes('', RECEIPT);
+    expect(visibleOpening(hidden).slice(0, 5)).toEqual(['One line of what changed.', 'Two.', 'Three.', 'Four.', 'Five.']);
+    expect(kinds(hidden)[0]).toStartWith('visible-lines:');
+  });
 });
 
 describe('folding', () => {
