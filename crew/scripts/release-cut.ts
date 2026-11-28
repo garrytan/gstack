@@ -23,8 +23,10 @@
  * workflow produced itself (CUT_WORKFLOW: the jobs of a workflow run whose path
  * is that file; a job's id is its check run's id) are set aside, running or
  * finished: a cut lands its own job on main's head, the commit it may cut.
- * Check runs from NEVER_GATING_WORKFLOWS (the nightly Windows free suite, which
- * docs/support-tiers.md says never blocks) are set aside the same way.
+ * Check runs from NEVER_GATING_WORKFLOWS (workflows whose own header says they
+ * never block: the nightly Windows free suite, the weekly mutation report, the
+ * Trunk flaky-test upload, the marathon evals and the eval sweep) are set aside
+ * the same way.
  * Matching by job, not check suite, keeps check runs other workflows create
  * through the API, which GitHub files under any github-actions suite on the
  * commit. When the workflow runs cannot be read, nothing is set aside.
@@ -84,8 +86,17 @@ export const REQUIRED_CHECK = 'free-tests';
 export const BACKSTOP_CHECK = 'main-backstop';
 export const NOTES_REF = 'refs/notes/gstack-trains';
 export const CUT_WORKFLOW = '.github/workflows/weekly-release.yml';
-/** Workflows documented as never gating (docs/support-tiers.md): their check runs are set aside like the cut's own, matched the same way. */
-export const NEVER_GATING_WORKFLOWS: readonly string[] = ['.github/workflows/windows-free-tests.yml'];
+/**
+ * Workflows documented as never gating, each in its own header: their check runs are set aside like the cut's own, matched the same way.
+ * crew/test/release-cut.test.ts checks every entry exists, never runs on pull requests or pushes, and says so in its header.
+ */
+export const NEVER_GATING_WORKFLOWS: readonly string[] = [
+  '.github/workflows/windows-free-tests.yml', // nightly Windows suite; minimal support never blocks (docs/support-tiers.md)
+  '.github/workflows/mutation-report.yml', // weekly report-only mutation trial; not a required check
+  '.github/workflows/trunk-flaky-tests.yml', // detection only: uploads Free Tests JUnit to Trunk, nothing reads its result
+  '.github/workflows/evals-marathon.yml', // non-blocking marathon lane; a red run reports through its own issue
+  '.github/workflows/eval-sweep.yml', // weekly diagnostic sweep: no verdict, no pass-rate history
+];
 const NOTES_LOCAL = 'refs/notes/gstack-trains-release';
 const RED = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale']);
 export const WINDOW_DAYS = 7;

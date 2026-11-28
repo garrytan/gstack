@@ -185,7 +185,8 @@ if (import.meta.main) {
   const files = intArg(argv, '--files', 5), sinceDays = intArg(argv, '--since-days', 30);
   const budgetMs = intArg(argv, '--file-budget-min', 55) * 60_000, concurrency = intArg(argv, '--concurrency', 4);
   process.chdir(git(['rev-parse', '--show-toplevel']).trim());
-  if (git(['status', '--porcelain', '--untracked-files=no']).trim()) fail('the checkout has uncommitted changes; use a clean disposable checkout');
+  const dirty = git(['status', '--porcelain', '--untracked-files=no']).split('\n').filter(Boolean).map(l => l.slice(3));
+  if (dirty.length) fail(`the checkout has uncommitted changes (${dirty.slice(0, 10).join(', ')}${dirty.length > 10 ? `, and ${dirty.length - 10} more` : ''}); use a clean disposable checkout`);
   const resolvedOut = path.resolve(outDir);
   const rel = path.relative(process.cwd(), resolvedOut);
   if (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep)) fail('--out-dir must be outside the checkout');

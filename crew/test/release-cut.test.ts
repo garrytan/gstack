@@ -416,6 +416,46 @@ describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => 
       .toEqual({ green: false, why: 'red check runs: windows-free-shard (4)', pending: false });
   });
 
+  // Value: protects=a red or running check run from the weekly report-only mutation report (or the other never-gating workflows) never keeps a gated
+  // commit out of the cut, while a red free-tests, a red main-backstop and a same-named job outside those workflows still refuse; fails_when=the
+  // mutation report's failure on 778934c0 (run 46115058363) holds the v1.104.2.0 daily cut, or the exclusion is keyed on the check name;
+  // why_new=only the Windows nightly was set aside; seam=gh is faked with the check-runs, actions/runs and jobs payload shapes; no_claim=a live workflow run
+  test('gateVerdict: the report-only mutation report\'s red check run is set aside; red free-tests and main-backstop still refuse (GST-4095)', () => {
+    const evidence = gatedBy(sha, '46088945889');
+    const mutation = { id: 9200, path: '.github/workflows/mutation-report.yml', jobs: [72001] };
+    expect(NEVER_GATING_WORKFLOWS).toContain(mutation.path);
+    const api = workflowRuns(sha, [ownWorkflow, mutation, { id: 555, path: '.github/workflows/evals.yml', jobs: [70555] }]);
+    const report = (status: string, conclusion: string | null, id = 72001) => ({ id, name: 'Mutation report', status, conclusion }) as CheckRun;
+    for (const run of [report('completed', 'failure'), report('completed', 'timed_out'), report('in_progress', null)]) {
+      expect(gateVerdict(ghFor([...unbacked, run], api), 'o/r', sha, { evidence })).toEqual({ green: true, via: 'release gate run 46088945889' });
+      expect(gateVerdict(ghFor([...GREEN, run], api), 'o/r', sha)).toEqual({ green: true, via: BACKSTOP_CHECK });
+    }
+    expect(gateVerdict(ghFor([{ name: REQUIRED_CHECK, status: 'completed', conclusion: 'failure' }, ...unbacked.filter(c => c.name !== REQUIRED_CHECK), report('completed', 'failure')], api), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: REQUIRED_CHECK + ' concluded failure', pending: false });
+    expect(gateVerdict(ghFor([...unbacked, { name: BACKSTOP_CHECK, status: 'completed', conclusion: 'failure' }, report('completed', 'failure')], api), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: ' + BACKSTOP_CHECK, pending: false });
+    expect(gateVerdict(ghFor([...unbacked, report('completed', 'failure', 70555)], api), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: Mutation report', pending: false });
+    expect(gateVerdict(ghFor([...unbacked, report('completed', 'failure')], {}), 'o/r', sha, { evidence }))
+      .toEqual({ green: false, why: 'red check runs: Mutation report', pending: false });
+  });
+
+  // Value: protects=only a workflow that cannot gate is set aside: every NEVER_GATING_WORKFLOWS entry exists, never runs on pull requests or pushes, and
+  // says in its own header that it does not block; fails_when=a typo'd path silently sets nothing aside, or a gating workflow is added to the list;
+  // why_new=the list had no wiring check and missed mutation-report.yml (GST-4095); seam=the workflow files themselves; no_claim=GitHub's required checks
+  test('every never-gating workflow exists, has no pull_request or push trigger, and its header says it never blocks', () => {
+    const root = path.resolve(import.meta.dir, '../..');
+    expect(NEVER_GATING_WORKFLOWS).toEqual(expect.arrayContaining(['.github/workflows/windows-free-tests.yml', '.github/workflows/mutation-report.yml', '.github/workflows/trunk-flaky-tests.yml']));
+    for (const wf of NEVER_GATING_WORKFLOWS) {
+      const text = fs.readFileSync(path.join(root, wf), 'utf-8');
+      const on = /^on:\n((?:[ #].*\n|\n)*)/m.exec(text)?.[1] ?? '';
+      expect(on).toMatch(/^  [a-z_]+:/m);
+      expect(on).not.toMatch(/^  (pull_request|pull_request_target|push|merge_group):/m);
+      const header = text.slice(0, text.search(/^on:/m)).split('\n').filter(l => l.startsWith('#')).join(' ');
+      expect(header).toMatch(/never blocks|not a PR gate|report-only|DETECTION ONLY|NON-BLOCKING|no verdict/);
+    }
+  });
+
   const note = (f: ReturnType<typeof fixture>, record: unknown, on: string) => {
     git(f.seed, 'notes', '--ref=' + NOTES_REF, 'add', '-f', '-m', JSON.stringify(record), on);
     git(f.seed, 'push', '-q', '-f', 'origin', NOTES_REF);
@@ -1357,6 +1397,14 @@ describe('release-cut: notes', () => {
     expect(changeLine('**Browse no longer follows symlinks out of the profile dir (CVE-2026-41234).** More.')).toBe('Browse no longer follows symlinks out of the profile dir (CVE-2026-41234).');
     expect(changeLine('**The tar path is safe again (GHSA-4x5v-abcd-1234, reported by a user).** More.')).toBe('The tar path is safe again (GHSA-4x5v-abcd-1234, reported by a user).');
     expect(changeLine('**/review now reads Rust files (GST-101).** More.')).toBe('/review now reads Rust files.');
+  });
+
+  // Value: protects=a release note line never reads "...files, ([#12](...))" when a change has no sentence end and stops on a comma or semicolon;
+  // fails_when=changeLine keeps the stray trailing punctuation the PR link is appended after; why_new=GST-4095 polish; seam=changeLine; no_claim=a live cut
+  test('a change line drops a stray trailing comma or semicolon', () => {
+    expect(changeLine('/ship now reads worktrees, ')).toBe('/ship now reads worktrees');
+    expect(changeLine('**Retries stop after three tries;**')).toBe('Retries stop after three tries');
+    expect(changeLine('Keeps a comma, in the middle.')).toBe('Keeps a comma, in the middle.');
   });
 
   // Value: protects=a cut fails loudly instead of publishing a stub; fails_when=a version with an empty entry or a span with no entry still

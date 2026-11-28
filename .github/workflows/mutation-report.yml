@@ -43,6 +43,15 @@ jobs:
         run: |
           bash scripts/ubicloud/setup-free-suite.sh
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      # build:gates in the setup rebuilds the committed lib/diagram-render/dist
+      # bundle, whose bytes differ by machine, so the checkout read as dirty
+      # and the report refused to start (run 46115058363). This checkout has no
+      # edits of its own, and the report restores this same committed tree with
+      # git after every file, so put it back before the report's clean-tree check.
+      - name: Restore tracked files the setup rebuilt
+        run: |
+          git status --short --untracked-files=no
+          git checkout -- .
       - name: Install pinned Stryker outside the checkout
         run: |
           set -euo pipefail
