@@ -109,6 +109,18 @@ describe('pregate secrets: source context and diff integrity', () => {
     expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv.rust')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('(src/clé.rs, added line 2)'), expect.stringContaining('(src/my file.rs, added line 2)')] });
   }, 60_000);
 
+  // Value: protects=pregate's secrets check fails a secret-shaped key bound by a TS const or class field and passes names, words and JSON key paths
+  //   as values; fails_when=a JS/TS declaration of a key passes the push check, or a name-valued declaration, a JSON "key" path or a run-folder stamp blocks it;
+  //   why_new=GST-3500, GBRA-108, TRUT-39; seam=fixture repo; no_claim=other languages, covered in redact-secret-shaped-values.test.ts
+  test('a secret-shaped key bound by a TS const or class field fails; names, words, JSON key paths and run stamps pass (GST-3500)', () => {
+    const secret = ['sk-live-', 'Qx9vL2mZ', 'p8Rt4Kw7', 'Yn3Bh2Jd'].join('');
+    const ts = 'import { API_KEY } from "./config";\nconst { token } = await auth();\nlet apiKey: string;\nconst API_TOKEN = "AUTHENTICATION"; process.env[API_TOKEN];\nexport const MODE_KEY = "transcript_ingest_mode";\n';
+    const clean = { 'src/client.ts': ts, 'test/fixtures/doctor.json': '[\n  { "key": "sources/vector-index", "ok": true },\n  { "key": "config/embedding_model", "ok": true }\n]\n', 'runs.md': 'See runs/20261123-1711/report.md\n' };
+    expect(repo(clean).secrets()).toMatchObject({ status: 'pass', lines: [] });
+    const r = repo({ 'src/client.ts': ts + 'export const API_SECRET = "' + secret + '";\nclass Client {\n  private apiKey = "' + secret + '";\n}\n' }).secrets();
+    expect({ status: r.status, rows: r.lines.filter((l) => l.includes('env.kv')).sort() }).toEqual({ status: 'fail', rows: [expect.stringContaining('(src/client.ts, added line 6)'), expect.stringContaining('(src/client.ts, added line 8)')] });
+  }, 60_000);
+
   test('a Python call that reads key.json is code; the same key name holding a literal key still fails (GST-1064)', () => {
     expect(repo({ 'attach.py': 'import json\nkey = json.loads(files.get("key.json", ""))\n' }).secrets().status).toBe('pass');
     const fake = 'Zx9Q' + 'w8Er7Ty6Ui5Op4As3Df2';
