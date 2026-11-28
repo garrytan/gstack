@@ -54,7 +54,7 @@ describe("env.kv.js: a secret-shaped literal bound by a JS/TS declaration report
       ['let apiKey = "' + HEX + '";', "src/client.tsx"],
       ['var secret = "' + S + '";', "lib/legacy.cjs"],
       ['export const API_KEY = "' + S + '";', "src/config.mjs"],
-      ['export let clientSecret = "' + GHP + '";', "src/config.mts"],
+      ['export let clientSecret = "' + S.toLowerCase() + '";', "src/config.mts"],
       ['const apiKey: string = "' + S + '";', "src/config.ts"],
       ['const API_KEY = "' + S.toUpperCase() + '";', "src/config.ts"],
       ["const authToken = " + BT + S + BT + ";", "src/config.jsx"],

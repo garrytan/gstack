@@ -403,6 +403,12 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
   const findings: Finding[] = [];
   // Dedup by (id, original-offset) so overlapping global matches don't double-count.
   const seen = new Set<string>();
+  // GST-4104: the spans of secret findings from rules other than env.kv*, so a
+  // declaration rule (env.kv.js, env.kv.go) whose value one of them already
+  // covers stays quiet: a provider key in `const apiKey = "<key>"` reports as
+  // its provider rule alone, and allowlisting that rule clears it. Every
+  // provider rule comes before the declaration rules in PATTERNS.
+  const covered: Array<[number, number]> = [];
 
   for (const pat of PATTERNS) {
     const re = new RegExp(pat.regex.source, withFlags(pat.regex.flags));
@@ -433,10 +439,13 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
       if (pat.id === "pii.email" && emailAllowed(span, opts, normalized, normOffset))
         continue;
 
+      if (DECLARATION_RULES.has(pat.id) && covered.some(([start, end]) => start <= normOffset && normOffset + span.length <= end)) continue;
+
       const origOffset = map[Math.min(normOffset, map.length - 1)] ?? 0;
       const key = `${pat.id}:${origOffset}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      if (pat.category === "secret" && !pat.id.startsWith("env.kv")) covered.push([normOffset, normOffset + span.length]);
 
       starts ??= lineStarts(input);
       const { line, col } = lineColAt(starts, input, origOffset);
@@ -485,11 +494,20 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
     // and the allowlist and placeholder rules see both forms.
     const value = normalizeOriginal(raw).normalized;
     if (allow.has(raw) || allow.has(value) || value.length < MIN_ENV_VALUE_LENGTH || isPlaceholderSpan(value)) continue;
-    for (const form of new Set([value, ...base64Forms(value), ...base64Forms(raw)])) {
+    for (const { form, alphabet, before, after } of [{ form: value }, ...base64Encodings(value), ...base64Encodings(raw)]) {
+      // GST-4104: a base64 form leaves out the characters it shares with
+      // neighbouring bytes, so the characters beside a match must carry the
+      // value's bits there too; a value that differs only in those bits
+      // (`build124` for `build123`) is not this secret.
+      const fits = (c: string | undefined, edge?: Base64Edge) => {
+        const index = c === undefined || !alphabet ? -1 : alphabet.indexOf(c);
+        return !edge || index < 0 || (index & edge.mask) === edge.bits;
+      };
       let from = 0;
       let normOffset: number;
       while ((normOffset = normalized.indexOf(form, from)) !== -1) {
         from = normOffset + form.length;
+        if (!fits(normalized[normOffset - 1], before) || !fits(normalized[normOffset + form.length], after)) continue;
         const origOffset = map[Math.min(normOffset, map.length - 1)] ?? 0;
         // Keyed on the span, not the offset alone: when one credential's value is
         // a prefix of another's, both findings exist and their spans coalesce.
@@ -503,7 +521,7 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
           tier: "HIGH",
           severity: "HIGH",
           category: "secret",
-          description: `Value of the ${name} environment variable${form === value ? "" : ", base64-encoded"}`,
+          description: `Value of the ${name} environment variable${alphabet ? ", base64-encoded" : ""}`,
           line,
           col,
           // A live credential: the name already says what leaked; show no bytes.
@@ -535,6 +553,7 @@ const PUBLIC_ENV_NAME = /(^|_)PUBLIC(_|$)/i;
 /** gstack's own credential-named variables whose values are not secrets (bin/gstack-brain-lock.sh sets the lock token). */
 export const NON_SECRET_ENV_NAMES: ReadonlySet<string> = new Set(["GSTACK_BRAIN_LOCK_TOKEN"]);
 const MIN_ENV_VALUE_LENGTH = 8;
+const DECLARATION_RULES = new Set(["env.kv.js", "env.kv.go"]);
 
 /**
  * The (name, value) pairs of `env` worth scanning for by value: credential-named
@@ -559,19 +578,35 @@ const MIN_ENV_VALUE_LENGTH = 8;
  * bytes and drops the characters that also carry bits of a neighbouring byte:
  * 0, 2 or 3 at the front, and the last one when the value does not end on a
  * 3-byte boundary. Forms shorter than the minimum value length are dropped.
+ * GST-4104: each form keeps the value's bits in the character dropped at each
+ * end (the low 4 or 2 bits of the one before it, the high 2 or 4 bits of the
+ * one after it), which scan checks against the text.
  */
 const BASE64_LEAD = [0, 2, 3];
-export function base64Forms(value: string): string[] {
+const BASE64_LEAD_BITS = [0, 4, 2];
+const BASE64_TAIL_BITS = [0, 2, 4];
+const BASE64_STANDARD = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_URL = BASE64_STANDARD.slice(0, 62) + "-_";
+interface Base64Edge { mask: number; bits: number }
+function base64Encodings(value: string): Array<{ form: string; alphabet: string; before?: Base64Edge; after?: Base64Edge }> {
   const bytes = Buffer.from(value, "utf8");
-  const forms = new Set<string>();
+  const out: Array<{ form: string; alphabet: string; before?: Base64Edge; after?: Base64Edge }> = [];
   for (const [shift, lead] of BASE64_LEAD.entries()) {
     const encoded = Buffer.concat([Buffer.alloc(shift), bytes]).toString("base64").replace(/=+$/, "");
-    const core = encoded.slice(lead, encoded.length - ((shift + bytes.length) % 3 === 0 ? 0 : 1));
+    const leadBits = BASE64_LEAD_BITS[shift]!;
+    const tailBits = BASE64_TAIL_BITS[(shift + bytes.length) % 3]!;
+    const core = encoded.slice(lead, encoded.length - (tailBits ? 1 : 0));
     if (core.length < MIN_ENV_VALUE_LENGTH) continue;
-    forms.add(core);
-    forms.add(core.replace(/\+/g, "-").replace(/\//g, "_"));
+    const edge = (c: string, mask: number) => ({ mask, bits: BASE64_STANDARD.indexOf(c) & mask });
+    const before = leadBits ? edge(encoded[lead - 1]!, (1 << leadBits) - 1) : undefined;
+    const after = tailBits ? edge(encoded[encoded.length - 1]!, ((1 << tailBits) - 1) << (6 - tailBits)) : undefined;
+    out.push({ form: core, alphabet: BASE64_STANDARD, before, after });
+    out.push({ form: core.replace(/\+/g, "-").replace(/\//g, "_"), alphabet: BASE64_URL, before, after });
   }
-  return [...forms];
+  return out;
+}
+export function base64Forms(value: string): string[] {
+  return [...new Set(base64Encodings(value).map(({ form }) => form))];
 }
 
 export function credentialEnvValues(env: Record<string, string | undefined>): Array<{ name: string; value: string }> {
