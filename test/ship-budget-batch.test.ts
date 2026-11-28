@@ -102,4 +102,15 @@ describe('parallel dispatch admission near the cap', () => {
     expect(Number(h.field(c.out, 'RESERVATION', 'tokens'))).toBe(4 * K.per_dispatch);
     expect(h.field(c.out, 'RESERVATION', 'next')).toBe('dispatch:specialist,adversarial-native,adversarial-native,adversarial-native');
   });
+
+  // Value: protects=near the cap a sliced reader is admitted whole or not at all, and the remainder re-check keeps its role*k form;
+  //   fails_when=ADMIT names part of a slice set, which the pass cannot dispatch (verify marks a partial set MISSING); seam=admitBatch
+  test('near the cap a slice set is admitted whole or deferred whole', () => {
+    const h = fresh();
+    const s = start(h, 3 * K.per_dispatch + K.stop_overhead + 1);
+    const c = batch(h, s.run, ['specialist', 'adversarial-native*3'], 0);
+    expect(c.code, c.out + c.err).toBe(0);
+    expect(c.out).toMatch(/^ADMIT: 1 of 4 \(remaining=adversarial-native\*3\); dispatch these 1 now and re-check --next dispatch:adversarial-native\*3 after they settle$/m);
+    expect(h.field(c.out, 'RESERVATION', 'next')).toBe('dispatch:specialist');
+  });
 });

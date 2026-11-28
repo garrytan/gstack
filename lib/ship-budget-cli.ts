@@ -146,7 +146,7 @@ export function writeReturnFile(file: string, lines: string[]): void {
  */
 export function decide(l: Ledger, step: string, next: Next, call: number | null, startThreshold = false, runtimeLines?: number): Outcome {
   if (l.mode === 'observe') return observed(l, step, next.kind === 'dispatch' ? `dispatch:${next.roles.join(',')}` : next.step, call);
-  if (next.kind === 'dispatch') return admitBatch(l, step, next.roles, call);
+  if (next.kind === 'dispatch') return admitBatch(l, step, next.roles, call, next.entries);
   const p = projector(l);
   const nextId = next.step;
   const { prior, tokens: projected } = p.project(next);
@@ -197,17 +197,20 @@ function observed(l: Ledger, step: string, next: string, call: number | null, li
  * same step requests them, and close flags any still left. Only a batch whose
  * first reader does not fit stops.
  */
-function admitBatch(l: Ledger, step: string, roles: string[], call: number | null): Outcome {
+function admitBatch(l: Ledger, step: string, roles: string[], call: number | null, entries?: string[]): Outcome {
   const p = projector(l);
   const prices = roles.map(p.reader);
   const cost = (k: number) => prices.slice(0, k).reduce((a, b) => a + b, 0);
+  const sizes = (entries ?? roles).map(e => Number(/\*([1-8])$/.exec(e)?.[1] ?? 1));
+  const cuts = new Set(sizes.map((_, i) => sizes.slice(0, i + 1).reduce((a, b) => a + b, 0)));
   const t = tally(l);
   let k = roles.length;
-  while (k > 0 && !admits(t, cost(k), p.reserve, l.cap)) k--;
+  while (k > 0 && (!cuts.has(k) || !admits(t, cost(k), p.reserve, l.cap))) k--;
   if (k === 0) return { stdout: stopLines(l, { call, next: `dispatch:${roles.join(',')}`, step, projected: cost(roles.length), reason: 'budget_exhausted' }), exit: 3 };
   const admitted = roles.slice(0, k), remaining = roles.slice(k), nextId = `dispatch:${admitted.join(',')}`;
   const lines = [budgetLine(l, { call, next: nextId, projected: cost(k), verdict: 'continue' })];
-  if (remaining.length) lines.push(`ADMIT: ${k} of ${roles.length} (remaining=${remaining.join(',')}); dispatch these ${k} now and re-check --next dispatch:${remaining.join(',')} after they settle`);
+  const rest = entries ? entries.slice([...cuts].indexOf(k) + 1) : remaining;
+  if (remaining.length) lines.push(`ADMIT: ${k} of ${roles.length} (remaining=${rest.join(',')}); dispatch these ${k} now and re-check --next dispatch:${rest.join(',')} after they settle`);
   if (l.cap === null) return { stdout: lines, exit: 0 };
   for (const role of roles) {
     const older = l.reservations.find(r => r.step === step && r.remaining?.includes(role));
