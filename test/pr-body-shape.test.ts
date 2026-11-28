@@ -63,6 +63,18 @@ describe('the Agent notes section ends the body', () => {
     expect(kinds(withAgentNotes(OPENING, RECEIPT) + '\nA trailing note.\n')).toEqual(['receipt-placement:A trailing note.']);
     expect(kinds(withAgentNotes(OPENING, RECEIPT) + '\n<a href="https://capy.ai/x"><img src="b"></a>\n')).toEqual([]);
   });
+
+  // Value: protects=a comment opener quoted in code renders as text, so it never hides the Agent notes marker below it; fails_when=the
+  // receipt and listed words inside Agent notes read as body text; why_new=GSTA-881 (a body quoting `<!--` in backticks was refused)
+  test('a comment opener inside inline code or a code fence above the marker leaves the Agent notes section in place', () => {
+    const inline = withAgentNotes(OPENING + '\n## What changed\n\n- Code spans such as `<!-- foo` and ``<!--`` are skipped.\n', 'Lane notes.\n\n' + RECEIPT);
+    const fenced = withAgentNotes(OPENING + '\n## Example\n\n```html\n<!-- an unclosed opener\n```\n', 'Lane notes.\n\n' + RECEIPT);
+    const closed = withAgentNotes(`Readers see \`<!-- foo -->\` as written.\n\n${OPENING}`, RECEIPT);
+    for (const body of [inline, fenced]) expect(kinds(foldSections(body), ['lane', 'receipt'])).toEqual([]);
+    expect(kinds(closed)).toEqual([`visible-lines:4 lines, ${[...visibleOpening(closed).join('\n')].length} characters before the first fold`]);
+    expect(visibleOpening(closed)[0]).toBe('Readers see `<!-- foo -->` as written.');
+    expect(kinds('<!-- a note\nfor tools -->\n' + withAgentNotes(OPENING, RECEIPT))).toEqual([]);
+  });
 });
 
 describe('folding', () => {

@@ -39,8 +39,28 @@ function classify(body: string): Line[] {
   return out;
 }
 
-/** HTML comments render as nothing, so they never count as text; the Agent notes marker, itself a comment, is kept. */
-const stripComments = (body: string) => body.replace(/<!--[\s\S]*?-->/g, m => (m === AGENT_NOTES_MARKER ? m : m.replace(/[^\n]/g, '')));
+const INLINE_CODE = /(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/g;
+/**
+ * HTML comments render as nothing, so they never count as text; the Agent notes marker, itself a comment, is kept. A `<!--` or
+ * `-->` inside a code fence or an inline code span renders as written, so it neither opens nor closes a comment (GSTA-881: a
+ * quoted `<!--` above the marker swallowed it, and the Agent notes section read as body text).
+ */
+function stripComments(body: string): string {
+  let fence: string | null = null;
+  const prose = body.split('\n').map(line => {
+    if (fence !== null) { if (closesFence(fence, line)) fence = null; return ' '.repeat(line.length); }
+    const open = FENCE_OPEN.exec(line);
+    if (open) { fence = open[1]!; return ' '.repeat(line.length); }
+    return line.replace(INLINE_CODE, m => ' '.repeat(m.length));
+  }).join('\n');
+  let out = '', at = 0;
+  for (const m of prose.matchAll(/<!--[\s\S]*?-->/g)) {
+    const text = body.slice(m.index, m.index + m[0].length);
+    out += body.slice(at, m.index) + (text === AGENT_NOTES_MARKER ? text : text.replace(/[^\n]/g, ''));
+    at = m.index + m[0].length;
+  }
+  return out + body.slice(at);
+}
 const blankRun = (lines: string[]) => { while (lines.length && !lines[0]!.trim()) lines.shift(); while (lines.length && !lines.at(-1)!.trim()) lines.pop(); return lines; };
 
 /**
