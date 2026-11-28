@@ -19,7 +19,7 @@ describe('autoplan-schema-canary comparison', () => {
     expect(nativeToolInput(journalInput, cwd, 'Read')).not.toEqual(nativeToolInput(payloadInput, cwd, 'Read'));
   });
 
-  test('2.1.292 as captured: run_in_background stripped from the payload is the documented strip', () => {
+  test('2.1.292 as captured: run_in_background stripped from the payload is the documented strip', () => { // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' the older capture, kept beside the 2.1.326 one
     const { payloadInput, journalInput } = captured.forcedRunInBackground;
     expect(schemaDrift([read, agent(payloadInput)], journal(journalInput))).toEqual([]);
   });
