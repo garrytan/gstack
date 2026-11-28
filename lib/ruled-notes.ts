@@ -161,7 +161,7 @@ export function shiftedFinding(cwd: string, finding: string, from: string, to: s
   const [, file, at, category] = m as unknown as [string, string, string, string];
   const git = (args: string[]) => { const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? String(r.stdout ?? '') : null; };
   if (git(['merge-base', '--is-ancestor', from, to]) === null || git(['--literal-pathspecs', 'cat-file', '-e', `${to}:${file}`]) === null) return null;
-  const diff = git(['--literal-pathspecs', '-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-renames', '-U0', from, to, '--', file]);
+  const diff = git(['--literal-pathspecs', '-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '-U0', from, to, '--', file]);
   if (diff === null || /^Binary files /m.test(diff)) return null;
   const line = Number(at);
   let delta = 0;

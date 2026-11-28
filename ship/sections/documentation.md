@@ -8,7 +8,7 @@ Store-only releases audit `read-only` before distribution, without branch gates 
 never a third attempt, even after Step 16 changes. Increment before each launch
 or inline takeover, including failed launches; inline work follows the same
 validation gates. A stale snapshot is neither a new attempt nor a current audit.
-A Prepare `snapshot` that refuses (`DOCS_RUN_FOLDER_MISSING`: its `--out` or `--run` folder does not exist yet) launched nothing and spends no attempt: create the folder, rerun it.
+A Prepare `snapshot` that refuses (`DOCS_RUN_FOLDER_MISSING`: its `--out` folder does not exist yet) launched nothing and spends no attempt: create the folder, rerun it.
 Save each child's output and run `~/.claude/skills/gstack/bin/gstack-docs-candidate attempt <output> --state <record dir>/docs-attempts.json`:
 `ATTEMPT: not-counted` (its install check refused it before any audit) takes the increment back once; run the install fix, then relaunch.
 Save the child handle. An exited child with missing output is stopped, but its audit is blocked.

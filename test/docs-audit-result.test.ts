@@ -565,7 +565,7 @@ describe('GSKI-1 #13: a missing run folder refuses the snapshot before any attem
     git('add', '-A'); git('commit', '-qm', 'feat');
     const runDir = path.join(root, 'ship-run');
     const snapshot = (args: string[]) => spawnSync(BIN, ['snapshot', '--audit-id', 'docs-1', '--mode', 'read-only', '--base', 'main', ...args], { cwd: repo, encoding: 'utf8', timeout: 20_000 });
-    for (const args of [['--out', path.join(runDir, 'docs-1.json'), '--run', path.join(runDir, 'record.md')], ['--out', path.join(root, 'docs-1.json'), '--run', path.join(runDir, 'record.md')]]) {
+    for (const args of [['--out', path.join(runDir, 'docs-1.json'), '--run', path.join(runDir, 'record.md')], ['--out', path.join(runDir, 'docs-1.json')]]) {
       const r = snapshot(args);
       expect(r.status).toBe(1);
       expect(r.stderr).toContain('(DOCS_RUN_FOLDER_MISSING)');
@@ -573,7 +573,6 @@ describe('GSKI-1 #13: a missing run folder refuses the snapshot before any attem
       expect(r.stderr).toContain('spends no attempt');
       expect(r.stdout).toBe('');
       expect(fs.existsSync(runDir)).toBe(false);
-      expect(fs.existsSync(path.join(root, 'docs-1.json'))).toBe(false);
     }
     fs.mkdirSync(runDir);
     const ok = snapshot(['--out', path.join(runDir, 'docs-1.json'), '--run', path.join(runDir, 'record.md')]);

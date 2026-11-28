@@ -492,7 +492,7 @@ export const RELEASE_RESULT_CODES = {
   },
   DOCS_RUN_FOLDER_MISSING: {
     anchor: 'docs-run-folder-missing',
-    summary: 'the documentation audit\'s Prepare snapshot (/ship Step 14.5) names an --out or --run folder that does not exist yet, so it refused before reading anything; no audit was launched, so this spends none of the step\'s two attempts',
+    summary: 'the documentation audit\'s Prepare snapshot (/ship Step 14.5) writes its --out record into a folder (the /ship run folder) that does not exist yet, so it refused before reading anything; no audit was launched, so this spends none of the step\'s two attempts',
     fix: 'create the /ship run folder (the invocation record\'s directory) or correct the path, then rerun the same snapshot; do not count it as an attempt',
   },
   RECEIPT_PROSE_MISMATCH: {

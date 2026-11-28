@@ -8117,7 +8117,7 @@ and reports this code and the keys it names
 ### `DOCS_RUN_FOLDER_MISSING`
 
 **Meaning.** `gstack-docs-candidate snapshot`, /gstack-ship Step 14.5's Prepare
-snapshot, was given an `--out` or `--run` path whose folder does not exist yet,
+snapshot, was given an `--out` path whose folder does not exist yet,
 usually because the /ship run folder (the invocation record's directory) was not
 created before the docs audit. It refused before reading the repository or
 writing anything, and no audit child was launched, so it spends none of the
