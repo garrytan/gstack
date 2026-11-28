@@ -296,6 +296,20 @@ describe('the 100-minute stop', () => {
     expect(plain.stdout).toMatch(/^STOP: past 100 minutes \(10[01] active min since \S+, 0 min parked\) /m);
   });
 
+  // Value: protects=a start on a run past 100 active minutes that no note stopped yet records the stop and re-attaches instead of
+  //   handing out a fresh clock; fails_when=a rerun of start supersedes a run past its time limit (targeted money reader, ship-1-p4);
+  //   why_new=the stop was only driven through note; seam=the ledger's created_at and the call log; no_claim=admit mode
+  test('a start on a run past 100 active minutes records the time stop instead of opening a new run', () => {
+    const b = box();
+    start(b);
+    backdate(b, 110);
+    const again = bin(b, 'gstack-ship-budget', ['start', '--record', b.record, '--mode', 'observe', '--reading', '2000', '--credits', '2']);
+    expect(again.status, again.stdout + again.stderr).toBe(3);
+    expect(again.stdout).not.toContain('SUPERSEDED:');
+    expect(again.stdout).toMatch(/^STOP: past 100 minutes /m);
+    expect(JSON.parse(fs.readFileSync(ledgerOf(b), 'utf8')).stopped?.reason).toBe('past_100_minutes');
+  });
+
   // Value: protects=gstack calls another checkout makes on the same state root never count as this run's active time; fails_when=a
   //   parked lane stops at 100 minutes because a sibling lane on the same machine kept calling gstack (outside-voice, ship-1-p2);
   //   why_new=the case above wrote rows with no cwd; seam=the call log's cwd field; no_claim=two runs in one checkout

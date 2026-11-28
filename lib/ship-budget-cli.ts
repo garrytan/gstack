@@ -25,7 +25,7 @@ import {
 } from './ship-budget';
 import { callLogFile, countLoggedCalls, loggedCallsLine, readCallLog } from './ship-call-log';
 import { callsLine, countCalls } from './ship-calls';
-import { callsSince, timeStop } from './ship-clock';
+import { callsSince, runClock, TIME_LIMIT_MIN, timeStop } from './ship-clock';
 import { claudeConfigDir, loadMeterState, newMeterState, nonceSessions, readClaudeUsage, saveMeterState, sessionJournals } from './claude-usage';
 
 export type Opts = Record<string, string | true>;
@@ -268,6 +268,14 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const existing = parseRecordBlock(record);
   const prior = existing?.ledger && fs.existsSync(existing.ledger) ? readLedger(existing.ledger) : undefined;
   const newer = prior && !prior.closed_at && !prior.stopped ? newerRun(prior, ctx.cwd) : undefined;
+  if (newer && lapsed(prior!, o, ctx.env)) {
+    return mutateLedger(prior!.file, ctx.env, l => {
+      try { readMeter(l, o, false); } catch { /* as in lapsed */ }
+      const t = tally(l);
+      const stop = l.cap !== null && t.used + t.unknown > l.cap ? stopLines(l, { call: null, next: '1', step: '1', projected: 0, reason: 'budget_exhausted' }) : timeStop(l, ctx.cwd, '1', ctx.env) ?? [];
+      return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, ...stop, `RESUME: run ${l.run} on this record was past its limit, so this start recorded its stop instead of opening a new run; a new start never lifts a stop: gstack-ship-budget resume --record ${l.record} (a cap raise needs --token-cap <n> --approved-by <who> --words <their words>)`], exit: 3 };
+    });
+  }
   if (prior && !prior.closed_at && (prior.stopped || !newer)) {
     return mutateLedger(prior.file, ctx.env, l => {
       if (scope === 'tree' || parentCounter) l.meter_scope = 'tree';
@@ -321,6 +329,17 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
  * exits 3, so only resume (with the owner's words for a cap raise) lifts a stop.
  */
 const RESTART_MS = 5 * 60_000;
+/**
+ * Whether an open, unstopped ledger is already past its cap at this start's reading, or past 100 active minutes: a stop its next note
+ * would record, since an observe run stops lazily. start then records that stop and re-attaches instead of superseding (GST-4109), so a
+ * rerun of start never hands a run past its limit a fresh cap and clock without the owner's words.
+ */
+function lapsed(prior: Ledger, o: Opts, env: NodeJS.ProcessEnv): boolean {
+  const trial = structuredClone(prior);
+  try { readMeter(trial, o, false); } catch { /* a reading this ledger rejects leaves its cap at its last reading */ }
+  const t = tally(trial);
+  return (trial.cap !== null && t.used + t.unknown > trial.cap) || (trial.mode === 'observe' && runClock(trial, env).active > TIME_LIMIT_MIN);
+}
 function newerRun(l: Ledger, cwd: string): string | undefined {
   if (l.notes?.length || l.steps_done?.length || l.handoffs.length || l.reservations.length > 1 || l.reservations.some(r => r.state !== 'open')) return 'already ran past its start';
   const read = readRunRecord(toplevel(cwd) || cwd);

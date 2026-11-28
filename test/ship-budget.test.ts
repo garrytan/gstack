@@ -498,6 +498,23 @@ describe('a new /ship on a reused record meters only itself (GST-4109)', () => {
     expect(resumed.out).toContain(`BUDGET_RUN: id=${a} `);
   });
 
+  // Value: protects=a start on a run already past its cap at this start's reading, but not yet stopped (observe mode stops at the next note), records the stop and re-attaches instead of handing out a fresh cap; fails_when=a rerun of start after compaction supersedes an over-cap run with used=0 and no owner words (targeted money reader, ship-1-p4);
+  //   why_new=the stopped case above only covers a stop a note already recorded; seam=none; no_claim=admit mode, whose check stops before the cap
+  test('a start on a run past its cap that no note stopped yet records the stop and exits 3', () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '10M', '--reading', '1000000']);
+    const a = h.field(first.out, 'BUDGET_RUN', 'id');
+    expect(h.sb(['note', '--record', record, '--step', '9', '--reading', '5000000']).code).toBe(0);
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '10M', '--reading', '20000000']);
+    expect(second.code, second.out + second.err).toBe(3);
+    expect(h.field(second.out, 'BUDGET_RUN', 'id')).toBe(a);
+    expect(second.out).not.toContain('SUPERSEDED:');
+    expect(second.out).toMatch(/^STOP: reason=budget_exhausted /m);
+    expect(second.out).toMatch(/^RESUME: run \S+ on this record was past its limit/m);
+    expect(h.ledger(h.field(first.out, 'BUDGET_RUN', 'ledger')).stopped?.reason).toBe('budget_exhausted');
+  });
+
   // Value: protects=a rerun of the same start before any progress stays one run; fails_when=every start mints a run, so a restarted Phase 2 splits one /ship into two ledgers;
   //   why_new=the guard above narrows re-attach; seam=none; no_claim=admission-mode reruns past Step 1
   test('a rerun of start before the run progressed re-attaches the same run', () => {
