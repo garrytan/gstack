@@ -1876,6 +1876,16 @@ with the `gate_id` its gate disposition needs, since a ruling never closes one
 Pre-Landing Review and the PR body, `gstack-ship-receipt write` records them as
 `ruled_notes` (each with its `head`) and refuses a `--body` that does not carry each
 line word for word (bare, or as a `- ` or `* ` list item), and the READY block prints each as `RULED_NOTE:`.
+A ruling still covers its finding after edits above it move its line (GSKI-1 #5):
+when a later review raises `path:54:voice` and the ruling names `path:43:voice` at
+an ancestor head, `gstack-ship-receipt write` maps line 43 through that file's diff
+to the commit the later review read, and when the ruled line itself is unchanged and
+lands on 54 it counts the open finding ruled and prints `RULED_SHIFT:`;
+`gstack-review-read` applies the same match to a row that carries the moved
+fingerprint and holds the ruling's head in its range. Another line
+in the same file, another voice or category, a ruled line whose text changed, a
+renamed or binary file and a security finding never match, so each still needs its
+own ruling.
 Step 11.5 reads the same rulings: `gstack-review-read` applies a ruling to a Step 9
 or Step 11 row that carries the finding and whose `range_base..commit` holds the
 ruling's head (a first pass, with no `range_base`: its own commit), lists its

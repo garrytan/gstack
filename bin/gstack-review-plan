@@ -2,7 +2,7 @@
 /**
  * gstack-review-plan — how much review the next /ship step dispatches (docs/review-policy.md#review-depth).
  *
- *   gstack-review-plan --base <ref> [--pass <full passes run>] [--last none|full] [--fixed-blocking] [--fixed-below]
+ *   gstack-review-plan --base <ref> [--pass <full passes finished>] [--last none|full] [--fixed-blocking] [--fixed-below]
  *                      [--blocking-open] [--touched-gate] [--critical-found] [--adversarial-ran] [--gate-tagged <n>] [--gated a,b] [--force a,b|all]
  *                      [--reviewed-numbers <fingerprint>] [--depth-floor standard|full] [--range-base <sha>] [--pass1-depth light|standard|full] [--no-tiers]
  *                      [--targeted-ran <targeted_patch_id>] [--post-review] [--pr <n>] [--json]
@@ -43,11 +43,16 @@ import { ruledCarries, targetedDelta } from '../lib/review-targeted-delta';
 import { ownChangeSince, stampPathsSince } from '../lib/ship-receipt-depth';
 import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { readRuledNotes, ruledEditLine, ruledEdits } from '../lib/ruled-notes';
+import { readRunRecord } from '../lib/ship-run-record';
+import { reviewPaths } from '../lib/ship-budget';
+import { summarizeReviewLoop } from '../lib/review-scope';
 
 const HELP = `gstack-review-plan — the review depth of the next /ship step (docs/review-policy.md#review-depth)
 
   --base <ref>              the base branch (merge base with HEAD is the diff base); required
-  --pass <n>                full review passes already run in this invocation (default 0)
+  --pass <n>                full review passes this /ship run already finished (default 0), printed as PASS_COUNT:;
+                            not the number of the pass about to run: plan pass 2 with --pass 1 --last full. Inside an open /ship
+                            run, --last full refuses (exit 2) a --pass other than the passes this branch's review log holds for it
   --last none|full          the step that just finished (default none: plan pass 1)
   --fixed-blocking          the finished step fixed a blocking finding (raises light to standard)
   --fixed-below             the finished step fixed findings below the floor
@@ -107,6 +112,19 @@ const has = (n: string) => args.includes(n);
 const list = (n: string) => (flag(n) ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const git = (a: string[]) => { const r = spawnSync('git', ['-c', 'core.quotePath=false', ...a], { encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? r.stdout : null; };
 
+/**
+ * The full passes the checkout's open /ship run already logged, counted the way the receipt counts them: gstack-review-scope's
+ * summarizeReviewLoop over this branch's review log since the run record started. Null when no run is open or the log cannot be read.
+ */
+function loggedPasses(root: string): { passes: number; run: string } | null {
+  const read = readRunRecord(root);
+  if (read.kind !== 'record' || read.record.state !== 'open') return null;
+  let text = '';
+  try { text = fs.readFileSync(reviewPaths(root, process.env).reviewLog, 'utf8'); } catch (e: any) { if (e?.code !== 'ENOENT') return null; }
+  const rows = text.split('\n').flatMap(line => { try { return [JSON.parse(line) as Record<string, any>]; } catch { return []; } });
+  return { passes: summarizeReviewLoop(rows, read.record.started_at).passes, run: read.record.run };
+}
+
 function main(): number {
   if (has('--help') || has('-h')) { process.stdout.write(HELP + '\n'); return EXIT.ok; }
   const base = flag('--base');
@@ -132,6 +150,8 @@ function main(): number {
   const priorRounds = Number(flag('--prior-rounds') ?? '0');
   const priorFull = Number(flag('--prior-full') ?? '0');
   if (![priorRounds, priorFull].every(n => Number.isInteger(n) && n >= 0)) { process.stderr.write('gstack-review-plan: --prior-rounds and --prior-full need integers >= 0 (PR_REVIEW_FLAGS: from gstack-ship-preflight)\n'); return EXIT.usage; }
+  const logged = last === 'full' ? loggedPasses(root) : null;
+  if (logged && logged.passes !== pass) { process.stderr.write(`gstack-review-plan: --pass ${pass} says ${pass} full pass${pass === 1 ? '' : 'es'} finished, but the review log holds ${logged.passes} for /ship run ${logged.run}; --pass counts the passes already finished, not the pass about to run, so rerun with --pass ${logged.passes} (GSTA-891)\n`); return EXIT.usage; }
   const collected = collectLive(root, base);
   if (collected.errors.length) {
     for (const e of collected.errors) process.stderr.write(`gstack-review-plan: git could not list the diff (${e.input}: ${e.detail}); fix: ${e.repair}; no plan is safer than a plan for an empty diff\n`);
@@ -275,7 +295,9 @@ function main(): number {
   for (const [p, n] of routed?.ruled ?? []) out.push(ruledEditLine(p, n));
   for (const x of routed?.refused ?? []) out.push(`RULED_EDIT_REFUSED: ${x}`);
   if (targetedDeltaOut) out.push(`TARGETED_DELTA: range_base=${targetedDeltaOut.range_base} paths=${targetedDeltaOut.paths.join(',')} classes=${classList(targetedDeltaOut.classes)}`);
-  out.push(reviewPlanLine(plan, pass + (plan.next.step === 'full' || plan.next.step === 'scoped' ? 1 : 0), priorRounds), `NEXT: ${plan.next.step} (${plan.next.reason})`);
+  const another = plan.next.step === 'full' || plan.next.step === 'scoped';
+  out.push(reviewPlanLine(plan, pass + (another ? 1 : 0), priorRounds), `NEXT: ${plan.next.step} (${plan.next.reason})`);
+  out.push(`PASS_COUNT: finished=${pass}${another ? ` next_pass=${pass + 1} (after pass ${pass + 1} finishes, plan again with --pass ${pass + 1} --last full)` : ''}`);
   for (const e of plan.errors) out.push(`DEPTH_ERROR: ${e.code} input=${e.input} detail=${e.detail}; fix: ${e.repair}${e.result ? ` (${e.result})` : ''}`);
   for (const d of plan.dispatches) {
     const key = d.name.split(' ')[0];

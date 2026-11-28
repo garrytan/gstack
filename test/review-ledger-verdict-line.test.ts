@@ -4,7 +4,7 @@
  * findings it summarizes, each of which already said "Severity: Low. Blocks: no". Excerpt of that captured output below.
  */
 import { describe, expect, test } from 'bun:test';
-import { parseFindings } from '../lib/review-ledger';
+import { parseFindings, parseReply } from '../lib/review-ledger';
 
 const CAPTURED_3901_P2 = [
   'REVIEWED_TREE: 7be72149fbd6d1b8e713c7c42ef4cd9ba6373e20 /workspace/gstack',
@@ -44,5 +44,53 @@ describe('native verdict line (collector severity inflation)', () => {
 
   test('a stated Blocks field on the line wins: Blocks: yes stays CRITICAL', () => {
     expect(labels('All FIXABLE, none blocks. Blocks: yes')).toEqual(['CRITICAL']);
+  });
+});
+
+// Value: protects=lines under a reviewer's "what I checked and found sound" heading never collect as findings unless they are shaped
+//   as one (GSTA-830 #4800, adversarial-native#5); fails_when=a prose line naming "Critical" and a file:line in that list blocks with
+//   REVIEW_VERDICT blocking=0 (parsed=2, agrees=false); seam=lib/review-ledger.ts parseReply; no_claim=a "Summary" heading, whose
+//   lines may restate the only copy of a finding, keeps collecting
+describe('GST-4111 fix 4: a sound-checks section is not a findings section', () => {
+  const SOUND = ['NO FINDINGS', '', '## What I checked and found sound', '', '- The Critical path in lib/foo.ts:42 handles the empty case.',
+    '- Critical branch at lib/bar.ts:9 is covered by test/bar.test.ts.', '', 'REVIEW_VERDICT: blocking=0'].join('\n');
+  test('every reader role parses no finding from a sound-checks list and the verdict agrees', () => {
+    for (const role of ['specialist', 'red-team', 'adversarial-native', 'outside-voice', 'targeted']) {
+      const r = parseReply(role, SOUND, true, true);
+      expect(r.findings, role).toEqual([]);
+      expect(r.verdict, role).toEqual({ state: 'valid', parsed: 0, declared: 0, agrees: true });
+    }
+    for (const heading of ['### What holds up', '**Verified:**', '## Checked and found clean', '## Looks good']) {
+      expect(parseReply('specialist', SOUND.replace('## What I checked and found sound', heading), true, true).findings, heading).toEqual([]);
+    }
+  });
+  test('negative controls: a labelled finding inside the section, a findings heading after it, and a Summary heading still collect', () => {
+    const inside = ['## What I checked and found sound', '', '- The Critical path in lib/foo.ts:42 is fine.', '- CRITICAL: lib/auth.ts:7 skips the token check.', '- lib/q.ts:3 drops rows. Blocks: yes'].join('\n');
+    expect(parseReply('specialist', inside).findings.map(f => f.label)).toEqual(['CRITICAL', 'CRITICAL']);
+    const after = ['## What I checked and found sound', '', '- The Critical path in lib/foo.ts:42 is fine.', '', '## Findings', '', '- The Critical path in lib/foo.ts:50 drops the lock.'].join('\n');
+    expect(parseReply('outside-voice', after).findings.map(f => f.raw)).toEqual(['- The Critical path in lib/foo.ts:50 drops the lock.']);
+    const summary = ['## Summary', '', '- The Critical path in lib/foo.ts:42 drops the lock.'].join('\n');
+    expect(parseReply('red-team', summary).findings.map(f => f.label)).toEqual(['Critical']);
+    const lead = ['**What holds up.**', '', '- The Critical path in lib/foo.ts:42 is fine.', '', '**Finding 1 (FIXABLE): the lock in lib/foo.ts:50 is never released.** It leaks.', '1. CRITICAL lib/foo.ts:60 drops rows'].join('\n');
+    expect(parseReply('adversarial-native', lead).findings.map(f => f.raw.slice(0, 13))).toEqual(['**Finding 1 (', '1. CRITICAL l']);
+    const broken = ['## What I verified was broken', '', '- Dropped writes at lib/cache.ts:42 when the queue fills.', '  Severity: High', '  Blocks: yes'].join('\n');
+    expect(parseReply('outside-voice', broken).findings.map(f => f.raw)).toEqual([expect.stringContaining('lib/cache.ts:42')]);
+    expect(parseReply('specialist', ['## What I verified', '', '- src/a.ts:42 null deref crashes the worker on empty input (High)'].join('\n')).findings.map(f => f.label)).toEqual(['High']);
+    const fielded = ['## What I checked and found sound', '', '- Dropped writes at lib/cache.ts:42 when the queue fills.', 'Severity: High', 'Blocks: yes'].join('\n');
+    expect(parseReply('specialist', fielded).findings.map(f => f.raw)).toEqual([expect.stringContaining('lib/cache.ts:42')]);
+    expect(parseReply('specialist', ['## Verified issues', '', '- The Critical path in lib/foo.ts:42 drops the lock.'].join('\n')).findings).toHaveLength(1);
+  });
+  // Value: protects=a heading that only mentions a sound phrase, or a delimited severity tag on a bullet under a real sound heading,
+  //   never hides a finding (p3/red-team#2 on #4875: the filter failed open against main); fails_when=parseFindings returns no finding
+  //   for '## Summary: … found sound' or '## Strengths and one critical problem' followed by a '(Critical)' bullet; seam=parseReply
+  test('fails open never: mixed headings and tagged bullets still collect', () => {
+    const bullet = '- a.ts:42 swallows the timeout error and the deploy never retries (Critical)';
+    for (const heading of ['## Summary: one blocker below, everything else found sound', '## Strengths and one critical problem', '## Looks good apart from one thing', '**What holds up, and what does not**']) {
+      expect(parseReply('red-team', [heading, '', bullet].join('\n')).findings.map(f => f.label), heading).toEqual(['Critical']);
+    }
+    for (const tagged of [bullet, '- a.ts:42 swallows the timeout error [Critical]', '- a.ts:42 swallows the timeout error, **High**', '- The retry loop drops errors. High: a.ts:42']) {
+      expect(parseReply('specialist', ['## What I checked and found sound', '', tagged].join('\n')).findings, tagged).toHaveLength(1);
+    }
+    expect(parseReply('specialist', ['**What else I checked and found no defect in**', '', '- The Critical path in lib/foo.ts:42 is fine.'].join('\n')).findings).toEqual([]);
   });
 });

@@ -54,7 +54,7 @@ const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
   'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'ci_carried', 'spend_usd', 'calls',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
   'head_tree', 'product_patch_id', 'gstack_version', 'review_depth', 'pregate', 'requires_remote', 'issues', 'approval', 'docs', 'review_loop',
-  'cleared_by_trailer', 'ruled_notes', 'gate_dispositions', 'mechanical', 'review_targeted', 'design', 'review_exclude', 'review_exclude_fallback', 'docs_audit_read', 'carry', 'base_red', 'flaky_exception', 'no_stop',
+  'cleared_by_trailer', 'cleared_by_review', 'ruled_notes', 'gate_dispositions', 'mechanical', 'review_targeted', 'design', 'review_exclude', 'review_exclude_fallback', 'docs_audit_read', 'carry', 'base_red', 'flaky_exception', 'no_stop',
 ];
 
 /** Keys in the fixed order so identifiers lead; undefined values are dropped. */

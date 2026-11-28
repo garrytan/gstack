@@ -128,6 +128,8 @@ export interface ShipReceipt {
   review_depth?: { depth: 'platform' | 'light' | 'standard' | 'full'; class: 'docs' | 'tests' | 'code' | 'gate'; runtime_lines: number; rules: string; base: string; registry: string | null; gate_scan: { tagged: number | null; head: string }; reasons: string[]; risk?: string[]; mode?: 'lean' | 'panel' | 'platform'; platform_review?: { id: string; head: string; reviewer: string }; declared?: string[]; detected?: string[] };
   /** The open blockers a Review-Finding trailer's fix closed because a later full round read it clean (clearByTrailer, #4597). */
   cleared_by_trailer?: Array<{ id: string; commit: string; review: string }>;
+  /** The open blockers a fix with no Review-Finding trailer closed: it changed the finding's file after the finding was raised, and a later full round read it clean (clearByReview, GSKI-1 #4). */
+  cleared_by_review?: Array<{ id: string; commit: string; review: string }>;
   /** The owner's rulings that a finding ships as a disclosed note (gstack-approvals rule, lib/ruled-notes.ts); the PR body lists each one word for word (GST-1537). */
   ruled_notes?: Array<{ finding: string; head: string; by: string; reason: string; at: string; approval: string; relayed?: string; not_security?: true }>;
   /** The owner's dispositions of gate findings (gstack-approvals gate, lib/gate-dispositions.ts); the PR body lists each one word for word (GST-2491). */
@@ -291,6 +293,7 @@ export const ARTIFACT_SCHEMAS = {
       // Legacy (GST-3562 part 4): receipts written before fix-check and round grants were removed may carry these; nothing reads them.
       review_loop_exception: { type: 'object' }, review_round_grants: { type: 'array' }, cleared_by_grant: { type: 'object' },
       cleared_by_trailer: { type: 'array', items: { type: 'object', required: ['id', 'commit', 'review'], properties: { id: str, commit: str, review: str } } },
+      cleared_by_review: { type: 'array', items: { type: 'object', required: ['id', 'commit', 'review'], properties: { id: str, commit: str, review: str } } },
       ruled_notes: { type: 'array', items: { type: 'object', required: ['finding', 'head', 'by', 'reason', 'at', 'approval'], properties: { finding: str, head: str, by: str, reason: str, at: str, approval: str, relayed: str, not_security: { const: true } } } },
       gate_dispositions: { type: 'array', items: { type: 'object', required: ['finding', 'gate_id', 'head', 'by', 'reason', 'words', 'at', 'approval'], properties: { finding: str, gate_id: str, head: str, by: str, reason: str, words: str, at: str, approval: str } } },
       mechanical: strList,

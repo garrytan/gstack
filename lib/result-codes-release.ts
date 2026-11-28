@@ -490,6 +490,11 @@ export const RELEASE_RESULT_CODES = {
     summary: 'the documentation audit child\'s last line (/ship Step 14.5) does not meet the result contract: a key is missing, unknown or repeated once whitespace around keys is trimmed, a field has the wrong type or value, or documentation_section is empty or a placeholder; the audit result cannot be used, and this is a malformed reply, not a blocked audit',
     fix: 'on FORMAT_REPAIR:, re-ask once for the last line with gstack-docs-candidate repair-prompt and check the reply with result --repair-of, which uses no attempt; otherwise run the one remaining re-audit with the RETRY_NOTE: line appended to its prompt verbatim; with no attempt left, Step 14.5 stops with this code and the keys it names',
   },
+  DOCS_RUN_FOLDER_MISSING: {
+    anchor: 'docs-run-folder-missing',
+    summary: 'the documentation audit\'s Prepare snapshot (/ship Step 14.5) writes its --out record into a folder (the /ship run folder) that does not exist yet, so it refused before reading anything; no audit was launched, so this spends none of the step\'s two attempts',
+    fix: 'create the /ship run folder (the invocation record\'s directory) or correct the path, then rerun the same snapshot; do not count it as an attempt',
+  },
   RECEIPT_PROSE_MISMATCH: {
     anchor: 'receipt-prose-mismatch',
     summary: 'the PR body quotes a counter the ship receipt also records (review passes, deferred findings, gate case counts) with a different number, so the prose and the receipt disagree about the same run',

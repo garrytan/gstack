@@ -248,6 +248,18 @@ describe('bin/gstack-plain-title', () => {
     expect([r.status, r.last]).toEqual([0, 'PLAIN_TITLE: ok']);
   });
 
+  // Value: protects=a PR body that quotes a comment opener in code still finds its Agent notes section; fails_when=the receipt and the
+  // words inside Agent notes are refused as body text; why_new=GSTA-881
+  test('a comment opener in inline code or a code fence above the Agent notes marker does not hide it', () => {
+    const notes = '<!-- gstack:agent-notes -->\n<details><summary>Agent notes</summary>\n\n```gstack-ship-receipt\n{"pr": 1}\n```\nRefs: pregate receipts\n\n</details>\n';
+    const inline = 'The body check keeps its place when the text quotes `<!-- foo -->` or `<!--` in code.\nWhy: a quoted opener hid the closing section.\n\n## What changed\n\n- Code spans such as `<!-- foo` are skipped.\n\n';
+    const fenced = 'The body check keeps its place when an example quotes a comment opener.\nWhy: a fenced opener hid the closing section.\n\n## Example\n\n```html\n<!-- an unclosed opener\n```\n\n';
+    for (const body of [inline, fenced]) {
+      const r = run(dirs.policy, ['check', '--body-file', file('opener.md', body + notes)]);
+      expect([r.status, r.stdout.trim()]).toEqual([0, 'PLAIN_TITLE: ok']);
+    }
+  });
+
   test('warn mode and commit subjects only warn', () => {
     const warn = run(dirs.policy, ['check', '--branch', 'capy/gst-1814-autoplan-gate-order', '--body-file', file('b.md', '## Heading\n'), '--mode', 'warn']);
     expect([warn.status, warn.last]).toEqual([0, 'PLAIN_TITLE: warned=2']);
