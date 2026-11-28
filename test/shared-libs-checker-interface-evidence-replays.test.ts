@@ -2,6 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { hasTrustedSharedLibsCheck } from './helpers/shared-libs-review-start-evidence';
 import { fixtureGit, fixtureWorkingTree } from './helpers/shared-libs-eval-fixture';
@@ -170,6 +171,34 @@ describe('errored cat -A read from the captured filtered revalidation', () => {
     expect(result.is_error).toBe(true);
     expect(result.content).toContain('// RAW-ONLY changed caller bytes after the skipped review$\n');
     expect(hasTrustedSharedLibsCheck(events, showAllRead.expected)).toBe(true);
+  });
+
+  // GNU cat itself renders a source with a tab, a control byte, DEL and a non-ASCII character.
+  const sample = 'export const retry = (value: string) =>\tvalue.trim(); // \u0001\u007f café\n';
+  const shownBy = (flag: string) => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cat-shown-')), 'retry-route.ts');
+    fs.writeFileSync(file, sample);
+    try { return execFileSync('cat', [...(flag ? [flag] : []), file], { encoding: 'utf8', timeout: 10_000 }); }
+    finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }
+  };
+  const withShown = (flag: string, shown: string) => {
+    const events = structuredClone(showAllRead.events), call = read(events), result = output(events, call.id);
+    const expected: any = structuredClone(showAllRead.expected);
+    expected.sources['src/retry-route.ts'] = sample;
+    call.input.command = call.input.command.replace('cat -A src/retry-route.ts', `cat ${flag} src/retry-route.ts`);
+    const start = result.content.indexOf('=== src/retry-route.ts\n') + '=== src/retry-route.ts\n'.length;
+    result.content = result.content.slice(0, start) + shown + result.content.slice(result.content.indexOf('=== lib/retry-after.ts', start));
+    return { events, expected };
+  };
+
+  test.skipIf(process.platform === 'win32').each(['-A', '-e', '-t', '-v', '-E', '-T', '-vET'])('GNU cat %s output of the exact source counts', flag => {
+    const { events, expected } = withShown(flag, shownBy(flag));
+    expect(hasTrustedSharedLibsCheck(events, expected)).toBe(true);
+  });
+
+  test.skipIf(process.platform === 'win32').each([['-T', '-A'], ['-A', '-v'], ['-e', '-A'], ['-E', '-e']])('cat %s with the output of cat %s is still rejected', (flag, printed) => {
+    const { events, expected } = withShown(flag, shownBy(printed));
+    expect(hasTrustedSharedLibsCheck(events, expected)).toBe(false);
   });
 
   test.each(['no expected sources', 'tampered expected source', 'last source line missing', 'plain cat', 'cat -v without line ends', 'errored single read'])('%s is still rejected', shape => {
