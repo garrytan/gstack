@@ -989,15 +989,15 @@ const runsBlockLeaks = (body: string) => publicReceiptLeaks({ [RUNS_FENCE]: rece
 
 /**
  * Why PR `pr` is not this checkout's open PR, or null when it is (CAPY-1 qm#3983): its head must be this checkout's branch on the
- * repository the branch pushes to (its pushRemote, remote.pushDefault or upstream remote, else origin: a contributor's origin is often
- * upstream and their fork another remote), since a fork's PR from a branch of the same name has the same headRefName; and it must be
+ * repository the branch pushes to (its branch.<name>.pushRemote, else remote.pushDefault, else origin, at that remote's pushurl or
+ * url: a contributor's origin is often upstream and their fork another remote), since a fork's PR from a branch of the same name has the same headRefName; and it must be
  * open, since a merged or closed PR's body is a record (GST-4105).
  */
 function prOffBranch(rest: string[], pr: string): string | null {
   const branch = git(['branch', '--show-current']), repo = flag(rest, '--repo');
   if (!branch) return `this checkout has no branch, so PR #${pr} cannot be matched to it`;
-  const remote = git(['for-each-ref', '--format=%(push:remotename)', `refs/heads/${branch}`]) || 'origin';
-  const pushTo = /([^/:]+)\/([^/]+?)(?:\.git)?\/*$/.exec(git(['config', '--get', `remote.${remote}.url`]) ?? '');
+  const remote = git(['config', '--get', `branch.${branch}.pushRemote`]) || git(['config', '--get', 'remote.pushDefault']) || 'origin';
+  const pushTo = /([^/:]+)\/([^/]+?)(?:\.git)?\/*$/.exec(git(['config', '--get', `remote.${remote}.pushurl`]) || git(['config', '--get', `remote.${remote}.url`]) || '');
   if (!pushTo) return `this checkout's push remote ${remote} names no repository, so PR #${pr} cannot be matched to it`;
   const r = gh(['pr', 'view', pr, ...(repo ? ['--repo', repo] : []), '--json', 'headRefName,headRepository,headRepositoryOwner,state']);
   let v: { headRefName?: unknown; headRepository?: { name?: unknown }; headRepositoryOwner?: { login?: unknown }; state?: unknown } = {};
@@ -1110,8 +1110,9 @@ function cmdAbandoned(rest: string[]): number {
   if (read.pr && ![...receiptRuns(read.body).map(e => e.run), extractReceipt(read.body).receipt?.run].some(r => sameRun(r, run))) { process.stderr.write(`gstack-ship-receipt abandoned: PR #${read.pr}'s body records no entry for run ${run} (a stub, stop record or receipt), so the run is not this PR's; pass the PR the run wrote to, or --body for a body you hold; not marked\n`); return EXIT.refused; }
   const safe = keepsInternalIds(`${by} ${reason}`, process.cwd(), process.env, flag(rest, '--repo'));
   if (!safe) process.stderr.write('RUN_ABANDON_REDACTED: --by or --reason named a Capy thread or message id, and gh does not report this repository private, so the PR body says a private message in its place\n');
-  const next = placeRunEntry(read.body, abandonMarker({ head, run, by: safe ? by : redactInternalIds(by), reason: safe ? reason : redactInternalIds(reason) }));
-  const leaks = runsBlockLeaks(next);
+  const marker = abandonMarker({ head, run, by: safe ? by : redactInternalIds(by), reason: safe ? reason : redactInternalIds(reason) });
+  const next = placeRunEntry(read.body, marker);
+  const leaks = [...publicReceiptLeaks({ abandon: marker }), ...runsBlockLeaks(next)];
   const visibility = leaks.length ? repoVisibility(process.cwd(), process.env, flag(rest, '--repo')) : 'private';
   if (renderMode(visibility, false) !== 'full') { process.stderr.write(`gstack-ship-receipt abandoned: the runs block would hold ${leaks.join(', ')}, and the repository's visibility is ${visibility}, not private: a PR body is public, so keep home paths out of --by and --reason and take any out of the body's earlier entries; not marked\n`); return EXIT.refused; }
   const err = postBody(rest, read.pr, next);

@@ -308,7 +308,7 @@ describe('a Captain ruling and gate disposition on a public repository write cle
 //   public repository, or any earlier catch slips through; seam=lib/ruled-notes.ts INTERNAL_ID, redactInternalIds, publicReceiptLeaks
 describe('INTERNAL_ID leaves look-alike text alone and keeps every Capy id catch (GST-4105)', () => {
   const caught = ['jam_01abc', 'icm_01M8GG556RYA3HGG7Q12G7GP1J', 'iev_01M8GG5564BWTXRD3PP941B4PD', 'GSTA-36:icm_01M8GG556RYA3HGG7Q12G7GP1J', 'per GSTA-36:icm_01abc',
-    REF, 'GSTA-36:2026-11-28T09:28Z', 'GSTA-36:2026-11-19', 'GSTA-36:1732790000', 'GSTA-36:iev_01abc', '(jam_01abc)', 'see .capy/work/jam_01M8GSKHFHTDZWPHJVG6ZVJ3D4/x', 'ids/icm_01M8GG556RYA3HGG7Q12G7GP1J'];
+    REF, 'GSTA-36:2026-11-28T09:28Z', 'GSTA-36:2026-11-19', 'GSTA-36:1732790000', 'ends GSTA-36:1732790000.', 'GSTA-36:iev_01abc', '(jam_01abc)', 'see .capy/work/jam_01M8GSKHFHTDZWPHJVG6ZVJ3D4/x', 'ids/icm_01M8GG556RYA3HGG7Q12G7GP1J'];
   const text = ['SHA-256:abc', 'SHA-256:1234567890abcdef', 'UTF-8:x', 'PR-12:fix', 'A-1:b', 'test/jam_fix.ts', 'GStack Minder (GSTA-36)', 'my_jam_fix', 'approval a-315e17d615b1', 'lib/icm_parse.ts'];
 
   test('each earlier catch still matches and each look-alike does not', () => {
@@ -336,6 +336,16 @@ describe('INTERNAL_ID leaves look-alike text alone and keeps every Capy id catch
     expect([stale.status, stale.stderr]).toEqual([EXIT.fail, expect.stringContaining('names a Capy thread or message id or relays from a ref')]);
     const clean = write(f, bodyFile(f, `## Pre-Landing Review\n\n${redacted}\n`));
     expect(clean.status, clean.stderr).toBe(EXIT.ok);
+  });
+
+  test('a reason that says relayed from in its own words is no relay, so the line rulings prints writes on a public repository', () => {
+    const f = fixture('PUBLIC');
+    const rule = bin(f, 'gstack-approvals', ['rule', '--finding', 'src/x.ts:1:edit-share-race', '--head', f.git('rev-parse', 'HEAD').stdout.trim(), '--reason', 'kept as is (relayed from the owner) for now', '--words', 'B, note it', '--by', 'GBrain Minder (GBRA-108)']);
+    expect(rule.status, rule.stderr).toBe(0);
+    const line = bin(f, 'gstack-approvals', ['rulings']).stdout.trim();
+    expect(line).toContain(': kept as is (relayed from the owner) for now (approval ');
+    const w = write(f, bodyFile(f, `## Pre-Landing Review\n\n${line}\n`));
+    expect(w.status, w.stderr).toBe(EXIT.ok);
   });
 });
 
@@ -437,6 +447,16 @@ describe('the rendered runs block is scanned before it publishes (GST-4105)', ()
     expect(bin(p, 'gstack-ship-receipt', [...args, '--body', kept]).status).toBe(EXIT.ok);
     expect(receiptRuns(fs.readFileSync(kept, 'utf8'))[0]).toMatchObject({ reason: 'see /home/user/.capy/work/ship-1/log' });
   });
+
+  test('abandon checks its own entry even when a runs block quoted above the Agent notes is the one it would edit', () => {
+    const args = ['abandoned', '--run', 'ship-1', '--by', 'GStack Minder (GSTA-36)', '--reason', 'see /home/user/.capy/work/ship-1/log'];
+    const f = fixture('PUBLIC');
+    const text = '## Summary\n\n\`\`\`' + RUNS_FENCE + '\n' + JSON.stringify({ head: H, run: 'ship-0', review_loop: LOOP }) + '\n\`\`\`\n\n' + runsBody({ head: H, run: 'ship-1', status: 'started', review_loop: LOOP });
+    const body = bodyFile(f, text);
+    const pub = bin(f, 'gstack-ship-receipt', [...args, '--body', body]);
+    expect([pub.status, pub.stderr]).toEqual([EXIT.refused, expect.stringContaining('abandon.reason (a home path)')]);
+    expect(fs.readFileSync(body, 'utf8')).toBe(text);
+  });
 });
 
 // Value: protects=abandon marks only an open PR that records the run, on the repository the branch pushes to; fails_when=a merged or
@@ -476,6 +496,20 @@ describe('abandon needs an open PR that records the run, on the branch\'s push r
     const upstream = abandon(f, '3984');
     expect([upstream.status, upstream.stderr]).toEqual([EXIT.refused, expect.stringContaining("PR #3984's head is on fx/fx, not this checkout's push remote fork me/fx")]);
     expect(ghLog(f)).not.toContain('pr edit 3984');
+  });
+
+  test('origin\'s pushurl names the fork, and a branch that only tracks another remote still pushes to origin', () => {
+    const f = fixture('PUBLIC', VIEW('feat', 'me'));
+    f.git('config', 'remote.origin.pushurl', 'https://github.com/me/fx.git');
+    const fork = abandon(f);
+    expect(fork.status, fork.stderr).toBe(EXIT.ok);
+    f.git('config', '--unset', 'remote.origin.pushurl');
+    f.git('remote', 'add', 'upstream', 'https://github.com/up/fx.git');
+    f.git('config', 'branch.feat.remote', 'upstream');
+    setGh(f, 'PUBLIC', VIEW('feat', 'fx'));
+    const tracked = abandon(f, '3985');
+    expect(tracked.status, tracked.stderr).toBe(EXIT.ok);
+    expect(ghLog(f)).toContain('pr edit 3985');
   });
 });
 

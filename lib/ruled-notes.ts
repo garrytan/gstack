@@ -39,9 +39,12 @@ export const OWNER_REF = /^[A-Z][A-Z0-9]*-[1-9]\d*:[A-Za-z0-9][\w.:+-]*$/;
  * ISO date or time (`2026-11-19`, `2026-11-28T09:28Z`) or epoch seconds (`1732790000`), so `SHA-256:abc`, `UTF-8:x`, `PR-12:fix` and `A-1:b` are text. A relayed ruling's ref reads
  * PRIVATE_REF on a public repository whatever its shape (repoRuledNotes).
  */
-export const INTERNAL_ID = /\b(?:(?<!\/)|(?=(?:jam|icm|iev)_[A-Za-z0-9]{26}(?![A-Za-z0-9])))(?:jam|icm|iev)_[A-Za-z0-9]+|\b[A-Z][A-Z0-9]*-[1-9]\d*:(?=(?:jam|icm|iev)_[A-Za-z0-9]|\d{4}-\d\d-\d\d|\d{9,}(?![\w.:+-]))[A-Za-z0-9][\w.:+-]*/;
-/** A Ruled note line that relays from anything but PRIVATE_REF: on a public repository its ref is internal whatever its shape. */
-export const RELAYED_REF = /\(relayed from (?!a private message\))/;
+export const INTERNAL_ID = /\b(?:(?<!\/)|(?=(?:jam|icm|iev)_[A-Za-z0-9]{26}(?![A-Za-z0-9])))(?:jam|icm|iev)_[A-Za-z0-9]+|\b[A-Z][A-Z0-9]*-[1-9]\d*:(?=(?:jam|icm|iev)_[A-Za-z0-9]|\d{4}-\d\d-\d\d|\d{9,}(?!\w))[A-Za-z0-9][\w.:+-]*/;
+/**
+ * A Ruled note line whose relay (ruledNoteText's ` (relayed from <ref>)` between the ruler and ` at <time>: `) names anything but
+ * PRIVATE_REF: on a public repository its ref is internal whatever its shape. The reason after the time is never read here.
+ */
+export const RELAYED_REF = /^Ruled note: \S+ at [0-9a-f]{12} ruled by .*? \(relayed from (?!a private message\) at )[^()]*\) at \d{4}-\d\d-\d\dT/;
 /** What public text says in place of an INTERNAL_ID: the relay a Ruled note names, and any id in an abandon entry's who and why. */
 export const PRIVATE_REF = 'a private message';
 export const redactInternalIds = (text: string) => text.replace(new RegExp(INTERNAL_ID.source, 'g'), PRIVATE_REF);

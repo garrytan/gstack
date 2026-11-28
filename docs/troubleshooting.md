@@ -7963,8 +7963,9 @@ because one check failed:
 - this checkout has no branch, or `gh pr view` did not name the PR's head
   branch and repository;
 - the PR's head is on another repository than the one this branch pushes to
-  (its `branch.<name>.pushRemote`, `remote.pushDefault` or upstream remote,
-  else `origin`), which is how a fork's PR from a branch of the same name looks;
+  (its `branch.<name>.pushRemote`, else `remote.pushDefault`, else `origin`, at
+  that remote's `pushurl` or `url`), which is how a fork's PR from a branch of
+  the same name looks;
 - the PR's head branch is not this checkout's branch;
 - the PR is merged or closed, not open;
 - the PR body records no entry (a stub, stop record or receipt) for the run, so
