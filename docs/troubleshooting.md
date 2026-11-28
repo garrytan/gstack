@@ -2425,7 +2425,9 @@ owner's call: run the printed `RECOVER:` line; its resume needs
 ### `gstack-ship-budget: ... (BUDGET_READING_MISSING)`
 
 **Meaning.** The run's meter is the agent's own Capy jam counter, a cap is set, and the command got no
-`--reading`. Exit 2. No gstack binary can call Capy's API, so the agent reads it.
+`--reading`. Exit 2. No gstack binary can call Capy's API, so the agent reads it. `resume --meter capy`
+that moves a run onto the Capy counter from another meter refuses the same way, cap or not, because without the
+new epoch's baseline the thread's whole counter would count as the run's use (GST-4109).
 
 **Fix.** In the execute program that runs the command, read
 `(await tools.thread.get({ thread_id: "<your own jam id>" })).cost.tokens` and pass it as `--reading <n>`.

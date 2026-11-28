@@ -108,6 +108,8 @@ export interface Ledger {
   checkout?: string; owner?: RunOwner;
   /** Where the 100-minute clock starts (lib/ship-clock.ts): created_at, or the resume after a time stop. */
   clock_from?: string;
+  /** The run a later start on the same record opened instead of re-attaching this one (GST-4109); resume clears it. */
+  superseded_by?: string;
 }
 
 /** A refusal: exit 2 for usage and validation (stderr), exit 3 for a stop. */
@@ -370,7 +372,7 @@ function writePrivate(file: string, text: string): void {
 
 export function writeLedger(ledger: Ledger, env: NodeJS.ProcessEnv = process.env): void {
   writePrivate(ledger.file, JSON.stringify(ledger, null, 2) + '\n');
-  if (ledger.record) writeRecordBlock(ledger.record, ledger);
+  if (ledger.record && !ledger.superseded_by) writeRecordBlock(ledger.record, ledger);
   mirrorRun(ledger, env);
 }
 

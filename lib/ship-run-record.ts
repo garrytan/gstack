@@ -2,7 +2,8 @@
  * ship-run-record — the /ship run record (GST-3260, docs/ship-policy.md#what-ends-a-run). One JSON file in the checkout's git dir
  * (git rev-parse --git-path gstack-ship-run, one per worktree) replaces the bare run marker. Preflight opens it, every /ship command
  * that names its run beats it, gstack-ship-receipt stop marks it stopped and claim records the grant it spends, finish removes it,
- * gstack-skill-end marks it finished, and gstack-ship-run abandon ends a run that stopped working. Liveness never rests on a timer:
+ * gstack-skill-end marks it finished, the run's own budget close marks an open run finished (close, GST-4109: lib/ship-run-live.ts
+ * endClosedRun), and gstack-ship-run abandon ends a run that stopped working. Liveness never rests on a timer:
  * a run stays open until one of those commands ends it. A bare-text marker from an older gstack reads as `legacy` and a file that is
  * neither as `unreadable`; every guard treats both as open (fails closed). Each change runs under the gate lock as a compare-and-swap on
  * run and state (RUN_TRANSITIONS). The record guards against mistakes; it is not proof of who the owner is.
@@ -28,7 +29,7 @@ export type RunRead =
   | { kind: 'record'; file: string; record: RunRecord }
   | { kind: 'legacy'; file: string; run: string }
   | { kind: 'unreadable'; file: string; why: string; sha256?: string };
-export type RunCommand = 'preflight' | 'beat' | 'stop' | 'claim' | 'skill-end' | 'finish' | 'abandon';
+export type RunCommand = 'preflight' | 'beat' | 'stop' | 'claim' | 'skill-end' | 'close' | 'finish' | 'abandon';
 type From = RunState | 'none' | 'legacy' | 'unreadable';
 
 export const RUN_ID = /^[A-Za-z0-9][\w.:-]{0,127}$/;
@@ -94,6 +95,7 @@ export const RUN_TRANSITIONS: Readonly<Record<RunCommand, { from: readonly From[
   stop: { from: ['open', 'stopped', 'legacy'], to: 'stopped' },
   claim: { from: ['open', 'stopped', 'legacy'], to: 'open' },
   'skill-end': { from: ['open', 'stopped', 'legacy'], to: 'finished' },
+  close: { from: ['open'], to: 'finished' },
   finish: { from: ['open', 'stopped', 'legacy'], to: 'removed' },
   abandon: { from: ['open', 'stopped', 'legacy', 'unreadable'], to: 'abandoned' },
 };

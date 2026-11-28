@@ -12,7 +12,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resultLine } from './result-codes';
-import { thisRunOwner } from './ship-run-record';
+import { readRunRecord, thisRunOwner } from './ship-run-record';
+import { endClosedRun } from './ship-run-live';
+import { resolveStateRoot } from './state-root';
 import { spawnSync } from './spawn-sync';
 import {
   BudgetError, DEFAULT_TAIL, SUBAGENT_DEFAULT_CAP, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
@@ -23,7 +25,7 @@ import {
 } from './ship-budget';
 import { callLogFile, countLoggedCalls, loggedCallsLine, readCallLog } from './ship-call-log';
 import { callsLine, countCalls } from './ship-calls';
-import { callsSince, timeStop } from './ship-clock';
+import { callsSince, runClock, TIME_LIMIT_MIN, timeStop } from './ship-clock';
 import { claudeConfigDir, loadMeterState, newMeterState, nonceSessions, readClaudeUsage, saveMeterState, sessionJournals } from './claude-usage';
 
 export type Opts = Record<string, string | true>;
@@ -264,10 +266,21 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const delegate = str(o, 'delegate') ?? 'auto';
   if (delegate !== 'auto' && delegate !== 'never') throw usageError(`--delegate '${delegate}' is not auto or never`);
   const existing = parseRecordBlock(record);
-  if (existing?.ledger && fs.existsSync(existing.ledger) && !readLedger(existing.ledger).closed_at) {
-    return mutateLedger(existing.ledger, ctx.env, l => {
+  const prior = existing?.ledger && fs.existsSync(existing.ledger) ? readLedger(existing.ledger) : undefined;
+  const newer = prior && !prior.closed_at && !prior.stopped ? newerRun(prior, ctx.cwd) : undefined;
+  if (newer && lapsed(prior!, o, ctx.env)) {
+    return mutateLedger(prior!.file, ctx.env, l => {
+      try { readMeter(l, o, false); } catch { /* as in lapsed */ }
+      const t = tally(l);
+      const stop = l.cap !== null && t.used + t.unknown > l.cap ? stopLines(l, { call: null, next: '1', step: '1', projected: 0, reason: 'budget_exhausted' }) : timeStop(l, ctx.cwd, '1', ctx.env) ?? [];
+      return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, ...stop, `RESUME: run ${l.run} on this record was past its limit, so this start recorded its stop instead of opening a new run; a new start never lifts a stop: gstack-ship-budget resume --record ${l.record} (a cap raise needs --token-cap <n> --approved-by <who> --words <their words>)`], exit: 3 };
+    });
+  }
+  if (prior && !prior.closed_at && (prior.stopped || !newer)) {
+    return mutateLedger(prior.file, ctx.env, l => {
       if (scope === 'tree' || parentCounter) l.meter_scope = 'tree';
-      return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 };
+      return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' }),
+        ...(l.stopped ? [`STOP: reason=${l.stopped.reason} at Step ${l.stopped.step}; this record's run stopped, and a new start never lifts a stop: resume first (gstack-ship-budget resume --record ${l.record}; a cap raise needs --token-cap <n> --approved-by <who> --words <their words>)`] : [])], exit: l.stopped ? 3 : 0 };
     });
   }
   const meter = pickMeter(o);
@@ -275,6 +288,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     if (cap !== null) throw budgetError('BUDGET_METER_UNAVAILABLE', 'tried --reading (absent), a Claude Code session (--session/--nonce absent) and --meter estimate (not passed)');
     return { stdout: ['BUDGET: unmetered admission_cap=none (no readable meter: --reading <n> on Capy, --session <id> on Claude Code)'], exit: 0 };
   }
+  const superseded = newer ? [`SUPERSEDED: run ${prior!.run} on this record ${newer} and stays as it was; this /ship is a new run whose cap and clock count from its own start (to continue that run instead: gstack-ship-budget resume --run ${prior!.run})`] : [];
   const run = mintRunId();
   const dir = runDirFor(ctx.env, run);
   const owner = thisRunOwner(), checkout = toplevel(ctx.cwd);
@@ -300,8 +314,38 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const out = decide(l, '0.9', { kind: 'step', step: '1' }, call, true);
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
+  if (superseded.length) mutateLedger(prior!.file, ctx.env, old => { old.superseded_by = run; });
   const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship run metering its own counter; --token-cap <n> or none to change it)`] : [];
-  return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
+  return labelScope(l, { stdout: [...superseded, `BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
+}
+
+/**
+ * Why an open, unstopped ledger on the record belongs to an earlier /ship (GST-4109), or undefined for a rerun of the same start: it
+ * went past its start (a note, a completed or settled step, a check's second reservation or a handoff), the checkout's /ship run
+ * record opened after it started and has ended (its /ship passed preflight and finished, stopped or was abandoned; an open record is
+ * this same /ship, whose rerun of start re-attaches), or it started over RESTART_MS ago. A new start never joins an earlier /ship: it mints its
+ * own run and marks that ledger superseded_by it (so it stops holding gstack upgrades and writing the record), so the earlier run's
+ * tokens and minutes never count against this run's cap and clock. A stopped ledger is never superseded: start re-attaches it and
+ * exits 3, so only resume (with the owner's words for a cap raise) lifts a stop.
+ */
+const RESTART_MS = 5 * 60_000;
+/**
+ * Whether an open, unstopped ledger is already past its cap at this start's reading, or past 100 active minutes: a stop its next note
+ * would record, since an observe run stops lazily. start then records that stop and re-attaches instead of superseding (GST-4109), so a
+ * rerun of start never hands a run past its limit a fresh cap and clock without the owner's words.
+ */
+function lapsed(prior: Ledger, o: Opts, env: NodeJS.ProcessEnv): boolean {
+  const trial = structuredClone(prior);
+  try { readMeter(trial, o, false); } catch { /* a reading this ledger rejects leaves its cap at its last reading */ }
+  const t = tally(trial);
+  return (trial.cap !== null && t.used + t.unknown > trial.cap) || (trial.mode === 'observe' && runClock(trial, env).active > TIME_LIMIT_MIN);
+}
+function newerRun(l: Ledger, cwd: string): string | undefined {
+  if (l.notes?.length || l.steps_done?.length || l.handoffs.length || l.reservations.length > 1 || l.reservations.some(r => r.state !== 'open')) return 'already ran past its start';
+  const read = readRunRecord(toplevel(cwd) || cwd);
+  if (read.kind === 'record' && read.record.state !== 'open' && Date.parse(read.record.started_at) >= Date.parse(l.created_at)) return `belongs to /ship run ${read.record.run}, which passed preflight and is ${read.record.state}`;
+  if (Date.now() - Date.parse(l.created_at) > RESTART_MS) return `started over ${RESTART_MS / 60_000} minutes ago`;
+  return undefined;
 }
 
 /**
@@ -357,7 +401,9 @@ export function cmdSettle(argv: string[], ctx: Ctx, release = false): Outcome {
 
 export function cmdClose(argv: string[], ctx: Ctx): Outcome {
   const o = parseArgs(argv, ['run', 'record', 'reading', 'credits', 'approved-by', 'words']);
-  return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
+  let checkout: string | undefined;
+  const out = mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
+    checkout = l.checkout;
     readMeter(l, o, false);
     for (const r of l.reservations) if (r.kind === 'step' && r.state === 'open') settleIn(l, r);
     if (freshReading(l, o)) measureSettled(l);
@@ -385,9 +431,11 @@ export function cmdClose(argv: string[], ctx: Ctx): Outcome {
       return { stdout: lines, exit: 3 };
     }
     l.closed_at = new Date().toISOString();
-    if (l.marker) { try { fs.unlinkSync(l.marker); } catch {} }
+    if (l.marker && !l.superseded_by) { try { fs.unlinkSync(l.marker); } catch {} }
     return { stdout: lines, exit: 0 };
   });
+  const ended = out.exit === 0 && checkout ? endClosedRun(checkout, resolveStateRoot(ctx.env)) : null;
+  return ended ? { ...out, stdout: [...out.stdout, ended] } : out;
 }
 
 const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n.used}${n.credits === undefined ? '' : ` credits=${n.credits}`}${n.calls === undefined ? '' : ` calls=${n.calls}`}`
@@ -472,6 +520,7 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
     const meter = pickMeter(o) ?? l.meter.contract.meter;
     const successor = source !== undefined && source !== l.meter.source;
     if (successor && meter === 'capy' && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: a successor's counter needs --reading <its cost.tokens>, the new epoch's baseline`);
+    if (meter === 'capy' && meter !== l.meter.contract.meter && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter capy: run ${l.run} moves from meter=${l.meter.contract.meter} to capy, and the new epoch's baseline is --reading <cost.tokens>; without it the thread's whole counter would count as this run's use`);
     if (successor && l.credits && str(o, 'credits') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: run ${l.run} meters credits; pass --credits <its cost.credits>, the new epoch's baseline`);
     const open = successor ? l.handoffs.filter(h => !h.reconciled_at) : [];
     if (open.length) throw budgetError('BUDGET_READING_REJECTED', `resume --meter-source ${source}: handoff ${open.map(h => `${h.sha} (steps ${h.from}-${h.to})`).join(', ')} still runs on ${l.meter.source ?? 'the previous'} counter, which the new epoch cannot see; wait for its RETURN, reconcile it with a reading of that counter (${open.map(h => `gstack-ship-budget reconcile --run ${l.run} --return ${h.return_file} --reading <its cost.tokens>`).join('; ')}), then resume. A reconcile without --return writes the child off as interrupted, and its later spend is never charged`);
@@ -496,6 +545,7 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
     }
     const was = l.stopped;
     delete l.stopped;
+    delete l.superseded_by;
     if (was?.reason === 'past_100_minutes') l.clock_from = new Date().toISOString();
     pointMarker(l.marker, l);
     return [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, `RESUMED: from=${was ? `Step ${was.step} (${was.reason})` : 'running'}`, ...(was?.reason === 'past_100_minutes' ? [`CLOCK: restarted at ${l.clock_from} (the 100-minute limit counts from here)`] : []), budgetLine(l, { call: null, next: was?.next ?? '-', projected: 0, verdict: 'continue' })];

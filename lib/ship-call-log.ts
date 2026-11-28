@@ -18,7 +18,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveStateRoot } from './state-root';
 
-export interface CallRow { v: 1; bin: string; sub: string; step?: string; reading?: number; credits?: number; start: string; ms: number; exit: number }
+export interface CallRow { v: 1; bin: string; sub: string; step?: string; reading?: number; credits?: number; start: string; ms: number; exit: number; cwd?: string }
 export interface LoggedCalls {
   calls: number; phase: number; pass: number; section: number; other: number; keepaliveEst: number;
   passOverhead: number[]; idleGaps: number; maxGapS: number; first: string | null; last: string | null;
@@ -29,7 +29,7 @@ let pending: { bin: string; sub: string; started: number } | null = null;
 
 /** This process's own row as it will be written at exit (null when it writes none), for a count taken before it exits (lib/ship-clock.ts). */
 export function pendingRow(): CallRow | null {
-  return pending && { v: 1, bin: pending.bin, sub: pending.sub, start: new Date(pending.started).toISOString(), ms: Date.now() - pending.started, exit: 0 };
+  return pending && { v: 1, bin: pending.bin, sub: pending.sub, start: new Date(pending.started).toISOString(), ms: Date.now() - pending.started, exit: 0, cwd: process.cwd() };
 }
 const ROTATE_BYTES = 8 * 1024 * 1024;
 const JOIN_MS = 5_000;
@@ -50,7 +50,7 @@ export function logShipCall(bin: string, argv: string[] = process.argv.slice(2))
   pending = { bin, sub: argv[0] && !argv[0].startsWith('-') ? argv[0] : '', started };
   process.on('exit', code => {
     try {
-      const row: CallRow = { v: 1, bin, sub: argv[0] && !argv[0].startsWith('-') ? argv[0] : '', start: new Date(started).toISOString(), ms: Date.now() - started, exit: code };
+      const row: CallRow = { v: 1, bin, sub: argv[0] && !argv[0].startsWith('-') ? argv[0] : '', start: new Date(started).toISOString(), ms: Date.now() - started, exit: code, cwd: process.cwd() };
       const step = flag('step'), reading = num('reading'), credits = num('credits');
       if (step !== undefined) row.step = step;
       if (reading !== undefined) row.reading = reading;

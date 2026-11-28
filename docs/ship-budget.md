@@ -81,14 +81,18 @@ A successor thread's readings open a new epoch for credits as well as tokens
 ### The 100-minute stop
 
 ship/DRIVER.md stops a run past 100 minutes. Measured conductors ran past it in 10 of 12 runs while it was a
-line of prose (handoffs/ship-conductor-cost-2026-11-16), so it is now code (`lib/ship-clock.ts`). In observe mode
-the first `note`, or `gstack-ship-phase run --record`, past 100 minutes from the ledger's start prints
+line of prose (handoffs/ship-conductor-cost-2026-11-16), so it is now code (`lib/ship-clock.ts`). The clock counts
+active minutes, not wall time (GST-4109): any stretch longer than 5 minutes with no gstack call in the call log
+(below) is the lane parked on CI, a reviewer it ended its turn on, or a Captain's ruling, so only its first 5 minutes
+count. Only calls made in the run's own checkout count, so another lane on the same machine never keeps it running. A run that keeps calling gstack, such as a pass or phase loop that never settles, never parks, so it still
+stops at 100 minutes. With no call log (off Capy) the clock is wall time. In observe mode the first `note`, or
+`gstack-ship-phase run --record`, past 100 active minutes from the ledger's start prints
 
-    STOP: past 100 minutes (<m> min since <start>) head=<sha12> rounds=<n> calls=<n> next=<next act> state=<ledger dir>/stop.json
+    STOP: past 100 minutes (<m> active min since <start>, <p> min parked) head=<sha12> rounds=<n> calls=<n> next=<next act> state=<ledger dir>/stop.json
     RECOVER: hand <stop.json> to the next session; it runs gstack-ship-budget resume --record <rec> (the clock restarts), then reruns the phase that stopped
     GSTACK_RESULT: skill=ship status=incomplete run=<ledger dir>
 
-and exits 3. `stop.json` holds the head, the review passes noted so far (`rounds`: Step 9 notes that dispatched
+and exits 3. `stop.json` holds the wall, active and parked minutes, the head, the review passes noted so far (`rounds`: Step 9 notes that dispatched
 readers), the next act (the last line under the record's Next steps heading) and the run's calls, so the stop is a
 clean handoff. Until `resume` the ledger stays stopped: every `note` and every `gstack-ship-phase run --record`
 prints the stop again and runs nothing. `resume` prints `CLOCK: restarted at <iso>` and the next 100 minutes count
@@ -308,7 +312,16 @@ gstack-ship-budget resume --record <record> --token-cap <n> --approved-by Garry 
 ```
 
 Every command takes `--run` or `--record`; runs are never found by branch or directory, and a
-/gstack-ship without `--resume` or `--continue` always starts a new run. The ledger and record are
+/gstack-ship without `--resume` or `--continue` always starts a new run. `start` on a record whose open
+ledger has already gone past its start (a note, a check or a handoff), whose /gstack-ship passed preflight and
+ended, or that started over 5 minutes ago mints a new run, marks the earlier ledger `superseded_by` it (so it
+stops holding gstack upgrades and never writes the record or removes the marker again) and prints
+`SUPERSEDED: run <id> …`, so an earlier /gstack-ship in the same thread never counts against this run's cap or
+clock (GST-4109); a rerun of the same start inside the same open run re-attaches. A start never lifts a stop:
+on a stopped ledger it re-attaches, exits 3 and prints a `STOP:` line naming `resume`, which alone continues a
+stopped run (a cap raise with the owner's `--approved-by` and `--words`).
+Continue an earlier run with `resume --run <id>`, which clears `superseded_by`. A `resume --meter capy` that moves a run onto the Capy counter needs `--reading`, the new
+epoch's baseline, or it would count the thread's whole counter as the run's use. The ledger and record are
 mirrored to a private Drive checkpoint (`GSTACK_SHIP_BUDGET_CHECKPOINT_DIR`, else the
 project-user Drive folder on Capy) bound to the run id and their hashes, so after a machine
 change `resume --run <id>` restores both. A corrupt ledger
@@ -325,7 +338,7 @@ observe ledger on the same record:
 gstack-ship-budget start --record <record> --mode observe --reading <cost.tokens>
 ```
 
-`start` reuses a record's ledger only while it is open, so on a closed one it mints a new run id
+`start` reuses a record's ledger only while it is open and has not gone past its start, so on a closed one it mints a new run id
 and ledger for the same record and prints its `BUDGET_RUN:` line. The new ledger meters from its own
 first reading: spend under the closed ledger stays in that ledger and is not carried into the new
 one, so add the two when you report what the run cost. On Capy, `--reading` is the thread's

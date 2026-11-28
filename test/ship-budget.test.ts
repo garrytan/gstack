@@ -458,3 +458,125 @@ describe('meter epochs', () => {
     expect(tally(l).used).toBe(24_000_000);
   });
 });
+
+describe('a new /ship on a reused record meters only itself (GST-4109)', () => {
+  // Value: protects=the token cap measures this run's own use: a start on a record whose earlier run already noted (or stopped) opens a new run at its own reading, so earlier runs in the thread never count; fails_when=start re-attaches the earlier run's ledger, so its baseline (and every token since) counts against the new run's cap (GSKI-1 #10, HARN-1 #8);
+  //   why_new=start's re-attach branch was only driven by a rerun before any progress; seam=none; no_claim=the host's counter itself, which a fake --reading stands in for
+  test('a start after an earlier run progressed opens a new run whose used counts from its own reading', () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '50M', '--reading', '1000000', '--credits', '10']);
+    const a = h.field(first.out, 'BUDGET_RUN', 'id');
+    expect(h.sb(['note', '--record', record, '--step', '9', '--reading', '45000000', '--credits', '400']).code).toBe(0);
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '50M', '--reading', '46000000', '--credits', '410']);
+    expect(second.code, second.out + second.err).toBe(0);
+    const b = h.field(second.out, 'BUDGET_RUN', 'id');
+    expect(b).not.toBe(a);
+    expect(second.out).toContain(`SUPERSEDED: run ${a} on this record already ran past its start`);
+    const note = h.sb(['note', '--record', record, '--step', '6', '--reading', '48000000', '--credits', '430']);
+    expect(note.code, note.out + note.err).toBe(0);
+    expect(note.out).toMatch(/^NOTE: 6 used=2000000 credits=20\b/m);
+    expect(h.ledger(h.field(first.out, 'BUDGET_RUN', 'ledger')).meter.last).toBe(45_000_000);
+  });
+
+  // Value: protects=a new start never lifts a budget stop: only resume, with the owner's words for a cap raise, does; fails_when=start on a stopped run's record mints a fresh run at used=0, so a run past its cap continues with no approval (targeted money reader, ship-1-p2);
+  //   why_new=the stopped re-attach was never driven; seam=none; no_claim=which run a lane should continue, its call
+  test('a start on a record whose run stopped at its cap re-attaches the stopped run and exits 3; resume lifts it', () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '10M', '--reading', '1000000']);
+    const a = h.field(first.out, 'BUDGET_RUN', 'id');
+    expect(h.sb(['note', '--record', record, '--step', '9', '--reading', '20000000']).code).toBe(3);
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '10M', '--reading', '21000000']);
+    expect(second.code, second.out + second.err).toBe(3);
+    expect(h.field(second.out, 'BUDGET_RUN', 'id')).toBe(a);
+    expect(second.out).not.toContain('SUPERSEDED:');
+    expect(second.out).toMatch(/^STOP: reason=budget_exhausted at Step 9; .*resume first/m);
+    expect(h.ledger(h.field(first.out, 'BUDGET_RUN', 'ledger')).superseded_by).toBeUndefined();
+    const resumed = h.sb(['resume', '--run', a, '--reading', '22000000', '--token-cap', '30M', '--approved-by', 'GSTA-36', '--words', 'raise it']);
+    expect(resumed.code, resumed.out + resumed.err).toBe(0);
+    expect(resumed.out).toContain(`BUDGET_RUN: id=${a} `);
+  });
+
+  // Value: protects=a start on a run already past its cap at this start's reading, but not yet stopped (observe mode stops at the next note), records the stop and re-attaches instead of handing out a fresh cap; fails_when=a rerun of start after compaction supersedes an over-cap run with used=0 and no owner words (targeted money reader, ship-1-p4);
+  //   why_new=the stopped case above only covers a stop a note already recorded; seam=none; no_claim=admit mode, whose check stops before the cap
+  test('a start on a run past its cap that no note stopped yet records the stop and exits 3', () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '10M', '--reading', '1000000']);
+    const a = h.field(first.out, 'BUDGET_RUN', 'id');
+    expect(h.sb(['note', '--record', record, '--step', '9', '--reading', '5000000']).code).toBe(0);
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '10M', '--reading', '20000000']);
+    expect(second.code, second.out + second.err).toBe(3);
+    expect(h.field(second.out, 'BUDGET_RUN', 'id')).toBe(a);
+    expect(second.out).not.toContain('SUPERSEDED:');
+    expect(second.out).toMatch(/^STOP: reason=budget_exhausted /m);
+    expect(second.out).toMatch(/^RESUME: run \S+ on this record was past its limit/m);
+    expect(h.ledger(h.field(first.out, 'BUDGET_RUN', 'ledger')).stopped?.reason).toBe('budget_exhausted');
+  });
+
+  // Value: protects=a rerun of the same start before any progress stays one run; fails_when=every start mints a run, so a restarted Phase 2 splits one /ship into two ledgers;
+  //   why_new=the guard above narrows re-attach; seam=none; no_claim=admission-mode reruns past Step 1
+  test('a rerun of start before the run progressed re-attaches the same run', () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1000000']);
+    const again = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1100000']);
+    expect(again.code, again.out + again.err).toBe(0);
+    expect(h.field(again.out, 'BUDGET_RUN', 'id')).toBe(h.field(first.out, 'BUDGET_RUN', 'id'));
+    expect(again.out).not.toContain('SUPERSEDED:');
+  });
+
+  // Value: protects=a resume that moves a run onto the Capy counter takes that counter's reading as the new epoch's baseline; fails_when=resume --meter capy with no --reading sets the baseline to 0, so the thread's lifetime counter counts as this run's use;
+  //   why_new=only a successor's resume required the reading; seam=none; no_claim=the Claude meter's own baseline
+  test('resume --meter capy without a reading is refused instead of metering from zero', () => {
+    const h = fresh();
+    const record = h.record();
+    expect(h.sb(['start', '--record', record, '--mode', 'observe', '--meter', 'estimate']).code).toBe(0);
+    const bare = h.sb(['resume', '--record', record, '--meter', 'capy']);
+    expect(bare.code).toBe(2);
+    expect(bare.err).toContain('BUDGET_READING_MISSING');
+    const ok = h.sb(['resume', '--record', record, '--meter', 'capy', '--reading', '900000000']);
+    expect(ok.code, ok.out + ok.err).toBe(0);
+    const note = h.sb(['note', '--record', record, '--step', '6', '--reading', '901000000']);
+    expect(note.out).toMatch(/^NOTE: 6 used=1000000\b/m);
+  });
+  // Value: protects=a start re-attaches only a fresh rerun: an open run that never noted but started over 5 minutes ago is an earlier /ship, so a new start opens its own run and marks the old one superseded, which then holds no gstack upgrade; fails_when=a run parked before its first note (a preflight STOP) still lends its baseline and clock to the next /ship (red-team, ship-1-p1), or the superseded ledger keeps holding upgrades;
+  //   why_new=the cases above only re-start at once; seam=the ledger's created_at, backdated; no_claim=admission-mode reruns
+  test('an unprogressed run older than 5 minutes is superseded, and the superseded ledger holds no upgrade', async () => {
+    const { liveRun } = await import('../lib/ship-run-live');
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1000000']);
+    const oldLedger = h.field(first.out, 'BUDGET_RUN', 'ledger');
+    const l = h.ledger(oldLedger);
+    l.created_at = new Date(Date.now() - 10 * 60_000).toISOString();
+    fs.writeFileSync(oldLedger, JSON.stringify(l, null, 2));
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '30000000']);
+    expect(second.code, second.out + second.err).toBe(0);
+    const b = h.field(second.out, 'BUDGET_RUN', 'id');
+    expect(b).not.toBe(l.run);
+    expect(second.out).toContain(`SUPERSEDED: run ${l.run} on this record started over 5 minutes ago`);
+    expect(h.ledger(oldLedger).superseded_by).toBe(b);
+    expect(fs.readFileSync(record, 'utf8')).toContain(`run=${b} `);
+    expect(h.sb(['close', '--record', record, '--reading', '31000000']).code).toBe(0);
+    expect(liveRun(h.state).live).toBeUndefined();
+  });
+
+  // Value: protects=a superseded run's late write never repoints the shared record at it or removes the new run's marker; fails_when=a note or close through the old run id rewrites the record block to the superseded run, so the next note meters against the wrong ledger (outside-voice, ship-1-p2);
+  //   why_new=the case above only closed the new run; seam=--run on the superseded id; no_claim=two hosts writing the same ledger at once
+  test("a superseded run's late note and close leave the record pointing at the new run", () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1000000']);
+    const a = h.field(first.out, 'BUDGET_RUN', 'id');
+    expect(h.sb(['note', '--record', record, '--step', '9', '--reading', '2000000']).code).toBe(0);
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '3000000']);
+    const b = h.field(second.out, 'BUDGET_RUN', 'id');
+    expect(b).not.toBe(a);
+    expect(h.sb(['note', '--run', a, '--step', '10', '--reading', '4000000']).code).toBe(0);
+    expect(fs.readFileSync(record, 'utf8')).toContain(`run=${b} `);
+    const note = h.sb(['note', '--record', record, '--step', '6', '--reading', '5000000']);
+    expect(note.out).toMatch(/^NOTE: 6 used=2000000\b/m);
+  });
+});
