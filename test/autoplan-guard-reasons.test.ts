@@ -21,9 +21,9 @@ describe('guard reason inventory', () => {
 
   test('no denial advises a retry; transients say what to wait for; fallbacks print the runnable fallback', () => {
     for (const [code, reason] of Object.entries(REASONS)) {
-      const text = reasonText(code, sample, '2.1.292');
+      const text = reasonText(code, sample, '2.1.292'); // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' a sample version string for the reason text, not the checked pin
       expect({ code, retry: /\bretry/i.test(text) }).toEqual({ code, retry: false });
-      expect(text).toContain(`(code ${code}, Claude Code 2.1.292)`);
+      expect(text).toContain(`(code ${code}, Claude Code 2.1.292)`); // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' echoes the sample version passed in above
       expect(text).toContain(`${GUIDE}#${anchor(code)}`);
       if (reason.disposition === 'transient') expect(text).toMatch(/\bWait for\b/);
       if (reason.disposition === 'fallback') expect(text).toContain(FALLBACK);

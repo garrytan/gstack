@@ -140,6 +140,30 @@ describe('review-sweep inventory diff', () => {
     expect(later.ignored ?? []).toEqual([]);
   });
 
+  // Value: protects=a byte-identical copy of the runtime running the sweep (process.execPath; gstack-evals#463 copies its own bun to /tmp/hm-hold-*/.bun/bin/bun)
+  //   is printed as FETCH_IGNORED host-runtime, not a download; fails_when=a test that copies the host's bun stops /ship with FETCH_VIOLATION and FETCH_RERUN_BLOCKED,
+  //   or the exemption lets through a binary named bun whose bytes differ (one flipped byte, one appended byte) or a copy swapped for other bytes later;
+  //   why_new=GST-3959; seam=inventory; no_claim=a copy of any other runtime, an older bun or a runtime whose own path was rewritten during the stage
+  test.skipIf(fs.statSync(process.execPath).size < BIG_BYTES)('a byte-identical copy of the host runtime is ignored; a modified binary named bun is still a download', async () => {
+    const root = tmp();
+    const checkout = path.join(root, 'checkout');
+    repoAt(checkout);
+    const start = inventory([root], checkout, []);
+    await Bun.sleep(30);
+    const bun = (hold: string) => { const p = path.join(root, hold, '.bun', 'bin', 'bun'); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.copyFileSync(process.execPath, p); return p; };
+    const copy = bun('hm-hold-a'), flipped = bun('hm-hold-b'), grown = bun('hm-hold-c');
+    const fd = fs.openSync(flipped, 'r+');
+    try { const b = Buffer.alloc(1); fs.readSync(fd, b, 0, 1, BIG_BYTES - 1); b[0] = b[0]! ^ 0xff; fs.writeSync(fd, b, 0, 1, BIG_BYTES - 1); } finally { fs.closeSync(fd); }
+    fs.appendFileSync(grown, Buffer.from([0]));
+    const r = sweepResult(start, inventory([root], checkout, []));
+    expect(r.found.map(f => [f.path, f.kind]).sort()).toEqual([[flipped, 'download'], [grown, 'download']].sort());
+    expect(r.ignored).toEqual([{ path: copy, reason: 'host-runtime' }]);
+    expect(ignoredLines('specialists', 1, r.ignored!)[0]).toContain('reason=host-runtime');
+    const mid = inventory([root], checkout, []);
+    fs.rmSync(copy); fs.writeFileSync(copy, ''); fs.truncateSync(copy, BIG_BYTES);
+    expect(sweepResult(mid, inventory([root], checkout, [])).found.map(f => f.path)).toEqual([copy]);
+  });
+
   // Value: protects=a build output already on disk when a stage starts is never counted, as on main where it sat in start.big;
   //   fails_when=an uncommitted .gitignore edit or a git timeout at the end walk moves it from ignored to big and the stage is voided as FETCH_VIOLATION;
   //   why_new=ship-4672 p1/red-team#1; seam=sweepDiff; no_claim=files the stage itself wrote
@@ -339,5 +363,26 @@ describe('review-sweep and Capy platform state (GST-3359)', () => {
       `download ${path.join(h, '.capy', 'drive-engine', 'loc', 'repo.tar')}`, `download ${path.join(h, '.capy', 'work', 'chats.tar')}`, `download ${path.join(h, 'dl', 'old.bin')}`,
     ]);
     expect(out).toContain('FETCH_SWEEP: violation stage=specialists attempt=1 found=3');
+  });
+
+  // Value: protects=through the registered sweep command, a stage during which a test copies the runtime the command runs on into the temp dir sweeps clean
+  //   with a FETCH_IGNORED host-runtime line, while the same copy with one appended byte is still a violation; fails_when=gstack-evals#463's hold test
+  //   (GST-3959) stops /ship again, or the exemption reaches a binary that is not byte-identical; seam=gstack-review-dispatch sweep --phase start/end;
+  //   no_claim=a copy of a runtime other than the one the sweep command runs on
+  test.skipIf(fs.statSync(process.execPath).size < BIG_BYTES)('a copy of the runtime the sweep runs on is not a download; the same copy with one more byte is', () => {
+    const { dir, env } = repo();
+    made.push(dir);
+    const real = fs.realpathSync(dir);
+    const h = home(real);
+    const runEnv = { ...env, HOME: h, GSTACK_SWEEP_ROOTS: real };
+    const exe = spawnSync('bash', ['-c', 'exec bun --no-env-file --config=/dev/null -e "process.stdout.write(process.execPath)"'], { cwd: real, env: runEnv, encoding: 'utf8', timeout: 30_000 }).stdout;
+    expect(fs.statSync(exe).size).toBeGreaterThanOrEqual(BIG_BYTES);
+    const copy = (hold: string) => { const p = path.join(real, hold, '.bun', 'bin', 'bun'); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.copyFileSync(exe, p); return p; };
+    const clean = sweepStage(real, runEnv, () => copy('hm-hold-a'));
+    expect(clean).toContain('FETCH_SWEEP: clean stage=specialists attempt=1 found=0');
+    expect(clean).toContain(`FETCH_IGNORED: stage=specialists attempt=1 path='${path.join(real, 'hm-hold-a', '.bun', 'bin', 'bun')}' reason=host-runtime`);
+    const dirty = sweepStage(real, runEnv, () => fs.appendFileSync(copy('hm-hold-b'), Buffer.from([0])));
+    expect(dirty).toContain(`kind=download path='${path.join(real, 'hm-hold-b', '.bun', 'bin', 'bun')}'`);
+    expect(dirty).toContain('FETCH_SWEEP: violation stage=specialists attempt=1 found=1');
   });
 });

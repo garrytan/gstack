@@ -104,3 +104,65 @@ describe.skipIf(process.platform === 'win32')('plan-review prompt file lives in 
     });
   }
 });
+
+// Value: protects=the plan-review prompt file #4851 writes under .gstack/tmp/ is git-excluded by the Codex helper its own block runs
+//   (gstack-codex-probe role-ready), wherever the session runs: the repository root, a subdirectory, and a linked worktree (whose exclude file
+//   is the main checkout's), with each exclude line written once and an exclude file missing its final newline kept intact; outside git it does
+//   nothing; fails_when=a leftover prompt shows in git status and can be committed; why_new=#4851 follow-up (GST-4112);
+//   seam=the generated create command and gstack-codex-probe role-ready; no_claim=a .gitignore negation that overrides info/exclude
+describe.skipIf(process.platform === 'win32')('plan-review prompt file is git-excluded (#4851 follow-up)', () => {
+  const stub = path.join(scratch, 'stub-bin');
+  fs.mkdirSync(stub, { recursive: true });
+  fs.writeFileSync(path.join(stub, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const home = path.join(scratch, 'probe-home');
+  fs.mkdirSync(home, { recursive: true });
+  const env = { ...process.env, PATH: stub + path.delimiter + process.env.PATH, _TEL: 'off', HOME: home, GSTACK_HOME: path.join(home, '.gstack'), GSTACK_STATE_ROOT: path.join(home, '.gstack') };
+  const status = (cwd: string) => git(cwd, 'status', '--porcelain', '--untracked-files=all');
+  const session = (create: string, cwd: string) => {
+    const made = spawnSync('bash', ['-c', create], { cwd, env, encoding: 'utf8', timeout: 30_000 });
+    expect(made.status, made.stderr).toBe(0);
+    const prompt = made.stdout.trim();
+    expect(path.dirname(prompt)).toBe(path.join(cwd, '.gstack', 'tmp'));
+    fs.writeFileSync(prompt, 'review this plan');
+    spawnSync(path.join(ROOT, 'bin', 'gstack-codex-probe'), ['role-ready', 'exec'], { cwd, env, encoding: 'utf8', timeout: 30_000 });
+  };
+  for (const skill of ['plan-ceo-review', 'plan-eng-review']) {
+    test(skill, () => {
+      const text = fs.readFileSync(path.join(ROOT, skill, 'sections', 'review-sections.md'), 'utf8');
+      const at = text.indexOf('gstack-plan-prompt');
+      const create = [...text.matchAll(/`([^`\n]+)`/g)].map(m => m[1]).filter(s => s.includes('gstack-plan-prompt'))[0]!;
+      expect(text.slice(at, text.indexOf('\n```\n', text.indexOf('```bash', at)))).toContain(' role-ready exec');
+      const base = path.join(scratch, `excluded-${skill}`);
+      const main = path.join(base, 'main');
+      fs.mkdirSync(path.join(main, 'sub', 'dir'), { recursive: true });
+      git(main, 'init', '-q');
+      git(main, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'base');
+      const excludeFile = path.join(main, '.git', 'info', 'exclude');
+      fs.writeFileSync(excludeFile, '*.log');
+      const lines = () => fs.readFileSync(excludeFile, 'utf8').split('\n');
+      session(create, main); session(create, main);
+      expect(status(main)).toBe('');
+      expect(lines().filter(l => l === '/.gstack/tmp/')).toHaveLength(1);
+      expect(lines()).toContain('*.log');
+
+      session(create, path.join(main, 'sub', 'dir'));
+      expect(status(main)).toBe('');
+      expect(lines().filter(l => l === '/sub/dir/.gstack/tmp/')).toHaveLength(1);
+
+      fs.mkdirSync(path.join(main, 'pkg[1]', 'a*b'), { recursive: true });
+      session(create, path.join(main, 'pkg[1]', 'a*b'));
+      expect(status(main)).toBe('');
+      expect(lines()).toContain('/pkg\\[1\\]/a\\*b/.gstack/tmp/');
+
+      git(main, 'worktree', 'add', '-q', path.join(base, 'wt'));
+      session(create, path.join(base, 'wt')); session(create, path.join(base, 'wt'));
+      expect(status(path.join(base, 'wt'))).toBe('');
+      expect(lines().filter(l => l === '/.gstack/tmp/')).toHaveLength(1);
+
+      const plain = path.join(base, 'not-a-repo');
+      fs.mkdirSync(plain);
+      session(create, plain);
+      expect(fs.existsSync(path.join(plain, '.git'))).toBe(false);
+    });
+  }
+});

@@ -13,9 +13,11 @@
  *
  * Two kinds of new directory are not fetches and print FETCH_IGNORED instead (GST-1695): a test fixture root below a sweep
  * root that carries FIXTURE_MARKER (test-setup.ts puts every test's temp paths under one), and a repository whose every
- * network remote resolves to a local path through url.<base>.insteadOf (the ship fixtures' fake GitHub origin).
+ * network remote resolves to a local path through url.<base>.insteadOf (the ship fixtures' fake GitHub origin). A new big file
+ * that is a byte-identical copy of the runtime running the sweep is not one either (FETCH_IGNORED host-runtime, GST-3959).
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -34,7 +36,7 @@ const SCP = /^(?:[\w.-]+@)?[\w.-]+:(?!\/\/)[\w./-]+$/;
 export interface Inventory { at: number; roots: string[]; repos: Record<string, string[]>; big: Record<string, number>; ignored?: Record<string, Omit<Ignored, 'path'>>; partial?: string }
 export interface Found { path: string; kind: 'repo' | 'download'; remote?: string; bytes: number | null }
 /** A new directory the sweep saw and did not count: a marked test fixture root, or a repository whose remote resolves locally. */
-export interface Ignored { path: string; reason: 'fixture-marker' | 'local-remote' | 'build-output'; remote?: string }
+export interface Ignored { path: string; reason: 'fixture-marker' | 'local-remote' | 'build-output' | 'host-runtime'; remote?: string }
 export type SweepVerdict = 'clean' | 'violation' | 'partial';
 export interface StageSweep {
   attempt: number;
@@ -139,7 +141,17 @@ export function inventory(roots: readonly string[], checkout: string, skip: read
     }
     for (const d of list) {
       const p = path.join(dir, d.name);
-      if (d.isFile()) { if (ENGINE_DB.test(d.name) && dir.startsWith(engine)) continue; try { const s = fs.statSync(p); if (s.size >= BIG_BYTES) { if (buildOutput(home, p)) inv.ignored![p] = { reason: 'build-output' }; else inv.big[p] = s.size; } } catch { /* gone */ } continue; }
+      if (d.isFile()) {
+        if (ENGINE_DB.test(d.name) && dir.startsWith(engine)) continue;
+        try {
+          const s = fs.statSync(p);
+          if (s.size < BIG_BYTES) continue;
+          if (buildOutput(home, p)) inv.ignored![p] = { reason: 'build-output' };
+          else if (Date.now() <= deadline && hostRuntimeCopy(p, s.size)) inv.ignored![p] = { reason: 'host-runtime' };
+          else inv.big[p] = s.size;
+        } catch { /* gone */ }
+        continue;
+      }
       if (d.isDirectory() && !SKIP.has(d.name) && depth < SWEEP_DEPTH) walk(p, depth + 1);
     }
   };
@@ -168,6 +180,27 @@ function buildOutput(checkout: string, file: string): boolean {
   try { const fd = fs.openSync(file, 'r'); try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); } } catch { return false; }
   return NATIVE_MAGIC.some(m => m.every((b, i) => head[i] === b));
 }
+function sha256File(file: string): string {
+  const hash = createHash('sha256'), buf = Buffer.alloc(1 << 20), fd = fs.openSync(file, 'r');
+  try { for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, n)); } finally { fs.closeSync(fd); }
+  return hash.digest('hex');
+}
+
+let hostRuntime: { exe: string; size: number; sha256?: string } | null | undefined;
+/**
+ * A copy of a binary already on the machine, not a fetch (GST-3959: gstack-evals#463's tests copy their own `bun` into /tmp):
+ * a file with exactly the size and SHA-256 of the runtime running this sweep (process.execPath, hashed at most once per process
+ * and only when a file of its size turns up). A name, a path, or any other binary never counts, and past the sweep's time budget
+ * no file is hashed, so it stays a download.
+ */
+function hostRuntimeCopy(file: string, size: number): boolean {
+  if (hostRuntime === undefined) {
+    try { const exe = fs.realpathSync(process.execPath); hostRuntime = { exe, size: fs.statSync(exe).size }; } catch { hostRuntime = null; }
+  }
+  if (!hostRuntime || size !== hostRuntime.size) return false;
+  try { hostRuntime.sha256 ??= sha256File(hostRuntime.exe); return sha256File(file) === hostRuntime.sha256; } catch { return false; }
+}
+
 function du(p: string): number | null {
   const r = spawnSync('du', ['-sk', p], { encoding: 'utf8', timeout: 10_000 });
   const kb = Number(/^(\d+)/.exec(r.stdout ?? '')?.[1]);
@@ -226,7 +259,8 @@ export function foundLines(stage: Stage, attempt: number, found: readonly Found[
 export function ignoredLines(stage: Stage, attempt: number, ignored: readonly Ignored[]): string[] {
   return ignored.map(i => {
     const remote = i.remote ? ` remote=${control(i.remote) ? JSON.stringify(i.remote) : i.remote}` : '';
-    const why = i.reason === 'fixture-marker' ? `a test fixture root carrying ${FIXTURE_MARKER}` : i.reason === 'build-output' ? 'a native executable the checkout\'s committed .gitignore names exactly, which its own build writes' : 'its remote resolves to a local path through url.<base>.insteadOf';
+    const why = i.reason === 'fixture-marker' ? `a test fixture root carrying ${FIXTURE_MARKER}` : i.reason === 'build-output' ? 'a native executable the checkout\'s committed .gitignore names exactly, which its own build writes'
+      : i.reason === 'host-runtime' ? 'a byte-identical copy (size and SHA-256) of the runtime running this sweep, already on the machine' : 'its remote resolves to a local path through url.<base>.insteadOf';
     return `FETCH_IGNORED: stage=${stage} attempt=${attempt} path=${shownPath(i.path)} reason=${i.reason}${remote} (${why}, so not a fetch; docs/review-policy.md#what-readers-may-fetch)`;
   });
 }

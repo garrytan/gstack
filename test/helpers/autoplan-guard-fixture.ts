@@ -85,7 +85,7 @@ export function guardFixture(phase: Phase = 'ceo', opts: { methodologyLines?: nu
     let parent: string | null = null, clock = Date.parse('2026-10-07T09:04:00Z');
     const record = (type: string, message: Record_, extra: Record_ = {}) => {
       const uuid = randomUUID(); const r = { uuid, parentUuid: parent, cwd, sessionId, isSidechain: false,
-        version: opts.version ?? '2.1.292', timestamp: new Date(clock += 100).toISOString(), type, message, ...extra };
+        version: opts.version ?? '2.1.292', timestamp: new Date(clock += 100).toISOString(), type, message, ...extra }; // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' the journal's default version, an older checked release the guard must still judge normally
       parent = uuid; return r;
     };
     const assistant = (messageId: string | undefined, content: unknown[], extra: Record_ = {}) =>

@@ -14,6 +14,7 @@ import { AGENT_KEYS, CHECKED_CLAUDE_CODE, evaluatePayloadPublication, nativeTool
 import { readOwnedClaudePublicTranscript } from '../lib/claude-owned-journal';
 import { nativePathSpelling } from '../lib/claude-public-transcript';
 import captured from './fixtures/claude-agent-payload-2.1.292.json';
+import latest from './fixtures/claude-agent-payload-2.1.326.json';
 import { OWNED_READ_APPROVAL } from '../autoplan/bin/owned-read';
 
 const fixtures: GuardFixture[] = [];
@@ -21,7 +22,7 @@ afterEach(() => { for (const f of fixtures.splice(0)) f.cleanup(); });
 const make = (...args: Parameters<typeof guardFixture>) => { const f = guardFixture(...args); fixtures.push(f); return f; };
 const dispatch = (f: GuardFixture, extra: Record<string, unknown> = {}) =>
   ({ description: 'CEO review', subagent_type: 'general-purpose', prompt: f.snapshot.nativeDispatchPrompt, ...extra });
-/** The schema-parsed payload: what Claude Code 2.1.292 with the fork-subagent gate hands PreToolUse. */
+/** The schema-parsed payload: what Claude Code 2.1.292 with the fork-subagent gate hands PreToolUse. */ // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' names the release the original #3062 capture came from
 const parsed = (input: Record<string, unknown>) => { const { run_in_background: _drop, ...rest } = input; return rest; };
 
 describe('Cause A: the Agent schema strips run_in_background', () => {
@@ -32,7 +33,7 @@ describe('Cause A: the Agent schema strips run_in_background', () => {
       f.use('review', 'Agent', raw); f.journal();
       const output = await f.hook(f.input('review', 'Agent', parsed(raw)));
       expect(output).toEqual({});
-      expect(f.log().at(-1)).toMatchObject({ decision: 'allow', path: 'journal', claude_code_version: '2.1.292' });
+      expect(f.log().at(-1)).toMatchObject({ decision: 'allow', path: 'journal', claude_code_version: '2.1.292' }); // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' the fixture journal's default version, echoed into the log
     });
 
   test('journal-path negative controls stay denied: changed prompt, added model, changed description', async () => {
@@ -62,18 +63,37 @@ describe('Cause A: the Agent schema strips run_in_background', () => {
     expect(JSON.stringify(f.log())).not.toContain('claude-opus-secret-value');
   });
 
-  test('the allowlist covers every Agent key Claude Code 2.1.292 hands PreToolUse', () => {
-    for (const payload of captured.agentPayloads) for (const key of Object.keys(payload.tool_input)) expect(AGENT_KEYS).toContain(key);
-    expect(CHECKED_CLAUDE_CODE).toBe(captured.claudeCodeVersion);
+  test('the allowlist covers every Agent key Claude Code 2.1.292 and 2.1.326 hand PreToolUse, and the checked release is the newest capture', () => { // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' names the older capture beside the checked one
+    for (const payload of [...captured.agentPayloads, ...latest.agentPayloads]) for (const key of Object.keys(payload.tool_input)) expect(AGENT_KEYS).toContain(key);
+    expect(CHECKED_CLAUDE_CODE).toBe(latest.claudeCodeVersion);
     expect(nativeToolInput({ prompt: 'p', run_in_background: 'false' }, '/', 'Agent')).toEqual({ prompt: 'p' });
     expect(nativeToolInput({ file_path: 'x', run_in_background: true }, '/', 'Read'))
       .toEqual({ file_path: nativePathSpelling(path.resolve('/', 'x')), run_in_background: true });
   });
 
+  // Value: protects=the guard on Claude Code 2.1.326 as captured (#4822 moved CI to it): its PreToolUse payload, with the new effort key beside the
+  //   schema-parsed Agent input, passes for the forced run_in_background dispatch, and a strip of any other key is denied, not waved through as an
+  //   unseen version; fails_when=the pin still reads 2.1.292, so every 2.1.326 strip is only a warning, or the new payload key breaks the hook; // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' describes the old pin this test guards against
+  //   why_new=GST-4112 (#4822 follow-up); seam=runPublicationHook journal path; no_claim=interactive flush timing on 2.1.326
+  test('2.1.326 as captured: the forced dispatch passes the hook, and any other strip is denied', async () => {
+    const shape = Object.fromEntries(latest.payloadKeys.filter(key => !['session_id', 'transcript_path', 'cwd', 'hook_event_name', 'tool_name', 'tool_input', 'tool_use_id'].includes(key))
+      .map(key => [key, key === 'effort' ? { level: 'medium' } : key === 'permission_mode' ? 'default' : 'prompt-1']));
+    expect(Object.keys(shape).sort()).toEqual(['effort', 'permission_mode', 'prompt_id']);
+    const allowed = make('ceo', { version: '2.1.326' });
+    const raw = dispatch(allowed, { run_in_background: latest.forcedRunInBackground.journalInput.run_in_background });
+    allowed.use('review', 'Agent', raw); allowed.journal();
+    expect(await allowed.hook({ ...allowed.input('review', 'Agent', parsed(raw)), ...shape })).toEqual({});
+    expect(allowed.log().at(-1)).toMatchObject({ decision: 'allow', path: 'journal', claude_code_version: '2.1.326' });
+    const denied = make('ceo', { version: '2.1.326' });
+    const sent = dispatch(denied); denied.use('review', 'Agent', sent); denied.journal();
+    const { description: _gone, ...stripped } = sent;
+    expect(codeOf(await denied.hook({ ...denied.input('review', 'Agent', stripped), ...shape }))).toBe('current_mismatch');
+  });
+
   test('UC1: a pure strip by a newer, unchecked Claude Code is unverified; the same strip on a checked version is denied', async () => {
-    expect(newerThanChecked('2.1.300')).toBe(true);
+    expect(newerThanChecked('2.1.400')).toBe(true);
     expect(newerThanChecked(CHECKED_CLAUDE_CODE)).toBe(false);
-    for (const [version, expected] of [['2.1.300', 'unseen_version'], ['2.1.292', 'current_mismatch']] as const) {
+    for (const [version, expected] of [['2.1.400', 'unseen_version'], [CHECKED_CLAUDE_CODE, 'current_mismatch'], ['2.1.292', 'current_mismatch']] as const) { // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' an older known release, an input on purpose
       const f = make('ceo', { version });
       const raw = dispatch(f); f.use('review', 'Agent', raw); f.journal();
       const { description: _gone, ...stripped } = raw;
@@ -82,7 +102,7 @@ describe('Cause A: the Agent schema strips run_in_background', () => {
       if (expected === 'unseen_version') {
         expect(output.hookSpecificOutput.permissionDecision).toBeUndefined();
         expect(output.systemMessage).toContain('description');
-        expect(f.log().at(-1)).toMatchObject({ decision: 'allow', disposition: 'unverified', code: 'unseen_version', claude_code_version: '2.1.300' });
+        expect(f.log().at(-1)).toMatchObject({ decision: 'allow', disposition: 'unverified', code: 'unseen_version', claude_code_version: '2.1.400' });
       } else expect(denial(output)).toBeDefined();
     }
   });
@@ -152,7 +172,7 @@ describe('Publication flush: a report counts only once a later journaled record 
   test('ENG-2: the same publish-separately cause seen twice in one invocation switches to the fallback', async () => {
     // The first report never reached the journal; after its denial the republished report is still the last record.
     const f = make(); f.use('denied', 'Read', { file_path: section('design-phase.md') });
-    f.result('denied', { isError: true, content: '[autoplan] The Phase 1 report ... (code publication_unflushed, Claude Code 2.1.292).' });
+    f.result('denied', { isError: true, content: '[autoplan] The Phase 1 report ... (code publication_unflushed, Claude Code 2.1.292).' }); // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' a recorded denial text from the older release
     f.report(f.nextMessage()); f.journal();
     const output = await f.hook(next(f));
     expect(codeOf(output)).toBe('publication_repeat');
@@ -162,7 +182,7 @@ describe('Publication flush: a report counts only once a later journaled record 
   test('a denied call after the report proves the report was journaled, so the next attempt counts it', async () => {
     const f = make(); const m = f.nextMessage(); f.report(m);
     f.use('denied', 'Read', { file_path: section('design-phase.md') }, m);
-    f.result('denied', { isError: true, content: '(code publication_unflushed, Claude Code 2.1.292)' }); f.journal();
+    f.result('denied', { isError: true, content: '(code publication_unflushed, Claude Code 2.1.292)' }); f.journal(); // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' a recorded denial text from the older release
     expect(await f.hook(next(f))).toEqual(OWNED_READ_APPROVAL);
   });
 
@@ -297,7 +317,7 @@ describe('Cause C: the hook runs before Claude Code flushes the turn it acts in 
   });
 });
 
-test('the captured 2.1.292 evidence fixture records Cause A exactly', () => {
+test('the captured 2.1.292 evidence fixture records Cause A exactly', () => { // pregate-literal: CHECKED_CLAUDE_CODE='2.1.292' names the 2.1.292 evidence fixture
   const forced = captured.forcedRunInBackground;
   expect(forced.journalInput.run_in_background).toBe('false');
   expect('run_in_background' in forced.payloadInput).toBe(false);
