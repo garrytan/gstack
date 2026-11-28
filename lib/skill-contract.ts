@@ -235,6 +235,11 @@ export function parseTranscript(text: string, opts: { includeSidechain?: boolean
     try { rec = JSON.parse(raw); } catch { continue; }
     if (!isObject(rec)) continue;
     objects++;
+    const att = rec.type === 'attachment' && isObject(rec.attachment) ? rec.attachment : null;
+    if (att && att.type === 'queued_command' && att.commandMode === 'task-notification' && typeof att.prompt === 'string') {
+      if (rec.isSidechain !== true || opts.includeSidechain) events.push({ kind: 'meta', line: idx + 1, text: att.prompt });
+      continue;
+    }
     if (rec.type !== 'user' && rec.type !== 'assistant') continue;
     const line = idx + 1;
     if (!isObject(rec.message)) throw new UnknownShape(`line ${line}: ${rec.type} record without a message object`);
@@ -435,7 +440,7 @@ function checkItem(item: ContractItem, run: TranscriptEvent[], codex: boolean): 
     case 'outside_voice': {
       // Only a tool's own output counts: never assistant text, and never a line the command spells out itself (echo 'OUTSIDE_STATUS: ...').
       const status = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.outsideVoiceStatus)} \\S+ .*\\bpass=${escapeRe(item.pass as string)}(?:\\s|$)`);
-      const mode = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.codexModeSkip)} [a-z_]+$`);
+      const mode = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.codexModeSkip)} [a-z_]+(?: \\([a-z_]+\\))?$`);
       const skip = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.codexModeSkip)} (?!ready\\b|unverified\\b)[a-z_]+$`);
       const ownPass = new RegExp(`--pass\\s+['"]?${escapeRe(item.pass as string)}['"]?(?:\\s|$)`);
       const own = (r: { command: string; text: string }, re: RegExp) => r.text.split('\n').map(l => l.trim()).filter(l => l && re.test(l) && !r.command.includes(l));

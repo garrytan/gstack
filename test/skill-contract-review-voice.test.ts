@@ -105,6 +105,7 @@ describe('outside-voice: only the tool\'s own status line counts', () => {
     const second = (mode: string) => [tool('p2', 'Bash', { command: PROBE.replace('ready', mode) }), result('p2', `CODEX_MODE: ${mode}`)];
     expect(items([...BASE, ...preflight('not_authed'), ...second('ready'), REPORT])['outside-voice']).toBe('missing');
     expect(items([...BASE, ...preflight('ready'), ...second('not_authed'), REPORT])['outside-voice']).toBe('met');
+    expect(items([...BASE, ...preflight('not_authed'), ...second('unverified (rate_limited)'), REPORT])['outside-voice']).toBe('missing');
   });
 });
 

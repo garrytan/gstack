@@ -255,6 +255,22 @@ describe('never blocks the wrong turn', () => {
     expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).reason).toStartWith('SKILL_CONTRACT_AGENTS_RUNNING');
   });
 
+  // Value: protects=a headless run whose background Agents finished is released when Claude Code records the completion
+  //   natively (an attachment queued_command record, the shape in fixtures/outside-async-task-m-events.json) instead of
+  //   holding for AGENT_STALL_MS; fails_when=the parser skips attachment records; why_new=GST-4097's final review
+  test('headless: a native queued_command task-notification attachment releases the hold for its Agent only', () => {
+    const notice = (task: string, toolUse: string) => JSON.stringify({ isSidechain: false, type: 'attachment', sessionId: 'sess-1', attachment: {
+      type: 'queued_command', commandMode: 'task-notification',
+      prompt: `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${toolUse}</tool-use-id>\n<output-file>/tmp/tasks/${task}.output</output-file>\n<status>completed</status>\n<summary>Agent "Testing specialist" completed</summary>\n</task-notification>` } });
+    const file = transcript([slash('review'), tool('toolu_bg1', 'Agent', { description: 'Testing specialist', prompt: 'review', run_in_background: true }),
+      result('toolu_bg1', 'Async agent launched in the background. agentId: bg1'), say('Waiting.')]);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).reason).toStartWith('SKILL_CONTRACT_AGENTS_RUNNING');
+    fs.appendFileSync(file, `${notice('other7', 'toolu_other7')}\n`);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).reason).toStartWith('SKILL_CONTRACT_AGENTS_RUNNING');
+    fs.appendFileSync(file, `${notice('bg1', 'toolu_bg1')}\n`);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).reason).toStartWith('SKILL_CONTRACT_UNMET review');
+  });
+
   test('a stop on a turn that ends on a question never starts the agent clock', () => {
     const asking = [slash('review'), tool('a1', 'Agent', { description: 'Testing specialist', prompt: 'review', run_in_background: true }),
       result('a1', 'Async agent launched in the background.'), say('Should I also review the migrations?')];
