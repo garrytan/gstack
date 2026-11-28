@@ -9,6 +9,7 @@ import { preparePathEligibilityFixture, checkPathReviewPrerequisites } from './h
 import { pathCallback, capturedPathRun } from './helpers/shared-libs-checker-evidence';
 import loopRead from './fixtures/shared-libs-index-flags-loop-read-39173752116.json';
 import erroredRead from './fixtures/shared-libs-path-ignored-errored-read-40617200857.json';
+import showAllRead from './fixtures/shared-libs-revalidation-filtered-show-all-read-46089594210.json';
 
 describe('native executable shared-code checker evidence', () => {
   test.each([0, 1])('the complete R59 public attempt %i satisfies the actual callback without a manual fingerprint call', async index => {
@@ -151,6 +152,69 @@ describe('errored Bash reads from the captured ignored-path review', () => {
       const checker = blocks(events).find((block: any) => block.type === 'tool_use' && block.input?.command?.includes('--check-shared-libs'));
       output(events, checker.id).is_error = true;
     }
+    expect(hasTrustedSharedLibsCheck(events, expected)).toBe(false);
+  });
+});
+
+// Gate 46089594210 slice 5: the filtered revalidation printed src/retry-route.ts through cat -A
+// (a visible $ ends each line) beside a cmp that exited 1, so the result carried is_error.
+describe('errored cat -A read from the captured filtered revalidation', () => {
+  const blocks = (events: any[]) => events.flatMap(event => event.message.content);
+  const read = (events: any[]) => blocks(events).find((block: any) => block.type === 'tool_use'
+    && block.input?.command?.includes('cat -A src/retry-route.ts;'));
+  const output = (events: any[], id: string) => blocks(events).find((block: any) => block.type === 'tool_result' && block.tool_use_id === id);
+
+  test('a whole evidence source shown by cat -A before a later failure counts as reading it', () => {
+    const events = structuredClone(showAllRead.events);
+    const result = output(events, read(events).id);
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain('// RAW-ONLY changed caller bytes after the skipped review$\n');
+    expect(hasTrustedSharedLibsCheck(events, showAllRead.expected)).toBe(true);
+  });
+
+  // Recorded from GNU coreutils 9.4 cat for a source with a tab, a control byte, DEL and a
+  // non-ASCII character (stock macOS cat rejects -A, -E and -T).
+  const sample = 'export const retry = (value: string) =>\tvalue.trim(); // \u0001\u007f café\nend\n';
+  const head = 'export const retry = (value: string) =>';
+  const gnu: Record<string, string> = {
+    '-A': `${head}^Ivalue.trim(); // ^A^? cafM-CM-)$\nend$\n`,
+    '-e': `${head}\tvalue.trim(); // ^A^? cafM-CM-)$\nend$\n`,
+    '-t': `${head}^Ivalue.trim(); // ^A^? cafM-CM-)\nend\n`,
+    '-v': `${head}\tvalue.trim(); // ^A^? cafM-CM-)\nend\n`,
+    '-E': `${head}\tvalue.trim(); // \u0001\u007f café$\nend$\n`,
+    '-T': `${head}^Ivalue.trim(); // \u0001\u007f café\nend\n`,
+    '-vET': `${head}^Ivalue.trim(); // ^A^? cafM-CM-)$\nend$\n`,
+  };
+  const shownBy = (flag: string) => gnu[flag];
+  const withShown = (flag: string, shown: string) => {
+    const events = structuredClone(showAllRead.events), call = read(events), result = output(events, call.id);
+    const expected: any = structuredClone(showAllRead.expected);
+    expected.sources['src/retry-route.ts'] = sample;
+    call.input.command = call.input.command.replace('cat -A src/retry-route.ts', `cat ${flag} src/retry-route.ts`);
+    const start = result.content.indexOf('=== src/retry-route.ts\n') + '=== src/retry-route.ts\n'.length;
+    result.content = result.content.slice(0, start) + shown + result.content.slice(result.content.indexOf('=== lib/retry-after.ts', start));
+    return { events, expected };
+  };
+
+  test.each(['-A', '-e', '-t', '-v', '-E', '-T', '-vET'])('GNU cat %s output of the exact source counts', flag => {
+    const { events, expected } = withShown(flag, shownBy(flag));
+    expect(hasTrustedSharedLibsCheck(events, expected)).toBe(true);
+  });
+
+  test.each([['-T', '-A'], ['-A', '-v'], ['-e', '-A'], ['-E', '-e']])('cat %s with the output of cat %s is still rejected', (flag, printed) => {
+    const { events, expected } = withShown(flag, shownBy(printed));
+    expect(hasTrustedSharedLibsCheck(events, expected)).toBe(false);
+  });
+
+  test.each(['no expected sources', 'tampered expected source', 'last source line missing', 'plain cat', 'cat -v without line ends', 'errored single read'])('%s is still rejected', shape => {
+    const events = structuredClone(showAllRead.events), call = read(events), result = output(events, call.id);
+    const expected: any = structuredClone(showAllRead.expected);
+    if (shape === 'no expected sources') delete expected.sources;
+    if (shape === 'tampered expected source') expected.sources['src/retry-route.ts'] = expected.sources['src/retry-route.ts'].replace('3600)', '3601)');
+    if (shape === 'last source line missing') result.content = result.content.replace('// RAW-ONLY changed caller bytes after the skipped review$\n', '');
+    if (shape === 'plain cat') call.input.command = call.input.command.replace('cat -A src/retry-route.ts', 'cat src/retry-route.ts');
+    if (shape === 'cat -v without line ends') call.input.command = call.input.command.replace('cat -A src/retry-route.ts', 'cat -v src/retry-route.ts');
+    if (shape === 'errored single read') call.input.command = 'cat -A src/retry-route.ts';
     expect(hasTrustedSharedLibsCheck(events, expected)).toBe(false);
   });
 });

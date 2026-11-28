@@ -309,6 +309,40 @@ function reader(words: string[], target: string | ((operand: string) => boolean)
   return false;
 }
 
+/**
+ * What a read of `file` in `command` can print for `whole`: its bytes, or GNU cat's rendering
+ * under the -A/-e/-t/-v/-E/-T options of a cat call that reads it (run 46089594210 read a
+ * filtered caller through cat -A, so each line ended in a visible $).
+ */
+function shownSources(command: string, file: string, whole: string, expected: StartContext): string[] {
+  const paths = sourcePaths(file);
+  const environment = new Map([['GSTACK_HOME', expected.state], ['SLUG', expected.slug]]);
+  const shown = [whole.replace(/\n$/, '')];
+  for (const call of withDirectories(commands(command), paths.normalize(expected.repo), paths, environment)) {
+    if (basename(call.words[0]) !== 'cat' || !reader(call.words, operand => {
+      const expanded = expandVariables(operand, call.variables);
+      return expanded !== undefined && literalPath(expanded, call.cwd, paths) === file;
+    })) continue;
+    const flags = call.words.slice(1, call.words.includes('--') ? call.words.indexOf('--') : undefined)
+      .filter(word => word.startsWith('-') && word !== '-').map(word => word.slice(1)).join('');
+    if (!flags || !/^[AetvETu]+$/.test(flags)) continue;
+    const ends = /[AeE]/.test(flags), tabs = /[AtT]/.test(flags), nonprinting = /[Aetv]/.test(flags);
+    const bytes: number[] = [];
+    const text = (value: string) => { for (const char of value) bytes.push(char.charCodeAt(0)); };
+    for (let byte of Buffer.from(whole, 'utf8')) {
+      if (byte === 10) { if (ends) text('$'); bytes.push(10); continue; }
+      if (byte === 9) { if (tabs) text('^I'); else bytes.push(9); continue; }
+      if (!nonprinting) { bytes.push(byte); continue; }
+      if (byte >= 128) { text('M-'); byte -= 128; }
+      if (byte < 32) text(`^${String.fromCharCode(byte + 64)}`);
+      else if (byte === 127) text('^?');
+      else bytes.push(byte);
+    }
+    shown.push(Buffer.from(bytes).toString('utf8').replace(/\n$/, ''));
+  }
+  return shown;
+}
+
 const rebinds = (words: string[], variable: string) => words[0]?.startsWith(`${variable}=`)
   || ['export', 'local', 'declare', 'readonly', 'unset'].includes(words[0])
     && words.slice(1).some(word => word === variable || word.startsWith(`${variable}=`));
@@ -551,13 +585,14 @@ export function hasTrustedSharedLibsCheck(events: unknown[], expected: CheckerCo
       const reads = pairs.filter(pair => pair.at > start.returnedAt && pair.returnedAt < check.at && pair.text.trim());
       if (!expected.finding.evidence_paths.every((relative: string) => {
         const file = paths.join(expected.repo, relative);
-        const source = expected.sources?.[relative]?.replace(/\n$/, '');
+        const source = expected.sources?.[relative];
         return reads.some(read => read.tool === 'Read' && !read.error && typeof read.input?.file_path === 'string'
           && literalPath(read.input.file_path, expected.repo, paths) === file
           || read.tool === 'Bash' && typeof read.input?.command === 'string'
           && inspectsFile(read.input.command, file, read.text, expected)
-          && (!read.error || !!source && commands(read.input.command).length > 1
-            && read.text.replace(/^ *\d+\t/gm, '').includes(source)));
+          && (!read.error || !!source?.replace(/\n$/, '') && commands(read.input.command).length > 1
+            && shownSources(read.input.command, file, source, expected)
+              .some(shown => read.text.replace(/^ *\d+\t/gm, '').includes(shown))));
       })) continue;
       if (bash.some(finish => finish.at > check.returnedAt && invocations(finish.input.command).some(call =>
         call.words.length === 4 && call.words[2] === '--finish' && call.words[3] === token))) return true;
