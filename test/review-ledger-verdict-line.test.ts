@@ -80,4 +80,17 @@ describe('GST-4111 fix 4: a sound-checks section is not a findings section', () 
     expect(parseReply('specialist', fielded).findings.map(f => f.raw)).toEqual([expect.stringContaining('lib/cache.ts:42')]);
     expect(parseReply('specialist', ['## Verified issues', '', '- The Critical path in lib/foo.ts:42 drops the lock.'].join('\n')).findings).toHaveLength(1);
   });
+  // Value: protects=a heading that only mentions a sound phrase, or a delimited severity tag on a bullet under a real sound heading,
+  //   never hides a finding (p3/red-team#2 on #4875: the filter failed open against main); fails_when=parseFindings returns no finding
+  //   for '## Summary: … found sound' or '## Strengths and one critical problem' followed by a '(Critical)' bullet; seam=parseReply
+  test('fails open never: mixed headings and tagged bullets still collect', () => {
+    const bullet = '- a.ts:42 swallows the timeout error and the deploy never retries (Critical)';
+    for (const heading of ['## Summary: one blocker below, everything else found sound', '## Strengths and one critical problem', '## Looks good apart from one thing', '**What holds up, and what does not**']) {
+      expect(parseReply('red-team', [heading, '', bullet].join('\n')).findings.map(f => f.label), heading).toEqual(['Critical']);
+    }
+    for (const tagged of [bullet, '- a.ts:42 swallows the timeout error [Critical]', '- a.ts:42 swallows the timeout error, **High**', '- The retry loop drops errors. High: a.ts:42']) {
+      expect(parseReply('specialist', ['## What I checked and found sound', '', tagged].join('\n')).findings, tagged).toHaveLength(1);
+    }
+    expect(parseReply('specialist', ['**What else I checked and found no defect in**', '', '- The Critical path in lib/foo.ts:42 is fine.'].join('\n')).findings).toEqual([]);
+  });
 });

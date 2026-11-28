@@ -156,18 +156,32 @@ export function ruledEdits(cwd: string, paths: readonly string[], now: string, e
  * finding in the same file, or the same finding on an edited line, still needs its own ruling.
  */
 export function shiftedFinding(cwd: string, finding: string, from: string, to: string): string | null {
+  const t = traceFinding(cwd, finding, from, to);
+  return t === 'changed' ? null : t;
+}
+
+/**
+ * Where a `path:line:category` finding at `from` sits at `to`: its moved fingerprint; 'changed' only when git shows a commit in between
+ * rewrote that line or deleted (or renamed away) its file; null when nothing can be shown (not an ancestor, a security-class finding, a
+ * binary file, a git error), so a caller that needs proof of a change fails closed.
+ */
+export function traceFinding(cwd: string, finding: string, from: string, to: string): string | 'changed' | null {
   const m = /^(.+):([1-9]\d*):([^:\s]+)$/.exec(finding);
   if (!m || isSecurityFinding(finding)) return null;
   const [, file, at, category] = m as unknown as [string, string, string, string];
   const git = (args: string[]) => { const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? String(r.stdout ?? '') : null; };
-  if (git(['merge-base', '--is-ancestor', from, to]) === null || git(['--literal-pathspecs', 'cat-file', '-e', `${to}:${file}`]) === null) return null;
+  if (git(['merge-base', '--is-ancestor', from, to]) === null) return null;
+  if (git(['--literal-pathspecs', 'cat-file', '-e', `${to}:${file}`]) === null) {
+    const gone = git(['--literal-pathspecs', 'ls-tree', '-r', '--full-tree', '--name-only', to, '--', file]) === '';
+    return gone && git(['--literal-pathspecs', 'cat-file', '-e', `${from}:${file}`]) !== null ? 'changed' : null;
+  }
   const diff = git(['--literal-pathspecs', '-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '-U0', from, to, '--', file]);
   if (diff === null || /^Binary files /m.test(diff)) return null;
   const line = Number(at);
   let delta = 0;
   for (const h of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+\d+(?:,(\d+))? @@/gm)) {
     const start = Number(h[1]), removed = h[2] === undefined ? 1 : Number(h[2]), added = h[3] === undefined ? 1 : Number(h[3]);
-    if (removed > 0 && line >= start && line < start + removed) return null;
+    if (removed > 0 && line >= start && line < start + removed) return 'changed';
     if (removed > 0 ? start + removed <= line : start < line) delta += added - removed;
   }
   return `${file}:${line + delta}:${category}`;

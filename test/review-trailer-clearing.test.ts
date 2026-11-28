@@ -7,7 +7,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { clearByReview, clearByTrailer } from '../lib/review-trailer-clearing';
-import { readRuledNotes, shiftedFinding } from '../lib/ruled-notes';
+import { readRuledNotes, shiftedFinding, traceFinding } from '../lib/ruled-notes';
 import { ruledOn } from '../lib/gate-dispositions';
 import { extractReceipt } from '../lib/ship-receipt';
 import { RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
@@ -178,6 +178,21 @@ describe('GSKI-1 #4: a fix with no Review-Finding trailer closes once a later cl
     const pathless = fixedRows.filter(r => r !== fixedPass2).map(r => r.skill === 'adversarial-review' ? { ...r, findings: [{ ...blocker, fingerprint: 'p1/outside-voice#1' }] } : r);
     expect(by(fixedPass2, [ID], pathless)).toEqual([]);
     void pass2;
+  });
+  // Value: protects=a commit only closes a trailerless blocker when git shows its line changed or its file deleted; a binary file or
+  //   a git failure proves nothing (p3/specialist-batched#1 on #4875); fails_when=a byte edit to a binary file, read as "line
+  //   changed" because the diff could not be mapped, closes the blocker; seam=clearByReview and traceFinding
+  test('fails closed: a binary file edit proves nothing, a deleted file counts as changed', () => {
+    const bin = { ...blocker, fingerprint: 'bin.dat:1:outside-voice' };
+    const g = raised({ 'bin.dat': 'a\0b\n' }, bin);
+    g.f.write({ 'bin.dat': 'a\0c\n' });
+    g.f.git('add', '-A'); g.f.git('commit', '-qm', 'touch the binary file');
+    logRow(g, 'review', { pass: 2, ...CLEAN });
+    expect(clearByReview(g.f.work, { head: headOf(g.f), baseRef: 'origin/main', rows: rowsOf(g), open: [{ id: ID, fingerprint: 'bin.dat:1:outside-voice' }] })).toEqual([]);
+    const before = headOf(g.f);
+    g.f.git('rm', '-q', 'src/x.ts'); g.f.git('commit', '-qm', 'delete the file');
+    expect(traceFinding(g.f.work, FP, before, headOf(g.f))).toBe('changed');
+    expect(traceFinding(g.f.work, FP, before, 'not-a-commit')).toBeNull();
   });
 });
 
