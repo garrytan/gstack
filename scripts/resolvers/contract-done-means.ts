@@ -10,14 +10,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { TemplateContext } from './types';
 import { getHostConfig } from '../../hosts/index';
+import { outsideVoiceFor } from './outside-voice';
 
 const ROOT = path.resolve(import.meta.dir, '..', '..');
 const code = (s: string) => '\u0060' + s + '\u0060';
 
 export type ContractItem =
   | { id: string; kind: 'report_labels'; heading: string; labels: string[] }
-  | { id: string; kind: 'selected_specialists_dispatched'; marker: string }
-  | { id: string; kind: 'agent_dispatch'; match: string; task_name?: string };
+  | { id: string; kind: 'selected_specialists_dispatched'; marker: string; large_diff?: { marker: string; over: number; names: string[] } }
+  | { id: string; kind: 'agent_dispatch'; match: string; task_name?: string }
+  | { id: string; kind: 'outside_voice'; pass: string };
 
 export interface SkillContract {
   version: 1;
@@ -28,13 +30,15 @@ const KIND_FIELDS: Record<ContractItem['kind'], string[]> = {
   report_labels: ['heading', 'labels'],
   selected_specialists_dispatched: ['marker'],
   agent_dispatch: ['match'],
+  outside_voice: ['pass'],
 };
-const OPTIONAL_FIELDS: Partial<Record<ContractItem['kind'], string[]>> = { agent_dispatch: ['task_name'] };
+const OPTIONAL_FIELDS: Partial<Record<ContractItem['kind'], string[]>> = { selected_specialists_dispatched: ['large_diff'], agent_dispatch: ['task_name'] };
 
 // The resolver and section that render the step each kind checks today. A host that suppresses the resolver, or a loadout that excludes the section, never shows that step, so its items are left out of the list there.
 export const BACKED_BY: Partial<Record<ContractItem['kind'], { resolver: string; section: string }>> = {
   selected_specialists_dispatched: { resolver: 'REVIEW_ARMY', section: 'review-army' },
   agent_dispatch: { resolver: 'ADVERSARIAL_STEP', section: 'adversarial' },
+  outside_voice: { resolver: 'ADVERSARIAL_STEP', section: 'adversarial' },
 };
 
 const PLACEHOLDER = /^\[.*\]$|^<.*>$|^\.\.\.$|^(todo|tbd|n\/a)$/i;
@@ -76,6 +80,13 @@ export function parseSkillContract(value: unknown, where: string): SkillContract
     if (raw.task_name !== undefined && (typeof raw.task_name !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(raw.task_name))) {
       fail(where, at + ' task_name must be lowercase letters, digits, _ or -, got ' + JSON.stringify(raw.task_name));
     }
+    if (raw.large_diff !== undefined) {
+      const ld = raw.large_diff;
+      if (!isMap(ld) || !isText(ld.marker) || !/\bN\b/.test(ld.marker) || !Number.isInteger(ld.over) || (ld.over as number) < 0 ||
+        !Array.isArray(ld.names) || ld.names.length === 0 || !ld.names.every(isText)) {
+        fail(where, at + ' large_diff must be { marker: "<text with N>", over: <integer>, names: [<specialist>, ...] }');
+      }
+    }
     if (kind === 'report_labels') {
       if (!Array.isArray(raw.labels) || raw.labels.length === 0) fail(where, at + ' labels must be a non-empty list');
       for (const label of raw.labels as unknown[]) {
@@ -109,7 +120,9 @@ const list = (xs: string[]) => xs.length < 2 ? xs.join('') : xs.slice(0, -1).joi
 function plainWords(item: ContractItem, host: string): string {
   switch (item.kind) {
     case 'report_labels': return 'a ' + code(item.heading) + ' with ' + list(item.labels) + ' filled in (' + code('none: <why>') + ' where the skill\'s own stop rule leaves one empty)';
-    case 'selected_specialists_dispatched': return 'the specialist selection printed (' + code(item.marker) + ' ...), then one Agent dispatch per specialist it names (none when a small diff skips them)';
+    case 'selected_specialists_dispatched': return 'the specialist selection printed (' + code(item.marker) + ' ...), then one Agent dispatch per specialist it names (none when a small diff skips them)' +
+      (item.large_diff ? ', plus ' + list(item.large_diff.names.map(code)) + ' when Bash prints ' + code(item.large_diff.marker) + ' over ' + item.large_diff.over : '');
+    case 'outside_voice': return 'Step 4.8\'s ' + code('gstack-outside-voice --pass ' + item.pass) + ' status, or a non-ready ' + code('CODEX_MODE:');
     case 'agent_dispatch': return host === 'codex' && item.task_name
       ? 'a ' + code('spawn_agent') + ' (' + code('task_name: ' + item.task_name) + '), its prompt including "' + item.match + '"'
       : 'an Agent dispatch for the ' + item.id.replace(/-/g, ' ') + ', its prompt including "' + item.match + '"';
@@ -139,6 +152,7 @@ export function generateContractDoneMeans(ctx: TemplateContext): string {
   const suppressed = new Set(getHostConfig(ctx.host).suppressedResolvers ?? []);
   const shown = (item: ContractItem) => {
     const backing = BACKED_BY[item.kind];
+    if (item.kind === 'outside_voice' && outsideVoiceFor(ctx).id !== 'codex') return false;
     return !backing || (!suppressed.has(backing.resolver) && !ctx.modules?.excluded.has('section:' + ctx.skillName + '/' + backing.section));
   };
   return renderDoneMeans({ ...contract, items: contract.items.filter(shown) }, ctx.paths.binDir, CONTRACT_CHECKER_SHIPPED, ctx.host);

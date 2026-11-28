@@ -69,7 +69,7 @@ describe('manual /codex modes (#3098)', () => {
 describe('gstack outside reviews use the same precedence', () => {
   test('rendered gates pass their default to run-with-timeout --effort', () => {
     for (const [rel, def] of [['autoplan/sections/ceo-phase.md', 'high'], ['plan-eng-review/sections/review-sections.md', 'high'],
-      ['review/sections/adversarial.md', 'high'], ['design-consultation/sections/proposal-and-preview.md', 'medium']] as const) {
+      ['ship/sections/adversarial.md', 'high'], ['design-consultation/sections/proposal-and-preview.md', 'medium']] as const) {
       const text = read(rel);
       expect(text, rel).not.toContain('check-effort');
       const dispatches = text.split('\n').filter(line => /run-with-timeout (--effort \w+ )?\d+ codex (exec|review)\b/.test(line));
@@ -79,6 +79,18 @@ describe('gstack outside reviews use the same precedence', () => {
         expect(line, rel).not.toContain('model_reasoning_effort');
       }
     }
+  });
+
+  test('/review passes its default to gstack-outside-voice --effort, which resolves the same precedence', () => {
+    const text = read('review/sections/adversarial.md');
+    expect(text).not.toContain('check-effort');
+    const runs = text.split('\n').filter(line => /gstack-outside-voice" run --runner codex-cli\b/.test(line));
+    expect(runs.length).toBe(2);
+    for (const line of runs) {
+      expect(line).toContain('--effort high ');
+      expect(line).not.toContain('model_reasoning_effort');
+    }
+    expect(read('lib/outside-voice-runner.ts')).toContain("[probe, 'check-effort', req.effort]");
   });
 
   const fakeBin = path.join(TMP, 'bin');

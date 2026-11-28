@@ -44,6 +44,8 @@ export interface RunnerRequest {
   env?: Record<string, string | undefined>;
   /** Directory of the gstack bins (gstack-codex-probe); defaults to this module's sibling bin/. */
   binDir?: string;
+  /** codex-cli: the gate's default reasoning effort, resolved by gstack-codex-probe check-effort (GSTACK_CODEX_EFFORT, then config codex_effort, then this); unset keeps high. */
+  effort?: string;
 }
 export type RunnerStatus = 'completed' | 'unverified' | 'unavailable' | 'failed' | 'timeout' | 'cancelled';
 export type RunnerUsage = TokenUsage;
@@ -159,6 +161,15 @@ class CodexCliRunner implements OutsideRunner {
     if (select.exitCode !== 0 || !selected || !sandbox) {
       return finish({ ...base, status: 'unavailable', exit: select.exitCode ?? 1, reason: 'model_unselected', detail: new TextDecoder().decode(select.stderr).trim() || 'select-model printed no CODEX_SEL/CODEX_SANDBOX' }, started);
     }
+    let effort = 'high';
+    if (req.effort) {
+      const check = Bun.spawnSync([probe, 'check-effort', req.effort], { cwd: req.cwd, env, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+      const level = /^CODEX_EFFORT: ([a-z]+)$/m.exec(new TextDecoder().decode(check.stdout))?.[1];
+      if (check.exitCode !== 0 || !level) {
+        return finish({ ...base, status: 'failed', exit: check.exitCode ?? 1, reason: 'effort_invalid', detail: new TextDecoder().decode(check.stderr).trim() || 'check-effort printed no CODEX_EFFORT' }, started);
+      }
+      effort = level;
+    }
     const eventsFile = `${req.outFile}.events.jsonl`;
     const stderrFile = `${req.outFile}.stderr`;
     const lastMessageFile = `${req.outFile}.last-message`;
@@ -166,7 +177,7 @@ class CodexCliRunner implements OutsideRunner {
     fs.rmSync(req.outFile, { force: true });
     fs.rmSync(lastMessageFile, { force: true });
     const argv = ['codex', 'exec', '-', '-C', req.cwd, '-s', sandbox, '-c', `model="${selected}"`, '-c', 'skills.include_instructions=false',
-      '-c', 'model_reasoning_effort="high"', '-c', 'web_search="cached"', '--json', '-o', lastMessageFile];
+      '-c', `model_reasoning_effort="${effort}"`, '-c', 'web_search="cached"', '--json', '-o', lastMessageFile];
     this.child = Bun.spawn(argv, { cwd: req.cwd, env, stdin: new Blob([prompt]), stdout: Bun.file(eventsFile), stderr: Bun.file(stderrFile) });
     const timer = setTimeout(() => { this.child?.kill('SIGTERM'); setTimeout(() => this.child?.kill('SIGKILL'), 10_000).unref(); }, req.timeoutMs);
     const exit = await this.child.exited;

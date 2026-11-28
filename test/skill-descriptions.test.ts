@@ -225,7 +225,7 @@ describe('contract-done-means renderer', () => {
     const render = (host: string, excluded: string[] = []) => generateContractDoneMeans({ skillName: 'review', tmplPath: join(ROOT, 'review', 'SKILL.md.tmpl'), host, paths: HOST_PATHS[host], modules: excluded.length ? { name: 'test', excluded: new Set(excluded) } : undefined } as unknown as Parameters<typeof generateContractDoneMeans>[0]);
     const ids = (host: string, excluded: string[] = []) => [...render(host, excluded).matchAll(/^- \u0060([a-z-]+)\u0060:/gm)].map(m => m[1]);
     expect(ids('claude', ['section:review/review-army', 'section:review/adversarial'])).toEqual(['review-report']);
-    expect(ids('claude')).toEqual(['specialists-dispatched', 'adversarial-pass', 'review-report']);
+    expect(ids('claude')).toEqual(['specialists-dispatched', 'adversarial-pass', 'outside-voice', 'review-report']);
     expect(ids('codex')).toEqual(['adversarial-pass', 'review-report']);
     expect(ids('hermes')).toEqual(['review-report']);
     expect(render('codex')).toContain('- ' + BT + 'adversarial-pass' + BT + ': a ' + BT + 'spawn_agent' + BT + ' (' + BT + 'task_name: adversarial' + BT + '), its prompt including "Think like an attacker and a chaos engineer".');

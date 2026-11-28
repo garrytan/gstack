@@ -25,7 +25,7 @@ import { installedSkillsDir, readFrontmatter, scanInstalledSkills } from './skil
 import { resolveStateRoot } from './state-root';
 
 export const TRANSCRIPT_MAX_BYTES = 32 * 1024 * 1024;
-export const ITEM_KINDS = ['report_labels', 'selected_specialists_dispatched', 'agent_dispatch'] as const;
+export const ITEM_KINDS = ['report_labels', 'selected_specialists_dispatched', 'agent_dispatch', 'outside_voice'] as const;
 export type ItemKind = typeof ITEM_KINDS[number];
 /** Kinds a contract may still list from an older gstack: each such item is skipped with a warning, not checked. */
 const REMOVED_KINDS = ['check_after_last_edit'];
@@ -46,6 +46,10 @@ export interface ContractItem {
   task_name?: string;
   marker?: string;
   empty_marker?: string;
+  /** outside_voice: the review pass whose status line gstack-outside-voice must print (pass=<pass>). */
+  pass?: string;
+  /** selected_specialists_dispatched: when a Bash result prints marker with N over over, names are required too, listed on the line or not. */
+  large_diff?: { marker: string; over: number; names: string[] };
   fix?: string;
   summary?: string;
 }
@@ -91,7 +95,7 @@ export function parseContract(frontmatter: string): { contract: Contract } | { e
   return validateContract(isObject(doc) ? doc.contract : undefined);
 }
 
-const STRING_FIELDS = ['heading', 'match', 'task_name', 'marker', 'empty_marker', 'fix', 'summary'] as const;
+const STRING_FIELDS = ['heading', 'match', 'task_name', 'marker', 'empty_marker', 'pass', 'fix', 'summary'] as const;
 const TASK_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const REGEX_FIELDS = ['match'] as const;
 
@@ -106,6 +110,12 @@ export const DEFAULT_MATCHERS = {
   specialistsSkipped: 'specialists skipped',
   /** Any contract: a line of the turn's final message, starting with this, means the skill ended the run early (met). A final STATUS: BLOCKED does too. */
   earlyExit: 'Nothing to review',
+  /** outside_voice: the helper whose own result line counts, and the line it prints (OUTSIDE_STATUS: <status> ... pass=<pass>). */
+  outsideVoiceCommand: 'gstack-outside-voice',
+  outsideVoiceStatus: 'OUTSIDE_STATUS:',
+  /** outside_voice: the Codex preflight, whose non-ready mode line (not ready, not unverified) is the recorded skip. */
+  codexProbeCommand: 'gstack-codex-probe',
+  codexModeSkip: 'CODEX_MODE:',
 } as const;
 
 /**
@@ -159,6 +169,18 @@ export function validateContract(raw: unknown): { contract: Contract } | { error
     if (out.task_name !== undefined && out.kind !== 'agent_dispatch') return { error: `${id}: task_name applies only to agent_dispatch` };
     if (out.task_name !== undefined && !TASK_NAME.test(out.task_name)) return { error: `${id}: task_name must match ${TASK_NAME}` };
     if (out.kind === 'agent_dispatch' && out.marker) return { error: `${id}: agent_dispatch takes no marker until the checker can bind a marker to the dispatch it names (GST-1242)` };
+    if ((out.kind === 'outside_voice') !== (out.pass !== undefined) || (out.pass !== undefined && !/^[a-z][a-z0-9-]{0,31}$/.test(out.pass))) {
+      return { error: `${id}: outside_voice needs pass, a lowercase pass name, and only outside_voice takes pass` };
+    }
+    if (item.large_diff !== undefined) {
+      const ld = item.large_diff;
+      const names = isObject(ld) && Array.isArray(ld.names) ? ld.names : [];
+      if (out.kind !== 'selected_specialists_dispatched' || !isObject(ld) || typeof ld.marker !== 'string' || !/\bN\b/.test(ld.marker) ||
+        !Number.isInteger(ld.over) || ld.over < 0 || !names.length || names.some((n: unknown) => typeof n !== 'string' || !SAFE_SPECIALIST.test(n.trim()))) {
+        return { error: `${id}: large_diff applies only to selected_specialists_dispatched, as { marker: "<text with N>", over: <integer>, names: [<specialist>, ...] }` };
+      }
+      out.large_diff = { marker: ld.marker.trim(), over: ld.over, names: names.map((n: string) => n.trim()) };
+    }
     items.push(out);
   }
   if (!items.length) return { error: `every item uses a removed kind (${skipped.join('; ')})` };
@@ -172,6 +194,7 @@ export function itemSummary(item: ContractItem): string {
     case 'report_labels': return `a ${item.heading} with ${(item.labels ?? []).join(', ')}`;
     case 'selected_specialists_dispatched': return 'one Agent dispatch per selected specialist';
     case 'agent_dispatch': return `an Agent dispatch matching /${item.match}/`;
+    case 'outside_voice': return `gstack-outside-voice's own ${item.pass} status line, or the preflight's non-ready CODEX_MODE line`;
   }
 }
 
@@ -327,12 +350,31 @@ function parseNames(raw: string): string[] {
 
 interface ItemCheck { met: boolean; detail: string; fix: string }
 
+/** Bash tool results in a run, by tool_use id: only a command's own output, never assistant text or a file the model read. */
+function bashResults(run: TranscriptEvent[]): Array<{ command: string; text: string }> {
+  const results = new Map(run.filter((e): e is ToolResult => e.kind === 'tool_result').map(e => [e.id, e.text]));
+  return run.flatMap(e => {
+    const command = bashCommand(e);
+    const text = command === null ? undefined : results.get((e as ToolUse).id);
+    return command === null || text === undefined ? [] : [{ command, text }];
+  });
+}
+
+/** The largest N a Bash result printed on a line matching marker (a marker with N), or null when none did. */
+function bashCount(run: TranscriptEvent[], marker: string): number | null {
+  const re = markerPattern(marker);
+  const counts = bashResults(run).flatMap(r => r.text.split('\n').map(l => re.exec(l)?.groups?.count).filter((c): c is string => !!c).map(Number));
+  return counts.length ? Math.max(...counts) : null;
+}
+
 /**
  * Item kinds a Codex run never checks: Codex suppresses the resolver that renders their step (REVIEW_ARMY for
  * /review's specialists), so its SKILL.md never asks for them. test/skill-contract-codex.test.ts pins this list to
  * hosts/codex.ts and the Done means resolver.
  */
 export const CODEX_SKIPPED_KINDS: readonly ItemKind[] = ['selected_specialists_dispatched'];
+/** Kinds that check the Codex outside voice: a Codex-hosted run's outside voice is Claude Code, so a Codex rollout skips them. */
+export const CODEX_HOST_SKIPPED_KINDS: readonly ItemKind[] = ['outside_voice'];
 
 function checkItem(item: ContractItem, run: TranscriptEvent[], codex: boolean): ItemCheck {
   const texts = run.filter(e => e.kind === 'text').map(e => (e as { text: string }).text);
@@ -363,14 +405,16 @@ function checkItem(item: ContractItem, run: TranscriptEvent[], codex: boolean): 
         if (empty.test(src)) { names = []; break; }
       }
       if (names === null) return { met: false, detail: 'no specialist selection line found', fix: item.fix ?? 'print the specialist selection line, then dispatch one Agent per selected specialist' };
-      if (!names.length) return { met: true, detail: 'no specialists selected', fix: '' };
-      const missing = names.filter(n => {
-        const forms = [n, n.replace(/\s+/g, '-'), n.replace(/\s+/g, '_')].map(f => f.toLowerCase());
-        return !agents.some(a => forms.some(f => agentText(a).toLowerCase().includes(f)));
-      });
+      const forms = (n: string) => [n, n.replace(/\s+/g, '-'), n.replace(/\s+/g, '_'), n.replace(/[-_]+/g, ' ')].map(f => f.toLowerCase());
+      const size = item.large_diff ? bashCount(run, item.large_diff.marker) : null;
+      const large = item.large_diff && size !== null && size > item.large_diff.over ? item.large_diff : null;
+      const required = [...names, ...(large?.names ?? []).filter(x => !names!.some(n => forms(n).includes(x.toLowerCase())))];
+      if (!required.length) return { met: true, detail: 'no specialists selected', fix: '' };
+      const why = large ? `; ${large.marker.replace(/\bN\b/, String(size))} is over ${large.over}, so ${large.names.join(', ')} is required` : '';
+      const missing = required.filter(n => !agents.some(a => forms(n).some(f => agentText(a).toLowerCase().includes(f))));
       return missing.length
-        ? { met: false, detail: `selected ${names.join(', ')}; no Agent dispatch for ${missing.join(', ')}`, fix: item.fix ?? `dispatch an Agent for ${missing.join(', ')}` }
-        : { met: true, detail: `dispatched ${names.join(', ')}`, fix: '' };
+        ? { met: false, detail: `selected ${names.join(', ') || 'none'}${why}; no Agent dispatch for ${missing.join(', ')}`, fix: item.fix ?? `dispatch an Agent for ${missing.join(', ')}` }
+        : { met: true, detail: `dispatched ${required.join(', ')}${why}`, fix: '' };
     }
     case 'agent_dispatch': {
       const re = new RegExp(item.match as string, 'i');
@@ -387,6 +431,20 @@ function checkItem(item: ContractItem, run: TranscriptEvent[], codex: boolean): 
       return agents.some(a => re.test(agentText(a)))
         ? { met: true, detail: `an Agent dispatch matches /${item.match}/`, fix: '' }
         : { met: false, detail: `no Agent dispatch matches /${item.match}/`, fix: item.fix ?? `dispatch the Agent pass matching /${item.match}/` };
+    }
+    case 'outside_voice': {
+      // Only a tool's own output counts: never assistant text, and never a line the command spells out itself (echo 'OUTSIDE_STATUS: ...').
+      const status = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.outsideVoiceStatus)} \\S+ .*\\bpass=${escapeRe(item.pass as string)}(?:\\s|$)`);
+      const skip = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.codexModeSkip)} (?!ready\\b|unverified\\b)[a-z_]+$`);
+      for (const r of bashResults(run)) {
+        const re = r.command.includes(DEFAULT_MATCHERS.outsideVoiceCommand) ? status : r.command.includes(DEFAULT_MATCHERS.codexProbeCommand) ? skip : null;
+        const line = re && r.text.split('\n').map(l => l.trim()).find(l => l && re.test(l) && !r.command.includes(l));
+        if (line) return { met: true, detail: `Bash printed "${line.slice(0, 160)}"`, fix: '' };
+      }
+      return {
+        met: false, detail: `no ${DEFAULT_MATCHERS.outsideVoiceCommand} run printed its ${DEFAULT_MATCHERS.outsideVoiceStatus} line for pass=${item.pass}, and no preflight printed a non-ready ${DEFAULT_MATCHERS.codexModeSkip}`,
+        fix: item.fix ?? `when the preflight prints CODEX_MODE: ready or unverified, run the ${item.pass} pass's ${DEFAULT_MATCHERS.outsideVoiceCommand} command through Bash, unchanged, so it prints its own ${DEFAULT_MATCHERS.outsideVoiceStatus} line`,
+      };
     }
   }
 }
@@ -443,7 +501,7 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
   const endedEarly = !!finalText && run.includes(finalText as TranscriptEvent) && exitMarker.test(finalText.text);
   const earlyExit = !load ? null : statusLine === 'BLOCKED' ? 'STATUS: BLOCKED' : endedEarly ? DEFAULT_MATCHERS.earlyExit : null;
   const codex = t.format === 'codex';
-  const checked = codex ? contract.items.filter(item => !CODEX_SKIPPED_KINDS.includes(item.kind)) : contract.items;
+  const checked = codex ? contract.items.filter(item => !CODEX_SKIPPED_KINDS.includes(item.kind) && !CODEX_HOST_SKIPPED_KINDS.includes(item.kind)) : contract.items;
   const items: ItemResult[] = load ? checked.map(item => {
     if (earlyExit) return { id: item.id, kind: item.kind, status: 'met', detail: `the skill ended the run early (${earlyExit})`, fix: '' };
     const r = checkItem(item, run, codex);
@@ -491,6 +549,15 @@ export function isFinalTurn(end: Pick<TurnEnd, 'statusLine' | 'pendingQuestion'>
   if (!end.pendingQuestion) return true;
   const kind = sessionKind();
   return kind === 'headless' || kind === 'unattended';
+}
+
+/**
+ * The block text for a headless or unattended final turn while Agents this run started are still running: ending the
+ * turn ends the session there, so their results would never arrive (GEVA-590).
+ */
+export function agentsRunningMessage(skill: string, agents: string[]): string {
+  return `SKILL_CONTRACT_AGENTS_RUNNING ${skill}: ${agents.length} background Agent dispatch${agents.length === 1 ? '' : 'es'} this run started ${agents.length === 1 ? 'is' : 'are'} still running (${agents.join(', ')}). ` +
+    'No one answers this session, so ending the turn now ends it and their results never arrive. Wait for each completion notice, then finish the skill with their results.';
 }
 
 /** The one agent-facing block text (gate rev 2, E1). It never names the off switch: that is for humans, in the docs and setup. */

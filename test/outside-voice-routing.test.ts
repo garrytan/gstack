@@ -141,7 +141,7 @@ for (const host of ['claude', 'codex'] as const) {
       expect(text).toContain('Step 0: Detect platform and base branch');
       expect(text).toContain('Step 3: Get the diff');
       expect(text).toContain('Step 4.8: Adversarial review (always-on)');
-      expect(text).toContain(host === 'codex' ? 'gstack-claude-code' : 'codex exec');
+      expect(text).toContain(host === 'codex' ? 'gstack-claude-code' : 'gstack-outside-voice" run --runner codex-cli');
       expect(text).not.toContain('## Preamble (run first)');
       expect(text.match(/^name:/gm)).toHaveLength(1);
     } finally { rmSync(repo, { recursive: true, force: true }); }

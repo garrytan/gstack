@@ -15,7 +15,7 @@
 import { toShellPath, type TemplateContext } from './types';
 import { CC_BACKGROUND_DEFAULT_SINCE, FOREGROUND_IF_AVAILABLE, BACKGROUND_RECOVERY } from './constants';
 import { CODEX_SUBAGENT_DISPATCH } from '../../hosts/codex';
-import { outsideVoiceFailurePolicy, outsideVoiceFor, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance, OUTSIDE_VERDICT_REQUEST } from './outside-voice';
+import { outsideVoiceFailurePolicy, outsideVoiceFor, outsideVoiceHelperInvocation, outsideVoiceInvocation, outsideVoicePreflight, outsideVoiceProvenance, OUTSIDE_VERDICT_REQUEST } from './outside-voice';
 import { runtimeRootPrelude } from './runtime-root';
 import { DEFENSIVE_REVIEW_FRAMING, fixtureSummaryMode } from './defensive-review';
 import { BLOCKING_FLOOR } from '../../lib/review-scope';
@@ -153,11 +153,11 @@ Outside prompt (supply repository context from the parent):
 
 "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Use the supplied branch diff. If it was not supplied and you have repository tools, run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE". Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. A finding blocks only if it ${BLOCKING_FLOOR}; end each finding with \`Severity: Critical|High|Medium|Low\` and \`Blocks: yes|no\`. Then write ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale. ${OUTSIDE_VERDICT_REQUEST}"
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: isShip ? 'dispatched' : true, diffCommand: 'DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"' })}
+${!isShip && outsideVoiceFor(ctx).id === 'codex' ? outsideVoiceHelperInvocation(ctx, { pass: 'adversarial', gate: 'review' }) : outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: isShip ? 'dispatched' : true, diffCommand: 'DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"' })}
 
 Present the full output verbatim. A Critical, High or \`Blocks: yes\` finding is CRITICAL; \`Blocks: no\` never lowers one, and only a named policy ground drops it. ${isShip ? 'An unavailable outside challenge does not block shipping by itself; supported findings still enter Step 11, and the structured P0/P1 and non-convergence gates still apply.' : 'This outside challenge is informational; supported findings still enter Step 5 Fix-First, whose approval and convergence gates apply.'}
 
-**Error handling:** Only this optional outside adversarial pass is non-blocking; native completion and structured-review decisions still apply.
+**Error handling:** ${isShip ? 'Only this optional outside adversarial pass is non-blocking' : 'Only this outside adversarial pass is non-blocking: it must run, and a failed run is missing coverage'}; native completion and structured-review decisions still apply.
 ${outsideVoiceFailurePolicy(ctx, { timeoutMinutes: 9, onTimeout: 'missing-coverage', stderrOnEmpty: true, fallback: 'none', escape: 1 })}
 
 
@@ -172,7 +172,7 @@ function adversarialStructuredReview(ctx: TemplateContext, isShip: boolean): str
 
 ${isShip ? 'On \`DISPATCH: outside-voice\`, if' : 'If'} \`CODEX_MODE\` is \`ready\` or \`unverified\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
 
-${outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: isShip ? 'dispatched' : true, gate: 'structured', diffCommand: 'DIFF_BASE=$(git merge-base <base> HEAD) && git diff "$DIFF_BASE"' })}
+${!isShip && outsideVoiceFor(ctx).id === 'codex' ? outsideVoiceHelperInvocation(ctx, { pass: 'structured', gate: 'structured', appendDiffBase: '<base>' }) : outsideVoiceInvocation(ctx, { timeoutMs: 540000, nativeAlreadyRequired: isShip ? 'dispatched' : true, gate: 'structured', diffCommand: 'DIFF_BASE=$(git merge-base <base> HEAD) && git diff "$DIFF_BASE"' })}
 
 ${outsideVoiceFor(ctx).id === 'codex' ? '' : 'The Claude Code backend receives the parent-captured base diff, including committed and working-tree changes, because review mode cannot execute git.\n\n'}Present output under \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (code review):\` inside a \`tool-output\` fence.
 Only a completed response ending with its \`VERDICT:\` line establishes the gate. P0/P1 findings (\`[P0]\`/\`[P1]\` or native \`P0:\`/\`P1:\` labels; \`VERDICT: findings\`) → GATE: FAIL. Completed without P0/P1 → GATE: PASS. Refusal, failure, missing markers or \`OUTSIDE_STATUS: unverified\` → GATE: MISSING COVERAGE; no fix question.
@@ -241,7 +241,7 @@ export function generateAdversarialStep(ctx: TemplateContext): string {
 
   return `## Step ${stepNum}: Adversarial review${isShip ? '' : ' (always-on)'}
 
-${isShip ? 'Unavailable' : `Every diff gets the ${outsideVoiceFor(ctx).nativeLabel} adversarial pass. Add ${outsideVoiceFor(ctx).label} when its preflight is ready; unavailable`} or disabled outside coverage stays explicit.
+${isShip ? 'Unavailable' : `Every diff gets the ${outsideVoiceFor(ctx).nativeLabel} adversarial pass and, whenever its preflight is ready or unverified, the ${outsideVoiceFor(ctx).label} second-model review; both are required. Unavailable`} or disabled outside coverage stays explicit.
 
 **Detect diff size:**
 
@@ -314,7 +314,7 @@ in order before leaving Step 11:
    ahead of the remaining items. These fresh reviews after code edits are not recovery retries.
    Returning here never resets Step 9's three-cycle fix limit (under \`frozen\`, the plan's cap).
 3. **Native complete with no queued fixes, or not dispatched:** Finish the memory updates below,
-   then continue to Step 11.5. Never jump directly to release preparation.` : 'The native pass is required for Step 5.8 completion. Optional outside failures remain separately recorded, not completed by native coverage. Return all findings and structured-review decisions to Step 5; the parent owns fixes and the full rerun.'}
+   then continue to Step 11.5. Never jump directly to release preparation.` : 'The native pass is required for Step 5.8 completion. Outside failures remain separately recorded, not completed by native coverage. Return all findings and structured-review decisions to Step 5; the parent owns fixes and the full rerun.'}
 
 ---`;
 }

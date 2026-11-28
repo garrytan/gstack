@@ -124,7 +124,8 @@ describe('codex frontier model flag is present', () => {
       const argv = flagArgv(CODEX_REVIEW_MODEL_CONFIG_FLAG, 'review', { ...env }, config);
       expect(argv).toEqual(['-c', `review_model="${expected}"`, '-c', `model="${expected}"`, '-c', 'skills.include_instructions=false']);
     }
-    for (const file of ['codex/sections/review-mode.md', 'review/sections/adversarial.md', 'ship/sections/adversarial.md']) {
+    expect(fs.readFileSync(path.join(ROOT, 'review/sections/adversarial.md'), 'utf8').split('\n').filter(line => /^\s*codex (exec|review)\b/.test(line))).toEqual([]);
+    for (const file of ['codex/sections/review-mode.md', 'ship/sections/adversarial.md']) {
       const rendered = fs.readFileSync(path.join(ROOT, file), 'utf8');
       expect(rendered.split('\n').filter(line => /\bcodex review\b/.test(line) && line.includes('2>'))).toEqual([]);
       const calls = rendered.split('\n').filter(line => line.includes('codex exec -') && line.includes('2>'));

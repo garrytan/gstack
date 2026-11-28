@@ -18,7 +18,10 @@
  *        pending user question; otherwise allow)
  *     -> Agent dispatches still running? allow (outputs may still arrive),
  *        until the same set has been running AGENT_STALL_MS since the stop
- *        that first saw it; then it is stalled and the contract is checked
+ *        that first saw it; then it is stalled and the contract is checked.
+ *        In a headless or unattended session ending the turn ends the session,
+ *        so the stop is blocked instead (agentsRunningMessage), on every stop
+ *        until the agents finish or the same set stalls (GEVA-590)
  *     -> checkContract (lib/skill-contract.ts)
  *     -> unmet and this run never blocked: record "blocked", then block with
  *        blockMessage(); unmet again later: record "miss" and allow
@@ -38,7 +41,7 @@
 import { binPath, sessionKind } from './spawn-bin';
 import { appendHookTrace, hookHost, readSkillSwitch, readStdinBounded } from '../../../lib/skill-route';
 import {
-  AGENT_STALL_MS, StateError, UnknownShape, blockMessage, bumpCanary, checkContract, isFinalTurn, nextOutcome, skippedLine,
+  AGENT_STALL_MS, StateError, UnknownShape, agentsRunningMessage, blockMessage, bumpCanary, checkContract, isFinalTurn, nextOutcome, skippedLine,
   readRecord, recordPath, runKey, sameSkill, skillLoads, stateErrorLine, transcriptContract, writeRecord,
   type Contract, type Transcript,
 } from '../../../lib/skill-contract';
@@ -115,7 +118,9 @@ async function main(): Promise<void> {
   const record = readRecord(file) ?? { version: 1 as const, session_id: sessionId, transcript_path: transcriptPath, runs: {} };
   const key = runKey(t.skill, result.load);
   const prev = record.runs[key];
-  if (!isFinalTurn(result, () => sessionKind(SESSION_KIND_TIMEOUT_MS))) return trace({ event: 'not-final-turn', skill: t.skill });
+  let kind: string | undefined;
+  const kindOf = () => (kind ??= sessionKind(SESSION_KIND_TIMEOUT_MS));
+  if (!isFinalTurn(result, kindOf)) return trace({ event: 'not-final-turn', skill: t.skill });
   const pending = [...result.pendingAgents].sort();
   if (pending.length) {
     const sameSet = pending.join(',') === (prev?.deferred_agents ?? []).join(',') && !!prev?.deferred_at;
@@ -129,7 +134,10 @@ async function main(): Promise<void> {
       writeRecord(file, record);
     }
     if (!sameSet || !(Date.now() - Date.parse(prev!.deferred_at!) >= AGENT_STALL_MS)) {
-      return trace({ event: 'agents-running', skill: t.skill, agents: pending.length });
+      if (kindOf() !== 'headless' && kindOf() !== 'unattended') return trace({ event: 'agents-running', skill: t.skill, agents: pending.length });
+      trace({ event: 'agents-running-blocked', skill: t.skill, agents: pending.length });
+      const out = JSON.stringify({ decision: 'block', reason: agentsRunningMessage(t.skill, pending) });
+      return await new Promise<void>(resolve => process.stdout.write(out, () => resolve()));
     }
     trace({ event: 'agents-stalled', skill: t.skill, agents: pending.length });
   }
