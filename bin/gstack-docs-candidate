@@ -253,7 +253,7 @@ function main(argv: string[]): void {
     const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception', '--run', '--pre', '--carry', '--carry-stopped']);
     for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
     const out = path.resolve(one(args, '--out'));
-    if (!fs.existsSync(path.dirname(out))) throw new Error(resultLine('snapshot', 'DOCS_RUN_FOLDER_MISSING', `${path.dirname(out)} does not exist yet; this Prepare snapshot read nothing and launched no audit, so it spends no attempt`));
+    if (!fs.statSync(path.dirname(out), { throwIfNoEntry: false })?.isDirectory()) throw new Error(resultLine('snapshot', 'DOCS_RUN_FOLDER_MISSING', `${path.dirname(out)} does not exist yet; this Prepare snapshot read nothing and launched no audit, so it spends no attempt`));
     const top = fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim());
     if (out === top || out.startsWith(top + path.sep)) throw new Error('--out must be outside the repository');
     const mode = one(args, '--mode');

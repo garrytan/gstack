@@ -210,13 +210,15 @@ fingerprint, with or without its line, never closes by trailer, so no closure
 line puts its location in the PR body.
 
 A fix commit with no trailer closes its finding the same way (`cleared_by_review`,
-GSKI-1 #4) when that commit changed the finding's own file after every review-log
-row that holds the finding open, and a later full round of that same kind, the
-read-only final review included, read the whole branch clean. This never closes a
-finding with no file in its fingerprint, a finding whose raising row has no commit,
-a gate or security finding, a finding whose file changed only before it was raised,
-or one a later round left open, so a real blocker the lane never touched stays
-open. Write prints `REVIEW_CLEAR:` and the PR body says the fix had no trailer.
+GSKI-1 #4) when that commit changed the finding's own line after every review-log
+row that holds the finding open (the `path:line:category` line does not map
+unchanged through it), and a later complete full review that read the whole PR
+(a pass 1 or the read-only final review, never a repeat round that read only its
+range) read it clean. This never closes a finding with no line in its fingerprint,
+a finding whose raising row has no commit, a gate or security finding, a commit
+that changed only other lines of the file, a change made only before the finding
+was raised, or one a later round left open, so a real blocker the lane never
+touched stays open. Write prints `REVIEW_CLEAR:` and the PR body says the fix had no trailer.
 
 <a id="one-grant-path"></a>
 **A ruling at the cap needs no grant.** The Captain rules a blocker a note with

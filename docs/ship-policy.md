@@ -1879,7 +1879,9 @@ A ruling still covers its finding after edits above it move its line (GSKI-1 #5)
 when a later review raises `path:54:voice` and the ruling names `path:43:voice` at
 an ancestor head, `gstack-ship-receipt write` maps line 43 through that file's diff
 to the commit the later review read, and when the ruled line itself is unchanged and
-lands on 54 it counts the open finding ruled and prints `RULED_SHIFT:`. Another line
+lands on 54 it counts the open finding ruled and prints `RULED_SHIFT:`;
+`gstack-review-read` applies the same match to a row that carries the moved
+fingerprint and holds the ruling's head in its range. Another line
 in the same file, another voice or category, a ruled line whose text changed, a
 renamed or binary file and a security finding never match, so each still needs its
 own ruling.

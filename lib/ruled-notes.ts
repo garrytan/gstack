@@ -185,7 +185,7 @@ export function shiftedRulings(cwd: string, open: readonly unknown[], rows: read
     const m = typeof id === 'string' && typeof fp === 'string' ? /^(.+):[1-9]\d*:([^:\s]+)$/.exec(fp) : null;
     if (!m) continue;
     const raisedAt = rows.filter(r => typeof r?.commit_full === 'string' && /^[0-9a-f]{40}$/.test(r.commit_full) && Array.isArray(r.findings)
-      && r.findings.some((f: any) => f && f.action === 'open' && (f.ledger_id === id || f.fingerprint === fp))).at(-1)?.commit_full as string | undefined;
+      && r.findings.some((f: any) => f && f.action === 'open' && f.fingerprint === fp && (f.ledger_id === id || f.ledger_id === undefined))).at(-1)?.commit_full as string | undefined;
     const note = raisedAt && notes.find(n => n.finding !== fp && n.finding.startsWith(`${m[1]}:`) && n.finding.endsWith(`:${m[2]}`) && onHead(n.head) && shiftedFinding(cwd, n.finding, n.head, raisedAt) === fp);
     if (note) out.push({ finding: fp, head: note.head, line: `RULED_SHIFT: ${id} is ${note.finding} ruled at ${note.head.slice(0, 12)} (approval ${note.approval}); only lines above it changed by ${raisedAt!.slice(0, 12)}, so the ruling covers it` });
   }

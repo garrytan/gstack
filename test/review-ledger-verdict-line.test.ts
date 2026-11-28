@@ -73,6 +73,11 @@ describe('GST-4111 fix 4: a sound-checks section is not a findings section', () 
     expect(parseReply('red-team', summary).findings.map(f => f.label)).toEqual(['Critical']);
     const lead = ['**What holds up.**', '', '- The Critical path in lib/foo.ts:42 is fine.', '', '**Finding 1 (FIXABLE): the lock in lib/foo.ts:50 is never released.** It leaks.', '1. CRITICAL lib/foo.ts:60 drops rows'].join('\n');
     expect(parseReply('adversarial-native', lead).findings.map(f => f.raw.slice(0, 13))).toEqual(['**Finding 1 (', '1. CRITICAL l']);
+    const broken = ['## What I verified was broken', '', '- Dropped writes at lib/cache.ts:42 when the queue fills.', '  Severity: High', '  Blocks: yes'].join('\n');
+    expect(parseReply('outside-voice', broken).findings.map(f => f.raw)).toEqual([expect.stringContaining('lib/cache.ts:42')]);
+    expect(parseReply('specialist', ['## What I verified', '', '- src/a.ts:42 null deref crashes the worker on empty input (High)'].join('\n')).findings.map(f => f.label)).toEqual(['High']);
+    const fielded = ['## What I checked and found sound', '', '- Dropped writes at lib/cache.ts:42 when the queue fills.', 'Severity: High', 'Blocks: yes'].join('\n');
+    expect(parseReply('specialist', fielded).findings.map(f => f.raw)).toEqual([expect.stringContaining('lib/cache.ts:42')]);
     expect(parseReply('specialist', ['## Verified issues', '', '- The Critical path in lib/foo.ts:42 drops the lock.'].join('\n')).findings).toHaveLength(1);
   });
 });

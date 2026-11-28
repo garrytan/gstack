@@ -8,6 +8,7 @@
  */
 import { spawnSync } from './spawn-sync';
 import { parseFixTrailers, rowTime } from './review-scope';
+import { shiftedFinding } from './ruled-notes';
 import { isSecurityFinding } from './security-findings';
 
 type Row = Record<string, any>;
@@ -28,11 +29,12 @@ const nameOf = (b: OpenBlocker) => (typeof b === 'string' ? b : b.id);
 /**
  * The later complete full review that read `fix` clean: a `review` row of /ship (not a fix-range or scoped repeat) that started after
  * `after`, finished and converged, bound to its own committed tree on this branch with `fix` inside its range and its commit, and
- * left nothing open (its status, findings_open from a findings file, an inline open finding).
+ * left nothing open (its status, findings_open from a findings file, an inline open finding). `whole` also requires it to have read
+ * the whole PR (`range_base` null: a pass 1 or the read-only final review), not only a repeat round's range.
  */
-function cleanReviewOf(cwd: string, rows: readonly Row[], after: number, fix: string, head: string): Row | undefined {
+function cleanReviewOf(cwd: string, rows: readonly Row[], after: number, fix: string, head: string, whole = false): Row | undefined {
   const inRange = (from: unknown) => from == null || (typeof from === 'string' && (b => !!b && !ancestor(cwd, fix, b))(git(cwd, ['rev-parse', '--verify', '--quiet', `${from}^{commit}`])?.trim()));
-  return rows.find(r => r?.skill === 'review' && r.via === 'ship' && r.completed === true && r.scope !== 'fix-range' && r.scope !== 'scoped' && rowTime(r) > after
+  return rows.find(r => r?.skill === 'review' && r.via === 'ship' && r.completed === true && r.scope !== 'fix-range' && r.scope !== 'scoped' && rowTime(r) > after && (!whole || r.range_base == null)
     && r.converged === true && r.review_binding?.state === 'verified' && inRange(r.range_base) && typeof r.tree === 'string' && r.review_binding.start_wtree === r.tree && r.review_binding.end_wtree === r.tree
     && SHA.test(String(r.commit_full)) && treeOf(cwd, r.commit_full) === r.tree && ancestor(cwd, fix, r.commit_full) && ancestor(cwd, r.commit_full, head)
     && r.status !== 'issues_found' && r.status !== 'issues_open' && Number(r.findings_open ?? 0) === 0 && !findingsOf(r).some(f => f.action === 'open'));
@@ -65,24 +67,26 @@ export function clearByTrailer(cwd: string, o: { head: string; baseRef: string; 
 
 /**
  * The GSKI-1 #4 route, for a fix commit with no trailer: an open blocker closes when a commit made after every row that holds it open
- * (not an ancestor of any of their commits) changed the finding's own file, and a later complete full review (cleanReviewOf, the
- * read-only final review included) holding that commit read the whole branch clean. The invariant that keeps a real blocker open: a
- * finding with no file (a fingerprint without path:line:category and no path field), a raising row with no commit, a gate or
- * security-class finding, a change to its file made only before it was raised, and a later round that left anything open never close.
+ * (not an ancestor of any of their commits) changed the finding's own line (its `path:line:category` fingerprint does not map unchanged
+ * through that commit, shiftedFinding), and a later complete full review that read the whole PR (cleanReviewOf with `whole`: a pass 1 or
+ * the read-only final review, never a repeat round that read only its range) holding that commit read it clean. The invariant that keeps a
+ * real blocker open: a finding with no line, a raising row with no commit or another fingerprint under the same ledger id (ids restart per
+ * /ship run), a gate or security-class finding, a commit that left the finding's line as it was, a change made only before it was raised,
+ * a review of only a range, and a later round that left anything open never close.
  */
 export function clearByReview(cwd: string, o: { head: string; baseRef: string; rows: readonly Row[]; open: readonly OpenBlocker[] }): TrailerClearing[] {
   return o.open.flatMap(b => {
     const id = nameOf(b), fp = typeof b === 'string' ? b : b.fingerprint;
-    const raised = raisedBy(o.rows, b);
-    if (!raised.length || raised.some(x => x.f.gate !== undefined || isSecurityFinding(x.f)) || isSecurityFinding(fp) || isSecurityFinding(id)) return [];
-    const files = new Set(raised.map(x => typeof x.f.path === 'string' && x.f.path ? x.f.path.replace(/^\.\//, '') : /^(.+):\d*:[^:\s]+$/.exec(String(x.f.fingerprint ?? ''))?.[1]));
-    const file = files.size === 1 ? [...files][0] : undefined;
+    const raised = raisedBy(o.rows, b).filter(x => x.f.fingerprint === fp);
+    const m = /^(.+):[1-9]\d*:[^:\s]+$/.exec(fp);
+    if (!m || !raised.length || raised.some(x => x.f.gate !== undefined || isSecurityFinding(x.f)) || isSecurityFinding(fp) || isSecurityFinding(id)) return [];
     const at = raised.map(x => String(x.r.commit_full));
-    if (!file || file === '?' || !at.every(c => SHA.test(c))) return [];
+    if (!at.every(c => SHA.test(c))) return [];
+    const newest = raised.reduce((a, x) => (rowTime(x.r) >= rowTime(a.r) ? x : a)).r.commit_full as string;
     const after = Math.max(...raised.map(x => rowTime(x.r)));
-    const touched = (git(cwd, ['--literal-pathspecs', 'log', '--no-merges', '--format=%H', `${o.baseRef}..${o.head}`, '--', file]) ?? '').split('\n').map(c => c.trim()).filter(c => SHA.test(c));
-    for (const fix of touched.filter(c => at.every(a => !ancestor(cwd, c, a)))) {
-      const review = cleanReviewOf(cwd, o.rows, after, fix, o.head);
+    const touched = (git(cwd, ['--literal-pathspecs', 'log', '--no-merges', '--format=%H', `${o.baseRef}..${o.head}`, '--', m[1]!]) ?? '').split('\n').map(c => c.trim()).filter(c => SHA.test(c));
+    for (const fix of touched.filter(c => at.every(a => !ancestor(cwd, c, a)) && ancestor(cwd, newest, c) && shiftedFinding(cwd, fp, newest, c) === null)) {
+      const review = cleanReviewOf(cwd, o.rows, after, fix, o.head, true);
       if (review) return [{ id, commit: fix, review: review.commit_full as string }];
     }
     return [];

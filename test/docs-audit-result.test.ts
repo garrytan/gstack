@@ -547,7 +547,7 @@ describe('an earlier blocked line for the same audit carries into the last line'
   });
 });
 
-// Value: protects=a Prepare snapshot whose --out or --run folder does not exist yet fails fast with DOCS_RUN_FOLDER_MISSING before
+// Value: protects=a Prepare snapshot whose --out folder does not exist yet (--run is only a name) fails fast with DOCS_RUN_FOLDER_MISSING before
 //   any audit runs, writes nothing, and says it spends no attempt, so both Step 14.5 attempts stay for real audits (GSKI-1 #13);
 //   fails_when=snapshot dies with a raw ENOENT after reading the repository, which the lane counted as a failed launch;
 //   seam=bin/gstack-docs-candidate snapshot and ship/sections/documentation.md's attempt budget
@@ -574,6 +574,14 @@ describe('GSKI-1 #13: a missing run folder refuses the snapshot before any attem
       expect(r.stdout).toBe('');
       expect(fs.existsSync(runDir)).toBe(false);
     }
+    fs.writeFileSync(runDir, 'a file, not a folder');
+    const notDir = snapshot(['--out', path.join(runDir, 'docs-1.json')]);
+    expect(notDir.status).toBe(1);
+    expect(notDir.stderr).toContain('(DOCS_RUN_FOLDER_MISSING)');
+    fs.rmSync(runDir);
+    const named = snapshot(['--out', path.join(root, 'named.json'), '--run', path.join(root, 'absent', 'record.md')]);
+    expect(named.status, named.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'named.json'), 'utf8')).run_id).toBe(path.join(root, 'absent', 'record.md'));
     fs.mkdirSync(runDir);
     const ok = snapshot(['--out', path.join(runDir, 'docs-1.json'), '--run', path.join(runDir, 'record.md')]);
     expect(ok.status, ok.stderr).toBe(0);
