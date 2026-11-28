@@ -122,10 +122,12 @@ describe('gstack-outside-voice prints its own OUTSIDE_STATUS line on every outco
     expect(r.status).toBe(1);
   });
 
-  test('--show prints the review before VERDICT, FINDINGS and the status line', () => {
+  test('--show prints the status line, the review, then VERDICT, FINDINGS and the status line again', () => {
     const r = voice(fixture({ FAKE_MODE: 'findings' }), ['--show']);
     const lines = r.stdout.trimEnd().split('\n');
-    expect(lines.slice(0, 3)).toEqual(['[P1] The retry loop never stops on 429. Severity: High Blocks: yes', 'Recommendation: Fix the retry at queue.ts:78 because it DoSes the worker pool', 'VERDICT: FINDINGS']);
+    expect(lines[0]).toBe(lines.at(-1));
+    expect(r.statusLines).toHaveLength(2);
+    expect(lines.slice(1, 4)).toEqual(['[P1] The retry loop never stops on 429. Severity: High Blocks: yes', 'Recommendation: Fix the retry at queue.ts:78 because it DoSes the worker pool', 'VERDICT: FINDINGS']);
     expect(lines.slice(-3, -1)).toEqual(['VERDICT: findings', 'FINDINGS: P1']);
     expect(lines.at(-1)).toMatch(/^OUTSIDE_STATUS: completed .*pass=adversarial$/);
   });

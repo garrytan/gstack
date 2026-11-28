@@ -226,10 +226,13 @@ describe('never blocks the wrong turn', () => {
     fs.appendFileSync(file, `${meta('<task-notification>agent a1 completed: NO FINDINGS</task-notification>')}\n${say('Testing is back; waiting on Security.')}\n`);
     expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).reason).toContain('1 background Agent dispatch this run started is still running (a2)');
     fs.appendFileSync(file, `${meta('<task-notification>agent a2 completed: NO FINDINGS</task-notification>')}\n${say('Both specialists reported. Done.')}\n`);
-    const after = JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout);
+    // Claude Code marks every stop after a hook block stop_hook_active; the hook's own agents-running hold must not spend the contract block.
+    const after = JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout);
     expect(after.decision).toBe('block');
     expect(after.reason).toStartWith('SKILL_CONTRACT_UNMET review');
     expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'blocked' });
+    expect(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).toBe('');
+    expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'miss' });
   });
 
   test('headless: the same running set past AGENT_STALL_MS is stalled, and the contract is checked instead', () => {

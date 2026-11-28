@@ -83,6 +83,14 @@ describe('outside-voice: only the tool\'s own status line counts', () => {
     expect(items([...BASE, ...voiceRun('CODEX_MODE: not_installed', fakedMode), REPORT])['outside-voice']).toBe('missing');
   });
 
+  test('a long --show review cut to its head by the host still meets it through the leading status line', () => {
+    const line = 'OUTSIDE_STATUS: completed provider=codex-cli model=gpt-6.2-astra family=openai pass=adversarial';
+    const full = `${line}\n${'[P3] A long finding line.\n'.repeat(2000)}VERDICT: findings\nFINDINGS: P3\n${line}`;
+    const preview = `<persisted-output>\nOutput too large (${full.length} chars). Full output saved to: /tmp/tool-results/v1.txt\n\nPreview (first 2KB):\n${full.slice(0, 2000)}\n...\n</persisted-output>`;
+    expect(full.length).toBeGreaterThan(30000);
+    expect(items([...BASE, ...preflight('ready'), ...voiceRun(preview), REPORT])['outside-voice']).toBe('met');
+  });
+
   test('another pass\'s status line does not meet the adversarial item', () => {
     expect(items([...BASE, ...preflight('ready'), ...voiceRun('OUTSIDE_STATUS: completed provider=codex-cli pass=structured'), REPORT])['outside-voice']).toBe('missing');
   });

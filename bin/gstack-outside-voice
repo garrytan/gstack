@@ -46,7 +46,8 @@ cross-family subagent the host ran; needs --model). --max-tokens caps the api ru
 is unavailable (truncated). --pass names the review pass on the status line (pass=<name>);
 --effort is codex-cli's default reasoning effort, overridden by GSTACK_CODEX_EFFORT or config codex_effort;
 --append-diff adds the diff from git merge-base <base> HEAD to a private copy of the prompt as
-repository context; --show prints the review text before the status lines. --native-model enforces the same-family
+repository context; --show prints the status line, the review text, then the status lines again, so a
+host that keeps only the head of a long result still sees the status. --native-model enforces the same-family
 rule. GSTACK_OUTSIDE_RUNNER names the fallback when --fallback is absent. --gate defaults to
 autoplan (its INPUT receipt and gstack-findings fence) when the prompt carries gstack-autoplan's
 RESULT FORMAT, else review. Writes <out>.meta.json and prints a status line, for example
@@ -70,12 +71,15 @@ function usage(message: string): number {
 const PASS = /^[a-z][a-z0-9-]{0,31}$/;
 const EFFORT = /^(minimal|low|medium|high|xhigh|max|ultra)$/;
 let statusSink: { pass?: string; provider?: string; json: boolean } | null = null;
+function statusText(sink: NonNullable<typeof statusSink>, state: string, detail: string): string {
+  return `OUTSIDE_STATUS: ${state} ${detail}${sink.provider && !/provider=/.test(detail) ? ` provider=${sink.provider}` : ''}${sink.pass ? ` pass=${sink.pass}` : ''}\n`;
+}
 /** The run's OUTSIDE_STATUS line, once: the last thing a non-JSON run prints, whatever path it ends on. */
 function status(state: string, detail: string): void {
   if (!statusSink || statusSink.json) return;
   const sink = statusSink;
   statusSink = null;
-  process.stdout.write(`OUTSIDE_STATUS: ${state} ${detail}${sink.provider && !/provider=/.test(detail) ? ` provider=${sink.provider}` : ''}${sink.pass ? ` pass=${sink.pass}` : ''}\n`);
+  process.stdout.write(statusText(sink, state, detail));
 }
 /** A private copy of the prompt with the branch diff appended as data; the caller's file is never changed. */
 function withDiff(promptFile: string, base: string, cwd: string): { file: string; dir: string } | { error: string } {
@@ -177,9 +181,10 @@ async function main(argv: string[]): Promise<number> {
   fs.writeFileSync(`${path.resolve(outFile)}.meta.json`, JSON.stringify(result, null, 2) + '\n');
   if (json) process.stdout.write(JSON.stringify(result) + '\n');
   else {
-    if (rest.includes('--show') && result.output) process.stdout.write(`${fs.readFileSync(result.output, 'utf8').replace(/\n?$/, '\n')}`);
+    const detail = outsideStatusLine(result).replace(/^OUTSIDE_STATUS: \S+ /, '') + (result.reason ? ` reason=${result.reason}` : '');
+    if (rest.includes('--show') && result.output && statusSink) process.stdout.write(statusText(statusSink, result.status, detail) + fs.readFileSync(result.output, 'utf8').replace(/\n?$/, '\n'));
     if (result.verdict) process.stdout.write(`VERDICT: ${result.verdict.verdict}\nFINDINGS: ${findingsLabel(result.verdict)}\n`);
-    status(result.status, outsideStatusLine(result).replace(/^OUTSIDE_STATUS: \S+ /, '') + (result.reason ? ` reason=${result.reason}` : ''));
+    status(result.status, detail);
   }
   if (result.status === 'completed' || result.status === 'unverified') return EXIT.ok;
   if (result.reason || result.detail) process.stderr.write(`gstack-outside-voice run: ${result.runner} ${result.status}${result.reason ? ` (${result.reason})` : ''}${result.detail ? `: ${result.detail}` : ''}\n`);

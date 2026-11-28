@@ -605,8 +605,8 @@ export function transcriptContract(t: Transcript, skill: string, env: NodeJS.Pro
 }
 
 export type Outcome = 'met' | 'met_waived' | 'blocked' | 'met_after_block' | 'miss' | 'deferred';
-/** deferred_agents: the Agent dispatches still running at the last stop the hook let through unchecked; deferred_at: when that set was first seen. */
-export interface RunRecord { skill: string; load_line: number; outcome: Outcome; missing: string[]; waived: string[]; blocked_at?: string; deferred_agents?: string[]; deferred_at?: string; updated_at: string }
+/** deferred_agents: the Agent dispatches still running at the last stop the hook let through unchecked; deferred_at: when that set was first seen; agents_blocked_at: when the hook first held a headless run for them. */
+export interface RunRecord { skill: string; load_line: number; outcome: Outcome; missing: string[]; waived: string[]; blocked_at?: string; deferred_agents?: string[]; deferred_at?: string; agents_blocked_at?: string; updated_at: string }
 /** The same Agent dispatches still running this long after the stop that first saw them count as stalled. */
 export const AGENT_STALL_MS = 10 * 60 * 1000;
 export interface SessionRecord { version: 1; session_id: string; transcript_path: string; runs: Record<string, RunRecord> }

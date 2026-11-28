@@ -124,17 +124,21 @@ async function main(): Promise<void> {
   const pending = [...result.pendingAgents].sort();
   if (pending.length) {
     const sameSet = pending.join(',') === (prev?.deferred_agents ?? []).join(',') && !!prev?.deferred_at;
+    const waiting = !sameSet || !(Date.now() - Date.parse(prev!.deferred_at!) >= AGENT_STALL_MS);
+    const holds = waiting && (kindOf() === 'headless' || kindOf() === 'unattended');
     if (!sameSet) {
       const now = new Date().toISOString();
+      const agentsBlockedAt = prev?.agents_blocked_at ?? (holds ? now : undefined);
       record.transcript_path = transcriptPath;
       record.runs[key] = {
         skill: t.skill, load_line: result.load.line, outcome: prev?.outcome ?? 'deferred', missing: prev?.missing ?? [], waived: prev?.waived ?? [],
-        ...(prev?.blocked_at ? { blocked_at: prev.blocked_at } : {}), deferred_agents: pending, deferred_at: now, updated_at: now,
+        ...(prev?.blocked_at ? { blocked_at: prev.blocked_at } : {}), deferred_agents: pending, deferred_at: now,
+        ...(agentsBlockedAt ? { agents_blocked_at: agentsBlockedAt } : {}), updated_at: now,
       };
       writeRecord(file, record);
     }
-    if (!sameSet || !(Date.now() - Date.parse(prev!.deferred_at!) >= AGENT_STALL_MS)) {
-      if (kindOf() !== 'headless' && kindOf() !== 'unattended') return trace({ event: 'agents-running', skill: t.skill, agents: pending.length });
+    if (waiting) {
+      if (!holds) return trace({ event: 'agents-running', skill: t.skill, agents: pending.length });
       trace({ event: 'agents-running-blocked', skill: t.skill, agents: pending.length });
       const out = JSON.stringify({ decision: 'block', reason: agentsRunningMessage(t.skill, pending) });
       return await new Promise<void>(resolve => process.stdout.write(out, () => resolve()));
@@ -142,7 +146,7 @@ async function main(): Promise<void> {
     trace({ event: 'agents-stalled', skill: t.skill, agents: pending.length });
   }
   const { outcome, block } = nextOutcome(prev, result);
-  if (block && stopActive) return trace({ event: 'stop-hook-active', skill: t.skill });
+  if (block && stopActive && !prev?.agents_blocked_at) return trace({ event: 'stop-hook-active', skill: t.skill });
   const missing = result.missing.join(',') || '-';
   if (prev && prev.outcome === outcome && !block) return trace({ event: 'unchanged', skill: t.skill, outcome });
   const now = new Date().toISOString();
