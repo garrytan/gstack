@@ -546,3 +546,48 @@ describe('an earlier blocked line for the same audit carries into the last line'
     expect(r.stdout).toContain('DOCS_RESULT: ok status=blocked');
   });
 });
+
+// Value: protects=a Prepare snapshot whose --out folder does not exist yet (--run is only a name) fails fast with DOCS_RUN_FOLDER_MISSING before
+//   any audit runs, writes nothing, and says it spends no attempt, so both Step 14.5 attempts stay for real audits (GSKI-1 #13);
+//   fails_when=snapshot dies with a raw ENOENT after reading the repository, which the lane counted as a failed launch;
+//   seam=bin/gstack-docs-candidate snapshot and ship/sections/documentation.md's attempt budget
+describe('GSKI-1 #13: a missing run folder refuses the snapshot before any attempt', () => {
+  test('snapshot into a run folder that does not exist yet refuses, writes nothing, and the same snapshot succeeds once it exists', () => {
+    const root = scratch();
+    const repo = path.join(root, 'repo');
+    const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8', timeout: 20_000 });
+    fs.mkdirSync(repo);
+    git('init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(repo, 'README.md'), '# Fx\n');
+    git('add', '-A'); git('commit', '-qm', 'base');
+    git('checkout', '-qb', 'feat');
+    fs.writeFileSync(path.join(repo, 'a.ts'), 'export const a = 1;\n');
+    git('add', '-A'); git('commit', '-qm', 'feat');
+    const runDir = path.join(root, 'ship-run');
+    const snapshot = (args: string[]) => spawnSync(BIN, ['snapshot', '--audit-id', 'docs-1', '--mode', 'read-only', '--base', 'main', ...args], { cwd: repo, encoding: 'utf8', timeout: 20_000 });
+    for (const args of [['--out', path.join(runDir, 'docs-1.json'), '--run', path.join(runDir, 'record.md')], ['--out', path.join(runDir, 'docs-1.json')]]) {
+      const r = snapshot(args);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain('(DOCS_RUN_FOLDER_MISSING)');
+      expect(r.stderr).toContain(runDir);
+      expect(r.stderr).toContain('spends no attempt');
+      expect(r.stdout).toBe('');
+      expect(fs.existsSync(runDir)).toBe(false);
+    }
+    fs.writeFileSync(runDir, 'a file, not a folder');
+    const notDir = snapshot(['--out', path.join(runDir, 'docs-1.json')]);
+    expect(notDir.status).toBe(1);
+    expect(notDir.stderr).toContain('(DOCS_RUN_FOLDER_MISSING)');
+    fs.rmSync(runDir);
+    const named = snapshot(['--out', path.join(root, 'named.json'), '--run', path.join(root, 'absent', 'record.md')]);
+    expect(named.status, named.stderr).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'named.json'), 'utf8')).run_id).toBe(path.join(root, 'absent', 'record.md'));
+    fs.mkdirSync(runDir);
+    const ok = snapshot(['--out', path.join(runDir, 'docs-1.json'), '--run', path.join(runDir, 'record.md')]);
+    expect(ok.status, ok.stderr).toBe(0);
+    expect(fs.readdirSync(runDir)).toEqual(['docs-1.json']);
+    const section = fs.readFileSync(path.join(ROOT, 'ship', 'sections', 'documentation.md'), 'utf8');
+    expect(section).toContain('`DOCS_RUN_FOLDER_MISSING`');
+    expect(section).toMatch(/refuses[^.]*launched nothing[^.]*spends no attempt/);
+  });
+});

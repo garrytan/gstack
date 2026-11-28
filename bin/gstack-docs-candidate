@@ -28,6 +28,9 @@
  * or already contains it while the branch has commits its real base lacks is
  * refused (BASE_CONTAINS_HEAD, lib/default-base.ts): it would select nothing.
  * --run names the /ship invocation (its record's path) and is saved as run_id.
+ * An --out folder that does not exist yet (the run folder, not created) refuses
+ * before anything is read (DOCS_RUN_FOLDER_MISSING): no audit ran, so it spends
+ * no attempt. --run is only the run's name, so it is never checked on disk.
  * --pre <Prepare snapshot> marks a post snapshot: it must be this audit's
  * (same audit id, HEAD and run) and the record saves `edited`, each path whose
  * content the audit changed with its content before (the Prepare hash, else
@@ -250,6 +253,7 @@ function main(argv: string[]): void {
     const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception', '--run', '--pre', '--carry', '--carry-stopped']);
     for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
     const out = path.resolve(one(args, '--out'));
+    if (!fs.statSync(path.dirname(out), { throwIfNoEntry: false })?.isDirectory()) throw new Error(resultLine('snapshot', 'DOCS_RUN_FOLDER_MISSING', `${path.dirname(out)} does not exist yet; this Prepare snapshot read nothing and launched no audit, so it spends no attempt`));
     const top = fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim());
     if (out === top || out.startsWith(top + path.sep)) throw new Error('--out must be outside the repository');
     const mode = one(args, '--mode');

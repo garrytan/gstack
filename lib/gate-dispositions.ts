@@ -20,7 +20,7 @@ import * as fs from 'node:fs';
 import { appendRows, locate, readRecord, repoVisibility, type ApprovalRow, type Env, type RecordError, type RepoVisibility, type StoreLocation } from './approval-record';
 import type { ShipReceipt } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
-import { isGstackActor, redactInternalIds, type RuledNote } from './ruled-notes';
+import { isGstackActor, redactInternalIds, shiftedFinding, type RuledNote } from './ruled-notes';
 import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON, REDACTED_WORDS } from './security-findings';
 import { openRun, readRunRecord, withGateLock } from './ship-run-record';
 
@@ -208,11 +208,16 @@ export function dispositionedOn(cwd: string, row: Record<string, any>, dispositi
 /**
  * The owner's rulings that apply to a review row, as gstack-review-read reads it for Step 11.5 (harness-evals#498, HARN-1): a
  * ruling for a finding the row carries that is not a gate finding (a ruling never closes one), recorded at a head inside the
- * row's range by the same test dispositions use.
+ * row's range by the same test dispositions use. A ruling whose line only moved by the row's commit (shiftedFinding, GSKI-1 #5) applies
+ * under the fingerprint the row carries, so receipt write and Step 11.5 read the same rulings.
  */
 export function ruledOn(cwd: string, row: Record<string, any>, notes: readonly RuledNote[]): RuledNote[] {
   const fingerprints = new Set((Array.isArray(row?.findings) ? row.findings : []).flatMap((f: any) => f && !f.gate && typeof f.fingerprint === 'string' ? [f.fingerprint] : []));
-  const mine = notes.filter(n => fingerprints.has(n.finding));
+  const at = typeof row?.commit_full === 'string' && /^[0-9a-f]{40}$/.test(row.commit_full) ? row.commit_full : '';
+  const moved = (n: RuledNote) => { const m = at ? /^(.+):[1-9]\d*:([^:\s]+)$/.exec(n.finding) : null;
+    const fp = m && [...fingerprints].some(f => f.startsWith(`${m[1]}:`) && f.endsWith(`:${m[2]}`)) ? shiftedFinding(cwd, n.finding, n.head, at) : null;
+    return fp && fp !== n.finding && fingerprints.has(fp) ? [{ ...n, finding: fp }] : []; };
+  const mine = notes.flatMap(n => (fingerprints.has(n.finding) ? [n] : moved(n)));
   const holds = mine.length ? rowRange(cwd, row) : null;
   return holds ? mine.filter(n => holds(n.head)) : [];
 }

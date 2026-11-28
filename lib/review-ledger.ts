@@ -58,6 +58,19 @@ const ANY_LABEL = new RegExp(`(?<![A-Za-z0-9])(${LABELS})(?![A-Za-z0-9])`);
 /** A heading that is only a label ("## High", "**Critical findings**") gives its label to the top-level list items under it, until the next heading or bold-only line. */
 const LABEL_HEADING = new RegExp(`^(?:#{1,6}\\s*|\\*\\*)(${LABELS})(?:\\s+(?:findings?|severity|issues?))?\\s*:?\\**\\s*$`);
 const HEADING = /^(?:#{1,6}\s|\*\*[^*]+\*\*:?$)/;
+/**
+ * A heading over what the reader checked and found sound ("## What I checked and found sound", "### What holds up", "**Verified:**",
+ * GSTA-830 #4800): the whole heading is the title and nothing else, so "## Summary: … found sound", "## Strengths and one critical problem"
+ * and "What I verified" alone never are (p3/red-team#2 on #4875). Its bullet items and their indented lines are not findings unless shaped
+ * as one (a lead label, a delimited severity tag such as "(Critical)", "[High]", "**Low**" or "High:", a Severity or Blocks field,
+ * Blocks: yes, JSON), so "- The Critical path in a.ts:42 handles it" never blocks. Any other line (a heading, a numbered
+ * item, a bold finding lead, a paragraph) ends the section, so a finding after it still collects. A skipped bullet stays the context of
+ * a Severity or Blocks field line after it, which collects with that bullet's text. A "Summary" heading is not one: its
+ * lines may be the only copy of a finding. "Verified issues" and "Looks good except" headings keep collecting.
+ */
+const SOUND_HEADING = /^(?:#{1,6}\s*|\*\*\s*)(?:(?:what (?:else )?(?:i |we )?)?(?:checked|verified|read) and (?:found )?(?:sound|clean|correct|fine|no (?:defects?|issues?|problems?)(?: in)?)|(?:everything (?:else )?)?found (?:sound|clean|correct|fine)|what (?:holds|held) up|verified|(?:what )?looks? (?:good|sound|correct|fine)|strengths|no (?:issues|problems|findings) found)\s*[:.]?\s*(?:\*\*)?\s*[:.]?\s*$/i;
+/** A severity label set off as a tag ("(Critical)", "[High]", "**Low**", "High:"), unlike the bare word in "the Critical path". */
+const SEVERITY_TAG = new RegExp(`[([]\\s*(?:${LABELS})\\s*[,)\\]]|\\*\\*\\s*(?:${LABELS})\\s*\\*\\*|(?<![A-Za-z0-9])(?:${LABELS})\\s*:`);
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s+\S/;
 /** A numbered finding heading ("**1. …**", "### 2) …", GST-1031) or a finding lead that names its number ("**Finding 1 (FIXABLE): …**", GST-1657). */
 const NUMBERED_HEAD = /^(?:#{1,6}\s+|\*\*\s*)(?:\d+[.)]\s|Finding\s+\d+\b)/;
@@ -211,6 +224,7 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
   type Finding = { label: string; raw: string; fields: Set<string>; list: boolean; lead?: string; fixable?: boolean; heading?: boolean; item?: boolean; nested?: boolean; closed?: boolean; section?: boolean; context?: string };
   const out: Finding[] = [];
   let section: string | null = null;
+  let sound = false;
   let current: Finding | null = null;
   let head = '';
   let gap = false;
@@ -263,7 +277,10 @@ function parseLabelled(reader: string, output: string, fixableRaises: boolean): 
       continue;
     }
     const heading = LABEL_HEADING.exec(t);
-    if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; current = null; head = ''; continue; }
+    if (heading) { section = fixableRaises ? named(heading[1]!) : heading[1]!; sound = false; current = null; head = ''; continue; }
+    if (!indented && HEADING.test(t) && (sound = SOUND_HEADING.test(t))) { section = null; current = null; head = ''; continue; }
+    if (sound && !indented && !/^[-*+]\s/.test(t)) sound = false;
+    if (sound && !(LEAD_LABEL.test(t) || SEVERITY_TAG.test(t) || !!t.match(STATED_SEVERITY) || BLOCKS_YES.test(t) || t.startsWith('{'))) { current = null; head = t; continue; }
     const field = fieldOf(t);
     if (!afterGap && current?.heading && !current.fields.size && (field !== undefined || t.match(BLOCKS_FIELD)) && !ANY_LABEL.test(t.replace(SEVERITY_FIELD, ' '))
       && !LIST_ITEM.test(t) && !LOCUS.test(t) && !HEADING.test(t) && !NUMBERED_HEAD.test(t) && !t.startsWith('{')

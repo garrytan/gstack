@@ -146,3 +146,62 @@ export function ruledEdits(cwd: string, paths: readonly string[], now: string, e
   }
   return { ruled, refused };
 }
+
+/**
+ * A ruled finding after its line moved (GST-4111, GSKI-1 #5): `finding`, a `path:line:category` fingerprint ruled at `from`, as the
+ * fingerprint of the same line at `to`, where a later review raised it again. It maps only when `from` is `to` or an ancestor of it
+ * and the diff between them on that one path leaves the ruled line itself untouched, so the line moved only because lines above it were
+ * added or removed; the result keeps the identity (path, line, category) an unshifted ruling already matches. A finding with no
+ * path:line, a security-class finding, a changed, deleted or renamed line, a binary file or a git failure gives null, so a different
+ * finding in the same file, or the same finding on an edited line, still needs its own ruling.
+ */
+export function shiftedFinding(cwd: string, finding: string, from: string, to: string): string | null {
+  const t = traceFinding(cwd, finding, from, to);
+  return t === 'changed' ? null : t;
+}
+
+/**
+ * Where a `path:line:category` finding at `from` sits at `to`: its moved fingerprint; 'changed' only when git shows a commit in between
+ * rewrote that line or deleted (or renamed away) its file; null when nothing can be shown (not an ancestor, a security-class finding, a
+ * binary file, a git error), so a caller that needs proof of a change fails closed.
+ */
+export function traceFinding(cwd: string, finding: string, from: string, to: string): string | 'changed' | null {
+  const m = /^(.+):([1-9]\d*):([^:\s]+)$/.exec(finding);
+  if (!m || isSecurityFinding(finding)) return null;
+  const [, file, at, category] = m as unknown as [string, string, string, string];
+  const git = (args: string[]) => { const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? String(r.stdout ?? '') : null; };
+  if (git(['merge-base', '--is-ancestor', from, to]) === null) return null;
+  if (git(['--literal-pathspecs', 'cat-file', '-e', `${to}:${file}`]) === null) {
+    const gone = git(['--literal-pathspecs', 'ls-tree', '-r', '--full-tree', '--name-only', to, '--', file]) === '';
+    return gone && git(['--literal-pathspecs', 'cat-file', '-e', `${from}:${file}`]) !== null ? 'changed' : null;
+  }
+  const diff = git(['--literal-pathspecs', '-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '-U0', from, to, '--', file]);
+  if (diff === null || /^Binary files /m.test(diff)) return null;
+  const line = Number(at);
+  let delta = 0;
+  for (const h of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+\d+(?:,(\d+))? @@/gm)) {
+    const start = Number(h[1]), removed = h[2] === undefined ? 1 : Number(h[2]), added = h[3] === undefined ? 1 : Number(h[3]);
+    if (removed > 0 && line >= start && line < start + removed) return 'changed';
+    if (removed > 0 ? start + removed <= line : start < line) delta += added - removed;
+  }
+  return `${file}:${line + delta}:${category}`;
+}
+
+/**
+ * The open blockers a ruling covers after its line moved (shiftedFinding): each open blocker's fingerprint, at the commit of the newest
+ * review-log row that holds it open, against every ruling on the same path and category whose head `onHead` accepts. One alias per
+ * match, `{ finding: <the open fingerprint>, head: <the ruling's head> }`, for unruledOpenBlockers, with the line write prints.
+ */
+export function shiftedRulings(cwd: string, open: readonly unknown[], rows: readonly Record<string, any>[], notes: readonly RuledNote[], onHead: (head: string) => boolean): Array<{ finding: string; head: string; line: string }> {
+  const out: Array<{ finding: string; head: string; line: string }> = [];
+  for (const o of open) {
+    const id = typeof o === 'string' ? o : (o as any)?.id, fp = typeof o === 'string' ? o : (o as any)?.fingerprint;
+    const m = typeof id === 'string' && typeof fp === 'string' ? /^(.+):[1-9]\d*:([^:\s]+)$/.exec(fp) : null;
+    if (!m) continue;
+    const raisedAt = rows.filter(r => typeof r?.commit_full === 'string' && /^[0-9a-f]{40}$/.test(r.commit_full) && Array.isArray(r.findings)
+      && r.findings.some((f: any) => f && f.action === 'open' && f.fingerprint === fp && (f.ledger_id === id || f.ledger_id === undefined))).at(-1)?.commit_full as string | undefined;
+    const note = raisedAt && notes.find(n => n.finding !== fp && n.finding.startsWith(`${m[1]}:`) && n.finding.endsWith(`:${m[2]}`) && onHead(n.head) && shiftedFinding(cwd, n.finding, n.head, raisedAt) === fp);
+    if (note) out.push({ finding: fp, head: note.head, line: `RULED_SHIFT: ${id} is ${note.finding} ruled at ${note.head.slice(0, 12)} (approval ${note.approval}); only lines above it changed by ${raisedAt!.slice(0, 12)}, so the ruling covers it` });
+  }
+  return out;
+}
