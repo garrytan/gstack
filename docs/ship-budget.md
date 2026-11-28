@@ -203,7 +203,10 @@ measured means are per reader. A reader's prior is the calibrated per-dispatch c
 the larger of the prior and the run's clean per-reader mean, and the price never drops below the
 role's own measured mean. When the whole batch does not fit, `check` admits the largest prefix that does and
 prints `ADMIT: k of n (remaining=<roles>)`: dispatch those k, then re-check the remaining roles
-once they settle. Only a batch whose first reader does not fit stops, and `close` flags remaining
+once they settle. A reader that `gstack-review-dispatch pass` slices into k slice readers
+([review-policy.md](review-policy.md#review-ceiling)) is listed as `<role>*<k>` (k from 1 to 8,
+for example `dispatch:specialist,adversarial-native*3`): each slice is priced and reserved as one
+reader, and `ADMIT` never splits a slice set. Only a batch whose first reader does not fit stops, and `close` flags remaining
 roles no later check requested (`DROPPED:`, status=incomplete until the owner accepts).
 Roles are review-depth's: `specialist`, `red-team`, `adversarial-native`, `outside-voice`,
 `fix-check`, plus `docs`, the Step 14.5 documentation audit, which takes no review-log start and
