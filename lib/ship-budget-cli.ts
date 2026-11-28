@@ -267,7 +267,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   if (delegate !== 'auto' && delegate !== 'never') throw usageError(`--delegate '${delegate}' is not auto or never`);
   const existing = parseRecordBlock(record);
   const prior = existing?.ledger && fs.existsSync(existing.ledger) ? readLedger(existing.ledger) : undefined;
-  if (prior && !prior.closed_at && !progressed(prior)) {
+  if (prior && !prior.closed_at && !progressed(prior) && Date.now() - Date.parse(prior.created_at) <= RESTART_MS) {
     return mutateLedger(prior.file, ctx.env, l => {
       if (scope === 'tree' || parentCounter) l.meter_scope = 'tree';
       return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 };
@@ -279,7 +279,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     return { stdout: ['BUDGET: unmetered admission_cap=none (no readable meter: --reading <n> on Capy, --session <id> on Claude Code)'], exit: 0 };
   }
   const superseded = prior && !prior.closed_at
-    ? [`SUPERSEDED: run ${prior.run} on this record ${prior.stopped ? `stopped (${prior.stopped.reason})` : 'already ran past its start'} and stays as it was; this /ship is a new run whose cap and clock count from its own start (to continue that run instead: gstack-ship-budget resume --record ${record})`] : [];
+    ? [`SUPERSEDED: run ${prior.run} on this record ${prior.stopped ? `stopped (${prior.stopped.reason})` : progressed(prior) ? 'already ran past its start' : `started over ${RESTART_MS / 60_000} minutes ago`} and stays as it was; this /ship is a new run whose cap and clock count from its own start (to continue that run instead: gstack-ship-budget resume --run ${prior.run})`] : [];
   const run = mintRunId();
   const dir = runDirFor(ctx.env, run);
   const owner = thisRunOwner(), checkout = toplevel(ctx.cwd);
@@ -303,6 +303,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const call = readMeter(l, o, true);
   if (meter === 'claude') l.meter.baseline = l.meter.last ?? 0;
   const out = decide(l, '0.9', { kind: 'step', step: '1' }, call, true);
+  if (superseded.length) mutateLedger(prior!.file, ctx.env, old => { old.superseded_by = run; });
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
   const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship run metering its own counter; --token-cap <n> or none to change it)`] : [];
@@ -311,9 +312,11 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
 
 /**
  * Whether a run went past its start (GST-4109): a stop, a note, a completed or settled step, a check's second reservation or a
- * handoff. start re-attaches only a run that has not, a rerun of the same start; any other open ledger on the record is an earlier
- * /ship, which a new start never joins, so its tokens and minutes never count against this run's cap and clock.
+ * handoff. start re-attaches only a run that has not and that started within RESTART_MS, a rerun of the same start; any other open
+ * ledger on the record is an earlier /ship, which a new start never joins (it is marked superseded_by the new run, so it stops holding
+ * gstack upgrades), so its tokens and minutes never count against this run's cap and clock.
  */
+const RESTART_MS = 5 * 60_000;
 const progressed = (l: Ledger) => Boolean(l.stopped || l.notes?.length || l.steps_done?.length || l.handoffs.length
   || l.reservations.length > 1 || l.reservations.some(r => r.state !== 'open'));
 
@@ -514,6 +517,7 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
     }
     const was = l.stopped;
     delete l.stopped;
+    delete l.superseded_by;
     if (was?.reason === 'past_100_minutes') l.clock_from = new Date().toISOString();
     pointMarker(l.marker, l);
     return [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, `RESUMED: from=${was ? `Step ${was.step} (${was.reason})` : 'running'}`, ...(was?.reason === 'past_100_minutes' ? [`CLOCK: restarted at ${l.clock_from} (the 100-minute limit counts from here)`] : []), budgetLine(l, { call: null, next: was?.next ?? '-', projected: 0, verdict: 'continue' })];

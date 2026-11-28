@@ -522,5 +522,25 @@ describe('a new /ship on a reused record meters only itself (GST-4109)', () => {
     const note = h.sb(['note', '--record', record, '--step', '6', '--reading', '901000000']);
     expect(note.out).toMatch(/^NOTE: 6 used=1000000\b/m);
   });
+  // Value: protects=a start re-attaches only a fresh rerun: an open run that never noted but started over 5 minutes ago is an earlier /ship, so a new start opens its own run and marks the old one superseded, which then holds no gstack upgrade; fails_when=a run parked before its first note (a preflight STOP) still lends its baseline and clock to the next /ship (red-team, ship-1-p1), or the superseded ledger keeps holding upgrades;
+  //   why_new=the cases above only re-start at once; seam=the ledger's created_at, backdated; no_claim=admission-mode reruns
+  test('an unprogressed run older than 5 minutes is superseded, and the superseded ledger holds no upgrade', async () => {
+    const { liveRun } = await import('../lib/ship-run-live');
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1000000']);
+    const oldLedger = h.field(first.out, 'BUDGET_RUN', 'ledger');
+    const l = h.ledger(oldLedger);
+    l.created_at = new Date(Date.now() - 10 * 60_000).toISOString();
+    fs.writeFileSync(oldLedger, JSON.stringify(l, null, 2));
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '30000000']);
+    expect(second.code, second.out + second.err).toBe(0);
+    const b = h.field(second.out, 'BUDGET_RUN', 'id');
+    expect(b).not.toBe(l.run);
+    expect(second.out).toContain(`SUPERSEDED: run ${l.run} on this record started over 5 minutes ago`);
+    expect(h.ledger(oldLedger).superseded_by).toBe(b);
+    expect(fs.readFileSync(record, 'utf8')).toContain(`run=${b} `);
+    expect(h.sb(['close', '--record', record, '--reading', '31000000']).code).toBe(0);
+    expect(liveRun(h.state).live).toBeUndefined();
+  });
 });
-

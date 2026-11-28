@@ -8,6 +8,7 @@
  * run's record nor a later run started on the same checkout releases it (for a review start, the record naming the run its claim
  * stamped). A stopped run can still claim its fix-check grant and resume, so it keeps
  * the hold, and so does a record that is missing, open, legacy, unreadable, older than the ledger or another ledger's.
+ * A ledger a later start superseded (superseded_by) no longer holds either.
  * The same ownership ends a finished run (endClosedRun, GST-4109): an open record whose own ledger closed (Step 22's close) is marked
  * finished, so it no longer blocks the next /ship on the checkout, while a record whose ledger is still open keeps blocking.
  */
@@ -41,15 +42,16 @@ const owns = (ledgers: Ledgers, l: Record<string, any>) => (r: RunRecord) => {
 };
 
 /**
- * End a finished run: when the checkout's record is open and its own ledger (owns) has closed, mark it finished (ended_by
- * gstack-ship-budget close) and return the RUN_ENDED line; null when there is nothing to end. `checkout` is the git toplevel a ledger records.
+ * End a finished run: when the checkout's record is open and its own ledger (owns) closed after the record opened, mark it finished
+ * (ended_by gstack-ship-budget close) and return the RUN_ENDED line; null when there is nothing to end. A record opened after that
+ * ledger closed is a later run that wrote no ledger of its own (an unmetered start), so it is never ended. `checkout` is the git toplevel a ledger records.
  */
 export function endClosedRun(checkout: string, stateRoot: string): string | null {
   const read = readRunRecord(checkout);
   if (read.kind !== 'record' || read.record.state !== 'open') return null;
   const ledgers = shipLedgers(stateRoot).filter(x => x.l.checkout === checkout);
   const mine = ledgers.find(x => owns(ledgers, x.l)(read.record));
-  if (!mine?.l.closed_at) return null;
+  if (!mine?.l.closed_at || Date.parse(read.record.started_at) > Date.parse(mine.l.closed_at)) return null;
   const run = read.record.run;
   const done = changeRunRecord(checkout, 'close', run, { ended_by: 'gstack-ship-budget close' });
   return done.ok ? `RUN_ENDED: run=${run} state=finished ended_by=gstack-ship-budget close (its budget ledger ${path.basename(path.dirname(mine.file))} closed at ${mine.l.closed_at})` : null;
@@ -61,7 +63,7 @@ export function liveRun(stateRoot: string, now = Date.now()): { live?: string; e
   const ledgers = shipLedgers(stateRoot);
   for (const { file, l } of ledgers) {
     if (!fresh(file, LEDGER_HOLD_MS, now)) continue;
-    if (!l || l.closed_at) continue;
+    if (!l || l.closed_at || l.superseded_by) continue;
     const id = path.basename(path.dirname(file));
     if (ownerGone(l.owner)) { ended.push(`/ship run ${id}: its owner process ${l.owner.pid} is gone`); continue; }
     if (recordEnded(l.checkout, owns(ledgers, l))) { ended.push(`/ship run ${id}: the run record in ${l.checkout} has ended`); continue; }

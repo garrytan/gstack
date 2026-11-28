@@ -313,10 +313,11 @@ gstack-ship-budget resume --record <record> --token-cap <n> --approved-by Garry 
 
 Every command takes `--run` or `--record`; runs are never found by branch or directory, and a
 /gstack-ship without `--resume` or `--continue` always starts a new run. `start` on a record whose open
-ledger has already gone past its start (a note, a check, a handoff or a stop) mints a new run and prints
+ledger has already gone past its start (a note, a check, a handoff or a stop) or started over 5 minutes ago
+mints a new run, marks the earlier ledger `superseded_by` it (so it stops holding gstack upgrades) and prints
 `SUPERSEDED: run <id> …`, so an earlier /gstack-ship in the same thread never counts against this run's cap or
-clock (GST-4109); only a rerun of the same start, before anything else ran, re-attaches. Continue an earlier run
-with `resume`. A `resume --meter capy` that moves a run onto the Capy counter needs `--reading`, the new
+clock (GST-4109); only a rerun of the same start, within 5 minutes and before anything else ran, re-attaches.
+Continue an earlier run with `resume --run <id>`, which clears `superseded_by`. A `resume --meter capy` that moves a run onto the Capy counter needs `--reading`, the new
 epoch's baseline, or it would count the thread's whole counter as the run's use. The ledger and record are
 mirrored to a private Drive checkpoint (`GSTACK_SHIP_BUDGET_CHECKPOINT_DIR`, else the
 project-user Drive folder on Capy) bound to the run id and their hashes, so after a machine

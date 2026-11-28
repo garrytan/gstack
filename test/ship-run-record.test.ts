@@ -399,5 +399,22 @@ describe('a finished run no longer blocks the next /ship, and abandon never hint
     expect(named.stdout).not.toContain('add the entry with');
     expect(record(g)).toMatchObject({ run: 'r1', state: 'abandoned' });
   });
+  // Value: protects=preflight never ends a live run that wrote no ledger of its own after an earlier run's ledger closed; fails_when=endClosedRun takes the earlier closed ledger as the later record's owner and marks a live run finished (state-machines, ship-1-p1);
+  //   why_new=the case above always started a ledger per run; seam=an unmetered start; no_claim=two ledgers created in the same millisecond
+  test('a later run with no ledger is never ended by an earlier closed ledger', () => {
+    const f = fx();
+    const rec = startBudget(f, 'r1');
+    expect(preflight(f, 'r1').status).toBe(0);
+    expect(BUDGET(f, ['close', '--record', rec, '--reading', '2000', '--credits', '2']).status).toBe(0);
+    f.advanceBase({ 'docs/a.md': 'a\n' });
+    const bare = path.join(f.root, 'r2.md');
+    fs.writeFileSync(bare, '# /ship record\n');
+    expect(BUDGET(f, ['start', '--record', bare]).stdout).toContain('BUDGET: unmetered');
+    expect(preflight(f, 'r2').status).toBe(0);
+    f.advanceBase({ 'docs/b.md': 'b\n' });
+    const r3 = preflight(f, 'r3');
+    expect(r3.status).toBe(3);
+    expect(r3.stdout).not.toContain('RUN_ENDED:');
+    expect(record(f)).toMatchObject({ run: 'r2', state: 'open' });
+  });
 });
-
