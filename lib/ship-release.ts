@@ -16,13 +16,13 @@ import { versionAtRef } from './restamp';
 import { classifyPath } from './review-depth';
 import { matchesAny } from './ship-policy';
 import { baseHolds, boundedPaths, comparePath, contextPacket, gateEditedPaths, isTestCode, PACKET_SECTION_CAP, readScopedReview, touchedPaths, type BoundedKind, type PatchSides } from './ship-patch';
-import { extractReceipt, heldBy, receiptRuns } from './ship-receipt';
+import { extractReceipt, heldBy, receiptRuns, runId } from './ship-receipt';
 import { finishRun, readRunRecord } from './ship-run-record';
 import { mechanicalPaths, writeMechanicalRecord } from './ship-mechanical';
 import { uidSidecars } from './ship-sidecar';
 import type { MechanicalConstant } from './ship-policy-mechanical';
 import { forbidSpecs } from './review-fetch';
-import { readRuledNotes, ruledEditLine, ruledEdits, ruledNoteText } from './ruled-notes';
+import { readRuledNotes, repoRuledNotes, ruledEditLine, ruledEdits, ruledNoteText, type RuledNote } from './ruled-notes';
 import { dispositionedOn, gateDispositionText, readGateDispositions } from './gate-dispositions';
 import { parseReceiptDocs, type ReceiptDocs } from './ship-receipt-docs';
 import { redactFindingSpans } from './redact-engine';
@@ -246,10 +246,10 @@ function patchBase(cwd: string, baseRef: string, commit: string, parent: string 
 
 
 /** The owner's rulings and gate dispositions finish prints with stage 2's route (GST-1537, GST-2491). */
-function printRulings(cwd: string, r: Report): void {
+function printRulings(cwd: string, r: Report, notes: readonly RuledNote[]): void {
   const reviewRows: Record<string, any>[] = bin(cwd, 'gstack-review-read', [], 60_000).stdout.split('\n---CONFIG---')[0].split('\n')
     .flatMap(l => { try { const v = JSON.parse(l); return v?.skill === 'review' || v?.skill === 'review-fix-check' ? [v] : []; } catch { return []; } });
-  for (const n of readRuledNotes(cwd)) if (!n.finding.startsWith('edit:')) r.add(`RULED_NOTE: ${ruledNoteText(n)}`);
+  for (const n of notes) if (!n.finding.startsWith('edit:')) r.add(`RULED_NOTE: ${ruledNoteText(n)}`);
   for (const d of readGateDispositions(cwd)) r.add(`GATE_DISPOSITION: ${gateDispositionText(d)}${reviewRows.some(v => dispositionedOn(cwd, v, [d]).length) ? '' : ' (no open gate finding at this fingerprint on a review row whose range holds this head; not applied)'}`);
 }
 
@@ -299,8 +299,9 @@ function route(cwd: string, base: string, reviewed: string, reviewedBase: Review
     by.behavior.push(...packetBody.over);
     for (const k of ['context', 'tests', 'bounded'] as const) by[k] = by[k].filter(p => !packetBody.over.includes(p));
   }
-  printRulings(cwd, r);
-  const edits = readRuledNotes(cwd).filter(n => n.finding.startsWith('edit:'));
+  const notes = repoRuledNotes(readRuledNotes(cwd), cwd);
+  printRulings(cwd, r, notes);
+  const edits = notes.filter(n => n.finding.startsWith('edit:'));
   const { ruled, refused: refusedEdits } = ruledEdits(cwd, [...by.behavior, ...by.docs], now, edits);
   by.behavior = by.behavior.filter(p => !ruled.has(p));
   by.ruled = [...ruled.keys()].sort();
@@ -451,7 +452,7 @@ export async function finish(argv: readonly string[], cwd: string): Promise<Repo
   const listed = hostedOrigin(cwd) && branch ? gh(cwd, ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'body', '--jq', '.[0].body // empty']) : undefined;
   const body = listed?.status === 0 ? listed.stdout.trim() : '';
   const ended = listed && listed.status !== 0 ? { line: `RUN_RECORD: kept (gh pr list failed: ${firstLine(listed.stderr)}; finish removes a run record only when the PR body names its run)` }
-    : finishRun(cwd, body ? [...receiptRuns(body), extractReceipt(body).receipt].flatMap(e => typeof e?.run === 'string' ? [e.run] : []) : null);
+    : finishRun(cwd, body ? [...receiptRuns(body), extractReceipt(body).receipt].flatMap(e => typeof e?.run === 'string' ? [runId(e.run)] : []) : null);
   if (ended.line) r.add(ended.line);
   return r;
 }

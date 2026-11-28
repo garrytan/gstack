@@ -20,7 +20,7 @@ import * as fs from 'node:fs';
 import { appendRows, locate, readRecord, type ApprovalRow, type Env, type RecordError, type StoreLocation } from './approval-record';
 import type { ShipReceipt } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
-import { isGstackActor, type RuledNote } from './ruled-notes';
+import { isGstackActor, redactInternalIds, type RuledNote } from './ruled-notes';
 import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON, REDACTED_WORDS } from './security-findings';
 import { openRun, readRunRecord, withGateLock } from './ship-run-record';
 
@@ -171,8 +171,15 @@ export function gateAcceptance(o: { cwd: string; branch: string; pin: string; bo
   return problems.length ? { lines, applied, noteRows, failure: { code: 'QUEUE_GATE_DISPOSITION', message: problems.join('; '), fix } } : { lines, applied, noteRows };
 }
 
-/** The disposition as public text may carry it: a security-class finding's fingerprint, reason and owner words stay in the approval record (GST-3076). */
-export const publicGateDisposition = (d: GateDisposition): GateDisposition => isSecurityFinding(d.finding) ? { ...d, finding: REDACTED_FINDING, reason: REDACTED_REASON, words: REDACTED_WORDS } : d;
+/**
+ * The disposition as public text may carry it: a security-class finding's fingerprint, reason and owner words stay in the approval
+ * record (GST-3076), and a Capy thread or message id in its recorder, reason or words reads PRIVATE_REF on every repository
+ * (GST-1955), so the dispositions command, finish, the receipt and the queue's store check render one line.
+ */
+export const publicGateDisposition = (d: GateDisposition): GateDisposition => {
+  const p = isSecurityFinding(d.finding) ? { ...d, finding: REDACTED_FINDING, reason: REDACTED_REASON, words: REDACTED_WORDS } : d;
+  return { ...p, by: redactInternalIds(p.by), reason: redactInternalIds(p.reason), words: redactInternalIds(p.words) };
+};
 
 /** The one-line form finish prints after `GATE_DISPOSITION: ` and the PR body carries after `Gate disposition: `, from publicGateDisposition. */
 export const gateDispositionText = (disposition: GateDisposition) => { const d = publicGateDisposition(disposition); return `${d.finding} [gate ${d.gate_id}] at ${d.head.slice(0, 12)} by ${d.by} at ${d.at}: ${d.reason} — "${d.words}" (approval ${d.approval})`; };

@@ -5,7 +5,7 @@
  * full sha of the stop head the owner ruled at; the row's `by` is the ruler and its `recorded_at` the time. A review-log field
  * never makes one, so the lane that logged a finding cannot close it.
  */
-import { locate, readRecord, type ApprovalRow, type Env } from './approval-record';
+import { locate, readRecord, renderMode, repoVisibility, type ApprovalRow, type Env } from './approval-record';
 import { isSecurityFinding, REDACTED_FINDING, REDACTED_REASON } from './security-findings';
 import { openRun, readRunRecord } from './ship-run-record';
 import { spawnSync } from './spawn-sync';
@@ -31,6 +31,24 @@ export const RULED_NOTE_SCOPE = /^\s*ruled_note\b/;
 export const ruledNoteRow = (finding: string, head: string, reason: string) => ({ scope: `ruled_note ${finding} ${head}`, ask: `ruled_note ${finding} at ${head}: ${reason}` });
 /** Where a lane relays the owner's ruling from: `<thread code>:<message id or timestamp>`, a message a reader can look up. */
 export const OWNER_REF = /^[A-Z][A-Z0-9]*-[1-9]\d*:[A-Za-z0-9][\w.:+-]*$/;
+/**
+ * A Capy thread or message id as public text must never carry it (GST-1955, CAPY-1 qm#3938): a `jam_` thread id, an `icm_` or `iev_`
+ * message id, or a relay ref in OWNER_REF's shape, `<thread code>:<message id or timestamp>`. A thread code alone (`GStack Minder (GSTA-36)`) names a ruler.
+ */
+export const INTERNAL_ID = /\b(?:jam|icm|iev)_[A-Za-z0-9]+|\b[A-Z][A-Z0-9]*-[1-9]\d*:[A-Za-z0-9][\w.:+-]*/;
+/** What public text says in place of an INTERNAL_ID: the relay a Ruled note names, and any id in an abandon entry's who and why. */
+export const PRIVATE_REF = 'a private message';
+export const redactInternalIds = (text: string) => text.replace(new RegExp(INTERNAL_ID.source, 'g'), PRIVATE_REF);
+/** Whether public text for the repository at cwd (and an explicit --repo target) may keep its internal ids: gh is asked only when text holds one, and only a repository gh reports private keeps them. */
+export const keepsInternalIds = (text: string, cwd: string, env: Env = process.env, target?: string) => !INTERNAL_ID.test(text) || renderMode(repoVisibility(cwd, env, target), false) === 'full';
+/**
+ * The rulings as this repository's public text carries them: gstack-approvals rulings, finish's RULED_NOTE lines and the receipt's
+ * ruled_notes all read them here, so all three agree. On a public or unknown-visibility repository a relayed ruling says it was
+ * relayed from PRIVATE_REF, an id in its ruler or reason reads PRIVATE_REF too, and the approval record's row keeps them (CAPY-1 qm#3938).
+ */
+export const repoRuledNotes = (notes: RuledNote[], cwd: string, env: Env = process.env, target?: string): RuledNote[] =>
+  keepsInternalIds(notes.map(n => `${n.relayed ?? ''} ${n.by} ${n.reason}`).join(' '), cwd, env, target) ? notes
+    : notes.map(n => ({ ...n, by: redactInternalIds(n.by), reason: redactInternalIds(n.reason), ...(n.relayed ? { relayed: PRIVATE_REF } : {}) }));
 /** OWNER_REF in words, for the refusals and help that name it; a refusal never echoes the rejected ref, which may hold anything (#4718). */
 export const OWNER_REF_SHAPE = '<thread code>:<message id or timestamp>, where the thread code is an uppercase letter, then uppercase letters or digits, a dash and a number from 1, and the message part starts with a letter or digit (GSTA-36:2026-11-19T12:29:59Z)';
 const RED_TEAM = /:red-team$/i;

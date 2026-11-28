@@ -13,7 +13,7 @@ import { approvalSummary } from './approval-citations';
 import { FRAGMENT_README } from './changelog-fragments';
 import { renderIssueLines } from './issue-links';
 import { matchesAny } from './ship-policy';
-import { ruledNoteText } from './ruled-notes';
+import { INTERNAL_ID, ruledNoteText } from './ruled-notes';
 import { gateDispositionText } from './gate-dispositions';
 import { laneExceptionBodyLines } from './test-lane-exception';
 import { rerunMarker } from './run-evidence';
@@ -21,6 +21,35 @@ import { stampFileKind, versionStampOnly } from './pregate/stamp-only';
 import { stampOnlyLine, type BranchSide } from './stamp-only';
 
 export const RECEIPT_FENCE = 'gstack-ship-receipt';
+
+/**
+ * A /ship run id as receipts store and compare it: the run dir's name (GST-1955). Runs that passed `--run` the run dir's path put
+ * `/home/<user>/.capy/work/ship-<n>` in 20 of 60 merged public receipts, so write keeps the name, and every comparison reads both
+ * sides through runId, so an older entry that holds the path still names the same run.
+ */
+export const runId = (run: string) => run.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1)!;
+export const sameRun = (a: unknown, b: unknown) => typeof a === 'string' && typeof b === 'string' && runId(a) === runId(b);
+/** A home directory at the start of a path or after a separator: `/home/<u>/`, `/Users/<u>/`, `/root/` or `C:\\Users\\`. */
+const HOME_PATH = /(?<![\w.~-])(?:\/(?:home|Users)\/[^\s/\\"']+\/|\/root\/|[A-Za-z]:[\\/]Users[\\/])/i;
+/**
+ * The receipt fields whose value or key holds a home path or a Capy thread or message id (INTERNAL_ID), by field path and never by
+ * value (a leaking key shows as `<key n>`). write and carry refuse a receipt that names any on a repository gh does not report private (GST-1955).
+ */
+export function publicReceiptLeaks(receipt: unknown): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown, at: string): void => {
+    if (typeof v === 'string') for (const [re, what] of [[HOME_PATH, 'a home path'], [INTERNAL_ID, 'a Capy thread or message id']] as const) { if (re.test(v)) out.push(`${at} (${what})`); }
+    else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
+    else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x], i) => {
+      const leaky = HOME_PATH.test(k) || INTERNAL_ID.test(k), seg = leaky ? `<key ${i}>` : k, here = at ? `${at}.${seg}` : seg;
+      if (leaky) out.push(`${here} (a home path or Capy id in a key)`);
+      walk(x, here);
+    });
+  };
+  walk(receipt, '');
+  return out;
+}
+
 const KEY_ORDER: Array<keyof ShipReceipt | 'docs'> = [
   'schema_version', 'pr', 'head', 'version', 'base', 'gated_tree', 'predecessor', 'tree', 'gate_reuse', 'gate', 'ci', 'ci_carried', 'spend_usd', 'calls',
   'session_kind', 'artifacts_consumed', 'run', 'thread', 'policy', 'queue_mode', 'preregistration', 'history',
@@ -137,7 +166,7 @@ export type ReceiptRun = Pick<ShipReceipt, 'head' | 'version' | 'gstack_version'
 /** The runs block keeps the newest RECEIPT_RUNS_KEPT run entries and every stop, grant or abandoned marker (lib/pr-review-history.ts), in order. */
 export function keptRuns(runs: readonly ReceiptRun[]): ReceiptRun[] {
   const keep = new Set(runs.filter(r => !r.mark).slice(-RECEIPT_RUNS_KEPT));
-  return runs.filter(r => r.mark || keep.has(r));
+  return runs.filter(r => r.mark || keep.has(r)).map(r => typeof r.run === 'string' && r.run !== runId(r.run) ? { ...r, run: runId(r.run) } : r);
 }
 export function receiptRuns(body: string): ReceiptRun[] {
   const m = RUNS_RE.exec(receiptSource(body));
@@ -167,7 +196,7 @@ const STRIP_RE = /```gstack-(?:ship-receipt|receipt-runs)[ \t]*\r?\n[\s\S]*?\r?\
 export function placeReceipt(body: string, receipt: ShipReceipt): string {
   const ex = extractReceipt(body);
   const prior = ex.receipt;
-  const runs = receiptRuns(body).filter(r => !r.status || !!receipt.carry || receipt.run === undefined || r.run !== receipt.run);
+  const runs = receiptRuns(body).filter(r => !r.status || !!receipt.carry || receipt.run === undefined || !sameRun(r.run, receipt.run));
   if (prior && typeof prior.head === 'string' && JSON.stringify(prior) !== JSON.stringify(receipt)) runs.push(receiptRun(prior));
   const kept = keptRuns(runs);
   const block = renderReceiptBlock(receipt) + (kept.length ? '\n```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n' : '');
@@ -581,8 +610,9 @@ export function computeCensus(repo: string, since: string, prs: CensusPr[], coho
     rows.push({ number: pr.number, session_kind: r.session_kind ?? null, artifacts_consumed: r.artifacts_consumed ?? null, run: r.run ?? null, thread: r.thread ?? null, valid: true });
     const kind = r.session_kind ?? 'unknown';
     byKind[kind] = (byKind[kind] ?? 0) + 1;
-    if (r.run && seenRuns.has(r.run)) continue;
-    if (r.run) { seenRuns.add(r.run); runs.add(r.run); }
+    const id = r.run ? runId(r.run) : undefined;
+    if (id && seenRuns.has(id)) continue;
+    if (id) { seenRuns.add(id); runs.add(id); }
     if (r.thread) threads.add(r.thread);
     if (kind === 'unattended') unattended += 1;
     if (consumedCount(r.artifacts_consumed) > 0) { consumed += 1; if (r.thread) consumedThreads.add(r.thread); }

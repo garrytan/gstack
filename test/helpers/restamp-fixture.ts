@@ -168,7 +168,7 @@ export function cleanup(repo: FixtureRepo): void {
  * number → JSON object and `gh pr list` with a fixed array, so queue-order
  * and PREDECESSOR MOVED checks run without the network.
  */
-export function ghShim(repo: FixtureRepo, prs: Record<string, unknown>, list: unknown[] = []): { PATH: string } {
+export function ghShim(repo: FixtureRepo, prs: Record<string, unknown>, list: unknown[] = [], visibility?: 'PUBLIC' | 'PRIVATE'): { PATH: string } {
   const dir = path.join(repo.root, 'gh-shim');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'prs.json'), JSON.stringify({ prs, list }));
@@ -179,6 +179,7 @@ export function ghShim(repo: FixtureRepo, prs: Record<string, unknown>, list: un
     '  node -e "const d=require(process.argv[1]);const p=d.prs[process.argv[2]];if(!p){console.error(\'no such pr\');process.exit(1)}console.log(JSON.stringify(p))" "$DATA" "$3"',
     '  exit $?',
     'fi',
+    ...(visibility ? [`if [ "$1" = "repo" ] && [ "$2" = "view" ]; then echo ${visibility}; exit 0; fi`] : []),
     'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then node -e "console.log(JSON.stringify(require(process.argv[1]).list))" "$DATA"; exit $?; fi',
     'echo "gh shim: unsupported $*" >&2; exit 1',
     '',

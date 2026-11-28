@@ -297,10 +297,10 @@ export type RepoVisibility = 'public' | 'private' | 'unknown';
 
 /**
  * The repository's visibility as GitHub reports it through gh, for the repository gh acts on by default (GH_REPO, its
- * default repo, an upstream remote) and for the origin remote a PR is opened against: private only when every one
- * asked is private, public when any is public, and unknown for anything gh cannot answer.
+ * default repo, an upstream remote) and for the origin remote a PR is opened against, plus `target` when a command publishes to an
+ * explicit --repo: private only when every one asked is private, public when any is public, and unknown for anything gh cannot answer.
  */
-export function repoVisibility(cwd: string, env: Env = process.env): RepoVisibility {
+export function repoVisibility(cwd: string, env: Env = process.env, target?: string): RepoVisibility {
   const ask = (repo: string[]): RepoVisibility => {
     const r = spawnSync('gh', ['repo', 'view', ...repo, '--json', 'visibility', '-q', '.visibility'], { cwd, env, encoding: 'utf8', timeout: 15_000 });
     if (r.status !== 0) return 'unknown';
@@ -309,7 +309,7 @@ export function repoVisibility(cwd: string, env: Env = process.env): RepoVisibil
   };
   const origin = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd, env, encoding: 'utf8', timeout: 15_000 });
   const slug = origin.status === 0 ? /([^/:]+\/[^/]+?)(?:\.git)?\/*$/.exec(origin.stdout.trim())?.[1] : undefined;
-  const seen = [ask([]), ...(slug ? [ask([slug])] : [])];
+  const seen = [ask([]), ...(slug ? [ask([slug])] : []), ...(target ? [ask([target])] : [])];
   return seen.includes('public') ? 'public' : seen.every(v => v === 'private') ? 'private' : 'unknown';
 }
 

@@ -9,7 +9,7 @@
  */
 import type { ShipReceipt } from './headless-artifacts';
 import { withAgentNotes, splitAgentNotes } from './agent-notes';
-import { extractReceipt, keptRuns, receiptRun, receiptRuns, RUNS_FENCE, RUNS_RE, type ReceiptRun } from './ship-receipt';
+import { extractReceipt, keptRuns, receiptRun, receiptRuns, runId, RUNS_FENCE, RUNS_RE, sameRun, type ReceiptRun } from './ship-receipt';
 import { FULL_PASS_CAP } from './review-depth';
 
 export interface PrReviewHistory {
@@ -48,7 +48,7 @@ export function prReviewHistory(body: string): PrReviewHistory {
   const ordered: Array<ReceiptRun | string> = [];
   all.forEach((e, i) => {
     if (e.status === 'voided' || e.carry_kind || e.carried_from) { ordered.push(e); return; }
-    const key = e.run ? `run:${e.run}@${e.head}` : `#${i}`;
+    const key = e.run ? `run:${runId(e.run)}@${e.head}` : `#${i}`;
     if (!reviewed.has(key)) ordered.push(key);
     reviewed.set(key, e);
   });
@@ -72,7 +72,7 @@ export function prReviewHistory(body: string): PrReviewHistory {
  * The receipt, when there is one, is unchanged; a body without one gets the block in its Agent notes section.
  */
 export function placeRunEntry(body: string, entry: ReceiptRun): string {
-  const runs = receiptRuns(body).filter(r => !(entry.status && r.status && r.run === entry.run));
+  const runs = receiptRuns(body).filter(r => !(entry.status && r.status && sameRun(r.run, entry.run)));
   if (entry.mark && runs.some(r => JSON.stringify(r) === JSON.stringify(entry))) return body;
   const kept = keptRuns([...runs, JSON.parse(JSON.stringify(entry)) as ReceiptRun]);
   const block = '```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n';
@@ -99,7 +99,7 @@ export const stopMarker = (o: { head: string; tree: string; run: string; at?: st
 /** gstack-ship-run abandon's entry (GST-3260): who ended a run that stopped working, and why, at the head it was abandoned on. */
 export const abandonMarker = (o: { head: string; run: string; by: string; reason: string }): ReceiptRun => ({ head: o.head, run: o.run, mark: 'abandoned', by: o.by, reason: o.reason });
 /** The newest receipt a run id already wrote, in the runs block or current: a run id names one /ship run (gstack-evals#406). */
-export const receiptedRun = (body: string, run: string) => entries(body).filter(e => e.run === run && !e.mark && !e.status).at(-1);
+export const receiptedRun = (body: string, run: string) => entries(body).filter(e => sameRun(e.run, run) && !e.mark && !e.status).at(-1);
 
 /** The rows a /ship stop can follow: a full pass or a Step 11 voice (#4591 stopped on its voices); a legacy fix-check row too. */
 const STOP_READERS = new Set(['review', 'review-fix-check', 'adversarial-review', 'codex-review']);
