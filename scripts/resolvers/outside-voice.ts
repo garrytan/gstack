@@ -206,10 +206,10 @@ export function outsideVoiceHelperInvocation(ctx: TemplateContext, opts: { pass:
 Run this block unchanged and never call \`codex\` yourself: \`gstack-outside-voice\` runs Codex, prints the review, \`VERDICT:\` and \`FINDINGS:\`, and on every outcome ends with its own \`OUTSIDE_STATUS: <status> ... pass=${opts.pass}\` line, the record the Stop check reads.
 
 \`\`\`bash
-${[runtimeRootPrelude(ctx), '_OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1', 'trap \'rm -r "$_OUTSIDE_TMP"\' EXIT', run].filter(Boolean).join('\n')}
+${[runtimeRootPrelude(ctx), outsideVoiceGuard(ctx), '_OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1', 'trap \'rm -r "$_OUTSIDE_TMP"\' EXIT', run].filter(Boolean).join('\n')}
 \`\`\`
 
-Use Bash \`timeout: ${OUTSIDE_GATE_MAX_MS}\`; show the full response in a \`tool-output\` fence. Only \`OUTSIDE_STATUS: completed\` is outside coverage; \`unverified\` is missing coverage, and any other status (refusal, empty or malformed output, timeout, CLI failure) means \`outside_status: unavailable\` for the reason it names. P0/P1 findings block like native ones. Retain the required native pass without duplicating it; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.`;
+Use Bash \`timeout: ${OUTSIDE_GATE_MAX_MS}\` in the foreground, never \`run_in_background\`; show the full response in a \`tool-output\` fence. Only \`OUTSIDE_STATUS: completed\` is outside coverage; \`unverified\` is missing coverage, and any other status (refusal, empty or malformed output, timeout, CLI failure) means \`outside_status: unavailable\` for the reason it names. P0/P1 findings block like native ones. Retain the required native pass without duplicating it; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.`;
 }
 
 /**

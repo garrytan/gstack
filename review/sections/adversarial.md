@@ -117,12 +117,22 @@ Write the **complete prompt and context**, including actual plan/spec/source, to
 Run this block unchanged and never call `codex` yourself: `gstack-outside-voice` runs Codex, prints the review, `VERDICT:` and `FINDINGS:`, and on every outcome ends with its own `OUTSIDE_STATUS: <status> ... pass=adversarial` line, the record the Stop check reads.
 
 ```bash
+# GSTACK_ACTIVE_HOST names the harness, never the model.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
 _OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
 trap 'rm -r "$_OUTSIDE_TMP"' EXIT
 "$HOME/.claude/skills/gstack/bin/gstack-outside-voice" run --runner codex-cli --pass adversarial --gate review --effort high --timeout-ms 540000 --show --prompt '<prepared-prompt-file>' --out "$_OUTSIDE_TMP/review.md"
 ```
 
-Use Bash `timeout: 600000`; show the full response in a `tool-output` fence. Only `OUTSIDE_STATUS: completed` is outside coverage; `unverified` is missing coverage, and any other status (refusal, empty or malformed output, timeout, CLI failure) means `outside_status: unavailable` for the reason it names. P0/P1 findings block like native ones. Retain the required native pass without duplicating it; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 600000` in the foreground, never `run_in_background`; show the full response in a `tool-output` fence. Only `OUTSIDE_STATUS: completed` is outside coverage; `unverified` is missing coverage, and any other status (refusal, empty or malformed output, timeout, CLI failure) means `outside_status: unavailable` for the reason it names. P0/P1 findings block like native ones. Retain the required native pass without duplicating it; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 Present the full output verbatim. A Critical, High or `Blocks: yes` finding is CRITICAL; `Blocks: no` never lowers one, and only a named policy ground drops it. This outside challenge is informational; supported findings still enter Step 5 Fix-First, whose approval and convergence gates apply.
 
@@ -146,12 +156,22 @@ Write the **complete prompt and context**, including actual plan/spec/source, to
 Run this block unchanged and never call `codex` yourself: `gstack-outside-voice` runs Codex, prints the review, `VERDICT:` and `FINDINGS:`, and on every outcome ends with its own `OUTSIDE_STATUS: <status> ... pass=structured` line, the record the Stop check reads.
 
 ```bash
+# GSTACK_ACTIVE_HOST names the harness, never the model.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
 _OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
 trap 'rm -r "$_OUTSIDE_TMP"' EXIT
 "$HOME/.claude/skills/gstack/bin/gstack-outside-voice" run --runner codex-cli --pass structured --gate structured --effort high --timeout-ms 540000 --show --append-diff <base> --prompt '<prepared-prompt-file>' --out "$_OUTSIDE_TMP/review.md"
 ```
 
-Use Bash `timeout: 600000`; show the full response in a `tool-output` fence. Only `OUTSIDE_STATUS: completed` is outside coverage; `unverified` is missing coverage, and any other status (refusal, empty or malformed output, timeout, CLI failure) means `outside_status: unavailable` for the reason it names. P0/P1 findings block like native ones. Retain the required native pass without duplicating it; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 600000` in the foreground, never `run_in_background`; show the full response in a `tool-output` fence. Only `OUTSIDE_STATUS: completed` is outside coverage; `unverified` is missing coverage, and any other status (refusal, empty or malformed output, timeout, CLI failure) means `outside_status: unavailable` for the reason it names. P0/P1 findings block like native ones. Retain the required native pass without duplicating it; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 Present output under `CODEX SAYS (code review):` inside a `tool-output` fence.
 Only a completed response ending with its `VERDICT:` line establishes the gate. P0/P1 findings (`[P0]`/`[P1]` or native `P0:`/`P1:` labels; `VERDICT: findings`) → GATE: FAIL. Completed without P0/P1 → GATE: PASS. Refusal, failure, missing markers or `OUTSIDE_STATUS: unverified` → GATE: MISSING COVERAGE; no fix question.

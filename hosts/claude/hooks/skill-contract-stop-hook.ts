@@ -154,7 +154,8 @@ async function main(): Promise<void> {
   record.transcript_path = transcriptPath;
   record.runs[key] = {
     skill: t.skill, load_line: result.load.line, outcome, missing: result.missing, waived: result.waived,
-    ...(blockedAt ? { blocked_at: blockedAt } : {}), updated_at: now,
+    ...(blockedAt ? { blocked_at: blockedAt } : {}),
+    ...(pending.length && prev?.deferred_at ? { deferred_agents: prev.deferred_agents, deferred_at: prev.deferred_at } : {}), updated_at: now,
   };
   writeRecord(file, record);
   trace({ event: outcome, skill: t.skill, missing, waived: result.waived.join(',') || '-' });

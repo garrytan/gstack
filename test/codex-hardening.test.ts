@@ -684,6 +684,10 @@ describe('codex timeout wrapper: /review + /ship diff passes', () => {
       const budgets = [...text.matchAll(/gstack-outside-voice" run --runner codex-cli --pass (?:adversarial|structured) .*--timeout-ms (\d+)/g)].map(m => Number(m[1]));
       expect(budgets.length).toBe(2);
       for (const ms of budgets) expect(ms).toBeLessThan(BASH_GATE_MS);
+      const fences = [...text.matchAll(/```bash\n([\s\S]*?)```/g)].map(m => m[1]!).filter(f => f.includes('gstack-outside-voice" run'));
+      expect(fences.length).toBe(2);
+      for (const fence of fences) expect(fence.indexOf('harness mismatch')).toBeGreaterThan(-1);
+      for (const fence of fences) expect(fence.indexOf('harness mismatch')).toBeLessThan(fence.indexOf('gstack-outside-voice" run'));
       expect(text.match(new RegExp(`Use Bash \`timeout: ${BASH_GATE_MS}\``, 'g'))?.length).toBe(2);
       expect(text).not.toMatch(/doesn't exist on macOS/);
     });

@@ -362,7 +362,7 @@ function bashResults(run: TranscriptEvent[]): Array<{ command: string; text: str
 
 /** The largest N a Bash result printed on a line matching marker (a marker with N), or null when none did. */
 function bashCount(run: TranscriptEvent[], marker: string): number | null {
-  const re = markerPattern(marker);
+  const re = new RegExp(`^\\s*(?:${markerPattern(marker).source})`, 'i');
   const counts = bashResults(run).flatMap(r => r.text.split('\n').map(l => re.exec(l)?.groups?.count).filter((c): c is string => !!c).map(Number));
   return counts.length ? Math.max(...counts) : null;
 }
@@ -435,12 +435,20 @@ function checkItem(item: ContractItem, run: TranscriptEvent[], codex: boolean): 
     case 'outside_voice': {
       // Only a tool's own output counts: never assistant text, and never a line the command spells out itself (echo 'OUTSIDE_STATUS: ...').
       const status = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.outsideVoiceStatus)} \\S+ .*\\bpass=${escapeRe(item.pass as string)}(?:\\s|$)`);
+      const mode = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.codexModeSkip)} [a-z_]+$`);
       const skip = new RegExp(`^${escapeRe(DEFAULT_MATCHERS.codexModeSkip)} (?!ready\\b|unverified\\b)[a-z_]+$`);
+      const ownPass = new RegExp(`--pass\\s+['"]?${escapeRe(item.pass as string)}['"]?(?:\\s|$)`);
+      const own = (r: { command: string; text: string }, re: RegExp) => r.text.split('\n').map(l => l.trim()).filter(l => l && re.test(l) && !r.command.includes(l));
+      let lastMode: string | undefined;
       for (const r of bashResults(run)) {
-        const re = r.command.includes(DEFAULT_MATCHERS.outsideVoiceCommand) ? status : r.command.includes(DEFAULT_MATCHERS.codexProbeCommand) ? skip : null;
-        const line = re && r.text.split('\n').map(l => l.trim()).find(l => l && re.test(l) && !r.command.includes(l));
-        if (line) return { met: true, detail: `Bash printed "${line.slice(0, 160)}"`, fix: '' };
+        if (r.command.includes(DEFAULT_MATCHERS.outsideVoiceCommand) && ownPass.test(r.command)) {
+          const line = own(r, status)[0];
+          if (line) return { met: true, detail: `Bash printed "${line.slice(0, 160)}"`, fix: '' };
+        } else if (r.command.includes(DEFAULT_MATCHERS.codexProbeCommand)) {
+          lastMode = own(r, mode).at(-1) ?? lastMode;
+        }
       }
+      if (lastMode && skip.test(lastMode)) return { met: true, detail: `Bash printed "${lastMode.slice(0, 160)}"`, fix: '' };
       return {
         met: false, detail: `no ${DEFAULT_MATCHERS.outsideVoiceCommand} run printed its ${DEFAULT_MATCHERS.outsideVoiceStatus} line for pass=${item.pass}, and no preflight printed a non-ready ${DEFAULT_MATCHERS.codexModeSkip}`,
         fix: item.fix ?? `when the preflight prints CODEX_MODE: ready or unverified, run the ${item.pass} pass's ${DEFAULT_MATCHERS.outsideVoiceCommand} command through Bash, unchanged, so it prints its own ${DEFAULT_MATCHERS.outsideVoiceStatus} line`,
@@ -517,7 +525,8 @@ export function checkContract(t: Transcript, skill: string, contract: Contract, 
     const ids = [e.id, ...[...result.text.matchAll(/\b(?:agent|task)[_ -]?id["']?\s*[:=]\s*["']?([\w-]+)/gi)].map(m => m[1])].filter(Boolean);
     const named = ids.map(id => new RegExp(`(?:^|[^\\w-])${escapeRe(id)}(?:[^\\w-]|$)`));
     const notified = run.slice(resultAt + 1).some(n => n.kind === 'meta' && named.some(re => re.test(n.text)));
-    return e.input.run_in_background === true && i < resultAt && !notified ? [e.id] : [];
+    const background = e.input.run_in_background === true || /\basync agent launched\b/i.test(result.text);
+    return background && i < resultAt && !notified ? [e.id] : [];
   });
   const missing = items.filter(i => i.status === 'missing').map(i => i.id);
   const waivedIds = items.filter(i => i.status === 'waived').map(i => i.id);

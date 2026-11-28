@@ -125,7 +125,7 @@ describe('gstack-outside-voice prints its own OUTSIDE_STATUS line on every outco
   test('--show prints the status line, the review, then VERDICT, FINDINGS and the status line again', () => {
     const r = voice(fixture({ FAKE_MODE: 'findings' }), ['--show']);
     const lines = r.stdout.trimEnd().split('\n');
-    expect(lines[0]).toBe(lines.at(-1));
+    expect(lines[0]).toBe(lines[lines.length - 1]!);
     expect(r.statusLines).toHaveLength(2);
     expect(lines.slice(1, 4)).toEqual(['[P1] The retry loop never stops on 429. Severity: High Blocks: yes', 'Recommendation: Fix the retry at queue.ts:78 because it DoSes the worker pool', 'VERDICT: FINDINGS']);
     expect(lines.slice(-3, -1)).toEqual(['VERDICT: findings', 'FINDINGS: P1']);
@@ -149,6 +149,21 @@ describe('gstack-outside-voice prints its own OUTSIDE_STATUS line on every outco
     expect(fs.readFileSync(f.prompt, 'utf8')).toBe(before);
     const missing = voice(f, ['--append-diff', 'no-such-ref']);
     expect(missing.statusLines).toEqual(['OUTSIDE_STATUS: unavailable reason=diff_unreadable provider=codex-cli pass=adversarial']);
+  });
+
+  test('--append-diff removes its private diff copy even when the run crashes', () => {
+    const f = fixture({ FAKE_MODE: 'clean' });
+    const tmp = path.join(f.dir, 'tmp');
+    fs.mkdirSync(tmp);
+    const git = (...a: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...a], { cwd: f.repo, encoding: 'utf8', timeout: 30_000 });
+    git('init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(f.repo, 'a.txt'), 'one\n');
+    git('add', '.'); git('commit', '-qm', 'base');
+    fs.writeFileSync(path.join(f.dir, 'blocker'), 'a file where the output directory should be');
+    const r = spawnSync(process.execPath, [OUTSIDE, 'run', '--runner', 'codex-cli', '--pass', 'structured', '--append-diff', 'main', '--prompt', f.prompt, '--out', path.join(f.dir, 'blocker', 'review.md'), '--cwd', f.repo],
+      { cwd: f.repo, env: { ...f.env, TMPDIR: tmp }, encoding: 'utf8', timeout: 60_000 });
+    expect(r.stdout.trimEnd().split('\n').pop()).toBe('OUTSIDE_STATUS: failed reason=internal_error provider=codex-cli pass=structured');
+    expect(fs.readdirSync(tmp).filter(n => n.startsWith('gstack-outside-voice-'))).toEqual([]);
   });
 
   test('a bad --pass is a usage error before anything runs (exit 2, no status line)', () => {

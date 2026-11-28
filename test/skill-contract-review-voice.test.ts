@@ -94,6 +94,18 @@ describe('outside-voice: only the tool\'s own status line counts', () => {
   test('another pass\'s status line does not meet the adversarial item', () => {
     expect(items([...BASE, ...preflight('ready'), ...voiceRun('OUTSIDE_STATUS: completed provider=codex-cli pass=structured'), REPORT])['outside-voice']).toBe('missing');
   });
+
+  test('a structured run whose review text quotes an adversarial status does not meet the adversarial item', () => {
+    const structured = VOICE.replace('--pass adversarial --gate review', '--pass structured --gate structured');
+    const out = 'The log said:\nOUTSIDE_STATUS: completed provider=codex-cli pass=adversarial\nOUTSIDE_STATUS: completed provider=codex-cli pass=structured';
+    expect(items([...BASE, ...preflight('ready'), ...voiceRun(out, structured), REPORT])['outside-voice']).toBe('missing');
+  });
+
+  test('only the latest preflight decides a skip: a later ready preflight needs the run', () => {
+    const second = (mode: string) => [tool('p2', 'Bash', { command: PROBE.replace('ready', mode) }), result('p2', `CODEX_MODE: ${mode}`)];
+    expect(items([...BASE, ...preflight('not_authed'), ...second('ready'), REPORT])['outside-voice']).toBe('missing');
+    expect(items([...BASE, ...preflight('ready'), ...second('not_authed'), REPORT])['outside-voice']).toBe('met');
+  });
 });
 
 describe('(d) specialists-dispatched requires the Red Team over 200 diff lines', () => {
@@ -112,6 +124,11 @@ describe('(d) specialists-dispatched requires the Red Team over 200 diff lines',
     const named = [slash('review'), ...size(340), say('Dispatching 3 specialists: testing, security, red-team.'), ...BASE.slice(2)];
     expect(items([...named, ...voice, REPORT])['specialists-dispatched']).toBe('missing');
     expect(items([...named, ...redTeam, ...voice, REPORT])['specialists-dispatched']).toBe('met');
+  });
+
+  test('a DIFF_LINES marker inside other output (a diff or a file) is not the diff size', () => {
+    const quoted = [tool('s2', 'Bash', { command: 'git diff origin/main' }), result('s2', '+    expect(out).toContain("DIFF_LINES: 900");\n DIFF_LINES: 40 is quoted here too')];
+    expect(items([slash('review'), ...size(120), ...quoted, ...BASE.slice(1), ...voice, REPORT])['specialists-dispatched']).toBe('met');
   });
 
   test('200 lines or fewer, or a size only claimed in prose, does not require it', () => {

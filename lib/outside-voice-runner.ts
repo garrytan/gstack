@@ -179,7 +179,7 @@ class CodexCliRunner implements OutsideRunner {
     const argv = ['codex', 'exec', '-', '-C', req.cwd, '-s', sandbox, '-c', `model="${selected}"`, '-c', 'skills.include_instructions=false',
       '-c', `model_reasoning_effort="${effort}"`, '-c', 'web_search="cached"', '--json', '-o', lastMessageFile];
     this.child = Bun.spawn(argv, { cwd: req.cwd, env, stdin: new Blob([prompt]), stdout: Bun.file(eventsFile), stderr: Bun.file(stderrFile) });
-    const timer = setTimeout(() => { this.child?.kill('SIGTERM'); setTimeout(() => this.child?.kill('SIGKILL'), 10_000).unref(); }, req.timeoutMs);
+    const timer = setTimeout(() => { this.child?.kill('SIGTERM'); setTimeout(() => this.child?.kill('SIGKILL'), 10_000).unref(); }, Math.max(0, req.timeoutMs - (Date.now() - started)));
     const exit = await this.child.exited;
     clearTimeout(timer);
     const timedOut = Date.now() - started >= req.timeoutMs && exit !== 0;

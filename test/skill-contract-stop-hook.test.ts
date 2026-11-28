@@ -244,6 +244,15 @@ describe('never blocks the wrong turn', () => {
     rec.runs[key].deferred_at = new Date(Date.now() - AGENT_STALL_MS - 1000).toISOString();
     fs.writeFileSync(path.join(state, 'skill-contracts', 'sess-1.json'), JSON.stringify(rec));
     expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).reason).toStartWith('SKILL_CONTRACT_UNMET review');
+    // The stalled set is still pending on the next stop: it is not held again, and the unmet contract is a miss.
+    expect(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).toBe('');
+    expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'miss' });
+  });
+
+  test('headless: an Agent launched in the background without the explicit flag is held too', () => {
+    const file = transcript([slash('review'), tool('a1', 'Agent', { description: 'Testing specialist', prompt: 'review' }),
+      result('a1', 'Async agent launched successfully. agentId: a1'), say('Waiting.')]);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).reason).toStartWith('SKILL_CONTRACT_AGENTS_RUNNING');
   });
 
   test('a stop on a turn that ends on a question never starts the agent clock', () => {
