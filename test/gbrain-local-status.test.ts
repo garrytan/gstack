@@ -64,7 +64,7 @@ interface FakeEnv {
  */
 function makeEnv(opts: {
   withGbrain?: boolean;
-  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "throws" | "slow" | "slow-version" | "thin-refusal" | "dns-failure";
+  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "engine-locked-v51" | "throws" | "slow" | "slow-version" | "thin-refusal" | "dns-failure";
   withConfig?: boolean;
   /** #2051: config carries gbrain's remote_mcp thin-client marker. */
   thinClientConfig?: boolean;
@@ -118,7 +118,7 @@ function makeEnv(opts: {
 }
 
 function makeFakeGbrainScript(
-  behavior: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "throws" | "slow" | "slow-version" | "thin-refusal" | "dns-failure",
+  behavior: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "engine-locked-v51" | "throws" | "slow" | "slow-version" | "thin-refusal" | "dns-failure",
 ): string {
   // "slow-version": gbrain IS installed but even `--version` blows the
   // (test-lowered) budget — the #2716 bun-shim-on-a-loaded-POSIX-box shape.
@@ -157,6 +157,8 @@ exit 0
           ? "echo \"GBrains local database is already open through gbrain serve (MCP, PID 12345). This brain uses PGLite, so a separate CLI process cannot open it at the same time. Stop gbrain serve, then retry this CLI command.\" >&2"
         : behavior === "dns-failure"
           ? 'echo "Cannot connect to database: getaddrinfo ENOTFOUND db.example.com. Fix: Check your connection URL in ~/.gbrain/config.json" >&2'
+        : behavior === "engine-locked-v51"
+          ? "echo '{\"error\":\"pglite_busy\",\"retryable\":true,\"reason\":\"live_serve\",\"next_action\":\"Wait for the current command or server to close, then retry. Do not remove a live lock.\"}'"
         : behavior === "throws"
           ? 'echo "unexpected gbrain failure" >&2'
           : behavior === "thin-refusal"
@@ -309,6 +311,19 @@ describe("lib/gbrain-local-status — status classification", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "engine-locked-v43", withConfig: true });
     restoreEnv = applyEnv(env);
     expect(localEngineStatus({ noCache: true })).toBe("engine-locked");
+  });
+
+  it("returns 'engine-locked' when gbrain >= 0.51 --json reports pglite_busy on STDOUT with empty stderr", () => {
+    env = makeEnv({ withGbrain: true, gbrainBehavior: "engine-locked-v51", withConfig: true });
+    restoreEnv = applyEnv(env);
+    expect(localEngineStatus({ noCache: true })).toBe("engine-locked");
+  });
+
+  it("classifies the >= 0.51 pglite_busy envelope on a non-PGLite engine as broken-db", () => {
+    env = makeEnv({ withGbrain: true, gbrainBehavior: "engine-locked-v51", withConfig: true });
+    restoreEnv = applyEnv(env);
+    writeFileSync(env.configPath, JSON.stringify({ engine: "postgres", database_url: "postgres://fake" }));
+    expect(localEngineStatus({ noCache: true })).toBe("broken-db");
   });
 
   it("classifies the >= 0.43 held-lock refusal on a non-PGLite engine as broken-db", () => {
