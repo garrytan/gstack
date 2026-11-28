@@ -1,0 +1,65 @@
+{
+  "claudeCodeVersion": "2.1.326",
+  "captured": "2026-11-28, headless claude -p of the npm 2.1.326 linux-x64 binary (registry signatures verified, installed with --ignore-scripts), default permission mode, CLAUDE_CODE_FORK_SUBAGENT=1 as autoplan-schema-canary sets it, against a local scripted Messages API stub (no model call). The stub chose each tool call; Claude Code's own schema parse, PreToolUse payload and session journal are recorded as it wrote them. A PreToolUse hook recorded each payload and whether the journal held the call at hook entry.",
+  "payloadKeys": [
+    "session_id",
+    "transcript_path",
+    "cwd",
+    "prompt_id",
+    "permission_mode",
+    "effort",
+    "hook_event_name",
+    "tool_name",
+    "tool_input",
+    "tool_use_id"
+  ],
+  "agentSchemaProperties": [
+    "description",
+    "prompt",
+    "subagent_type",
+    "model",
+    "effort",
+    "isolation"
+  ],
+  "agentPayloads": [
+    {
+      "case": "lone dispatch, no run_in_background",
+      "tool_input": {
+        "description": "probe",
+        "prompt": "Reply with the single word OK.",
+        "subagent_type": "general-purpose"
+      }
+    },
+    {
+      "case": "forced run_in_background false",
+      "tool_input": {
+        "description": "probe2",
+        "prompt": "Reply with the single word OK.",
+        "subagent_type": "general-purpose"
+      }
+    }
+  ],
+  "forcedRunInBackground": {
+    "payloadInput": {
+      "description": "probe2",
+      "prompt": "Reply with the single word OK.",
+      "subagent_type": "general-purpose"
+    },
+    "journalInput": {
+      "description": "probe2",
+      "prompt": "Reply with the single word OK.",
+      "subagent_type": "general-purpose",
+      "run_in_background": "false"
+    }
+  },
+  "readPayload": {
+    "tool_input": {
+      "file_path": "<project>/note.txt",
+      "offset": 1,
+      "limit": 5
+    }
+  },
+  "journalAtHookEntry": {
+    "present": false
+  }
+}

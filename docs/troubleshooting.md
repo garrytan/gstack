@@ -4253,8 +4253,9 @@ leave `merged.jsonl`, and it never reaches the Red Team, the judge, the
 returned output or PR text. `verify` prints `FETCH_VIOLATION:` and refuses
 until the stage has rerun and swept clean. A test run's fixtures (a root
 carrying `.gstack-test-fixture`, or a repository whose remote resolves to a local
-path through `url.<base>.insteadOf`) and the checkout's own native build output at a
-path its committed root `.gitignore` names exactly print
+path through `url.<base>.insteadOf`), the checkout's own native build output at a
+path its committed root `.gitignore` names exactly, and a byte-identical copy
+(size and SHA-256) of the runtime the sweep runs on print
 `FETCH_IGNORED:` and never count.
 Capy's `~/.capy/drive` is never walked, and the drive sync database under
 `~/.capy/drive-engine` (`state.db` and its `-wal`, `-shm` and `-journal` files)

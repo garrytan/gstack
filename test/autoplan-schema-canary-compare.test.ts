@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { schemaDrift, type HookPayload } from './helpers/schema-canary';
 import { SCHEMA_STRIPPED, nativeToolInput } from '../autoplan/bin/phase-publication-hook.ts';
 import captured from './fixtures/claude-agent-payload-2.1.292.json';
+import latest from './fixtures/claude-agent-payload-2.1.326.json';
 
 const cwd = '/repo';
 const read: HookPayload = { tool_name: 'Read', tool_use_id: 'toolu_read', cwd, tool_input: { file_path: '/repo/note.txt' } };
@@ -20,6 +21,11 @@ describe('autoplan-schema-canary comparison', () => {
 
   test('2.1.292 as captured: run_in_background stripped from the payload is the documented strip', () => {
     const { payloadInput, journalInput } = captured.forcedRunInBackground;
+    expect(schemaDrift([read, agent(payloadInput)], journal(journalInput))).toEqual([]);
+  });
+
+  test('2.1.326 as captured: the same documented strip, and nothing else', () => {
+    const { payloadInput, journalInput } = latest.forcedRunInBackground;
     expect(schemaDrift([read, agent(payloadInput)], journal(journalInput))).toEqual([]);
   });
 

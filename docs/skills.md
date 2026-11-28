@@ -10,7 +10,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/plan-eng-review`](#plan-eng-review) | **Eng Manager** | Lock in architecture, data flow, diagrams, edge cases, and tests. Forces hidden assumptions into the open. |
 | [`/plan-design-review`](#plan-design-review) | **Senior Designer** | Interactive plan-mode design review. Rates each dimension 0-10, explains what a 10 looks like, fixes the plan. Works in plan mode. |
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
-| [`/review`](#review) | **Staff Engineer** | Looks for the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. Advisory simplification lens flags over-built code — never blocks, never auto-applies. |
+| [`/review`](#review) | **Staff Engineer** | Looks for the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. Advisory simplification lens flags over-built code — never blocks, never auto-applies. Always runs the Codex second-model review when Codex is ready, and the Red Team on diffs over 200 lines. |
 | [`/build-check`](#build-check) | **Build Loop** | Run the repo's checks and the tests `/gstack-ship`'s pre-gate would pick for your change, fix, repeat until green, then hand off to `/gstack-ship`. Never green on an unmapped change. |
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
@@ -625,6 +625,10 @@ This is a structural audit, not a style nitpick pass. I want the model to look f
 ### Fix-First
 
 Findings get action, not just listed. Obvious mechanical fixes (dead code, stale comments, N+1 queries) are applied automatically — you see `[AUTO-FIXED] file:line Problem → what was done` for each one. Genuinely ambiguous issues (security, race conditions, design decisions) get surfaced for your call.
+
+### Second-model review and Red Team
+
+Standalone `/review` always runs a Codex second-model review when Codex is ready, through `gstack-outside-voice`, and always runs the Red Team pass when the diff is over 200 lines. The end-of-skill check refuses to finish without both. If Codex isn't installed or reviews are turned off, that is recorded as a skip and the review still finishes; a skip the model just claims in its own words does not count.
 
 ### Completeness gaps
 

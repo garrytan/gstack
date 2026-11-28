@@ -224,6 +224,21 @@ _gstack_codex_role_ready() {
   return 0
 }
 
+_gstack_codex_exclude_scratch() {
+  # Plan reviews write their Codex prompt in the working directory's .gstack/tmp/
+  # (#4851). Keep that folder out of git through git's own exclude path, which a
+  # linked worktree shares with its main checkout. Idempotent; a no-op outside
+  # git, without the folder, or when .gstack or .gstack/tmp is a symlink.
+  local _ex _ig
+  [ -d .gstack/tmp ] && [ ! -L .gstack ] && [ ! -L .gstack/tmp ] || return 0
+  _ex=$(git rev-parse --git-path info/exclude 2>/dev/null) && [ -n "$_ex" ] || return 0
+  _ig="/$(git rev-parse --show-prefix 2>/dev/null).gstack/tmp/"
+  grep -qsxF "$_ig" "$_ex" && return 0
+  mkdir -p "${_ex%/*}" 2>/dev/null || return 0
+  { [ ! -s "$_ex" ] || [ -z "$(tail -c1 "$_ex")" ] || echo; printf '%s\n' "$_ig"; } >>"$_ex" 2>/dev/null
+  return 0
+}
+
 # --- Sandbox (B1) -----------------------------------------------------------
 
 _gstack_codex_sandbox_mode() {
@@ -1002,6 +1017,7 @@ _gstack_codex_main() {
       return "$_rc" ;;
     role-ready)
       _gstack_codex_role_args ready "$@" || { _gstack_codex_usage >&2; return 64; }
+      _gstack_codex_exclude_scratch
       _gstack_codex_role_ready "$_GSTACK_CODEX_ARG_KIND" "$_GSTACK_CODEX_ARG_CWD" "$_GSTACK_CODEX_ARG_MODEL" >&2
       _rc=$?
       [ "$_rc" -eq 0 ] || return "$_rc"

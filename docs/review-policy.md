@@ -842,6 +842,11 @@ The checkout's own build output is not a fetch either: a new big native executab
 `FETCH_IGNORED: … reason=build-output`. A big file under an ignored directory or a
 glob, a non-executable at that path, or a path only an uncommitted `.gitignore`
 edit names still counts as a download.
+A copy of the runtime the sweep itself runs on (`process.execPath`, such as a test
+that copies its own `bun` into the temp dir) is not a fetch either: a new big file
+with exactly that binary's size and SHA-256 prints
+`FETCH_IGNORED: … reason=host-runtime`. A file named `bun` with any byte changed,
+added or removed, or a copy of any other binary, still counts as a download.
 A `Bun.spawn` child given no `env` keeps the temp dir its test process started
 with, so its fixtures land outside the marked root and still count.
 

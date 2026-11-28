@@ -59,7 +59,7 @@ export const SCHEMA_STRIPPED: Record<string, readonly string[]> = { Agent: ['run
 /** The reviewer dispatch input the guard accepts; snapshot manifests are unchanged by it. */
 export const AGENT_KEYS: readonly string[] = ['prompt', 'description', 'subagent_type', 'run_in_background'];
 /** The newest Claude Code release the pinned PTY runs and the schema canary have checked. */
-export const CHECKED_CLAUDE_CODE = '2.1.292';
+export const CHECKED_CLAUDE_CODE = '2.1.326';
 /**
  * Claude records the model's raw input in the journal but hands PreToolUse its
  * schema-parsed form: file_path resolved (C:\x/y becomes C:\x\y) and keys the
