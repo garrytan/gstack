@@ -251,8 +251,10 @@ export function looksLikeRunStamp(span: string): boolean {
  * `AQ.`) cannot occur by chance and always reports. A match is chance when it
  * starts at least 64 characters into a run of 200 or more characters of one
  * alphabet (standard `+` and `/` for `AIza`, url-safe `-` and `_` for
- * `sk-`), the 64 or more characters before it hold an uppercase letter, a
- * lowercase letter and a digit with no `=` (padding only ends a run), and at
+ * `sk-`) that the match itself belongs to (GST-4104: an `AIza` key holding
+ * `-` or `_` is never chance in standard base64), the 64 or more
+ * characters before it hold an uppercase letter, a lowercase letter and a
+ * digit with no `=` (padding only ends a run), and at
  * most one in 16 of them is a `+`, `/`, `-` or `_`, so a path or a long
  * name (`MY_LONG_SERVICE_..._KEY_V2=`, `/v1/Projects/Abc123/...`) never
  * qualifies. A known secret's exact value, base64 forms included, is found by
@@ -267,6 +269,7 @@ function chanceMatchInBase64(match: RegExpExecArray): boolean {
   const { start, end } = spanBounds(match);
   const text = match.input;
   const alphabet = text.startsWith("sk-", start) ? BASE64_URL : BASE64_STANDARD;
+  for (let i = start; i < end; i++) if (!alphabet.test(text[i]!)) return false;
   let before = 0;
   while (before < BASE64_RUN_MIN && start - before > 0 && alphabet.test(text[start - before - 1]!)) before++;
   if (before < BASE64_DEPTH_MIN) return false;
@@ -1335,6 +1338,32 @@ function declaredLiteralIsSecret(span: string, match: RegExpExecArray): boolean 
 }
 
 /**
+ * GST-4104: the name env.kv.js binds, read from the text before the
+ * declaration's `=`: the last declarator after a comma outside brackets,
+ * quotes and block comments, then the last word before its type's `:`. The type reads up to the
+ * `=`, so `let token: string, buildHash =` names `buildHash` (the value is
+ * not the token's), while `Brand<string, "key">` stays one type.
+ */
+function declaredName(head: string): string | undefined {
+  let from = 0;
+  for (let i = 0, depth = 0; i < head.length; i++) {
+    const c = head[i]!;
+    if (c === '"' || c === "'" || c === "\x60") {
+      const close = head.indexOf(c, i + 1);
+      if (close < 0) break;
+      i = close;
+    } else if (c === "/" && head[i + 1] === "*") {
+      const close = head.indexOf("*/", i + 2);
+      if (close < 0) break;
+      i = close + 1;
+    } else if ("<([{".includes(c)) depth++;
+    else if (">)]}".includes(c)) depth--;
+    else if (c === "," && depth === 0) from = i + 1;
+  }
+  return /([$\w]+)[?!]?[ \t]*$/.exec(head.slice(from).split(":", 1)[0]!)?.[1]?.replace(/\$/g, "");
+}
+
+/**
  * GBRA-108: in a .json, .json5, .jsonc or .jsonl file, a field named exactly `"key"` whose value is a short
  * lowercase path of words (`"key": "sources/vector-index"`,
  * `"key": "config/embedding_model"` in a check's golden output) names a
@@ -1992,8 +2021,10 @@ export const PATTERNS: RedactPattern[] = [
     // "<key>";`) gave no finding. This rule reads one to four of `declare`,
     // `public`, `private`, `protected`, `static`, `readonly`, `override`,
     // `accessor`, `const`, `let` and `var` (after an optional `export`),
-    // an optional `#` private name, a secret-named name with an optional
-    // `?`/`!` and type (which stops at `;`, so the value belongs to the same
+    // up to four earlier declarators without a value (`let a: string, token
+    // = "<key>"`; GST-4104; each type ends on a non-space so spaces before a
+    // comma have one reading), an optional `#` private name, a secret-named
+    // name with an optional `?`/`!` and type (which stops at `;`, so the value belongs to the same
     // declaration), then `=` and a quoted or template literal (an empty
     // first piece of a `+` chain and leading spaces are read past), at a line
     // start (diff markers as env.kv) or after `//` or `/*`. A name with no
@@ -2004,10 +2035,10 @@ export const PATTERNS: RedactPattern[] = [
     // exemptions. It is its own pattern so env.kv's matches are unchanged,
     // and validate keeps it to .js, .jsx, .ts, .tsx, .mjs, .cjs, .mts and .cts
     // files; a scan without a path is env.kv.rust's.
-    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}#?[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=;\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]((?:["'\x60][ \t]*\+[ \t]*["'\x60]|[ \t]+)?[^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}(?:[$\w]+[?!]?(?:[ \t]*:[^=;,\n]{0,119}[^=;,\s])?[ \t]*,[ \t]*){0,4}#?[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=;\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]((?:["'\x60][ \t]*\+[ \t]*["'\x60]|[ \t]+)?[^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
     validate: (span, match, opts) => {
       if (!opts?.sourcePath || !JS_SOURCE.test(opts.sourcePath)) return false;
-      const name = /([$\w]+)[?!]?[ \t]*(?::[^=;\n]*)?=/.exec(match[0])?.[1]?.replace(/\$/g, "");
+      const name = declaredName(match[0].slice(0, match[0].indexOf("=")));
       return !!name && isCredentialShapedEnvName(`${name}=`) && declaredLiteralIsSecret(span, match);
     },
   },
