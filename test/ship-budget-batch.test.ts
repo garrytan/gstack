@@ -90,4 +90,16 @@ describe('parallel dispatch admission near the cap', () => {
     expect(accepted.code).toBe(0);
     expect(accepted.out).toContain('ACCEPTED: 0 unreserved dispatches and 1 unfinished batches by Garry');
   });
+
+  // Value: protects=a reader gstack-review-dispatch pass sliced into k slice readers reserves k reader units, so a sliced review
+  //   is priced before its slices run (GSTA-876 follow-up on #4853); fails_when=role*k is refused as an unknown role or reserves
+  //   one unit for k readers; seam=gstack-ship-budget check --next dispatch:<role>*<k>
+  test('a sliced role reserves one reader unit per slice', () => {
+    const h = fresh();
+    const s = start(h, 100 * K.per_dispatch);
+    const c = batch(h, s.run, ['specialist', 'adversarial-native*3'], 0);
+    expect(c.code, c.out + c.err).toBe(0);
+    expect(Number(h.field(c.out, 'RESERVATION', 'tokens'))).toBe(4 * K.per_dispatch);
+    expect(h.field(c.out, 'RESERVATION', 'next')).toBe('dispatch:specialist,adversarial-native,adversarial-native,adversarial-native');
+  });
 });

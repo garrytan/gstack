@@ -111,6 +111,21 @@ describe('a Captain-ruled edit after the read-only final review (HARN-1)', () =>
     expect(p.stdout).not.toContain("--finding 'edit:VERSION'");
     expect(bind(repo, passHead, head).ok).toBe(false);
   });
+
+  // Value: protects=a ruled docs edit that adds a money claim gets the fresh targeted read the plan asks for, and the receipt
+  //   refuses the record read before it, so plan and receipt agree (GSTA-883 ruled note on #4862); fails_when=the plan dispatches
+  //   the targeted reader while write binds the old record through the ruling; seam=ruledChangeSince and targetedDelta
+  test('a ruled docs edit that adds a money claim: the plan reads it fresh and the receipt refuses the old record', () => {
+    const { repo, passHead, head } = shipped({ 'docs/billing.md': '# Billing\n\ncharge() now caps spend at 30 USD per run.\n' });
+    const ran = patchAt(repo, passHead);
+    expect(rule(repo, 'docs/billing.md', head).status).toBe(0);
+    const p = plan(repo, ['--range-base', passHead, '--targeted-ran', ran]);
+    expect(p.status, p.stderr).toBe(0);
+    expect(next(p.stdout)).toStartWith('NEXT: targeted (');
+    expect(dispatches(p.stdout)).toEqual(['DISPATCH: targeted targeted effort=full classes=money']);
+    expect(bind(repo, passHead, head)).toMatchObject({ ok: false, message: expect.stringContaining('the product changed after the read') });
+    expect(bind(repo, head, head).ok).toBe(true);
+  });
 });
 
 // Value: protects=the targeted-only read (one targeted reader on HEAD after a ruled edit, not a review round) counts as bound;
@@ -140,3 +155,29 @@ describe('a targeted-only read has no review row and is not unbound (GSTA-876)',
   });
 });
 
+// Value: protects=an interrupted full pass whose collected blocker no row logged stays unbound when a targeted-only read follows
+//   it; fails_when=the judged targeted-only ledger counts in replaced() and voids the full pass, so neither is named
+//   (GSTA-883 deferred note on #4862); seam=lib/review-scope.ts summarizeReviewLoop
+describe('a targeted-only read never replaces an interrupted full pass', () => {
+  const since = '2026-11-26T19:00:00Z';
+  const rows = [{ skill: 'review', via: 'ship', pass: 1, timestamp: '2026-11-26T19:01:00Z', commit_full: '1'.repeat(40), findings: [] }];
+  function ledger(name: string, reader: string, at: string, ids: string[], judged: boolean): string {
+    const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'targeted-replace-')), name);
+    fs.mkdirSync(dir);
+    dirs.push(path.dirname(dir));
+    const file = path.join(dir, 'review-ledger.jsonl');
+    const events = [{ event: 'rendered', reader, at }, { event: 'output', reader, ids }, ...(judged ? [{ event: 'judge' }] : [])];
+    fs.writeFileSync(file, events.map(e => JSON.stringify(e)).join('\n') + '\n');
+    return file;
+  }
+  test('p2 interrupted with a collected blocker, then a judged targeted-only p3: p2 is still unbound, and a judged full p3 still voids it', () => {
+    const p2 = ledgerPass(ledger('p2', 'red-team', '2026-11-26T19:05:00Z', ['p2/red-team-1'], false));
+    const blocker = [{ id: 'p2/red-team-1', locus: 'src/a.ts:3', raiser: 'red-team' }] as never;
+    const targeted = ledgerPass(ledger('p3', 'targeted', '2026-11-26T19:10:00Z', [], true));
+    expect(targeted.targetedOnly).toBe(true);
+    const s = summarizeReviewLoop(rows, since, [blocker, []], [p2, targeted]);
+    expect(s.unbound).toEqual(['pass 2 (ledger p2): no review-log row, so its fixes and dispositions cannot be counted']);
+    const full = ledgerPass(ledger('p3', 'red-team', '2026-11-26T19:10:00Z', [], true));
+    expect(summarizeReviewLoop(rows, since, [blocker, []], [p2, full]).unbound).toEqual(['pass 3 (ledger p3): no review-log row, so its fixes and dispositions cannot be counted']);
+  });
+});

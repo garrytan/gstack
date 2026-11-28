@@ -130,11 +130,12 @@ export function parseStep(raw: string | undefined, flag = '--step'): string {
 }
 
 export type Next = { kind: 'step'; step: string } | { kind: 'dispatch'; roles: string[] };
+/** `--next <step>` or `dispatch:<roles>`; `role*k` stands for the k slice readers of one sliced reader (lib/review-slices.ts), each priced and reserved as one reader. */
 export function parseNext(raw: string | undefined): Next {
   if (raw?.startsWith('dispatch:')) {
-    const roles = raw.slice('dispatch:'.length).split(',').filter(Boolean);
+    const roles = raw.slice('dispatch:'.length).split(',').filter(Boolean).flatMap(r => { const m = /^(.+)\*([1-8])$/.exec(r); return m ? Array<string>(Number(m[2])).fill(m[1]!) : [r]; });
     const bad = roles.filter(r => !(DISPATCH_ROLES as readonly string[]).includes(r));
-    if (roles.length === 0 || bad.length) throw usageError(`--next '${raw}' names unknown roles (${bad.join(', ') || 'none given'}); valid: ${DISPATCH_ROLES.join(', ')}; fix: list the plan's roles, e.g. dispatch:specialist,red-team`);
+    if (roles.length === 0 || bad.length) throw usageError(`--next '${raw}' names unknown roles (${bad.join(', ') || 'none given'}); valid: ${DISPATCH_ROLES.join(', ')}, each optionally *<slices 1-8> for a reader gstack-review-dispatch pass sliced into that many slice readers; fix: list the plan's roles, e.g. dispatch:specialist,red-team or dispatch:specialist,adversarial-native*3`);
     return { kind: 'dispatch', roles };
   }
   return { kind: 'step', step: parseStep(raw, '--next') };

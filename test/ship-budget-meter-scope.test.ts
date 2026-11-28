@@ -181,8 +181,8 @@ describe('meter scope (GST-467)', () => {
   //   why_new=GST-467, GST-3466 (the G1 trial: /ship runs in the calling thread); seam=none; no_claim=agent compliance
   test('the Capy skill has the thread running /ship read its own counter and start no /ship subagent; docs/ship-budget.md keeps the tree scope and root replay pointer', () => {
     const skill = fs.readFileSync(path.join(ROOT, 'capy/skill/gstack/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
-    expect(skill).toContain('tools.thread.get({ thread_id: "<your own jam id>" })` (the thread running /ship, its reviewers included)');
-    expect(skill).toContain('never start a subagent to run /ship');
+    expect(skill).toContain('tools.thread.get({ thread_id: "<your own jam id>" })` (the thread running /gstack-ship, its reviewers included)');
+    expect(skill).toContain('never start a subagent to run /gstack-ship');
     expect(skill).not.toContain('--reading-from this --meter-scope tree');
     const doc = fs.readFileSync(path.join(ROOT, 'docs/ship-budget.md'), 'utf8').replace(/\s+/g, ' ');
     expect(doc).toContain('--meter-scope tree');

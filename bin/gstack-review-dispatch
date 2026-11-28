@@ -529,7 +529,8 @@ function passStep(cmd: string): number {
     if (checked.reason !== 'cyber_policy_refused') { process.stdout.write(`RETRY: none reader=${r.reader} (not a cyber_policy refusal; recorded as unavailable coverage as before)\n`); return EXIT.ok; }
     let voices: { laneModel?: string | null; readers?: Record<string, { model_id?: string } | null> } = {};
     try { voices = JSON.parse(fs.readFileSync(path.join(m.out, 'voice-models.json'), 'utf8')); } catch { voices = {}; }
-    const taken = [voices.laneModel, voices.readers?.['adversarial-native']?.model_id].filter((id): id is string => typeof id === 'string' && id.includes('/')).map(id => id.split('/')[0]!.toLowerCase());
+    const native = Object.entries(voices.readers ?? {}).filter(([key]) => key.split('#')[0] === 'adversarial-native').map(([, v]) => v?.model_id);
+    const taken = [voices.laneModel, ...native].filter((id): id is string => typeof id === 'string' && id.includes('/')).map(id => id.split('/')[0]!.toLowerCase());
     const next = planCyberRetry(m, r, taken);
     writeManifest(file, m);
     process.stdout.write(`${gateOutcomeLine(`Outside voice ${r.reader}`, 'cyber_policy_refused', checked.detail)}\n${next
@@ -597,7 +598,8 @@ function program(): number {
 
 /**
  * The receipt's review_targeted record from the newest targeted dispatch: done only when its brief was sent verbatim, its output
- * collected, and it was rendered on a committed diff (uncommitted never proves what was read). `head` names the commit it read:
+ * collected, and it was rendered on a committed diff (uncommitted never proves what was read); verify also fails a sliced record
+ * whose SLICE row is not MATCH, since a dirty slice set never proves every file was read. `head` names the commit it read:
  * a later commit does not undo the read, and gstack-ship-receipt write binds the record only while that commit's product patch is
  * the receipt's (GST-986: Step 11 fixes after the read printed status=failed findings=0 for a completed reader).
  * R65's merged reader (an adversarial-native brief rendered with --classes) is a targeted dispatch too (design C7).
@@ -720,7 +722,9 @@ function main(): number {
     for (const r of v.rows) process.stdout.write(`${r.kind} ${r.reader} ${r.status} ${r.detail}\n`);
     for (const r of v.rows.filter(x => x.kind === 'FETCH' && x.status === 'VIOLATION')) process.stdout.write(`FETCH_VIOLATION: ${r.reader} ${r.detail} (a reader of that stage fetched; its replies are quarantined and the pass cannot certify until the stage reruns clean; docs/troubleshooting.md#fetch-violation)\n`);
     if (!v.briefs) { process.stdout.write('VERIFY: no brief records (this run\'s ledger kept no prompts; dispatched-vs-rendered cannot be checked)\n'); return EXIT.refused; }
-    const record = targetedRecord(ledger, v.rows);
+    const slices = verifySlices(readLedger(ledger), v.rows);
+    const found = targetedRecord(ledger, v.rows);
+    const record = found && slices.some(r => r.reader === found.raised_by && r.status !== 'MATCH') ? { ...found, status: 'failed' as const } : found;
     if (record) {
       process.stdout.write(`TARGETED_RECORD: classes=${record.classes.join(',')} status=${record.status} findings=${record.findings} brief=${record.brief_sha.slice(0, 12)} rules=${record.rules} read=${record.head?.slice(0, 12) ?? 'none'}\n`);
       if (flag('--targeted-out')) fs.writeFileSync(flag('--targeted-out')!, JSON.stringify(record) + '\n');
@@ -728,7 +732,6 @@ function main(): number {
     const sel = excludeRecord(ledger);
     if (sel && 'digest' in sel) process.stdout.write(`REVIEW_EXCLUDE_RECORD: digest=${sel.digest} (gstack-ship-receipt write --review-exclude ${sel.digest})\n`);
     if (sel && 'mixed' in sel) process.stdout.write(`REVIEW_EXCLUDE_RECORD: mixed digests=${sel.mixed.join(',')} (readers read different review_exclude_paths selections; rerun the review so every reader reads HEAD's)\n`);
-    const slices = verifySlices(readLedger(ledger), v.rows);
     for (const r of slices) process.stdout.write(`${r.kind} ${r.reader} ${r.status} ${r.detail}\n`);
     const clean = v.clean && !(sel && 'mixed' in sel) && slices.every(r => r.status === 'MATCH');
     if (v.verdicts.asked) process.stdout.write(`VERIFY_VERDICT: agree=${v.verdicts.agree} asked=${v.verdicts.asked} (informational: a disagreeing count already counts its blockers; docs/review-policy.md#verdict-line)\n`);
