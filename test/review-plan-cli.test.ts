@@ -390,3 +390,49 @@ describe('gstack-review-plan honours edit rulings in the fix range (GST-3814)', 
     expect(q.stdout).not.toMatch(/^RULED_EDIT: /m);
   }, 60_000);
 });
+
+// Value: protects=--pass counts the full passes this /ship run already finished, and a value the run's own review log contradicts is refused
+//   before it plans; fails_when=--pass 2 after one logged pass plans the read-only final review and spends round 2 (GSTA-891);
+//   seam=gstack-review-plan with an open run record and this branch's review log in the state root; no_claim=runs with no open record
+describe('gstack-review-plan: --pass is the finished pass count', () => {
+  const code = Array.from({ length: 80 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n';
+  const open = (r: { dir: string; state: string }, passes: number[]) => {
+    const git = (...a: string[]) => spawnSync('git', a, { cwd: r.dir, encoding: 'utf8', timeout: 10_000 }).stdout.trim();
+    const started = new Date(Date.now() - 60_000).toISOString();
+    fs.writeFileSync(path.resolve(r.dir, git('rev-parse', '--git-path', 'gstack-ship-run')), JSON.stringify({ v: 1, run: 'ship-test', state: 'open', head: git('rev-parse', 'HEAD'), started_at: started, beat_at: started }));
+    const slug = spawnSync(path.join(import.meta.dir, '..', 'bin', 'gstack-slug'), ['--get', 'REPO_SLUG'], { cwd: r.dir, encoding: 'utf8', timeout: 10_000, env: { ...process.env, GSTACK_STATE_ROOT: r.state } }).stdout.trim();
+    const dir = path.join(r.state, 'projects', slug);
+    fs.mkdirSync(dir, { recursive: true });
+    const old = { skill: 'review', via: 'ship', pass: 1, timestamp: new Date(Date.now() - 3_600_000).toISOString() };
+    fs.writeFileSync(path.join(dir, 'feat-reviews.jsonl'), [old, ...passes.map(pass => ({ skill: 'review', via: 'ship', pass, commit_full: `head${pass}`, timestamp: new Date().toISOString() }))].map(row => JSON.stringify(row) + '\n').join(''));
+  };
+
+  test('the help says --pass is the passes already finished, not the next pass number', () => {
+    const help = spawnSync(BIN, ['--help'], { encoding: 'utf8', timeout: 10_000 }).stdout;
+    expect(help).toMatch(/--pass <n>\s+full review passes this \/ship run already finished/);
+    expect(help).toContain('not the number of the pass about to run');
+  });
+
+  test('the plan prints the finished count and the --pass to give after the next pass', () => {
+    const r = repo({ 'src/a.ts': code });
+    expect(run(r, []).stdout).toContain('PASS_COUNT: finished=0 next_pass=1 (after pass 1 finishes, plan again with --pass 1 --last full)');
+    expect(run(r, ['--pass', '1', '--last', 'full', '--fixed-blocking']).stdout).toContain('PASS_COUNT: finished=1 next_pass=2 (after pass 2 finishes, plan again with --pass 2 --last full)');
+  });
+
+  test('inside an open /ship run, --pass must match the passes its review log holds', () => {
+    const r = repo({ 'src/a.ts': code });
+    open(r, [1]);
+    const wrong = run(r, ['--pass', '2', '--last', 'full', '--fixed-blocking']);
+    expect(wrong.status).toBe(2);
+    expect(wrong.stderr).toContain('--pass 2 says 2 full passes finished, but the review log holds 1 for /ship run ship-test');
+    expect(wrong.stderr).toContain('rerun with --pass 1');
+    expect(wrong.stdout).toBe('');
+    const right = run(r, ['--pass', '1', '--last', 'full', '--fixed-blocking']);
+    expect(right.status).toBe(0);
+    expect(right.stdout).toMatch(/^NEXT: full /m);
+    expect(run(r, []).status).toBe(0);
+    open(r, [1, 2, 2]);
+    expect(run(r, ['--pass', '2', '--last', 'full']).status).toBe(0);
+    expect(run(r, ['--pass', '1', '--last', 'full', '--fixed-blocking']).stderr).toContain('the review log holds 2');
+  });
+});
