@@ -2104,8 +2104,12 @@ those, each with its scope and its reason:
   base64 and base64url text at each of the three byte alignments, so a key
   inside an encoded blob, `data:` URI or config reports as `env.value` (HIGH).
   An `AIza…` or `sk-…` pattern match that starts at least 64 characters into
-  a run of 200 or more base64 characters is chance and no longer reports; the
-  exact value there is still found by value.
+  a run of 200 or more base64 characters that reads as encoded data (no `=`
+  before it, mixed case and digits) is chance and no longer reports; the exact
+  value there is still found by value. Known limit: base64 wrapped across
+  lines (the `base64` command's and MIME's 76-column output, PEM's 64) is
+  matched line by line, so an encoded value that crosses a line break is not
+  found.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with

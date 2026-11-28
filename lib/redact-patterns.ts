@@ -244,11 +244,14 @@ export function looksLikeRunStamp(span: string): boolean {
  * HARN-108: `AIza…` and `sk-…` turn up by chance inside long base64 runs (a
  * data: URI, an encoded blob or session). A pattern match that starts at
  * least 64 characters into a run of 200 or more base64 or base64url
- * characters is that chance, so the provider rule skips it. A key at the
- * start of a run, a run under 200 characters and a key glued after other text
- * still report, and a known secret's exact value, base64 forms included, is
- * found by value in redact-engine whatever surrounds it. The scan looks at
- * most 200 characters each way, so it stays linear.
+ * characters is that chance, so the provider rule skips it. The 64 or more
+ * characters before the match must read as encoded data: no `=` (padding
+ * only ends a run) and at least one uppercase letter, lowercase letter and
+ * digit. So a key at the start of a run, a run under 200 characters and a key
+ * after a long name (`MY_LONG_SERVICE_..._API_KEY_V2=sk-…`, a kebab path) still
+ * report, and a known secret's exact value, base64 forms included, is found
+ * by value in redact-engine whatever surrounds it. The scan looks at most 200
+ * characters each way, so it stays linear.
  */
 const BASE64_CHAR = /[A-Za-z0-9+/=_-]/;
 const BASE64_RUN_MIN = 200;
@@ -259,6 +262,8 @@ function deepInsideBase64Run(match: RegExpExecArray): boolean {
   let before = 0;
   while (before < BASE64_RUN_MIN && start - before > 0 && BASE64_CHAR.test(text[start - before - 1]!)) before++;
   if (before < BASE64_DEPTH_MIN) return false;
+  const lead = text.slice(start - before, start);
+  if (lead.includes("=") || !/[A-Z]/.test(lead) || !/[a-z]/.test(lead) || !/\d/.test(lead)) return false;
   let after = 0;
   while (before + (end - start) + after < BASE64_RUN_MIN && end + after < text.length && BASE64_CHAR.test(text[end + after]!)) after++;
   return before + (end - start) + after >= BASE64_RUN_MIN;

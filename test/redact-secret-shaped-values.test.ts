@@ -243,6 +243,9 @@ describe("HARN-108: base64 forms of a known secret and chance matches in base64 
     expect(ids(inside(AIZA, 100, BLOB.slice(0, 120)))).toContain("google.api_key");
     expect(ids("GOOGLE_KEY: " + AIZA)).toContain("google.api_key");
     expect(ids(inside(OPENAI, 20))).toContain("openai.key");
+    const ANTHROPIC = j("sk-ant-api03-", "Ab3dE5gH7jK9mN1pQ3sT5vX7zB9cD1fG3hJ5kL7nP9rS1tV3wY5aC7eF9iK1mO3qU5xZ7bD9fH1jL3nR5tW7yA9cE1gI3kM5oQ7-xyzAA");
+    expect(ids("MY_COMPANY_PRODUCTION_ANTHROPIC_API_KEY_FOR_THE_BACKGROUND_WORKER_FLEET_AND_BATCH_JOBS_V2=" + ANTHROPIC)).toContain("anthropic.key");
+    expect(ids("services/" + "background-worker-fleet-and-batch-jobs-for-the-production-cluster-v2/" + OPENAI + "/" + "x".repeat(60))).toContain("openai.key");
   });
 
   test("the exact value stays HIGH deep inside a long base64 run", () => {
