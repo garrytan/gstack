@@ -2068,6 +2068,44 @@ those, each with its scope and its reason:
   no path in the hook), so it never reports less than before. A name too long
   to write once decoded is scanned as `added` plus its extension, and a name
   holding a control character is printed quoted.
+- JavaScript, TypeScript and Go declarations (GST-3500): a key bound by
+  `const`, `let` or `var` (with or without `export` or a type), or by a class
+  field (`private apiKey = "<key>";`), reports as `env.kv.js` in a `.js`,
+  `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts` or `.cts` file, and Go's
+  `token := "<key>"`, `var token = "<key>"` and `const apiKey string = "<key>"`
+  report as `env.kv.go` in a `.go` file. Names like these are everywhere in
+  code, so the name never decides: the literal must look like a secret. It
+  either starts with a provider key prefix (`sk-`, `sk_live_`, `ghp_`, `AKIA`,
+  `xox…-`, …) and is not a word, or it is random text: at least 16
+  characters, at least 3.5 bits per character (3.0 for hex such as a UUID or
+  digest), with a run of 8 or more letters and digits that is not a word
+  followed by a number. A `+` chain of quoted pieces is joined first, and a
+  template's text beside its `${…}` slots is read piece by piece. So
+  `const API_KEY = "AUTHENTICATION"`, `"MY_SERVICE_API_KEY"`,
+  `'CorrectHorseBatteryStaple'`, `'terminalFontSize'` and paths give nothing,
+  and neither do types, destructuring, imports, calls and `process.env` reads.
+  Known limits, not read by these rules: a low-entropy human password
+  (`"hunter2hunter2"`); a random token of 16 to 20 characters falls under the
+  bar about one time in six; a fallback after an environment read
+  (`process.env.TOKEN ?? "<key>"`); a declaration that does not start its
+  line; a value on the line after its `=`; `.vue`, `.svelte` and other files.
+- Names as values (GBRA-108, GEVA-561): a JSON field named exactly `"key"`
+  whose value is a short lowercase path of words (`"key": "sources/vector-index"`
+  in a check's golden output) and an unquoted value that is itself an
+  environment-variable name ending in a credential word
+  (`API_KEY=OPENAI_API_KEY`) no longer report as `env.kv`; a quoted one
+  (`'ANOTHER_SECRET'`) still does. A secret, a long mixed run of letters and digits, an uppercase
+  letter in the path or another field name still reports.
+- Run-folder stamps (TRUT-39): `pii.phone.e164` no longer reads a valid
+  `YYYYMMDD-HHMM` date and minute (`runs/20261123-1711/`) as a phone number.
+  An impossible month, day, hour or minute, and every other grouping, still
+  reports.
+- Base64 (HARN-108): a credential from the environment is also found by its
+  base64 and base64url text at each of the three byte alignments, so a key
+  inside an encoded blob, `data:` URI or config reports as `env.value` (HIGH).
+  An `AIza…` or `sk-…` pattern match that starts at least 64 characters into
+  a run of 200 or more base64 characters is chance and no longer reports; the
+  exact value there is still found by value.
 - Known limits, still reported, allowlist them by value: a JS/TS template key
   built from `${…}` slots (#4287), an array of names in source code
   (`"get_token": [load_auth, "authOperations"]`), and a generic type with
