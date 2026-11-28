@@ -449,6 +449,7 @@ describe('release-cut: the cut sets aside its own check runs (GST-2463)', () => 
     for (const wf of NEVER_GATING_WORKFLOWS) {
       const text = fs.readFileSync(path.join(root, wf), 'utf-8');
       const on = /^on:\n((?:[ #].*\n|\n)*)/m.exec(text)?.[1] ?? '';
+      expect(on).toMatch(/^  [a-z_]+:/m);
       expect(on).not.toMatch(/^  (pull_request|pull_request_target|push|merge_group):/m);
       const header = text.slice(0, text.search(/^on:/m)).split('\n').filter(l => l.startsWith('#')).join(' ');
       expect(header).toMatch(/never blocks|not a PR gate|report-only|DETECTION ONLY|NON-BLOCKING|no verdict/);

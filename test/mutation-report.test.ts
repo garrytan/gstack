@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { CONTROL_LINE, CONTROL_MESSAGE, STRYKER_PACKAGES, plantControl, rankChurn, renderMarkdown, summarize, type Mutant } from '../scripts/mutation-report';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -50,7 +51,9 @@ describe('mutation-report', () => {
   });
 
   test('refuses a checkout with an edited tracked file and names it; untracked files are not edits', () => {
-    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-dirty-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-dirty-'));
+    const repo = path.join(root, 'repo');
+    fs.mkdirSync(repo);
     try {
       const git = (...args: string[]) => spawnSync('git', args, { cwd: repo, encoding: 'utf-8', timeout: 30_000 });
       fs.mkdirSync(path.join(repo, 'lib'));
@@ -58,7 +61,7 @@ describe('mutation-report', () => {
       expect(git('init', '-q').status).toBe(0);
       expect(git('add', '.').status).toBe(0);
       expect(git('-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'seed').status).toBe(0);
-      const run = () => spawnSync(process.execPath, ['--no-env-file', '--config=/dev/null', path.join(ROOT, 'scripts/mutation-report.ts'), '--throwaway-checkout', '--stryker-dir', '/nonexistent', '--out-dir', path.join(repo, '..', path.basename(repo) + '-out'), '--since-days', '1', '--only', 'lib/none.ts'], { cwd: repo, encoding: 'utf-8', timeout: 30_000 });
+      const run = () => spawnSync(process.execPath, [...bunIsolationArgs(), path.join(ROOT, 'scripts/mutation-report.ts'), '--throwaway-checkout', '--stryker-dir', path.join(root, 'stryker'), '--out-dir', path.join(root, 'out'), '--since-days', '1', '--only', 'lib/none.ts'], { cwd: repo, encoding: 'utf-8', timeout: 30_000 });
       fs.writeFileSync(path.join(repo, 'build-output.html'), 'generated\n');
       const untracked = run();
       expect(untracked.status).toBe(1);
@@ -68,7 +71,7 @@ describe('mutation-report', () => {
       expect(edited.status).toBe(1);
       expect(edited.stderr).toContain('the checkout has uncommitted changes (lib/a.ts); use a clean disposable checkout');
     } finally {
-      fs.rmSync(repo, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
