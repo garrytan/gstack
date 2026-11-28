@@ -48,7 +48,7 @@ export function prReviewHistory(body: string): PrReviewHistory {
   const ordered: Array<ReceiptRun | string> = [];
   all.forEach((e, i) => {
     if (e.status === 'voided' || e.carry_kind || e.carried_from) { ordered.push(e); return; }
-    const key = e.run ? `run:${runId(e.run)}@${e.head}` : `#${i}`;
+    const key = typeof e.run === 'string' && e.run ? `run:${runId(e.run)}@${e.head}` : `#${i}`;
     if (!reviewed.has(key)) ordered.push(key);
     reviewed.set(key, e);
   });
@@ -73,8 +73,9 @@ export function prReviewHistory(body: string): PrReviewHistory {
  */
 export function placeRunEntry(body: string, entry: ReceiptRun): string {
   const runs = receiptRuns(body).filter(r => !(entry.status && r.status && sameRun(r.run, entry.run)));
-  if (entry.mark && runs.some(r => JSON.stringify(r) === JSON.stringify(entry))) return body;
-  const kept = keptRuns([...runs, JSON.parse(JSON.stringify(entry)) as ReceiptRun]);
+  const [placed] = keptRuns([JSON.parse(JSON.stringify(entry)) as ReceiptRun]);
+  if (entry.mark && keptRuns(runs).some(r => JSON.stringify(r) === JSON.stringify(placed))) return body;
+  const kept = keptRuns([...runs, placed!]);
   const block = '```' + RUNS_FENCE + '\n' + kept.map(r => JSON.stringify(r)).join('\n') + '\n```\n';
   if (RUNS_RE.test(body)) return body.replace(RUNS_RE, () => block);
   if (extractReceipt(body).found) {

@@ -17,7 +17,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from './spawn-sync';
 import * as fs from 'node:fs';
-import { appendRows, locate, readRecord, type ApprovalRow, type Env, type RecordError, type StoreLocation } from './approval-record';
+import { appendRows, locate, readRecord, repoVisibility, type ApprovalRow, type Env, type RecordError, type RepoVisibility, type StoreLocation } from './approval-record';
 import type { ShipReceipt } from './headless-artifacts';
 import type { ResultCodeName } from './result-codes';
 import { isGstackActor, redactInternalIds, type RuledNote } from './ruled-notes';
@@ -140,7 +140,8 @@ export type GateAcceptanceCode = Extract<ResultCodeName, 'QUEUE_GATE_DISPOSITION
  * The lander's check (docs/ship-policy.md#gate-dispositions), one function for `land --pin`, `verify --pin` and `ready`: the
  * dispositions `branch`'s store applies at `pin`, re-derived here, each printed as GATE_DISPOSITION. It refuses when the
  * receipt's gate_dispositions or the PR body's `Gate disposition:` lines differ from them, and, with `accepted` (land and
- * verify; ready passes none), when an applied disposition is not accepted or an accepted id is not applied.
+ * verify; ready passes none), when an applied disposition is not accepted or an accepted id is not applied. On a repository gh
+ * reports private, a body written before GST-1955 that carries the line with its Capy ids unredacted still counts (GST-4105).
  */
 export function gateAcceptance(o: { cwd: string; branch: string; pin: string; body: string; receipt?: ShipReceipt; accepted?: readonly string[]; env?: Env; noted?: readonly ApprovalRow[] }):
   { lines: string[]; applied: GateDisposition[]; noteRows?: ApprovalRow[]; failure?: { code: GateAcceptanceCode; message: string; fix: string } } {
@@ -154,13 +155,16 @@ export function gateAcceptance(o: { cwd: string; branch: string; pin: string; bo
   const listed = recorded ?? [];
   const where = `the store at ${loc.mirror ?? loc.file}${o.noted?.length ? ' with the READY note\'s rows' : ''}`;
   const lines = applied.map(d => `GATE_DISPOSITION: ${gateDispositionText(d)}`);
+  const bodyHas = (text: string) => o.body.split(/\r?\n/).some(b => b.trim() === `Gate disposition: ${text}`);
+  let visibility: RepoVisibility | undefined;
+  const isPrivate = () => (visibility ??= repoVisibility(o.cwd, o.env ?? process.env)) === 'private';
   if (!applied.length && !listed.length && !o.accepted?.length) return { lines, applied, noteRows };
   const problems: string[] = [];
   for (const d of applied) {
-    const r = listed.find(l => l.approval === d.approval);
+    const r = listed.find(l => l.approval === d.approval), legacy = dispositionLine(securityRedacted(d));
     if (!r) problems.push(recorded ? `the receipt omits applied disposition ${d.approval}` : `the receipt has no gate_dispositions field (written before receipts always recorded it, or edited), but ${where} applies disposition ${d.approval}`);
     else if (gateDispositionText(r as GateDisposition) !== gateDispositionText(d)) problems.push(`the receipt's disposition ${d.approval} differs from the store's row`);
-    if (!o.body.split(/\r?\n/).some(b => b.trim() === `Gate disposition: ${gateDispositionText(d)}`)) problems.push(`the PR body lacks the line "Gate disposition: ${gateDispositionText(d)}"`);
+    if (!bodyHas(gateDispositionText(d)) && !(legacy !== gateDispositionText(d) && bodyHas(legacy) && isPrivate())) problems.push(`the PR body lacks the line "Gate disposition: ${gateDispositionText(d)}"`);
   }
   for (const l of listed) if (!applied.some(d => d.approval === l.approval)) problems.push(`the receipt lists disposition ${l.approval}, which ${where} does not apply at ${o.pin.slice(0, 12)}: this lander may read another GSTACK_STATE_ROOT or approvals mirror than the one the owner recorded into (set GSTACK_APPROVALS_DIR to it), or the row was removed after the receipt was written`);
   if (o.accepted) {
@@ -177,12 +181,14 @@ export function gateAcceptance(o: { cwd: string; branch: string; pin: string; bo
  * (GST-1955), so the dispositions command, finish, the receipt and the queue's store check render one line.
  */
 export const publicGateDisposition = (d: GateDisposition): GateDisposition => {
-  const p = isSecurityFinding(d.finding) ? { ...d, finding: REDACTED_FINDING, reason: REDACTED_REASON, words: REDACTED_WORDS } : d;
+  const p = securityRedacted(d);
   return { ...p, by: redactInternalIds(p.by), reason: redactInternalIds(p.reason), words: redactInternalIds(p.words) };
 };
+const securityRedacted = (d: GateDisposition): GateDisposition => isSecurityFinding(d.finding) ? { ...d, finding: REDACTED_FINDING, reason: REDACTED_REASON, words: REDACTED_WORDS } : d;
+const dispositionLine = (d: GateDisposition) => `${d.finding} [gate ${d.gate_id}] at ${d.head.slice(0, 12)} by ${d.by} at ${d.at}: ${d.reason} — "${d.words}" (approval ${d.approval})`;
 
 /** The one-line form finish prints after `GATE_DISPOSITION: ` and the PR body carries after `Gate disposition: `, from publicGateDisposition. */
-export const gateDispositionText = (disposition: GateDisposition) => { const d = publicGateDisposition(disposition); return `${d.finding} [gate ${d.gate_id}] at ${d.head.slice(0, 12)} by ${d.by} at ${d.at}: ${d.reason} — "${d.words}" (approval ${d.approval})`; };
+export const gateDispositionText = (disposition: GateDisposition) => dispositionLine(publicGateDisposition(disposition));
 
 /**
  * The dispositions that close a review row's gate findings: the same fingerprint and gate_id on a gate finding the logger left
