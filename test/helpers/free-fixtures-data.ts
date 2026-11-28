@@ -244,6 +244,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/shared-libs-plan-callers-passing-censuses.json': ['test/shared-libs-plan-actor.test.ts'],
   'test/fixtures/shared-libs-plan-callers-slash-scope-37174266054.json': ['test/shared-libs-plan-actor.test.ts'],
   'test/fixtures/shared-libs-plan-callers-verbless-scope-37186854666.json': ['test/shared-libs-plan-actor.test.ts'],
+  'test/fixtures/shared-libs-revalidation-filtered-show-all-read-46089594210.json': ['test/shared-libs-checker-interface-evidence-replays.test.ts'],
   'test/fixtures/shared-libs-unsupported-git-opus-reports.json': ['test/shared-libs-fixture.test.ts'],
   'test/fixtures/shared-libs-unsupported-git-requests.json': ['test/shared-libs-fixture.test.ts'],
   'test/fixtures/shared-libs/**': ['test/shared-libs-checker-interface-evidence.test.ts', 'test/shared-libs-fixture.test.ts', 'test/shared-libs-plan-actor.test.ts', 'test/shared-libs-revalidation-prompt.test.ts', 'test/shared-libs-review-start-evidence.test.ts', 'test/shared-libs-source-reads.test.ts', 'test/shared-libs-stage-actor.test.ts'],
