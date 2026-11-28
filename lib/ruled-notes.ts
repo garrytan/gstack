@@ -45,10 +45,11 @@ export const keepsInternalIds = (text: string, cwd: string, env: Env = process.e
 /**
  * The rulings as this repository's public text carries them: gstack-approvals rulings, finish's RULED_NOTE lines and the receipt's
  * ruled_notes all read them here, so all three agree. On a public or unknown-visibility repository a relayed ruling says it was
- * relayed from PRIVATE_REF, and the ref itself stays in the approval record's row (CAPY-1 qm#3938).
+ * relayed from PRIVATE_REF, an id in its ruler or reason reads PRIVATE_REF too, and the approval record's row keeps them (CAPY-1 qm#3938).
  */
 export const repoRuledNotes = (notes: RuledNote[], cwd: string, env: Env = process.env): RuledNote[] =>
-  keepsInternalIds(notes.map(n => n.relayed ?? '').join(' '), cwd, env) ? notes : notes.map(n => n.relayed ? { ...n, relayed: PRIVATE_REF } : n);
+  keepsInternalIds(notes.map(n => `${n.relayed ?? ''} ${n.by} ${n.reason}`).join(' '), cwd, env) ? notes
+    : notes.map(n => ({ ...n, by: redactInternalIds(n.by), reason: redactInternalIds(n.reason), ...(n.relayed ? { relayed: PRIVATE_REF } : {}) }));
 export const OWNER_REF_SHAPE = '<thread code>:<message id or timestamp>, where the thread code is an uppercase letter, then uppercase letters or digits, a dash and a number from 1, and the message part starts with a letter or digit (GSTA-36:2026-11-19T12:29:59Z)';
 const RED_TEAM = /:red-team$/i;
 /** A ruling row's source: `relayed:<owner ref>` for a relayed ruling and `not-security` for a red-team finding the owner ruled not security class. */

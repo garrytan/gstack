@@ -416,7 +416,7 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
   const leaks = publicReceiptLeaks(receipt);
   const visibility = leaks.length ? repoVisibility(repoRoot) : 'private';
   if (renderMode(visibility, false) !== 'full') {
-    process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `the receipt holds ${leaks.join(', ')}, and the repository's visibility is ${visibility}, not private: a PR body is public, so pass --run <the run dir's name>, leave --thread out and keep home paths and Capy thread or message ids out of every flag; nothing written`) + '\n');
+    process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `the receipt holds ${leaks.join(', ')}, and the repository's visibility is ${visibility}, not private: a PR body is public, so pass --run <the run dir's name>, leave --thread out and keep home paths and Capy thread or message ids out of every flag and of the records the receipt copies (no-stop evidence, gate dispositions, CI-carry and flaky exceptions); nothing written`) + '\n');
     return EXIT.fail;
   }
   const targetedVerdict = receiptTargetedAtHead(repoRoot, `origin/${base.replace(/^origin\//, '')}`, receipt, receipt.head);

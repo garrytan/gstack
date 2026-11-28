@@ -42,7 +42,7 @@ const ghLog = (f: ShipFx) => { const p = path.join(f.root, 'gh.log'); return fs.
 const bin = (f: ShipFx, name: string, args: string[]) => f.run(path.join(BIN, name), args, { GSTACK_APPROVALS_MIRROR: '0' });
 const write = (f: ShipFx, body: string, extra: string[] = []) => bin(f, 'gstack-ship-receipt', ['write', '--pr', '7', '--base', 'main', '--version', '1.0.0', '--session-kind', 'unattended', '--body', body, ...extra]);
 const bodyFile = (f: ShipFx, text = '## Summary\n\nA change.\n') => { const p = path.join(f.root, 'body.md'); fs.writeFileSync(p, text); return p; };
-const relayedRule = (f: ShipFx) => bin(f, 'gstack-approvals', ['rule', '--finding', 'src/x.ts:1:edit-share-race', '--head', f.git('rev-parse', 'HEAD').stdout.trim(), '--reason', 'ships as a disclosed note', '--words', 'B, note it', '--by', 'GBrain Minder (GBRA-108)', '--owner-ref', REF]);
+const relayedRule = (f: ShipFx, reason = 'ships as a disclosed note') => bin(f, 'gstack-approvals', ['rule', '--finding', 'src/x.ts:1:edit-share-race', '--head', f.git('rev-parse', 'HEAD').stdout.trim(), '--reason', reason, '--words', 'B, note it', '--by', 'GBrain Minder (GBRA-108)', '--owner-ref', REF]);
 
 // Value: protects=one run id names one /ship run whether a record holds the run dir's path or its name; fails_when=write keeps the
 //   path, or an older entry holding the path no longer matches its run's basename (a stub double-counted, a receipt not found);
@@ -144,6 +144,16 @@ describe('a relayed ruling on a public repository (CAPY-1 qm#3938)', () => {
     expect([pub.status, pub.stderr]).toEqual([EXIT.fail, expect.stringContaining('names a Capy thread or message id')]);
     expect(pub.stderr).not.toContain(REF);
   });
+
+  test('an id in the ruling\'s reason reads a private message too, so the line rulings prints still writes', () => {
+    const f = fixture('PUBLIC');
+    expect(relayedRule(f, 'as GSTA-36:icm_01M8GG556RYA3HGG7Q12G7GP1J said').status).toBe(0);
+    const line = bin(f, 'gstack-approvals', ['rulings']).stdout.trim();
+    expect(line).toContain(': as a private message said (approval ');
+    const w = write(f, bodyFile(f, `## Pre-Landing Review\n\n${line}\n`));
+    expect(w.status, w.stderr).toBe(EXIT.ok);
+    expect(extractReceipt(w.stdout).receipt?.ruled_notes?.[0]).toMatchObject({ reason: 'as a private message said', relayed: 'a private message' });
+  });
 });
 
 // Value: protects=abandon marks only the PR the checkout's branch opened and keeps Capy ids out of a public runs block;
@@ -162,6 +172,17 @@ describe('abandon binds its target PR and redacts Capy ids (CAPY-1 qm#3983)', ()
     expect(right.status, right.stderr).toBe(EXIT.ok);
     expect(right.stdout).toContain('RUN_ABANDON_MARK: run=ship-4590 ');
     expect(ghLog(f)).toContain('pr edit 3983');
+  });
+
+  test('a detached HEAD or a PR gh cannot name a head branch for is refused before any edit', () => {
+    const f = fixture('PUBLIC', '{"body":""}');
+    const unnamed = abandoned(f, ['--pr', '3983']);
+    expect([unnamed.status, unnamed.stderr]).toEqual([EXIT.refused, expect.stringContaining('gh pr view 3983 did not name its head branch')]);
+    setGh(f, 'PUBLIC', '{"body":"","headRefName":"feat"}');
+    f.git('checkout', '-q', '--detach');
+    const detached = abandoned(f, ['--pr', '3983']);
+    expect([detached.status, detached.stderr]).toEqual([EXIT.refused, expect.stringContaining('this checkout has no branch, so PR #3983 cannot be matched to it')]);
+    expect(ghLog(f)).not.toContain('pr edit');
   });
 
   test('by and reason lose their Capy ids on a public repository and keep them on a private one', () => {
