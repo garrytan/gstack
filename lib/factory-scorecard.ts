@@ -426,6 +426,9 @@ export function scorecardRows(card: Scorecard): ScorecardRow[] {
   const known = gates.filter(g => g.costUsd !== null);
   const knownUsd = known.reduce((s, g) => s + g.costUsd!, 0);
   const trains = gates.filter(g => g.kind === 'train' && g.outcome !== 'cancelled');
+  const trainBranches = new Map<string, boolean>();
+  for (const t of trains) trainBranches.set(t.branch, (trainBranches.get(t.branch) ?? false) || t.outcome === 'red');
+  const redTrains = [...trainBranches.values()].filter(Boolean).length;
   const flakes = gates.reduce((s, g) => s + g.flakes, 0);
   const flakeUsd = gates.reduce((s, g) => s + g.flakeRerunUsd, 0);
   const retries = card.freeRuns.reduce((s, r) => s + (r.retries ?? 0), 0);
@@ -453,8 +456,8 @@ export function scorecardRows(card: Scorecard): ScorecardRow[] {
       'completed runs of the gate workflow in the window; cost from the verdict artifact, else the PR verdict comment (one run per PR)'),
     row('cost_per_merge', 'Known gate cost per merged PR', ['gate runs', 'merged PRs'], () => (card.prs.length ? `${usd(knownUsd / card.prs.length)} (${gates.length - known.length} runs without a known cost)` : 'n/a (no merges)'),
       'known gate cost divided by merged PRs; unknown-cost runs make this a floor'),
-    row('red_train', 'Red-train rate', 'gate runs', () => `${pct(trains.filter(t => t.outcome === 'red').length, trains.length)} (${trains.filter(t => t.outcome === 'red').length} red of ${trains.length} trains; ${by('red', 'backstop')} red backstop, ${by('red', 'screen')} red screens)`,
-      `runs whose head branch starts with the train prefix, cancelled runs excluded; red means the run's conclusion was not success`),
+    row('red_train', 'Red-train rate', 'gate runs', () => `${pct(redTrains, trainBranches.size)} (${redTrains} red of ${trainBranches.size} trains; ${by('red', 'backstop')} red backstop, ${by('red', 'screen')} red screens)`,
+      'distinct head branches starting with the train prefix, cancelled runs excluded; a train is red if any non-cancelled run on that branch has a conclusion other than success'),
     row('flaky', 'Flaky events', [], () => `${unavailable('gate runs') ? unavailableText('gate runs') : paidFlakes()}; ${unavailable('free retries') ? unavailableText('free retries') : freeRetries()}`,
       `flake-records artifacts of the newest ${card.artifactRunsRead} gate runs and flake-ledger artifacts of free runs on the base branch, reused main pushes left out`),
     row('issues', 'Issues opened / closed', 'issues', () => `${card.issuesOpened ?? 'n/a'} / ${card.issuesClosed ?? 'n/a'}`, 'GitHub search: created, closed inside the window'),
