@@ -28,15 +28,16 @@ export const clockFrom = (l: Pick<Ledger, 'created_at' | 'clock_from'>) => l.clo
 
 /**
  * The run's clock in minutes since clockFrom: wall, parked (each stretch between call-log rows, or from the clock's start to the first
- * row and from the last row to now, past PARKED_AFTER_MS) and active (wall minus parked), which the 100-minute stop compares. Every
- * row on this state root counts, a row lasting as long as it ran, and this process's own pending row too. With no row in the window
- * (no call log: off Capy) the clock is wall time and source is wall.
+ * row and from the last row to now, past PARKED_AFTER_MS) and active (wall minus parked), which the 100-minute stop compares. A row
+ * counts when it ran in the run's checkout (a row from before rows carried a cwd counts too), lasting as long as it ran, and so does this
+ * process's own pending row. With no row in the window (no call log: off Capy) the clock is wall time and source is wall.
  */
-export function runClock(l: Pick<Ledger, 'created_at' | 'clock_from'>, env: NodeJS.ProcessEnv, now = Date.now()): { active: number; wall: number; parked: number; source: 'log' | 'wall' } {
+export function runClock(l: Pick<Ledger, 'created_at' | 'clock_from' | 'checkout'>, env: NodeJS.ProcessEnv, now = Date.now()): { active: number; wall: number; parked: number; source: 'log' | 'wall' } {
   const from = Date.parse(clockFrom(l));
   const wall = Math.max(0, now - from);
   const self = pendingRow();
-  const spans = [...readCallLog(callLogFile(env)), ...(self ? [self] : [])]
+  const here = (cwd: string | undefined) => !cwd || !l.checkout || cwd === l.checkout || cwd.startsWith(l.checkout + path.sep);
+  const spans = [...readCallLog(callLogFile(env)), ...(self ? [self] : [])].filter(r => here(r.cwd))
     .map(r => [Date.parse(r.start), Date.parse(r.start) + Math.max(0, r.ms)] as const)
     .filter(([s, e]) => e >= from && s <= now).map(([s, e]) => [Math.max(s, from), Math.min(e, now)] as const).sort((a, b) => a[0] - b[0]);
   if (!spans.length) return { active: wall / 60_000, wall: wall / 60_000, parked: 0, source: 'wall' };

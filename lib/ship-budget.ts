@@ -372,7 +372,7 @@ function writePrivate(file: string, text: string): void {
 
 export function writeLedger(ledger: Ledger, env: NodeJS.ProcessEnv = process.env): void {
   writePrivate(ledger.file, JSON.stringify(ledger, null, 2) + '\n');
-  if (ledger.record) writeRecordBlock(ledger.record, ledger);
+  if (ledger.record && !ledger.superseded_by) writeRecordBlock(ledger.record, ledger);
   mirrorRun(ledger, env);
 }
 

@@ -356,6 +356,7 @@ describe('a finished run no longer blocks the next /ship, and abandon never hint
     const f = fx();
     const rec = startBudget(f, 'r1');
     expect(preflight(f, 'r1').status).toBe(0);
+    expect(BUDGET(f, ['note', '--record', rec, '--step', '9', '--reading', '1500', '--credits', '1']).status).toBe(0);
     const closed = BUDGET(f, ['close', '--record', rec, '--reading', '2000', '--credits', '2']);
     expect(closed.status, closed.stdout + closed.stderr).toBe(0);
     expect(closed.stdout).toMatch(/^RUN_ENDED: run=r1 state=finished ended_by=gstack-ship-budget close \(its budget ledger ship-\S+ closed at /m);
@@ -395,7 +396,7 @@ describe('a finished run no longer blocks the next /ship, and abandon never hint
     const named = run(g, 'gstack-ship-run', ['abandon', '--run', 'r1', '--pr', '7', '--by', CAPTAIN, '--reason', 'stopped answering']);
     expect(named.status, named.stderr).toBe(0);
     expect(named.stdout).toContain("RUN_ABANDON_PR: not recorded (gstack-ship-receipt abandoned: PR #7's body records no entry for run r1");
-    expect(named.stdout).toContain('the same mark would refuse the same way');
+    expect(named.stdout).toContain('no mark is needed');
     expect(named.stdout).not.toContain('add the entry with');
     expect(record(g)).toMatchObject({ run: 'r1', state: 'abandoned' });
   });
@@ -416,5 +417,39 @@ describe('a finished run no longer blocks the next /ship, and abandon never hint
     expect(r3.status).toBe(3);
     expect(r3.stdout).not.toContain('RUN_ENDED:');
     expect(record(f)).toMatchObject({ run: 'r2', state: 'open' });
+  });
+
+  // Value: protects=a late close of an earlier run's ledger never ends a later run that opened its record without a ledger; fails_when=endClosedRun takes the earlier ledger, which closed after the later record opened, as that record's owner and marks the live run finished (outside-voice, ship-1-p2);
+  //   why_new=the case above closed before the later run opened; seam=an unmetered start; no_claim=a ledger that keeps noting for another run
+  test("an earlier run's late close never ends a later unmetered run", () => {
+    const f = fx();
+    const rec = startBudget(f, 'r1');
+    expect(preflight(f, 'r1').status).toBe(0);
+    const ledger = /ledger=(\S+)/.exec(fs.readFileSync(rec, 'utf8'))![1]!;
+    const l = JSON.parse(fs.readFileSync(ledger, 'utf8'));
+    const back = (iso: string) => new Date(Date.parse(iso) - 30 * 60_000).toISOString();
+    fs.writeFileSync(ledger, JSON.stringify({ ...l, created_at: back(l.created_at), reservations: l.reservations.map((x: { at: string }) => ({ ...x, at: back(x.at) })) }, null, 2));
+    fs.writeFileSync(recordFile(f), JSON.stringify({ ...record(f), state: 'abandoned' }) + '\n');
+    f.advanceBase({ 'docs/a.md': 'a\n' });
+    expect(preflight(f, 'r2').status).toBe(0);
+    const late = BUDGET(f, ['close', '--record', rec, '--reading', '2000', '--credits', '2']);
+    expect(late.status, late.stdout + late.stderr).toBe(0);
+    expect(late.stdout).not.toContain('RUN_ENDED:');
+    expect(record(f)).toMatchObject({ run: 'r2', state: 'open' });
+  });
+
+  // Value: protects=a start after the record's /ship passed preflight and ended is a new /ship, even within 5 minutes and with no note, while a rerun inside the open run re-attaches; fails_when=a quick second /ship re-attaches the ended run's ledger and its baseline (outside-voice, ship-1-p2), or a rerun of start mid-run splits the run;
+  //   why_new=the cases in ship-budget.test.ts never ran a preflight; seam=the run record's state; no_claim=a preflight with no budget start
+  test('start re-attaches inside an open run and supersedes once that run ended', () => {
+    const f = fx();
+    const rec = startBudget(f, 'r1');
+    expect(preflight(f, 'r1').status).toBe(0);
+    const again = BUDGET(f, ['start', '--record', rec, '--mode', 'observe', '--reading', '1100', '--credits', '1']);
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    expect(again.stdout).not.toContain('SUPERSEDED:');
+    fs.writeFileSync(recordFile(f), JSON.stringify({ ...record(f), state: 'finished' }) + '\n');
+    const next = BUDGET(f, ['start', '--record', rec, '--mode', 'observe', '--reading', '1200', '--credits', '1']);
+    expect(next.status, next.stdout + next.stderr).toBe(0);
+    expect(next.stdout).toMatch(/^SUPERSEDED: run \S+ on this record belongs to \/ship run r1, which passed preflight and is finished and stays as it was; /m);
   });
 });

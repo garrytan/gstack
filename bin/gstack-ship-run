@@ -89,7 +89,7 @@ function main(argv: string[]): number {
   const mark = runScriptSync(path.join(BIN_DIR, 'gstack-ship-receipt'), ['abandoned', ...target, '--run', run, '--by', by, '--reason', reason], { cwd, encoding: 'utf8', timeout: 120_000 });
   process.stdout.write(mark.stdout ?? '');
   const why = (mark.stderr ?? '').trim().split('\n')[0] || `gstack-ship-receipt abandoned exit ${mark.status}`;
-  if (mark.status === EXIT.refused) process.stdout.write(`RUN_ABANDON_PR: not recorded (${why}); the record is abandoned, so do not rerun abandon, and the same mark would refuse the same way: act on the reason above only if this PR should carry the entry\n`);
+  if (mark.status === EXIT.refused && /records no entry for run/.test(why)) process.stdout.write(`RUN_ABANDON_PR: not recorded (${why}); the record is abandoned, so do not rerun abandon, and the PR body names no entry of this run, so no mark is needed\n`);
   else if (mark.status !== 0) process.stdout.write(`RUN_ABANDON_PR: not recorded (${why}); the record is abandoned, so do not rerun abandon: add the entry with gstack-ship-receipt abandoned ${target.join(' ')} --run ${run} --by "<who>" --reason "<one line>"\n`);
   return EXIT.ok;
 }

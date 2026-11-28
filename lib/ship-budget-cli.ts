@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resultLine } from './result-codes';
-import { thisRunOwner } from './ship-run-record';
+import { readRunRecord, thisRunOwner } from './ship-run-record';
 import { endClosedRun } from './ship-run-live';
 import { resolveStateRoot } from './state-root';
 import { spawnSync } from './spawn-sync';
@@ -267,10 +267,12 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   if (delegate !== 'auto' && delegate !== 'never') throw usageError(`--delegate '${delegate}' is not auto or never`);
   const existing = parseRecordBlock(record);
   const prior = existing?.ledger && fs.existsSync(existing.ledger) ? readLedger(existing.ledger) : undefined;
-  if (prior && !prior.closed_at && !progressed(prior) && Date.now() - Date.parse(prior.created_at) <= RESTART_MS) {
+  const newer = prior && !prior.closed_at && !prior.stopped ? newerRun(prior, ctx.cwd) : undefined;
+  if (prior && !prior.closed_at && (prior.stopped || !newer)) {
     return mutateLedger(prior.file, ctx.env, l => {
       if (scope === 'tree' || parentCounter) l.meter_scope = 'tree';
-      return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 };
+      return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' }),
+        ...(l.stopped ? [`STOP: reason=${l.stopped.reason} at Step ${l.stopped.step}; this record's run stopped, and a new start never lifts a stop: resume first (gstack-ship-budget resume --record ${l.record}; a cap raise needs --token-cap <n> --approved-by <who> --words <their words>)`] : [])], exit: l.stopped ? 3 : 0 };
     });
   }
   const meter = pickMeter(o);
@@ -278,8 +280,7 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     if (cap !== null) throw budgetError('BUDGET_METER_UNAVAILABLE', 'tried --reading (absent), a Claude Code session (--session/--nonce absent) and --meter estimate (not passed)');
     return { stdout: ['BUDGET: unmetered admission_cap=none (no readable meter: --reading <n> on Capy, --session <id> on Claude Code)'], exit: 0 };
   }
-  const superseded = prior && !prior.closed_at
-    ? [`SUPERSEDED: run ${prior.run} on this record ${prior.stopped ? `stopped (${prior.stopped.reason})` : progressed(prior) ? 'already ran past its start' : `started over ${RESTART_MS / 60_000} minutes ago`} and stays as it was; this /ship is a new run whose cap and clock count from its own start (to continue that run instead: gstack-ship-budget resume --run ${prior.run})`] : [];
+  const superseded = newer ? [`SUPERSEDED: run ${prior!.run} on this record ${newer} and stays as it was; this /ship is a new run whose cap and clock count from its own start (to continue that run instead: gstack-ship-budget resume --run ${prior!.run})`] : [];
   const run = mintRunId();
   const dir = runDirFor(ctx.env, run);
   const owner = thisRunOwner(), checkout = toplevel(ctx.cwd);
@@ -303,22 +304,30 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const call = readMeter(l, o, true);
   if (meter === 'claude') l.meter.baseline = l.meter.last ?? 0;
   const out = decide(l, '0.9', { kind: 'step', step: '1' }, call, true);
-  if (superseded.length) mutateLedger(prior!.file, ctx.env, old => { old.superseded_by = run; });
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
+  if (superseded.length) mutateLedger(prior!.file, ctx.env, old => { old.superseded_by = run; });
   const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship run metering its own counter; --token-cap <n> or none to change it)`] : [];
   return labelScope(l, { stdout: [...superseded, `BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
 }
 
 /**
- * Whether a run went past its start (GST-4109): a stop, a note, a completed or settled step, a check's second reservation or a
- * handoff. start re-attaches only a run that has not and that started within RESTART_MS, a rerun of the same start; any other open
- * ledger on the record is an earlier /ship, which a new start never joins (it is marked superseded_by the new run, so it stops holding
- * gstack upgrades), so its tokens and minutes never count against this run's cap and clock.
+ * Why an open, unstopped ledger on the record belongs to an earlier /ship (GST-4109), or undefined for a rerun of the same start: it
+ * went past its start (a note, a completed or settled step, a check's second reservation or a handoff), the checkout's /ship run
+ * record opened after it started and has ended (its /ship passed preflight and finished, stopped or was abandoned; an open record is
+ * this same /ship, whose rerun of start re-attaches), or it started over RESTART_MS ago. A new start never joins an earlier /ship: it mints its
+ * own run and marks that ledger superseded_by it (so it stops holding gstack upgrades and writing the record), so the earlier run's
+ * tokens and minutes never count against this run's cap and clock. A stopped ledger is never superseded: start re-attaches it and
+ * exits 3, so only resume (with the owner's words for a cap raise) lifts a stop.
  */
 const RESTART_MS = 5 * 60_000;
-const progressed = (l: Ledger) => Boolean(l.stopped || l.notes?.length || l.steps_done?.length || l.handoffs.length
-  || l.reservations.length > 1 || l.reservations.some(r => r.state !== 'open'));
+function newerRun(l: Ledger, cwd: string): string | undefined {
+  if (l.notes?.length || l.steps_done?.length || l.handoffs.length || l.reservations.length > 1 || l.reservations.some(r => r.state !== 'open')) return 'already ran past its start';
+  const read = readRunRecord(toplevel(cwd) || cwd);
+  if (read.kind === 'record' && read.record.state !== 'open' && Date.parse(read.record.started_at) >= Date.parse(l.created_at)) return `belongs to /ship run ${read.record.run}, which passed preflight and is ${read.record.state}`;
+  if (Date.now() - Date.parse(l.created_at) > RESTART_MS) return `started over ${RESTART_MS / 60_000} minutes ago`;
+  return undefined;
+}
 
 /**
  * check: read the meter, settle what is done (open step reservations, the
@@ -403,7 +412,7 @@ export function cmdClose(argv: string[], ctx: Ctx): Outcome {
       return { stdout: lines, exit: 3 };
     }
     l.closed_at = new Date().toISOString();
-    if (l.marker) { try { fs.unlinkSync(l.marker); } catch {} }
+    if (l.marker && !l.superseded_by) { try { fs.unlinkSync(l.marker); } catch {} }
     return { stdout: lines, exit: 0 };
   });
   const ended = out.exit === 0 && checkout ? endClosedRun(checkout, resolveStateRoot(ctx.env)) : null;

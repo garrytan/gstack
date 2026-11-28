@@ -48,9 +48,9 @@ const phase = (b: Box, args: string[], cmds: string[], extra: NodeJS.ProcessEnv 
   bin(b, 'gstack-ship-phase', ['run', '--dir', path.join(b.root, 'run'), ...args, '--', ...cmds], extra);
 const ledgerOf = (b: Box) => /ledger=(\S+)/.exec(fs.readFileSync(b.record, 'utf8'))![1]!;
 /** Appends a gstack call every 2 minutes from `fromMin` to `toMin` minutes ago to the box's call log, as a run that keeps working writes. */
-const calls = (b: Box, fromMin: number, toMin: number) => {
+const calls = (b: Box, fromMin: number, toMin: number, cwd?: string) => {
   const rows: string[] = [];
-  for (let m = fromMin; m >= toMin; m -= 2) rows.push(JSON.stringify({ v: 1, bin: 'gstack-ship-phase', sub: 'run', start: new Date(Date.now() - m * 60_000).toISOString(), ms: 1000, exit: 0 }));
+  for (let m = fromMin; m >= toMin; m -= 2) rows.push(JSON.stringify({ v: 1, bin: 'gstack-ship-phase', sub: 'run', start: new Date(Date.now() - m * 60_000).toISOString(), ms: 1000, exit: 0, ...(cwd ? { cwd } : {}) }));
   fs.mkdirSync(b.state, { recursive: true });
   fs.appendFileSync(path.join(b.state, 'ship-calls.jsonl'), rows.join('\n') + '\n');
 };
@@ -294,6 +294,21 @@ describe('the 100-minute stop', () => {
     const plain = bin(wall, 'gstack-ship-budget', ['note', '--record', wall.record, '--step', '6', '--reading', '2000', '--credits', '2'], { GSTACK_CAPY: '' });
     expect(plain.status).toBe(3);
     expect(plain.stdout).toMatch(/^STOP: past 100 minutes \(10[01] active min since \S+, 0 min parked\) /m);
+  });
+
+  // Value: protects=gstack calls another checkout makes on the same state root never count as this run's active time; fails_when=a
+  //   parked lane stops at 100 minutes because a sibling lane on the same machine kept calling gstack (outside-voice, ship-1-p2);
+  //   why_new=the case above wrote rows with no cwd; seam=the call log's cwd field; no_claim=two runs in one checkout
+  test("another checkout's gstack calls do not keep a parked run's clock running", () => {
+    const b = box();
+    start(b);
+    backdate(b, 180, false);
+    calls(b, 180, 150, b.repo);
+    calls(b, 148, 22, path.join(b.root, 'elsewhere'));
+    calls(b, 20, 0, b.repo);
+    const ok = bin(b, 'gstack-ship-budget', ['note', '--record', b.record, '--step', '16', '--reading', '2000', '--credits', '2']);
+    expect(ok.status, ok.stdout + ok.stderr).toBe(0);
+    expect(ok.stdout).not.toContain('past 100 minutes');
   });
 });
 

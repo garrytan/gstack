@@ -18,6 +18,7 @@ import { changeRunRecord, ownerGone, readRunRecord, type RunRecord } from './shi
 
 export const LEDGER_HOLD_MS = 360 * 60_000;
 export const REVIEW_START_HOLD_MS = 120 * 60_000;
+const PREFLIGHT_AFTER_START_MS = 5 * 60_000;
 
 const ENDED = new Set(['finished', 'abandoned']);
 const recordEnded = (checkout: unknown, ours: (r: RunRecord) => boolean) => {
@@ -42,16 +43,21 @@ const owns = (ledgers: Ledgers, l: Record<string, any>) => (r: RunRecord) => {
 };
 
 /**
- * End a finished run: when the checkout's record is open and its own ledger (owns) closed after the record opened, mark it finished
- * (ended_by gstack-ship-budget close) and return the RUN_ENDED line; null when there is nothing to end. A record opened after that
- * ledger closed is a later run that wrote no ledger of its own (an unmetered start), so it is never ended. `checkout` is the git toplevel a ledger records.
+ * End a finished run: when the checkout's record is open and its own ledger (owns) closed after the record opened and belongs to that
+ * record's run (the record opened within PREFLIGHT_AFTER_START_MS of the ledger's start, as /ship's start-then-preflight does, or the
+ * ledger noted or reserved after the record opened), mark it finished (ended_by gstack-ship-budget close) and return the RUN_ENDED
+ * line; null when there is nothing to end. Any other ledger belongs to an earlier run (a later run that wrote no ledger of its own,
+ * such as an unmetered start, sits behind it), so its late close never ends that record. `checkout` is the git toplevel a ledger records.
  */
 export function endClosedRun(checkout: string, stateRoot: string): string | null {
   const read = readRunRecord(checkout);
   if (read.kind !== 'record' || read.record.state !== 'open') return null;
   const ledgers = shipLedgers(stateRoot).filter(x => x.l.checkout === checkout);
   const mine = ledgers.find(x => owns(ledgers, x.l)(read.record));
-  if (!mine?.l.closed_at || Date.parse(read.record.started_at) > Date.parse(mine.l.closed_at)) return null;
+  const opened = Date.parse(read.record.started_at);
+  const worked = mine && (opened - created(mine.l) <= PREFLIGHT_AFTER_START_MS
+    || [...(mine.l.notes ?? []), ...(mine.l.reservations ?? [])].some((x: { at?: string }) => Date.parse(String(x.at)) >= opened));
+  if (!mine?.l.closed_at || opened > Date.parse(mine.l.closed_at) || !worked) return null;
   const run = read.record.run;
   const done = changeRunRecord(checkout, 'close', run, { ended_by: 'gstack-ship-budget close' });
   return done.ok ? `RUN_ENDED: run=${run} state=finished ended_by=gstack-ship-budget close (its budget ledger ${path.basename(path.dirname(mine.file))} closed at ${mine.l.closed_at})` : null;
