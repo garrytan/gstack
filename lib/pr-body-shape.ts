@@ -45,10 +45,18 @@ const INLINE_CODE = /(`+)(?!`).*?(?<!`)\1(?!`)/y;
  * tracks comments and code fences together: a `<!--` or `-->` inside a code fence or an inline code span renders as written, so
  * it neither opens nor closes a comment (GSTA-881: a quoted `<!--` above the marker swallowed it, and the Agent notes section
  * read as body text), and a fence or code span inside an open comment is comment text, so the comment ends at its first `-->`.
+ * As in CommonMark, a `<!--` that starts a line opens a comment block that runs to its `-->` or the end; one inside a line
+ * opens a comment only when a `-->` closes it before the paragraph ends, and otherwise is literal text.
  */
 function stripComments(body: string): string {
+  const lines = body.split('\n');
+  const closesInParagraph = (from: number, at: number) => {
+    if (lines[from]!.indexOf('-->', at) >= 0) return true;
+    for (let j = from + 1; j < lines.length && lines[j]!.trim(); j++) if (lines[j]!.includes('-->')) return true;
+    return false;
+  };
   let fence: string | null = null, comment = false;
-  return body.split('\n').map(line => {
+  return lines.map((line, n) => {
     let i = 0, out = '';
     if (comment) {
       const close = line.indexOf('-->');
@@ -69,8 +77,10 @@ function stripComments(body: string): string {
       if (line.startsWith(AGENT_NOTES_MARKER, i)) { out += AGENT_NOTES_MARKER; i += AGENT_NOTES_MARKER.length; continue; }
       if (!line.startsWith('<!--', i)) { const run = line[i] === '`' ? /`+/y : /[^`<]+|</y; run.lastIndex = i; const m = run.exec(line)![0]; out += m; i += m.length; continue; }
       const close = line.indexOf('-->', i + 4);
-      if (close < 0) { comment = true; break; }
-      i = close + 3;
+      if (close >= 0) { i = close + 3; continue; }
+      if (/^ {0,3}$/.test(line.slice(0, i)) || closesInParagraph(n, i + 4)) { comment = true; break; }
+      out += '<!--';
+      i += 4;
     }
     return out;
   }).join('\n');

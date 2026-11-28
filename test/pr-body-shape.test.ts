@@ -86,6 +86,19 @@ describe('the Agent notes section ends the body', () => {
     expect(visibleOpening(hidden).slice(0, 5)).toEqual(['One line of what changed.', 'Two.', 'Three.', 'Four.', 'Five.']);
     expect(kinds(hidden)[0]).toStartWith('visible-lines:');
   });
+
+  // Value: protects=a <!-- inside a line that nothing closes in its paragraph is literal text on GitHub, so it hides neither the lines
+  //   after it nor the Agent notes marker; fails_when=everything after a quoted opener in prose drops out of the shape check and the
+  //   squash message; why_new=round 2 review of GSTA-881's fix (red-team, CRITICAL)
+  test('an unclosed <!-- inside a line stays literal text; one starting a line opens a comment block', () => {
+    const prose = foldSections('The check now skips a quoted <!-- above the fold.\nline two\nline three\nline four\n\n## Details\n\nmore\n');
+    expect(visibleOpening(prose)).toEqual(['The check now skips a quoted <!-- above the fold.', 'line two', 'line three', 'line four']);
+    expect(kinds(prose, ['lane'])[0]).toStartWith('visible-lines:4 lines,');
+    const noted = withAgentNotes('The check now skips a quoted <!-- above the fold.\n\n## Details\n\nMore.\n', RECEIPT);
+    expect(kinds(foldSections(noted))).toEqual([]);
+    expect(visibleOpening(OPENING + '<!-- an open comment block\nhides this line\n')).toEqual(visibleOpening(OPENING));
+    expect(visibleOpening('One line with <!-- a note\nthat closes --> here.\n')).toEqual(['One line with ', ' here.']);
+  });
 });
 
 describe('folding', () => {
