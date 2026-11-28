@@ -4027,9 +4027,24 @@ It also refuses a body that names a raw security finding fingerprint, such as
 and `gstack-post` refuses to send such text, exit 1: a PR body and every GitHub
 post are public, so a security finding appears only in the redacted form gstack
 renders ([security findings stay private](ship-policy.md#security-findings-stay-private)).
+<a id="receipt-public-repo"></a>
+On a repository `gh` does not report private (public, or visibility it cannot
+read), write also refuses, writing nothing, when the receipt or the body's
+```` ```gstack-receipt-runs ```` block (earlier runs, stop records and abandon
+entries, with their who and why) holds a home folder path (`/home/<user>/`,
+`/Users/<user>/`, `/root/`, `C:\Users\`) or a Capy thread or message id
+(`jam_…`, `icm_…`, `iev_…`, or a relay ref like `GSTA-36:icm_…` or
+`GSTA-36:2026-11-28T09:28Z`), and when a `Ruled note: …` line still says
+`relayed from` anything but `a private message`. The refusal names the field
+(`thread`, `gstack-receipt-runs[0].reason`), never the value. Text that only
+looks like a ref, such as `SHA-256:abc`, `UTF-8:x` or `PR-12:fix`, and file
+names such as `test/jam_fix.ts`, are not refused.
 
 **Fix.** Regenerate it with `gstack-ship-receipt write`; never hand-edit the
-block. For a missing body line, add the line the refusal quotes to the body and
+block. For a public-repo refusal, pass `--run <the run dir's name>`, leave
+`--thread` out, list the `Ruled note: …` lines `gstack-approvals rulings`
+prints now, and delete the path or id from the runs block entry the refusal
+names. For a missing body line, add the line the refusal quotes to the body and
 write again. For a security fingerprint, replace the text that names it with the
 line `gstack-approvals rulings`, `gstack-approvals dispositions` or
 `gstack-review-scope render` prints, keep the details in your private report,
@@ -7612,7 +7627,10 @@ not the checked-out HEAD, or the receipt records `gstack_version` without
 `review_depth` ([ship-policy.md](ship-policy.md#ship-receipt)). It refuses, too, when
 HEAD needs a targeted class (money, gate, auth, secret) that the receipt's
 `review_targeted` does not cover with a done pass, since the queue would refuse
-that receipt. The receipt in
+that receipt. On a repository `gh` does not report private, it refuses when the
+carried receipt or the body's runs block still holds a home folder path or a
+Capy thread or message id from an earlier write
+([public repositories](#receipt-public-repo)). The receipt in
 the body is unchanged and still names the old head, so `gstack-ship-queue
 ready` refuses `QUEUE_RECEIPT_STALE`.
 
@@ -7622,7 +7640,9 @@ already rewritten and the receipt predates `head_tree`, run /gstack-ship on the 
 head; next time merge the base in instead of rebasing. For a retargeted stacked
 PR whose older receipt lost its parent branch, or a depth, targeted or exception
 refusal, run /gstack-ship on the new head. When `--head` is not the checked-out HEAD,
-check it out and carry there.
+check it out and carry there. For a public-repo refusal, delete the path or id
+from the runs block entry the refusal names, or run /gstack-ship on the new head
+for a fresh receipt.
 
 <a id="gate-finding-open-unattended"></a>
 ### An unattended /gstack-ship stops on an open gate finding
@@ -7932,6 +7952,36 @@ when the run may still be working, and pass the run the record names. Abandon
 completes in one call: after `RUN_ABANDONED` the record is ended, so never
 rerun it, even when `RUN_ABANDON_PR` says the PR body entry was skipped or not
 recorded (add that entry with `gstack-ship-receipt abandoned` instead).
+
+<a id="receipt-abandoned-refused"></a>
+### `gstack-ship-receipt abandoned` refuses a PR (exit 3)
+
+**Meaning.** `gstack-ship-receipt abandoned --pr <n>` (which `gstack-ship-run
+abandon` calls) marks only this checkout's own open PR, and changed nothing
+because one check failed:
+
+- this checkout has no branch, or `gh pr view` did not name the PR's head
+  branch and repository;
+- the PR's head is on another repository than the one this branch pushes to
+  (its `branch.<name>.pushRemote`, `remote.pushDefault` or upstream remote,
+  else `origin`), which is how a fork's PR from a branch of the same name looks;
+- the PR's head branch is not this checkout's branch;
+- the PR is merged or closed, not open;
+- the PR body records no entry (a stub, stop record or receipt) for the run, so
+  the run never wrote to this PR;
+- on a repository `gh` does not report private, the runs block would hold a
+  home folder path, from `--by`, `--reason` or an earlier entry
+  ([public repositories](#receipt-public-repo)). A Capy id in `--by` or
+  `--reason` is not refused: it is replaced by `a private message`
+  (`RUN_ABANDON_REDACTED:`).
+
+`--body <file>` edits a body you hold, so only the last check applies to it.
+
+**Fix.** Check out the branch the run shipped and pass the PR that branch
+opened. A contributor whose `origin` is upstream sets
+`git config branch.<name>.pushRemote <fork remote>` so the check reads the fork.
+A run that never wrote to the PR needs no mark: the run record is already
+abandoned. Keep home paths out of `--reason`.
 
 <a id="ship-run-record-unreadable"></a>
 ### `SHIP_RUN_RECORD_UNREADABLE`

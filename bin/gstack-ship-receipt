@@ -53,7 +53,7 @@ import { approvalForReceipt } from '../lib/approval-citations';
 import {
   CARRY_NAMED_PATHS,
   bindReceipt, carryReceipt, recheckCarried, classifyCarryPath, computeCensus, extractReceipt, landedStackParent, missingIssueLines, orderReceipt, parseReviewLoop, placeReceipt, planCarry, planTreeCarry,
-  publicReceiptLeaks, RUNS_FENCE, receiptIssuesFrom, receiptRuns, receiptSummaryLine, renderCensus, renderReceiptBlock, runId, unruledOpenBlockers, validateReceipt, type CensusPr,
+  publicReceiptLeaks, RUNS_FENCE, receiptIssuesFrom, receiptRuns, receiptSummaryLine, renderCensus, renderReceiptBlock, runId, sameRun, unruledOpenBlockers, validateReceipt, type CensusPr,
 } from '../lib/ship-receipt';
 import { checkDocsCaps, docsCapLine, docsExceptionLine, parseReceiptDocs } from '../lib/ship-receipt-docs';
 import { absorbedByBase, comparePath, contextPacket, PACKET_SECTION_CAP, readScopedReview, touchedPaths } from '../lib/ship-patch';
@@ -63,7 +63,7 @@ import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
-import { bodyLineText, bodyListsLine, INTERNAL_ID, keepsInternalIds, publicRuledNote, readRuledNotes, redactInternalIds, repoRuledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { bodyLineText, bodyListsLine, INTERNAL_ID, keepsInternalIds, publicRuledNote, readRuledNotes, redactInternalIds, RELAYED_REF, repoRuledNotes, ruledNoteText } from '../lib/ruled-notes';
 import { renderMode, repoVisibility } from '../lib/approval-record';
 import { appliedGateDispositions, gateDispositionText, publicGateDisposition } from '../lib/gate-dispositions';
 import { securityFingerprints } from '../lib/security-findings';
@@ -308,8 +308,8 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
   const ruledNotes = repoRuledNotes(readRuledNotes(repoRoot), repoRoot, process.env, flag(rest, '--repo'));
   const unlisted = bodyFile ? ruledNotes.map(n => `Ruled note: ${ruledNoteText(n)}`).find(l => !bodyListsLine(bodyText, l)) : undefined;
   if (unlisted) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} does not list ruled note ${JSON.stringify(unlisted)} (gstack-approvals rulings prints each line the body carries); nothing written`) + '\n'); return EXIT.fail; }
-  const relayed = bodyFile ? bodyText.split(/\r?\n/).map(bodyLineText).filter(l => l.startsWith('Ruled note: ') && INTERNAL_ID.test(l)).join('\n') : '';
-  if (relayed && !keepsInternalIds(relayed, repoRoot, process.env, flag(rest, '--repo'))) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} has a Ruled note line that names a Capy thread or message id, and gh does not report this repository private: a PR body is public, so list the lines gstack-approvals rulings prints now, which say relayed from a private message; nothing written`) + '\n'); return EXIT.fail; }
+  const relayed = bodyFile ? bodyText.split(/\r?\n/).map(bodyLineText).some(l => l.startsWith('Ruled note: ') && (INTERNAL_ID.test(l) || RELAYED_REF.test(l))) : false;
+  if (relayed && renderMode(repoVisibility(repoRoot, process.env, flag(rest, '--repo')), false) !== 'full') { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${bodyFile} has a Ruled note line that names a Capy thread or message id or relays from a ref other than a private message, and gh does not report this repository private: a PR body is public, so list the lines gstack-approvals rulings prints now, which say relayed from a private message; nothing written`) + '\n'); return EXIT.fail; }
   let gateDispositions: ReturnType<typeof appliedGateDispositions>['applied'];
   try { gateDispositions = appliedGateDispositions(repoRoot, { pin: 'HEAD' }).applied; }
   catch (e: any) { process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `the owner gate dispositions at HEAD cannot be derived (${e.message}); the receipt always records them, so an unreadable approval store or a git error writes nothing`) + '\n'); return EXIT.fail; }
@@ -434,8 +434,6 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
     return EXIT.fail;
   }
   const block = renderReceiptBlock(receipt);
-  const out = flag(rest, '--out');
-  if (out) fs.writeFileSync(out, block);
   const closed = [...(receipt.cleared_by_trailer ?? []).map(t => `Closed by fix ${t.commit.slice(0, 12)}: ${t.id} (a later full review at ${t.review.slice(0, 12)} read it clean)`)];
   if (body) {
     let text = fs.existsSync(body) ? fs.readFileSync(body, 'utf8') : '';
@@ -449,8 +447,17 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
     }
     const notes = splitAgentNotes(text).notes ?? '';
     const lines = closed.filter(l => !notes.includes(l));
-    fs.writeFileSync(body, placeReceipt(lines.length ? withAgentNotes(text, [notes.trim(), ...lines].filter(Boolean).join('\n\n')) : text, receipt));
+    const next = placeReceipt(lines.length ? withAgentNotes(text, [notes.trim(), ...lines].filter(Boolean).join('\n\n')) : text, receipt);
+    const runLeaks = runsBlockLeaks(next);
+    const runVisibility = runLeaks.length ? repoVisibility(repoRoot, process.env, flag(rest, '--repo')) : 'private';
+    if (renderMode(runVisibility, false) !== 'full') {
+      process.stderr.write(resultLine('gstack-ship-receipt write', 'RECEIPT_INVALID', `${body}'s runs block holds ${runLeaks.join(', ')}, and the repository's visibility is ${runVisibility}, not private: a PR body is public, so take the home path or Capy thread or message id out of that entry of the ${RUNS_FENCE} block; nothing written`) + '\n');
+      return EXIT.fail;
+    }
+    fs.writeFileSync(body, next);
   }
+  const out = flag(rest, '--out');
+  if (out) fs.writeFileSync(out, block);
   process.stderr.write(receiptSummaryLine(receipt) + '\n');
   process.stdout.write(json ? JSON.stringify(receipt) + '\n' : block);
   return EXIT.ok;
@@ -877,12 +884,12 @@ function cmdCarry(rest: string[], json: boolean): number {
   const carried = carryReceipt(rebound, head, plan.carry, { tree: headTree, fromTree, productPatchId: headPatch });
   const errors = validateReceipt(carried);
   if (errors.length) return refused('RECEIPT_CARRY_REFUSED', `the carried receipt does not validate: ${errors[0]!.message} at ${errors[0]!.path}`);
-  const leaks = publicReceiptLeaks(carried);
+  const newBody = placeReceipt(body, carried);
+  const leaks = [...publicReceiptLeaks(carried), ...runsBlockLeaks(newBody)];
   const visibility = leaks.length ? repoVisibility(repoRoot, process.env, flag(rest, '--repo')) : 'private';
-  if (renderMode(visibility, false) !== 'full') return refused('RECEIPT_CARRY_REFUSED', `the carried receipt holds ${leaks.join(', ')} from an earlier write, and the repository's visibility is ${visibility}, not private: a PR body is public, so run /gstack-ship on ${head.slice(0, 12)} for a fresh receipt`);
+  if (renderMode(visibility, false) !== 'full') return refused('RECEIPT_CARRY_REFUSED', `the carried receipt or the body's runs block holds ${leaks.join(', ')} from an earlier write, and the repository's visibility is ${visibility}, not private: a PR body is public, so take it out of the runs block entry, or run /gstack-ship on ${head.slice(0, 12)} for a fresh receipt`);
   const targetedVerdict = receiptTargetedAtHead(repoRoot, baseRef, carried, head);
   if (!targetedVerdict.ok) return refused('RECEIPT_CARRY_REFUSED', `${targetedVerdict.line}: ${targetedVerdict.message}, so the queue refuses it too (#3859); run /gstack-ship on ${head.slice(0, 12)}`);
-  const newBody = placeReceipt(body, carried);
   const line = receiptSummaryLine(carried);
   if (scopedDryRun) return refused('RECEIPT_CARRY_SCOPED_REVIEW', scopedDryRun);
   if (rest.includes('--dry-run')) {
@@ -977,23 +984,29 @@ function readBody(rest: string[]): { ok: true; body: string; pr?: string } | { o
 
 /** --run as receipts store it: the run dir's name, never its path (lib/ship-receipt.ts runId, GST-1955). */
 const runFlag = (rest: string[]) => { const r = flag(rest, '--run'); return r === undefined ? undefined : runId(r); };
+/** publicReceiptLeaks over the runs block a body renders, abandon's who and why included (GST-4105): write, carry and abandon post it whole. */
+const runsBlockLeaks = (body: string) => publicReceiptLeaks({ [RUNS_FENCE]: receiptRuns(body) });
 
 /**
- * Why PR `pr` is not this checkout's PR, or null when it is (CAPY-1 qm#3983): its head must be this checkout's branch on the repository
- * origin pushes to, since a fork's PR from a branch of the same name has the same headRefName.
+ * Why PR `pr` is not this checkout's open PR, or null when it is (CAPY-1 qm#3983): its head must be this checkout's branch on the
+ * repository the branch pushes to (its pushRemote, remote.pushDefault or upstream remote, else origin: a contributor's origin is often
+ * upstream and their fork another remote), since a fork's PR from a branch of the same name has the same headRefName; and it must be
+ * open, since a merged or closed PR's body is a record (GST-4105).
  */
 function prOffBranch(rest: string[], pr: string): string | null {
   const branch = git(['branch', '--show-current']), repo = flag(rest, '--repo');
   if (!branch) return `this checkout has no branch, so PR #${pr} cannot be matched to it`;
-  const origin = /([^/:]+)\/([^/]+?)(?:\.git)?\/*$/.exec(git(['config', '--get', 'remote.origin.url']) ?? '');
-  if (!origin) return `this checkout has no origin repository, so PR #${pr} cannot be matched to it`;
-  const r = gh(['pr', 'view', pr, ...(repo ? ['--repo', repo] : []), '--json', 'headRefName,headRepository,headRepositoryOwner']);
-  let v: { headRefName?: unknown; headRepository?: { name?: unknown }; headRepositoryOwner?: { login?: unknown } } = {};
+  const remote = git(['for-each-ref', '--format=%(push:remotename)', `refs/heads/${branch}`]) || 'origin';
+  const pushTo = /([^/:]+)\/([^/]+?)(?:\.git)?\/*$/.exec(git(['config', '--get', `remote.${remote}.url`]) ?? '');
+  if (!pushTo) return `this checkout's push remote ${remote} names no repository, so PR #${pr} cannot be matched to it`;
+  const r = gh(['pr', 'view', pr, ...(repo ? ['--repo', repo] : []), '--json', 'headRefName,headRepository,headRepositoryOwner,state']);
+  let v: { headRefName?: unknown; headRepository?: { name?: unknown }; headRepositoryOwner?: { login?: unknown }; state?: unknown } = {};
   try { v = JSON.parse(r.out) ?? {}; } catch { v = {}; }
   const owner = v.headRepositoryOwner?.login, name = v.headRepository?.name;
   if (!r.ok || typeof v.headRefName !== 'string' || typeof owner !== 'string' || typeof name !== 'string') return `gh pr view ${pr} did not name its head branch and repository${r.ok ? '' : ` (${r.err.split('\n')[0]})`}`;
-  if (`${owner}/${name}`.toLowerCase() !== `${origin[1]}/${origin[2]}`.toLowerCase()) return `PR #${pr}'s head is on ${owner}/${name}, not this checkout's origin ${origin[1]}/${origin[2]}`;
-  return v.headRefName === branch ? null : `PR #${pr}'s head branch is ${v.headRefName}, not this checkout's ${branch}`;
+  if (`${owner}/${name}`.toLowerCase() !== `${pushTo[1]}/${pushTo[2]}`.toLowerCase()) return `PR #${pr}'s head is on ${owner}/${name}, not this checkout's ${remote === 'origin' ? 'origin' : `push remote ${remote}`} ${pushTo[1]}/${pushTo[2]}`;
+  if (v.headRefName !== branch) return `PR #${pr}'s head branch is ${v.headRefName}, not this checkout's ${branch}`;
+  return v.state === 'OPEN' ? null : `PR #${pr} is ${typeof v.state === 'string' ? v.state.toLowerCase() : 'in a state gh pr view did not name'}, not open`;
 }
 
 /** Write the body back: to --body, to a HOST_PUBLISH hand-off on Capy (GST-3183), else through gh pr edit. */
@@ -1093,10 +1106,15 @@ function cmdAbandoned(rest: string[]): number {
   const head = git(['rev-parse', 'HEAD'])?.toLowerCase();
   if (!head) { process.stderr.write('gstack-ship-receipt abandoned: cannot resolve HEAD\n'); return EXIT.usage; }
   const wrongPr = read.pr ? prOffBranch(rest, read.pr) : null;
-  if (wrongPr) { process.stderr.write(`gstack-ship-receipt abandoned: ${wrongPr}: abandon marks only the PR this checkout's branch opened, so pass that PR's number; not marked\n`); return EXIT.refused; }
+  if (wrongPr) { process.stderr.write(`gstack-ship-receipt abandoned: ${wrongPr}: abandon marks only the open PR this checkout's branch opened, so pass that PR's number; not marked\n`); return EXIT.refused; }
+  if (read.pr && ![...receiptRuns(read.body).map(e => e.run), extractReceipt(read.body).receipt?.run].some(r => sameRun(r, run))) { process.stderr.write(`gstack-ship-receipt abandoned: PR #${read.pr}'s body records no entry for run ${run} (a stub, stop record or receipt), so the run is not this PR's; pass the PR the run wrote to, or --body for a body you hold; not marked\n`); return EXIT.refused; }
   const safe = keepsInternalIds(`${by} ${reason}`, process.cwd(), process.env, flag(rest, '--repo'));
   if (!safe) process.stderr.write('RUN_ABANDON_REDACTED: --by or --reason named a Capy thread or message id, and gh does not report this repository private, so the PR body says a private message in its place\n');
-  const err = postBody(rest, read.pr, placeRunEntry(read.body, abandonMarker({ head, run, by: safe ? by : redactInternalIds(by), reason: safe ? reason : redactInternalIds(reason) })));
+  const next = placeRunEntry(read.body, abandonMarker({ head, run, by: safe ? by : redactInternalIds(by), reason: safe ? reason : redactInternalIds(reason) }));
+  const leaks = runsBlockLeaks(next);
+  const visibility = leaks.length ? repoVisibility(process.cwd(), process.env, flag(rest, '--repo')) : 'private';
+  if (renderMode(visibility, false) !== 'full') { process.stderr.write(`gstack-ship-receipt abandoned: the runs block would hold ${leaks.join(', ')}, and the repository's visibility is ${visibility}, not private: a PR body is public, so keep home paths out of --by and --reason and take any out of the body's earlier entries; not marked\n`); return EXIT.refused; }
+  const err = postBody(rest, read.pr, next);
   if (err) { process.stderr.write(`gstack-ship-receipt abandoned: ${err}; not marked\n`); return EXIT.fail; }
   process.stdout.write(`RUN_ABANDON_MARK: run=${run} head=${head.slice(0, 12)}\n`);
   return EXIT.ok;

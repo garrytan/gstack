@@ -8,7 +8,9 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { bunIsolationArgs } from '../lib/bun-isolation';
 import { EXIT } from '../lib/headless-artifacts';
+import { INTERNAL_ID, redactInternalIds } from '../lib/ruled-notes';
 import { placeRunEntry, prReviewHistory, receiptedRun, runStub } from '../lib/pr-review-history';
 import { extractReceipt, placeReceipt, publicReceiptLeaks, receiptRuns, runId, RUNS_FENCE, sameRun } from '../lib/ship-receipt';
 import { lineOf, RELEASE, shipFixture, type ShipFx } from './helpers/ship-bin-fixture';
@@ -23,10 +25,10 @@ const H = 'a'.repeat(40);
 const HOME_RUN = '/home/user/.capy/work/ship-4590';
 const REF = 'GBRA-108:2026-11-19T12:29:59Z';
 const LOOP = { passes: 1, blocking_found: 0, deferred: 0 };
-/** gh pr view's answer for a PR whose head is `branch` on `owner`/fx (the fixture's origin is github.com/fx/fx). */
-const VIEW = (branch: string, owner = 'fx') => JSON.stringify({ body: '', headRefName: branch, headRepository: { name: 'fx' }, headRepositoryOwner: { login: owner } });
-const VIEW_FEAT = VIEW('feat');
 const runsBody = (...entries: object[]) => '<!-- gstack:agent-notes -->\n<details><summary>Agent notes</summary>\n\n\`\`\`' + RUNS_FENCE + '\n' + entries.map(e => JSON.stringify(e)).join('\n') + '\n\`\`\`\n\n</details>\n';
+/** gh pr view's answer for an open PR whose head is `branch` on `owner`/fx (the fixture's origin is github.com/fx/fx) and whose body records run ship-4590's started stub. */
+const VIEW = (branch: string, owner = 'fx', o: { state?: string; body?: string } = {}) => JSON.stringify({ body: o.body ?? runsBody({ head: H, run: 'ship-4590', status: 'started', review_loop: LOOP }), headRefName: branch, headRepository: { name: 'fx' }, headRepositoryOwner: { login: owner }, state: o.state ?? 'OPEN' });
+const VIEW_FEAT = VIEW('feat');
 
 /** A fixture whose gh says the repository is PUBLIC, PRIVATE or cannot say (''), answers pr view with `view`, and logs every call. */
 function fixture(visibility: 'PUBLIC' | 'PRIVATE' | '', view = '{"body":""}') {
@@ -38,7 +40,7 @@ function fixture(visibility: 'PUBLIC' | 'PRIVATE' | '', view = '{"body":""}') {
 const setGh = (f: ShipFx, visibility: string, view = '{"body":""}') => f.gh([
   `echo "$*" >> "${path.join(f.root, 'gh.log')}"`,
   `if [ "$1" = repo ]; then ${visibility ? `echo ${visibility}; exit 0` : 'exit 1'}; fi`,
-  `if [ "$1" = pr ] && [ "$2" = view ]; then echo '${view}'; exit 0; fi`,
+  `if [ "$1" = pr ] && [ "$2" = view ]; then printf '%s\\n' '${view}'; exit 0; fi`,
   'exit 0',
 ].join('\n'));
 const ghLog = (f: ShipFx) => { const p = path.join(f.root, 'gh.log'); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; };
@@ -300,3 +302,180 @@ describe('a Captain ruling and gate disposition on a public repository write cle
     expect(extractReceipt(text).receipt?.gate_dispositions?.[0]).toMatchObject({ by, words: 'do it (a private message)' });
   });
 });
+
+// Value: protects=INTERNAL_ID keeps every Capy id and relay ref it caught while look-alike text (hashes, encodings, issue refs, file
+//   names) stops reading as one; fails_when=SHA-256:abc, UTF-8:x, PR-12:fix, A-1:b or test/jam_fix.ts is refused or redacted on a
+//   public repository, or any earlier catch slips through; seam=lib/ruled-notes.ts INTERNAL_ID, redactInternalIds, publicReceiptLeaks
+describe('INTERNAL_ID leaves look-alike text alone and keeps every Capy id catch (GST-4105)', () => {
+  const caught = ['jam_01abc', 'icm_01M8GG556RYA3HGG7Q12G7GP1J', 'iev_01M8GG5564BWTXRD3PP941B4PD', 'GSTA-36:icm_01M8GG556RYA3HGG7Q12G7GP1J', 'per GSTA-36:icm_01abc',
+    REF, 'GSTA-36:2026-11-28T09:28Z', 'GSTA-36:iev_01abc', '(jam_01abc)', 'see .capy/work/jam_01M8GSKHFHTDZWPHJVG6ZVJ3D4/x', 'ids/icm_01M8GG556RYA3HGG7Q12G7GP1J'];
+  const text = ['SHA-256:abc', 'UTF-8:x', 'PR-12:fix', 'A-1:b', 'test/jam_fix.ts', 'GStack Minder (GSTA-36)', 'my_jam_fix', 'approval a-315e17d615b1', 'lib/icm_parse.ts'];
+
+  test('each earlier catch still matches and each look-alike does not', () => {
+    expect(caught.filter(s => !INTERNAL_ID.test(s))).toEqual([]);
+    expect(text.filter(s => INTERNAL_ID.test(s))).toEqual([]);
+  });
+
+  test('redaction replaces only the ids, and a receipt holding only look-alikes has no leak', () => {
+    expect(redactInternalIds('SHA-256:abc and UTF-8:x per GSTA-36:icm_01abc in test/jam_fix.ts (jam_01abc), PR-12:fix at GBRA-108:2026-11-19T12:29:59Z'))
+      .toBe('SHA-256:abc and UTF-8:x per a private message in test/jam_fix.ts (a private message), PR-12:fix at a private message');
+    expect(publicReceiptLeaks({ reason: text.join(' '), gate: { 'PR-12:fix': 1, 'test/jam_fix.ts': true } })).toEqual([]);
+    expect(publicReceiptLeaks({ reason: 'see GSTA-36:2026-11-28T09:28Z', note: 'x/jam_01M8GSKHFHTDZWPHJVG6ZVJ3D4' })).toEqual(['reason (a Capy thread or message id)', 'note (a Capy thread or message id)']);
+  });
+
+  test('a relay ref INTERNAL_ID does not match still reads a private message on a public repository, and its old body line is refused', () => {
+    const f = fixture('PRIVATE');
+    const rule = bin(f, 'gstack-approvals', ['rule', '--finding', 'src/x.ts:1:edit-share-race', '--head', f.git('rev-parse', 'HEAD').stdout.trim(), '--reason', 'ships as a disclosed note', '--words', 'B, note it', '--by', 'GBrain Minder (GBRA-108)', '--owner-ref', 'GBRA-108:fix']);
+    expect(rule.status, rule.stderr).toBe(0);
+    const full = bin(f, 'gstack-approvals', ['rulings']).stdout.trim();
+    expect(full).toContain('(relayed from GBRA-108:fix)');
+    setGh(f, 'PUBLIC');
+    const redacted = bin(f, 'gstack-approvals', ['rulings']).stdout.trim();
+    expect(redacted).toContain('(relayed from a private message)');
+    const stale = write(f, bodyFile(f, `## Pre-Landing Review\n\n${full}\n${redacted}\n`));
+    expect([stale.status, stale.stderr]).toEqual([EXIT.fail, expect.stringContaining('names a Capy thread or message id or relays from a ref')]);
+    const clean = write(f, bodyFile(f, `## Pre-Landing Review\n\n${redacted}\n`));
+    expect(clean.status, clean.stderr).toBe(EXIT.ok);
+  });
+});
+
+// Value: protects=a hand-edited runs block never throws the round count and a repeated mark is placed once; fails_when=a non-string
+//   run throws in prReviewHistory, or the same abandon mark lands twice because one side holds the run dir path; seam=lib/pr-review-history.ts
+describe('the runs block reads hand-edited entries safely (GST-4105)', () => {
+  test('a non-string run counts as its own entry instead of throwing', () => {
+    const body = runsBody({ head: H, run: 42, review_loop: LOOP }, { head: H, run: { dir: 'ship-1' }, review_loop: LOOP }, { head: H, run: 'ship-2', review_loop: LOOP });
+    expect(prReviewHistory(body)).toMatchObject({ rounds: 3, runs: 3 });
+  });
+
+  test('a mark already in the block is not placed again when one side holds the run dir path', () => {
+    const mark = { head: H, run: 'ship-4590', mark: 'abandoned' as const, by: 'GStack Minder (GSTA-36)', reason: 'stopped' };
+    const body = runsBody(mark);
+    expect(placeRunEntry(body, { ...mark, run: HOME_RUN })).toBe(body);
+    const fromPath = runsBody({ ...mark, run: HOME_RUN });
+    expect(placeRunEntry(fromPath, mark)).toBe(fromPath);
+    expect(receiptRuns(placeRunEntry(body, { ...mark, reason: 'other' }))).toHaveLength(2);
+  });
+});
+
+// Value: protects=a private repository's PR body written before GST-1955 still lands while a public one must carry the redacted line;
+//   fails_when=the queue refuses the legacy unredacted line on a private repository, or accepts it on a public one;
+//   seam=gateAcceptance (lib/gate-dispositions.ts), the check land, verify and ready share
+describe('the queue takes a private repository\'s legacy gate disposition line (GST-4105)', () => {
+  test('private accepts the legacy and the redacted line; public accepts only the redacted line', () => {
+    const f = fixture('PRIVATE');
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const g = bin(f, 'gstack-approvals', ['gate', '--finding', 'tests/x.test.ts:3:gate-integrity', '--gate-id', '69c7c3432501', '--head', head, '--reason', 'kept as the owner ruled', '--words', 'do it (GSTA-36:icm_01M8GG556RYA3HGG7Q12G7GP1J)', '--by', 'GStack Minder (GSTA-36)']);
+    expect(g.status, g.stderr).toBe(0);
+    const redacted = bin(f, 'gstack-approvals', ['dispositions']).stdout.trim();
+    expect(redacted).toContain('"do it (a private message)"');
+    const script = path.join(f.root, 'accept.ts');
+    fs.writeFileSync(script, [
+      "import * as fs from 'node:fs';",
+      `import { appliedGateDispositions, gateAcceptance } from ${JSON.stringify(path.join(path.dirname(BIN), 'lib', 'gate-dispositions.ts'))};`,
+      'const [head, mode, file] = process.argv.slice(2) as [string, string, string];',
+      'const { applied } = appliedGateDispositions(process.cwd(), { pin: head });',
+      "if (mode === 'show') { console.log(JSON.stringify(applied)); process.exit(0); }",
+      "const r = gateAcceptance({ cwd: process.cwd(), branch: 'feat', pin: head, body: fs.readFileSync(file, 'utf8'), receipt: { gate_dispositions: applied } as any });",
+      "console.log(r.failure?.message ?? 'ok');",
+    ].join('\n'));
+    const accept = (mode: string, file = '') => f.run(process.execPath, [...bunIsolationArgs(), script, head, mode, file], { GSTACK_APPROVALS_MIRROR: '0' });
+    const shown = accept('show');
+    expect(shown.status, shown.stderr).toBe(0);
+    const [d] = JSON.parse(shown.stdout) as Array<Record<string, string>>;
+    const legacy = `Gate disposition: ${d!.finding} [gate ${d!.gate_id}] at ${d!.head!.slice(0, 12)} by ${d!.by} at ${d!.at}: ${d!.reason} — "${d!.words}" (approval ${d!.approval})`;
+    expect(legacy).toContain('GSTA-36:icm_');
+    const legacyBody = bodyFile(f, `## Summary\n\n${legacy}\n`), redactedBody = path.join(f.root, 'redacted.md');
+    fs.writeFileSync(redactedBody, `## Summary\n\n${redacted}\n`);
+    expect([accept('check', legacyBody).stdout.trim(), accept('check', redactedBody).stdout.trim()]).toEqual(['ok', 'ok']);
+    setGh(f, 'PUBLIC');
+    expect(accept('check', legacyBody).stdout.trim()).toContain('the PR body lacks the line "Gate disposition: ');
+    expect(accept('check', redactedBody).stdout.trim()).toBe('ok');
+  });
+});
+
+// Value: protects=the runs block write, carry and abandon post is scanned like the receipt, so a hand-written home path or Capy id in
+//   an earlier entry or an abandon reason never publishes on a public repository; fails_when=write, carry or abandon posts one;
+//   seam=runsBlockLeaks in gstack-ship-receipt write, carry and abandoned
+describe('the rendered runs block is scanned before it publishes (GST-4105)', () => {
+  const handWritten = { head: H, run: 'ship-1', mark: 'abandoned', by: 'GStack Minder (GSTA-36)', reason: 'logs in /home/user/.capy/work/ship-1' };
+
+  test('write refuses a body whose runs block holds a home path on a public repository and writes it on a private one', () => {
+    const f = fixture('PUBLIC');
+    const body = bodyFile(f, '## Summary\n\nA change.\n\n' + runsBody(handWritten));
+    const before = fs.readFileSync(body, 'utf8');
+    const pub = write(f, body, ['--run', 'ship-2']);
+    expect([pub.status, pub.stderr]).toEqual([EXIT.fail, expect.stringContaining(`runs block holds ${RUNS_FENCE}[0].reason (a home path)`)]);
+    expect(pub.stderr).toContain('(RECEIPT_INVALID)');
+    expect(pub.stderr).not.toContain('/home/user');
+    expect(fs.readFileSync(body, 'utf8')).toBe(before);
+    setGh(f, 'PRIVATE');
+    const priv = write(f, body, ['--run', 'ship-2']);
+    expect(priv.status, priv.stderr).toBe(EXIT.ok);
+    expect(receiptRuns(fs.readFileSync(body, 'utf8'))).toEqual([expect.objectContaining({ reason: handWritten.reason })]);
+  });
+
+  test('carry refuses a public body whose runs block holds a Capy id', () => {
+    const f = fixture('PUBLIC');
+    const reviewed = f.git('rev-parse', 'HEAD').stdout.trim();
+    f.write({ 'test/x.test.ts': "import { expect, test } from 'bun:test';\ntest('x', () => { expect(1).toBe(1); });\n" }); f.commit('test: add x');
+    const body = bodyFile(f, placeReceipt('## Summary\n\nA change.\n\n' + runsBody({ ...handWritten, reason: 'per jam_01abc' }), { schema_version: 1, pr: 5, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge', run: 'ship-2', review_loop: LOOP } as any));
+    const before = fs.readFileSync(body, 'utf8');
+    const r = bin(f, 'gstack-ship-receipt', ['carry', '--body', body]);
+    expect([r.status, r.stderr + r.stdout]).toEqual([EXIT.refused, expect.stringContaining(`${RUNS_FENCE}[0].reason (a Capy thread or message id)`)]);
+    expect(fs.readFileSync(body, 'utf8')).toBe(before);
+  });
+
+  test('abandon refuses a home path in its reason on a public repository and keeps it on a private one', () => {
+    const args = ['abandoned', '--run', 'ship-1', '--by', 'GStack Minder (GSTA-36)', '--reason', 'see /home/user/.capy/work/ship-1/log'];
+    const f = fixture('PUBLIC');
+    const body = bodyFile(f);
+    const pub = bin(f, 'gstack-ship-receipt', [...args, '--body', body]);
+    expect([pub.status, pub.stderr]).toEqual([EXIT.refused, expect.stringContaining(`${RUNS_FENCE}[0].reason (a home path)`)]);
+    expect(fs.readFileSync(body, 'utf8')).toBe('## Summary\n\nA change.\n');
+    const p = fixture('PRIVATE');
+    const kept = bodyFile(p);
+    expect(bin(p, 'gstack-ship-receipt', [...args, '--body', kept]).status).toBe(EXIT.ok);
+    expect(receiptRuns(fs.readFileSync(kept, 'utf8'))[0]).toMatchObject({ reason: 'see /home/user/.capy/work/ship-1/log' });
+  });
+});
+
+// Value: protects=abandon marks only an open PR that records the run, on the repository the branch pushes to; fails_when=a merged or
+//   closed PR, a PR with no entry for the run, or a contributor's fork PR (origin is upstream) is handled wrongly;
+//   seam=prOffBranch and the run-entry check in gstack-ship-receipt abandoned
+describe('abandon needs an open PR that records the run, on the branch\'s push remote (GST-4105)', () => {
+  const abandon = (f: ShipFx, pr = '3983') => bin(f, 'gstack-ship-receipt', ['abandoned', '--pr', pr, '--run', HOME_RUN, '--by', 'GStack Minder (GSTA-36)', '--reason', 'stopped answering']);
+
+  test('a merged or closed PR is refused before any edit', () => {
+    for (const state of ['MERGED', 'CLOSED']) {
+      const f = fixture('PUBLIC', VIEW('feat', 'fx', { state }));
+      const r = abandon(f);
+      expect([r.status, r.stderr]).toEqual([EXIT.refused, expect.stringContaining(`PR #3983 is ${state.toLowerCase()}, not open`)]);
+      expect(ghLog(f)).not.toContain('pr edit');
+    }
+  });
+
+  test('a PR whose body records no entry for the run is refused; one with its stop record is marked', () => {
+    const f = fixture('PUBLIC', VIEW('feat', 'fx', { body: runsBody({ head: H, run: 'ship-9', status: 'started', review_loop: LOOP }) }));
+    const r = abandon(f);
+    expect([r.status, r.stderr]).toEqual([EXIT.refused, expect.stringContaining("PR #3983's body records no entry for run ship-4590")]);
+    expect(ghLog(f)).not.toContain('pr edit');
+    setGh(f, 'PUBLIC', VIEW('feat', 'fx', { body: runsBody({ head: H, run: HOME_RUN, mark: 'stop', tree: 'b'.repeat(40), at: '2026-11-28T09:28:00Z' }) }));
+    const ok = abandon(f);
+    expect(ok.status, ok.stderr).toBe(EXIT.ok);
+    expect(ghLog(f)).toContain('pr edit 3983');
+  });
+
+  test('a contributor whose branch pushes to a fork marks the fork PR and refuses the upstream one', () => {
+    const f = fixture('PUBLIC', VIEW('feat', 'me'));
+    f.git('remote', 'add', 'fork', 'https://github.com/me/fx.git');
+    f.git('config', 'branch.feat.pushRemote', 'fork');
+    const ok = abandon(f);
+    expect(ok.status, ok.stderr).toBe(EXIT.ok);
+    expect(ghLog(f)).toContain('pr edit 3983');
+    setGh(f, 'PUBLIC', VIEW('feat', 'fx'));
+    const upstream = abandon(f, '3984');
+    expect([upstream.status, upstream.stderr]).toEqual([EXIT.refused, expect.stringContaining("PR #3984's head is on fx/fx, not this checkout's push remote fork me/fx")]);
+    expect(ghLog(f)).not.toContain('pr edit 3984');
+  });
+});
+

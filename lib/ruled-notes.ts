@@ -34,8 +34,14 @@ export const OWNER_REF = /^[A-Z][A-Z0-9]*-[1-9]\d*:[A-Za-z0-9][\w.:+-]*$/;
 /**
  * A Capy thread or message id as public text must never carry it (GST-1955, CAPY-1 qm#3938): a `jam_` thread id, an `icm_` or `iev_`
  * message id, or a relay ref in OWNER_REF's shape, `<thread code>:<message id or timestamp>`. A thread code alone (`GStack Minder (GSTA-36)`) names a ruler.
+ * Two exemptions sit on top of those catches (GST-4105), each a lookaround that leaves the matched text as it was: an id right after a
+ * `/` is a file name (`test/jam_fix.ts`) unless it is a full 26-character Capy id, and a ref's message part must be a Capy id or an
+ * ISO time (`2026-11-28T09:28Z`), so `SHA-256:abc`, `UTF-8:x`, `PR-12:fix` and `A-1:b` are text. A relayed ruling's ref reads
+ * PRIVATE_REF on a public repository whatever its shape (repoRuledNotes).
  */
-export const INTERNAL_ID = /\b(?:jam|icm|iev)_[A-Za-z0-9]+|\b[A-Z][A-Z0-9]*-[1-9]\d*:[A-Za-z0-9][\w.:+-]*/;
+export const INTERNAL_ID = /\b(?:(?<!\/)|(?=(?:jam|icm|iev)_[A-Za-z0-9]{26}(?![A-Za-z0-9])))(?:jam|icm|iev)_[A-Za-z0-9]+|\b[A-Z][A-Z0-9]*-[1-9]\d*:(?=(?:jam|icm|iev)_[A-Za-z0-9]|\d{4}-\d\d-\d\dT\d\d:\d\d)[A-Za-z0-9][\w.:+-]*/;
+/** A Ruled note line that relays from anything but PRIVATE_REF: on a public repository its ref is internal whatever its shape. */
+export const RELAYED_REF = /\(relayed from (?!a private message\))/;
 /** What public text says in place of an INTERNAL_ID: the relay a Ruled note names, and any id in an abandon entry's who and why. */
 export const PRIVATE_REF = 'a private message';
 export const redactInternalIds = (text: string) => text.replace(new RegExp(INTERNAL_ID.source, 'g'), PRIVATE_REF);
@@ -47,7 +53,7 @@ export const keepsInternalIds = (text: string, cwd: string, env: Env = process.e
  * relayed from PRIVATE_REF, an id in its ruler or reason reads PRIVATE_REF too, and the approval record's row keeps them (CAPY-1 qm#3938).
  */
 export const repoRuledNotes = (notes: RuledNote[], cwd: string, env: Env = process.env, target?: string): RuledNote[] =>
-  keepsInternalIds(notes.map(n => `${n.relayed ?? ''} ${n.by} ${n.reason}`).join(' '), cwd, env, target) ? notes
+  !notes.some(n => n.relayed || INTERNAL_ID.test(`${n.by} ${n.reason}`)) || renderMode(repoVisibility(cwd, env, target), false) === 'full' ? notes
     : notes.map(n => ({ ...n, by: redactInternalIds(n.by), reason: redactInternalIds(n.reason), ...(n.relayed ? { relayed: PRIVATE_REF } : {}) }));
 /** OWNER_REF in words, for the refusals and help that name it; a refusal never echoes the rejected ref, which may hold anything (#4718). */
 export const OWNER_REF_SHAPE = '<thread code>:<message id or timestamp>, where the thread code is an uppercase letter, then uppercase letters or digits, a dash and a number from 1, and the message part starts with a letter or digit (GSTA-36:2026-11-19T12:29:59Z)';
