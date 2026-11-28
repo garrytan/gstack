@@ -404,11 +404,12 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
   // Dedup by (id, original-offset) so overlapping global matches don't double-count.
   const seen = new Set<string>();
   // GST-4104: the spans of secret findings from rules other than env.kv*, so a
-  // declaration rule (env.kv.js, env.kv.go) whose value one of them already
-  // covers stays quiet: a provider key in `const apiKey = "<key>"` reports as
-  // its provider rule alone, and allowlisting that rule clears it. Every
-  // provider rule comes before the declaration rules in PATTERNS.
-  const covered: Array<[number, number]> = [];
+  // declaration rule (env.kv.js, env.kv.go) whose whole literal is exactly one
+  // of them stays quiet: a provider key in `const apiKey = "<key>"` reports as
+  // its provider rule alone, and allowlisting that rule clears it, while a
+  // literal that holds more (`"<key>" + "<other>"`) keeps the declaration
+  // finding. Every provider rule comes before the declaration rules in PATTERNS.
+  const covered = new Set<string>();
 
   for (const pat of PATTERNS) {
     const re = new RegExp(pat.regex.source, withFlags(pat.regex.flags));
@@ -439,13 +440,17 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
       if (pat.id === "pii.email" && emailAllowed(span, opts, normalized, normOffset))
         continue;
 
-      if (DECLARATION_RULES.has(pat.id) && covered.some(([start, end]) => start <= normOffset && normOffset + span.length <= end)) continue;
+      if (DECLARATION_RULES.has(pat.id) && covered.has(`${normOffset}:${span.length}`)) {
+        const quote = normalized[normOffset - 1];
+        const rest = normalized.slice(normOffset + span.length, normOffset + span.length + 80);
+        if ((quote === '"' || quote === "'" || quote === "\x60") && rest[0] === quote && !/^.[ \t]*\+/.test(rest)) continue;
+      }
 
       const origOffset = map[Math.min(normOffset, map.length - 1)] ?? 0;
       const key = `${pat.id}:${origOffset}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      if (pat.category === "secret" && !pat.id.startsWith("env.kv")) covered.push([normOffset, normOffset + span.length]);
+      if (pat.category === "secret" && !pat.id.startsWith("env.kv")) covered.add(`${normOffset}:${span.length}`);
 
       starts ??= lineStarts(input);
       const { line, col } = lineColAt(starts, input, origOffset);
@@ -508,8 +513,11 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
       let from = 0;
       let normOffset: number;
       while ((normOffset = normalized.indexOf(form, from)) !== -1) {
+        if (!fits(normalized[normOffset - 1], before) || !fits(normalized[normOffset + form.length], after)) {
+          from = normOffset + 1;
+          continue;
+        }
         from = normOffset + form.length;
-        if (!fits(normalized[normOffset - 1], before) || !fits(normalized[normOffset + form.length], after)) continue;
         const origOffset = map[Math.min(normOffset, map.length - 1)] ?? 0;
         // Keyed on the span, not the offset alone: when one credential's value is
         // a prefix of another's, both findings exist and their spans coalesce.

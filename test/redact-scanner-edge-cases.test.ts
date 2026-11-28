@@ -14,6 +14,7 @@
 // Value: protects=AIza keys with url-safe characters in base64 runs, later declarators, provider-rule allowlists and exact base64 matching of env values; fails_when=an AIza key with _ or - is dismissed as chance, a typed earlier declarator's name flags a later value, a provider key also reports env.kv.js or env.kv.go, or a value one bit away matches a secret's base64 form; why_new=GST-4104 had no cases; seam=none; no_claim=scanner-level only
 import { describe, expect, test } from "bun:test";
 import { scan } from "../lib/redact-engine";
+import { applyAllowlist } from "../lib/pregate/allowlist";
 
 const ids = (text: string, sourcePath?: string, processEnv: Record<string, string> = {}) =>
   scan(text, { repoVisibility: "private", processEnv, ...(sourcePath ? { sourcePath } : {}) }).findings.map((f) => f.id);
@@ -102,5 +103,41 @@ describe("env.value: a base64 form matches only the secret's exact bits", () => 
       const text = u ? url(stream("build123", shift, tail)) : stream("build123", shift, tail);
       expect({ shift, tail, u, hits: envHits(text) }).toEqual({ shift, tail, u, hits: ["HIGH"] });
     }
+  });
+});
+
+describe("round-2 review cases (GST-4104)", () => {
+  const allowGoogle = (code: string, file: string) => {
+    const found = scan(code, { repoVisibility: "private", processEnv: {}, sourcePath: file }).findings.map((f) => ({ id: f.id, category: f.category, severity: f.severity, file, line: f.line, col: f.col, lineText: code }));
+    return applyAllowlist(found, [{ finding: "google.api_key", paths: ["src/**"], reason: "public Firebase key" }]).kept.map((f) => f.id);
+  };
+
+  test("a provider key alone in a declaration clears under its provider's allowlist entry", () => {
+    expect(allowGoogle('const apiKey = "' + AIZA + '";', "src/firebase.ts")).toEqual([]);
+  });
+
+  test("a provider key joined to another secret keeps the declaration finding after the provider is allowlisted", () => {
+    for (const code of ['const token = "' + AIZA + '" + "' + S + '";', "const token = '" + AIZA + "'+'" + S + "';"])
+      expect({ code, kept: allowGoogle(code, "src/client.ts") }).toEqual({ code, kept: ["env.kv.js"] });
+  });
+
+  test("a block comment inside a type does not move the name to another declarator", () => {
+    for (const code of ['let token: string /* a, b */ = "' + S + '";', 'const apiKey: Brand<string /* x, y */> = "' + S + '";'])
+      expect({ code, hit: ids(code, "src/client.ts").includes("env.kv.js") }).toEqual({ code, hit: true });
+  });
+
+  test("a near-miss declaration line with many spaced earlier declarators scans quickly", () => {
+    const line = "let " + ("aKEY: " + " ".repeat(24) + ", ").repeat(4) + "apiKEY: " + " ".repeat(100) + ";";
+    const started = performance.now();
+    scan(line + "\n", { repoVisibility: "private", processEnv: {}, sourcePath: "notes.md" });
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
+  test("a rejected base64 candidate does not hide an overlapping exact encoding", () => {
+    const value = "Zq8".repeat(5);
+    const encoded = Buffer.concat([Buffer.alloc(1), Buffer.from(value)]).toString("base64").replace(/=+$/, "");
+    const core = encoded.slice(2, -1);
+    const hits = scan("blob Q" + core.slice(0, 4) + core + " end", { processEnv: { MY_API_TOKEN: value } }).findings.filter((f) => f.id === "env.value");
+    expect(hits.map((f) => f.severity)).toEqual(["HIGH"]);
   });
 });

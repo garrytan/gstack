@@ -1339,8 +1339,8 @@ function declaredLiteralIsSecret(span: string, match: RegExpExecArray): boolean 
 
 /**
  * GST-4104: the name env.kv.js binds, read from the text before the
- * declaration's `=`: the last declarator after a comma outside brackets and
- * quotes, then the last word before its type's `:`. The type reads up to the
+ * declaration's `=`: the last declarator after a comma outside brackets,
+ * quotes and block comments, then the last word before its type's `:`. The type reads up to the
  * `=`, so `let token: string, buildHash =` names `buildHash` (the value is
  * not the token's), while `Brand<string, "key">` stays one type.
  */
@@ -1352,6 +1352,10 @@ function declaredName(head: string): string | undefined {
       const close = head.indexOf(c, i + 1);
       if (close < 0) break;
       i = close;
+    } else if (c === "/" && head[i + 1] === "*") {
+      const close = head.indexOf("*/", i + 2);
+      if (close < 0) break;
+      i = close + 1;
     } else if ("<([{".includes(c)) depth++;
     else if (">)]}".includes(c)) depth--;
     else if (c === "," && depth === 0) from = i + 1;
@@ -2018,7 +2022,8 @@ export const PATTERNS: RedactPattern[] = [
     // `public`, `private`, `protected`, `static`, `readonly`, `override`,
     // `accessor`, `const`, `let` and `var` (after an optional `export`),
     // up to four earlier declarators without a value (`let a: string, token
-    // = "<key>"`; GST-4104), an optional `#` private name, a secret-named
+    // = "<key>"`; GST-4104; each type ends on a non-space so spaces before a
+    // comma have one reading), an optional `#` private name, a secret-named
     // name with an optional `?`/`!` and type (which stops at `;`, so the value belongs to the same
     // declaration), then `=` and a quoted or template literal (an empty
     // first piece of a `+` chain and leading spaces are read past), at a line
@@ -2030,7 +2035,7 @@ export const PATTERNS: RedactPattern[] = [
     // exemptions. It is its own pattern so env.kv's matches are unchanged,
     // and validate keeps it to .js, .jsx, .ts, .tsx, .mjs, .cjs, .mts and .cts
     // files; a scan without a path is env.kv.rust's.
-    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}(?:[$\w]+[?!]?(?:[ \t]*:[^=;,\n]{1,120}?)?[ \t]*,[ \t]*){0,4}#?[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=;\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]((?:["'\x60][ \t]*\+[ \t]*["'\x60]|[ \t]+)?[^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}(?:[$\w]+[?!]?(?:[ \t]*:[^=;,\n]{0,119}[^=;,\s])?[ \t]*,[ \t]*){0,4}#?[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=;\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]((?:["'\x60][ \t]*\+[ \t]*["'\x60]|[ \t]+)?[^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
     validate: (span, match, opts) => {
       if (!opts?.sourcePath || !JS_SOURCE.test(opts.sourcePath)) return false;
       const name = declaredName(match[0].slice(0, match[0].indexOf("=")));
