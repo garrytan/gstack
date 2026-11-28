@@ -84,7 +84,7 @@ ship/DRIVER.md stops a run past 100 minutes. Measured conductors ran past it in 
 line of prose (handoffs/ship-conductor-cost-2026-11-16), so it is now code (`lib/ship-clock.ts`). The clock counts
 active minutes, not wall time (GST-4109): any stretch longer than 5 minutes with no gstack call in the call log
 (below) is the lane parked on CI, a reviewer it ended its turn on, or a Captain's ruling, so only its first 5 minutes
-count. A run that keeps calling gstack, such as a pass or phase loop that never settles, never parks, so it still
+count. Only calls made in the run's own checkout count, so another lane on the same machine never keeps it running. A run that keeps calling gstack, such as a pass or phase loop that never settles, never parks, so it still
 stops at 100 minutes. With no call log (off Capy) the clock is wall time. In observe mode the first `note`, or
 `gstack-ship-phase run --record`, past 100 active minutes from the ledger's start prints
 
@@ -313,10 +313,13 @@ gstack-ship-budget resume --record <record> --token-cap <n> --approved-by Garry 
 
 Every command takes `--run` or `--record`; runs are never found by branch or directory, and a
 /gstack-ship without `--resume` or `--continue` always starts a new run. `start` on a record whose open
-ledger has already gone past its start (a note, a check, a handoff or a stop) or started over 5 minutes ago
-mints a new run, marks the earlier ledger `superseded_by` it (so it stops holding gstack upgrades) and prints
+ledger has already gone past its start (a note, a check or a handoff), whose /gstack-ship passed preflight and
+ended, or that started over 5 minutes ago mints a new run, marks the earlier ledger `superseded_by` it (so it
+stops holding gstack upgrades and never writes the record or removes the marker again) and prints
 `SUPERSEDED: run <id> …`, so an earlier /gstack-ship in the same thread never counts against this run's cap or
-clock (GST-4109); only a rerun of the same start, within 5 minutes and before anything else ran, re-attaches.
+clock (GST-4109); a rerun of the same start inside the same open run re-attaches. A start never lifts a stop:
+on a stopped ledger it re-attaches, exits 3 and prints a `STOP:` line naming `resume`, which alone continues a
+stopped run (a cap raise with the owner's `--approved-by` and `--words`).
 Continue an earlier run with `resume --run <id>`, which clears `superseded_by`. A `resume --meter capy` that moves a run onto the Capy counter needs `--reading`, the new
 epoch's baseline, or it would count the thread's whole counter as the run's use. The ledger and record are
 mirrored to a private Drive checkpoint (`GSTACK_SHIP_BUDGET_CHECKPOINT_DIR`, else the
