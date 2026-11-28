@@ -113,7 +113,7 @@ export function changeLine(text: string): string {
   return lead.replace(/\*\*/g, '')
     .replace(/\s*\((?!CVE-|GHSA-)[A-Z][A-Z0-9]*-\d+(?:(?:,\s*|\s+and\s+)(?!CVE-|GHSA-)[A-Z][A-Z0-9]*-\d+)*\)/g, '')
     .replace(/\b([Oo])utside voice/g, (_, o: string) => (o === 'O' ? 'S' : 's') + 'econd-model review')
-    .replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
+    .replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim().replace(/[,;]+$/, '');
 }
 
 function prOf(subject: string): number | null {

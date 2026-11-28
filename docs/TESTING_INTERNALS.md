@@ -1146,7 +1146,7 @@ machine swap, in this order:
 
 ## Mutation report
 
-A weekly, report-only trial of mutation testing. It checks whether gstack's tests reject plausible wrong code in the files agents change most. `.github/workflows/mutation-report.yml` runs every Saturday at 06:00 UTC, or on demand through workflow_dispatch, on `ubicloud-standard-16`. It is not a required check, never runs on pull requests, and never blocks a merge.
+A weekly, report-only trial of mutation testing. It checks whether gstack's tests reject plausible wrong code in the files agents change most. `.github/workflows/mutation-report.yml` runs every Saturday at 06:00 UTC, or on demand through workflow_dispatch, on `ubicloud-standard-16`. It is not a required check, never runs on pull requests, and never blocks a merge; the stable release cut sets its check runs aside too ([releases.md](releases.md#what-a-release-is)). Before the report starts, the workflow restores the tracked files the free-suite setup rebuilt (the committed `lib/diagram-render/dist` bundle differs by machine), because the script refuses a dirty checkout and names the edited files when it does.
 
 `scripts/mutation-report.ts` does the work:
 

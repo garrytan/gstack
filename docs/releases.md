@@ -55,10 +55,15 @@ days or 200 first-parent commits. The cut's own job lands a check run on
 main's head, the very commit it may cut, so check runs from this workflow's
 own runs (its file path, `.github/workflows/weekly-release.yml`, matched
 by the job ids of those workflow runs) are set aside whether running or
-failed. Check runs from the nightly Windows free suite
-(`.github/workflows/windows-free-tests.yml`), which
-[never blocks](support-tiers.md#windows-ci), are set aside the same way;
-every other check run counts as above. The lookup needs the
+failed. Check runs from workflows whose own header says they never block are
+set aside the same way: the nightly Windows free suite
+(`.github/workflows/windows-free-tests.yml`, which
+[never blocks](support-tiers.md#windows-ci)), the weekly mutation report
+(`mutation-report.yml`), the Trunk flaky-test upload
+(`trunk-flaky-tests.yml`), the marathon evals (`evals-marathon.yml`) and the
+eval sweep (`eval-sweep.yml`), listed in `NEVER_GATING_WORKFLOWS`. A red
+`free-tests` or `main-backstop` check still keeps a commit out, and every
+other check run counts as above. The lookup needs the
 workflow's `actions: read` permission; when it cannot read those runs, nothing
 is set aside. The workflow runs no tests and no paid evals
 of its own; it only reads what the trains, the backstop and the release gate
@@ -392,7 +397,8 @@ Every cut plan, dry runs included, prints one `BENCHMARK:` line read from those 
   reached `stable` is printed, and the choice between fixing forward and [rolling back](#rolling-stable-back) is
   made by hand.
 - A record that can't be read prints `unreadable`, and so does a record whose verdict disagrees with its own model
-  rows, or two of whose model ids read the same once control characters are stripped (so no row is silently lost).
+  rows, or two of whose model ids read the same once control characters and the Unicode line and paragraph
+  separators (U+2028, U+2029) are stripped (so no row is silently lost).
   Every list and download is retried once. A no-gstack comparison (`vs_none`) with a missing or non-numeric
   number is left out of the line instead.
 
