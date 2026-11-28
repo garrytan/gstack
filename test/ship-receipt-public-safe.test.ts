@@ -23,6 +23,9 @@ const H = 'a'.repeat(40);
 const HOME_RUN = '/home/user/.capy/work/ship-4590';
 const REF = 'GBRA-108:2026-11-19T12:29:59Z';
 const LOOP = { passes: 1, blocking_found: 0, deferred: 0 };
+/** gh pr view's answer for a PR whose head is `branch` on `owner`/fx (the fixture's origin is github.com/fx/fx). */
+const VIEW = (branch: string, owner = 'fx') => JSON.stringify({ body: '', headRefName: branch, headRepository: { name: 'fx' }, headRepositoryOwner: { login: owner } });
+const VIEW_FEAT = VIEW('feat');
 const runsBody = (...entries: object[]) => '<!-- gstack:agent-notes -->\n<details><summary>Agent notes</summary>\n\n\`\`\`' + RUNS_FENCE + '\n' + entries.map(e => JSON.stringify(e)).join('\n') + '\n\`\`\`\n\n</details>\n';
 
 /** A fixture whose gh says the repository is PUBLIC, PRIVATE or cannot say (''), answers pr view with `view`, and logs every call. */
@@ -69,6 +72,9 @@ describe('run ids are the run dir name, on write and in every comparison (GST-19
   test('publicReceiptLeaks names each field that holds a home path or a Capy id, never its value, and passes ordinary fields', () => {
     expect(publicReceiptLeaks({ run: HOME_RUN, thread: 'jam_01abc', history: 'C:\\Users\\runner\\x', gate: { note: 'file:///Users/garry/x' }, ruled_notes: [{ relayed: REF }], policy: '/root/.gstack/x' })).toEqual([
       'run (a home path)', 'thread (a Capy thread or message id)', 'history (a home path)', 'gate.note (a home path)', 'ruled_notes[0].relayed (a Capy thread or message id)', 'policy (a home path)',
+    ]);
+    expect(publicReceiptLeaks({ reason: 'see icm_01M8GG556RYA3HGG7Q12G7GP1J', note: 'iev_01M8GG5564BWTXRD3PP941B4PD', gate: { '/home/user/.capy/work/ev.json': true, 'jam_01abc': 1, tests: { pass: 3 } } })).toEqual([
+      'reason (a Capy thread or message id)', 'note (a Capy thread or message id)', 'gate.<key 0> (a home path or Capy id in a key)', 'gate.<key 1> (a home path or Capy id in a key)',
     ]);
     expect(publicReceiptLeaks({ run: 'ship-4590', policy: 'origin/main@0123456789ab:.gstack/ship-policy.json', ruled_notes: [{ by: 'GStack Minder (GSTA-36)', at: '2026-11-19T12:29:59Z', relayed: 'a private message' }], gate: { path: '/workspace/home/user/x' } })).toEqual([]);
   });
@@ -163,11 +169,11 @@ describe('abandon binds its target PR and redacts Capy ids (CAPY-1 qm#3983)', ()
   const abandoned = (f: ShipFx, target: string[], reason = 'the run stopped answering') => bin(f, 'gstack-ship-receipt', ['abandoned', ...target, '--run', HOME_RUN, '--by', 'GStack Minder (GSTA-36)', '--reason', reason]);
 
   test('a PR whose head branch is not this checkout\'s is refused before any edit; the matching PR is marked', () => {
-    const f = fixture('PUBLIC', '{"body":"","headRefName":"other-branch"}');
+    const f = fixture('PUBLIC', VIEW('other-branch'));
     const wrong = abandoned(f, ['--pr', '3992']);
     expect([wrong.status, wrong.stderr]).toEqual([EXIT.refused, expect.stringContaining("PR #3992's head branch is other-branch, not this checkout's feat")]);
     expect(ghLog(f)).not.toContain('pr edit');
-    setGh(f, 'PUBLIC', '{"body":"","headRefName":"feat"}');
+    setGh(f, 'PUBLIC', VIEW_FEAT);
     const right = abandoned(f, ['--pr', '3983']);
     expect(right.status, right.stderr).toBe(EXIT.ok);
     expect(right.stdout).toContain('RUN_ABANDON_MARK: run=ship-4590 ');
@@ -177,8 +183,8 @@ describe('abandon binds its target PR and redacts Capy ids (CAPY-1 qm#3983)', ()
   test('a detached HEAD or a PR gh cannot name a head branch for is refused before any edit', () => {
     const f = fixture('PUBLIC', '{"body":""}');
     const unnamed = abandoned(f, ['--pr', '3983']);
-    expect([unnamed.status, unnamed.stderr]).toEqual([EXIT.refused, expect.stringContaining('gh pr view 3983 did not name its head branch')]);
-    setGh(f, 'PUBLIC', '{"body":"","headRefName":"feat"}');
+    expect([unnamed.status, unnamed.stderr]).toEqual([EXIT.refused, expect.stringContaining('gh pr view 3983 did not name its head branch and repository')]);
+    setGh(f, 'PUBLIC', VIEW_FEAT);
     f.git('checkout', '-q', '--detach');
     const detached = abandoned(f, ['--pr', '3983']);
     expect([detached.status, detached.stderr]).toEqual([EXIT.refused, expect.stringContaining('this checkout has no branch, so PR #3983 cannot be matched to it')]);
@@ -197,5 +203,100 @@ describe('abandon binds its target PR and redacts Capy ids (CAPY-1 qm#3983)', ()
     const kept = bodyFile(p);
     expect(abandoned(p, ['--body', kept], reason).status).toBe(EXIT.ok);
     expect(receiptRuns(fs.readFileSync(kept, 'utf8'))[0]).toMatchObject({ reason });
+  });
+});
+
+// Value: protects=the privacy decision follows the repository the text is published to, an explicit --repo included; fails_when=a
+//   private checkout lets write or abandon publish Capy ids to a public --repo; seam=repoVisibility's target in keepsInternalIds
+//   and write's refusal
+describe('visibility is read for the --repo a command publishes to (#4868 second-model review)', () => {
+  const targetGh = (f: ShipFx) => f.gh([
+    'if [ "$1" = repo ]; then case "$*" in *acme/pub*) echo PUBLIC;; *) echo PRIVATE;; esac; exit 0; fi',
+    `if [ "$1" = pr ] && [ "$2" = view ]; then echo '${VIEW_FEAT}'; exit 0; fi`,
+    'exit 0',
+  ].join('\n'));
+
+  test('write refuses a Capy id for a public --repo from a private checkout, and keeps it without one', () => {
+    const f = fixture('PRIVATE');
+    targetGh(f);
+    const body = bodyFile(f);
+    const pub = write(f, body, ['--thread', 'jam_01abc', '--repo', 'acme/pub']);
+    expect([pub.status, pub.stderr]).toEqual([EXIT.fail, expect.stringContaining('thread (a Capy thread or message id)')]);
+    const priv = write(f, body, ['--thread', 'jam_01abc']);
+    expect(priv.status, priv.stderr).toBe(EXIT.ok);
+  });
+
+  test('abandon redacts for a public --repo even when the checkout is private', () => {
+    const f = fixture('PRIVATE');
+    targetGh(f);
+    const body = bodyFile(f);
+    expect(bin(f, 'gstack-ship-receipt', ['abandoned', '--body', body, '--repo', 'acme/pub', '--run', 'ship-1', '--by', 'GStack Minder (GSTA-36)', '--reason', 'per GSTA-36:icm_01abc']).status).toBe(EXIT.ok);
+    expect(receiptRuns(fs.readFileSync(body, 'utf8'))[0]).toMatchObject({ reason: 'per a private message' });
+  });
+});
+
+// Value: protects=abandon binds the PR to this checkout's origin repository as well as its branch; fails_when=a fork's PR from a
+//   branch of the same name is marked (headRefName names no repository); seam=prOffBranch in gstack-ship-receipt abandoned
+describe('abandon refuses a fork PR with the same branch name (#4868 second-model review)', () => {
+  test('a head on another owner\'s repository is refused before any edit', () => {
+    const f = fixture('PUBLIC', VIEW('feat', 'someone-else'));
+    const r = bin(f, 'gstack-ship-receipt', ['abandoned', '--pr', '3983', '--run', 'ship-1', '--by', 'GStack Minder (GSTA-36)', '--reason', 'stopped']);
+    expect([r.status, r.stderr]).toEqual([EXIT.refused, expect.stringContaining("PR #3983's head is on someone-else/fx, not this checkout's origin fx/fx")]);
+    expect(ghLog(f)).not.toContain('pr edit');
+  });
+});
+
+// Value: protects=carry stores the run dir name and never republishes a Capy id on a public repository; fails_when=a carried
+//   receipt keeps an older write's /home/... run or jam_ thread; seam=gstack-ship-receipt carry before postBody
+describe('carry normalizes the run and refuses a public receipt that still holds a Capy id (#4868 second-model review)', () => {
+  const carryFixture = (vis: 'PUBLIC' | 'PRIVATE', extra: Record<string, unknown>) => {
+    const f = fixture(vis);
+    const reviewed = f.git('rev-parse', 'HEAD').stdout.trim();
+    f.write({ 'test/x.test.ts': "import { expect, test } from 'bun:test';\ntest('x', () => { expect(1).toBe(1); });\n" }); f.commit('test: add x');
+    const body = bodyFile(f, placeReceipt('## Summary\n\nA change.\n', { schema_version: 1, pr: 5, head: reviewed, base: 'main', queue_mode: 'stamp-at-merge', review_loop: LOOP, ...extra } as any));
+    return { f, body, carry: () => bin(f, 'gstack-ship-receipt', ['carry', '--body', body]) };
+  };
+
+  test('an older receipt\'s full-path run carries as the run dir name', () => {
+    const { body, carry } = carryFixture('PUBLIC', { run: HOME_RUN });
+    const r = carry();
+    expect(r.status, r.stderr + r.stdout).toBe(EXIT.ok);
+    expect(extractReceipt(fs.readFileSync(body, 'utf8')).receipt?.run).toBe('ship-4590');
+    expect(fs.readFileSync(body, 'utf8')).not.toContain('/home/');
+  });
+
+  test('a jam_ thread is refused on a public repository and carried on a private one', () => {
+    const pub = carryFixture('PUBLIC', { run: 'ship-1', thread: 'jam_01abc' });
+    const before = fs.readFileSync(pub.body, 'utf8');
+    const r = pub.carry();
+    expect([r.status, r.stderr + r.stdout]).toEqual([EXIT.refused, expect.stringContaining('thread (a Capy thread or message id)')]);
+    expect(fs.readFileSync(pub.body, 'utf8')).toBe(before);
+    const priv = carryFixture('PRIVATE', { run: 'ship-1', thread: 'jam_01abc' });
+    expect(priv.carry().status).toBe(EXIT.ok);
+  });
+});
+
+// Value: protects=a public-repo PR carrying a Captain's relayed ruling and gate disposition writes a clean public-safe receipt, with
+//   rulings, dispositions, finish and write rendering the same lines; fails_when=write deadlocks (the body line it requires holds an
+//   id its leak check refuses) or any of them prints a Capy id; seam=repoRuledNotes and publicGateDisposition
+describe('a Captain ruling and gate disposition on a public repository write cleanly (#4868 second-model review)', () => {
+  test('GStack Minder (GSTA-36) relays both with Capy ids in its words; every public line reads a private message', () => {
+    const f = fixture('PUBLIC');
+    const head = f.git('rev-parse', 'HEAD').stdout.trim();
+    const by = 'GStack Minder (GSTA-36)', relay = 'GSTA-36:icm_01M8GG556RYA3HGG7Q12G7GP1J';
+    expect(bin(f, 'gstack-approvals', ['rule', '--finding', 'src/x.ts:1:edit-share-race', '--head', head, '--reason', `ships as a note per ${relay}`, '--words', 'A1', '--by', by, '--owner-ref', relay]).status).toBe(0);
+    const g = bin(f, 'gstack-approvals', ['gate', '--finding', 'tests/x.test.ts:3:gate-integrity', '--gate-id', '69c7c3432501', '--head', head, '--reason', 'kept as the owner ruled', '--words', `do it (${relay})`, '--by', by]);
+    expect(g.status, g.stderr).toBe(0);
+    const rulings = bin(f, 'gstack-approvals', ['rulings']).stdout.trim(), dispositions = bin(f, 'gstack-approvals', ['dispositions']).stdout.trim();
+    expect(rulings).toContain(`ruled by ${by} (relayed from a private message) at `);
+    expect(rulings).toContain(': ships as a note per a private message (approval ');
+    expect(dispositions).toContain(`by ${by} at `);
+    expect(dispositions).toContain('"do it (a private message)"');
+    const body = bodyFile(f, `## Pre-Landing Review\n\n${rulings}\n${dispositions}\n`);
+    const w = write(f, body);
+    expect(w.status, w.stderr).toBe(EXIT.ok);
+    const text = fs.readFileSync(body, 'utf8');
+    expect(text).not.toMatch(/icm_|jam_|GSTA-36:/);
+    expect(extractReceipt(text).receipt?.gate_dispositions?.[0]).toMatchObject({ by, words: 'do it (a private message)' });
   });
 });

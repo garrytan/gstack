@@ -32,15 +32,19 @@ export const sameRun = (a: unknown, b: unknown) => typeof a === 'string' && type
 /** A home directory at the start of a path or after a separator: `/home/<u>/`, `/Users/<u>/`, `/root/` or `C:\\Users\\`. */
 const HOME_PATH = /(?<![\w.~-])(?:\/(?:home|Users)\/[^\s/\\"']+\/|\/root\/|[A-Za-z]:[\\/]Users[\\/])/i;
 /**
- * The receipt fields that hold a home path or a Capy thread or message id (INTERNAL_ID), by field path and never by value. write
- * refuses a receipt that names any on a repository gh does not report private (GST-1955).
+ * The receipt fields whose value or key holds a home path or a Capy thread or message id (INTERNAL_ID), by field path and never by
+ * value (a leaking key shows as `<key n>`). write and carry refuse a receipt that names any on a repository gh does not report private (GST-1955).
  */
 export function publicReceiptLeaks(receipt: unknown): string[] {
   const out: string[] = [];
   const walk = (v: unknown, at: string): void => {
     if (typeof v === 'string') for (const [re, what] of [[HOME_PATH, 'a home path'], [INTERNAL_ID, 'a Capy thread or message id']] as const) { if (re.test(v)) out.push(`${at} (${what})`); }
     else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
-    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k);
+    else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x], i) => {
+      const leaky = HOME_PATH.test(k) || INTERNAL_ID.test(k), seg = leaky ? `<key ${i}>` : k, here = at ? `${at}.${seg}` : seg;
+      if (leaky) out.push(`${here} (a home path or Capy id in a key)`);
+      walk(x, here);
+    });
   };
   walk(receipt, '');
   return out;
