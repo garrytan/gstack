@@ -478,13 +478,14 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
   // Environment values, by exact value: a credential that is already in the
   // process environment needs no shape to be recognized. HARN-108: so is its
   // base64 or base64url encoding at any byte alignment (a key inside an
-  // encoded blob, data: URI or config), found the same way and just as HIGH.
+  // encoded blob, data: URI or config), of its normalized form and of its
+  // bytes as given, found the same way and just as HIGH.
   for (const { name, value: raw } of credentialEnvValues(opts.processEnv ?? process.env)) {
     // The text was normalized before matching; the value takes the same form,
     // and the allowlist and placeholder rules see both forms.
     const value = normalizeOriginal(raw).normalized;
     if (allow.has(raw) || allow.has(value) || value.length < MIN_ENV_VALUE_LENGTH || isPlaceholderSpan(value)) continue;
-    for (const form of [value, ...base64Forms(value)]) {
+    for (const form of new Set([value, ...base64Forms(value), ...base64Forms(raw)])) {
       let from = 0;
       let normOffset: number;
       while ((normOffset = normalized.indexOf(form, from)) !== -1) {

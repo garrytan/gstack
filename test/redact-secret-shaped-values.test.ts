@@ -9,13 +9,14 @@
  *     The name alone never reports, so key names, environment-variable names,
  *     paths and words as values stay clean.
  *   - GBRA-108: env.kv read a JSON `"key": "sources/vector-index"` field as a
- *     credential. GEVA-561: it read an environment-variable name as a value
- *     (`API_KEY=OPENAI_API_KEY`) as one too.
+ *     credential. (GEVA-561's environment-variable name as a value,
+ *     `API_KEY=OPENAI_API_KEY`, still reports: a dotenv line stores it
+ *     literally, so it could be a password.)
  *   - TRUT-39: the phone rule read a YYYYMMDD-HHMM run folder as a number.
  *   - HARN-108: a known secret's base64 form was never found by value, and
  *     `AIza…`/`sk-…` matched by chance deep inside long base64 blobs.
  */
-// Value: protects=secret-shaped JS/TS and Go declarations report while names-as-values stay clean, JSON "key" paths, env-var-name values and run-folder stamps stop reporting, and a known secret's base64 forms report HIGH; fails_when=a declaration miss returns, a word or name value reports, an exemption swallows a real secret, a base64-encoded key goes unfound, or a chance AIza/sk- match deep in a blob reports; why_new=GST-3500, GBRA-108, GEVA-561, TRUT-39 and HARN-108 had no cases; seam=none; no_claim=scanner-level only, the pregate case lives in pregate-secrets-source-context.test.ts
+// Value: protects=secret-shaped JS/TS and Go declarations report while names-as-values stay clean, JSON "key" paths and run-folder stamps stop reporting, and a known secret's base64 forms report HIGH; fails_when=a declaration miss returns, a word or name value reports, an exemption swallows a real secret, a base64-encoded key goes unfound, or a chance AIza/sk- match deep in a blob reports; why_new=GST-3500, GBRA-108, GEVA-561, TRUT-39 and HARN-108 had no cases; seam=none; no_claim=scanner-level only, the pregate case lives in pregate-secrets-source-context.test.ts
 import { describe, expect, test } from "bun:test";
 import { base64Forms, scan } from "../lib/redact-engine";
 import { isSecretShapedValue, looksLikeRunStamp } from "../lib/redact-patterns";
@@ -66,6 +67,8 @@ describe("env.kv.js: a secret-shaped literal bound by a JS/TS declaration report
       ['// const token = "' + S + '";', "src/client.ts"],
       ['const token = "sk_live_" + "' + S + '";', "src/client.ts"],
       ['const token = "ab" + "' + S + '";', "src/client.ts"],
+      ['const token = "" + "' + S + '";', "src/client.ts"],
+      ['const token = " ' + S + '";', "src/client.ts"],
       ['diff --git a/src/a.ts b/src/a.ts\n+++ b/src/a.ts\n@@ -0,0 +1 @@\n+const token = "' + S + '";\n', "src/a.ts"],
     ], true);
   });
@@ -140,6 +143,7 @@ describe("coverage matrix for non-JS assignments (gbrain #10028)", () => {
       ['\tapiToken := "' + SK + '"', "cmd/main.go"],
       ['var secret = "' + HEX + '"', "cmd/main.go"],
       ['const apiKey string = "' + S + '"', "cmd/main.go"],
+      ['token := "" + "' + S + '"', "cmd/main.go"],
       ["\tpassword := " + BT + S + BT, "cmd/main.go"],
     ], true);
     has("env.kv", [['token = "' + S + '"', "app/settings.py"], ["token: " + S, "config/app.yaml"]], true);
@@ -158,12 +162,12 @@ describe("coverage matrix for non-JS assignments (gbrain #10028)", () => {
   });
 });
 
-describe("env.kv: a JSON key path and an environment-variable name are names (GBRA-108, GEVA-561)", () => {
+describe("env.kv: a JSON key path is a name; an environment-variable name as a value still reports (GBRA-108, GEVA-561)", () => {
   test("a JSON \"key\" field holding a short lowercase path gives no finding", () => {
     has("env.kv", [
       ['"key": "sources/vector-index",', "test/fixtures/doctor.json"],
       ['  "key": "config/embedding_model",', "test/goldens/doctor.json"],
-      ['  "key": "sources/foo"', undefined],
+      ['  "key": "sources/foo"', "data/sources.jsonl"],
       ['    { "key": "checks/e2e/doctor", "ok": true }', "golden.json"],
     ], false);
   });
@@ -176,12 +180,13 @@ describe("env.kv: a JSON key path and an environment-variable name are names (GB
       ['"key": "sources/x7k2m9q4",', "test/fixtures/doctor.json"],
       ['"key": "Sources/VectorIndex9",', "test/fixtures/doctor.json"],
       ['"api_key": "sources/vector-index",', "test/fixtures/doctor.json"],
+      ['"key": "sources/vector-index",', "src/config.ts"],
+      ['"key": "sources/vector-index",', undefined],
     ], true);
   });
 
-  test("an unquoted environment-variable name ending in a credential word gives no finding; a quoted one or a secret does", () => {
-    has("env.kv", [["API_KEY=OPENAI_API_KEY", ".env"], ["token: GITHUB_TOKEN", "config/ci.yaml"], ["  token: DAEMON_TOKEN,", undefined]], false);
-    has("env.kv", [["API_KEY=" + S.toUpperCase(), ".env"], ["API_KEY=QX9V_L2MZ_P8RT_API_KEY", ".env"], ["API_KEY=OPENAI_API_KEY_" + S, ".env"], ["OPENAI_API_KEY: 'ANOTHER_SECRET',", "test/codex.test.ts"], ['"apiKey": "ANTHROPIC_API_KEY",', "config.json"]], true);
+  test("hold: an environment-variable name as a value, quoted or not, still reports, as does a secret", () => {
+    has("env.kv", [["API_KEY=OPENAI_API_KEY", ".env"], ["token: GITHUB_TOKEN", "config/ci.yaml"], ["  token: DAEMON_TOKEN,", undefined], ["API_KEY=" + S.toUpperCase(), ".env"], ["API_KEY=QX9V_L2MZ_P8RT_API_KEY", ".env"], ["API_KEY=OPENAI_API_KEY_" + S, ".env"], ["OPENAI_API_KEY: 'ANOTHER_SECRET',", "test/codex.test.ts"], ['"apiKey": "ANTHROPIC_API_KEY",', "config.json"]], true);
   });
 });
 
@@ -193,9 +198,10 @@ describe("pii.phone.e164: a YYYYMMDD-HHMM run folder is a date, not a phone numb
   });
 
   test("phone numbers and invalid stamps still report", () => {
-    for (const text of [j("call +1 415-", "555-0123"), j("415-555", "-0123"), j("+44 20 ", "7946 0958"), j("20261323", "-1711"), j("20261123", "-2471"), j("20261132", "-1711"), j("30261123", "-1711")])
+    for (const text of [j("call +1 415-", "555-0123"), j("415-555", "-0123"), j("+44 20 ", "7946 0958"), j("20261323", "-1711"), j("20261123", "-2471"), j("20261132", "-1711"), j("30261123", "-1711"), j("20260231", "-1711"), j("20250229", "-0900")])
       expect({ text, phone: ids(text, "notes.md").includes("pii.phone.e164") }).toEqual({ text, phone: true });
     expect(looksLikeRunStamp(j("20261123", "-171"))).toBe(false);
+    expect(looksLikeRunStamp(j("20240229", "-0900"))).toBe(true);
   });
 });
 
@@ -222,6 +228,12 @@ describe("HARN-108: base64 forms of a known secret and chance matches in base64 
     }
   });
 
+  test("a value that normalization changes is also found by its bytes as given", () => {
+    const wide = j("Ｚｑ８", "Lm2Xv7Nc4Rt9Wy1Kp6Hd3");
+    const text = Buffer.concat([filler(31, 2), Buffer.from(wide), filler(31, 7)]).toString("base64");
+    expect(ids("blob: " + text, undefined, { WIDE_API_KEY: wide })).toContain("env.value");
+  });
+
   test("the plain value still reports, and a blob without the value does not", () => {
     expect(ids("key " + SECRET, undefined, env)).toContain("env.value");
     const other = Buffer.concat([filler(30, 1), Buffer.from(SECRET.split("").reverse().join("")), filler(31, 7)]).toString("base64");
@@ -235,7 +247,6 @@ describe("HARN-108: base64 forms of a known secret and chance matches in base64 
 
   test("a pattern match deep inside a long base64 run is chance and gives no provider finding", () => {
     expect(ids(inside(AIZA, 100))).not.toContain("google.api_key");
-    expect(ids(inside(OPENAI, 120))).not.toContain("openai.key");
   });
 
   test("a key at the start of a run, in a short run or on its own still reports", () => {
@@ -246,6 +257,24 @@ describe("HARN-108: base64 forms of a known secret and chance matches in base64 
     const ANTHROPIC = j("sk-ant-api03-", "Ab3dE5gH7jK9mN1pQ3sT5vX7zB9cD1fG3hJ5kL7nP9rS1tV3wY5aC7eF9iK1mO3qU5xZ7bD9fH1jL3nR5tW7yA9cE1gI3kM5oQ7-xyzAA");
     expect(ids("MY_COMPANY_PRODUCTION_ANTHROPIC_API_KEY_FOR_THE_BACKGROUND_WORKER_FLEET_AND_BATCH_JOBS_V2=" + ANTHROPIC)).toContain("anthropic.key");
     expect(ids("services/" + "background-worker-fleet-and-batch-jobs-for-the-production-cluster-v2/" + OPENAI + "/" + "x".repeat(60))).toContain("openai.key");
+  });
+
+  test("a long fixed prefix never reads as chance: Anthropic, OpenRouter, prefixed OpenAI and AQ. keys deep in a run still report", () => {
+    const ANTHROPIC = j("sk-ant-api03-", "Ab3dE5gH7jK9mN1pQ3sT5vX7zB9cD1fG3hJ5kL7nP9rS1tV3wY5aC7eF9iK1mO3qU5xZ7bD9fH1jL3nR5tW7yA9cE1gI3kM5oQ7-xyzAA");
+    const ROUTER = j("sk-or-v1-", "9f8e7d6c5b4a39281706f5e4d3c2b1a0", "9f8e7d6c5b4a39281706f5e4d3c2b1a0");
+    const AQ = j("AQ.", "Ab3dE5gH7jK9mN1pQ3sT5vX7z");
+    expect(ids(inside(ANTHROPIC, 100))).toContain("anthropic.key");
+    expect(ids(inside(ROUTER, 100))).toContain("openrouter.key");
+    expect(ids(inside(OPENAI, 120))).toContain("openai.key");
+    expect(ids(inside(AQ, 100))).toContain("google.api_key");
+    expect(ids("GET /v1/Projects/Abc123Def456/Workspaces/Team7Alpha/Keys/Region9West/Accounts/Prod42Main/" + ANTHROPIC + " HTTP/1.1", "notes.md")).toContain("anthropic.key");
+  });
+
+  test("a bare sk- key deep in a base64url run is chance; inside standard base64 or after a path it still reports", () => {
+    const BARE = j("sk-", "Ab3dE5gH7jK9mN1pQ3sT5vX7zB9cD1fG3hJ5");
+    const URL_BLOB = BLOB.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    expect(ids("token=" + URL_BLOB.slice(0, 100) + "-" + BARE + "-" + URL_BLOB.slice(100))).not.toContain("openai.key");
+    expect(ids("/v1/Projects/Abc123Def456/Workspaces/Team7Alpha/Keys/Region9West/Accounts/Prod42Main/" + BARE + "/" + "Ab3dE5gH7jK9".repeat(8))).toContain("openai.key");
   });
 
   test("the exact value stays HIGH deep inside a long base64 run", () => {

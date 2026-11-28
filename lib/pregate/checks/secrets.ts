@@ -294,7 +294,7 @@ function run(ctx: PregateContext): CheckResult {
     let medium = false;
     let parsedAll = true;
     const unsplit = new Set<string>();
-    const overlapChars = Math.max(SCAN_OVERLAP_CHARS, ...credentialEnvValues(ctx.env ?? process.env).flatMap(({ value }) => { const normalized = normalizeWithMap(value).normalized; return [normalized, ...base64Forms(normalized)].map((form) => form.length); }));
+    const overlapChars = Math.max(SCAN_OVERLAP_CHARS, ...credentialEnvValues(ctx.env ?? process.env).flatMap(({ value }) => { const normalized = normalizeWithMap(value).normalized; return [normalized, ...base64Forms(normalized), ...base64Forms(value)].map((form) => form.length); }));
     for (const [i, part] of parts.entries()) for (const [j, reading] of part.texts.entries()) {
       const pieces = scanParts(reading, SCAN_MAX_BYTES, SCAN_OVERLAP_LINES, overlapChars);
       if (!Array.isArray(pieces)) { unsplit.add(`${part.file ? `${displayPath(part.file)}, ` : ''}${part.keep ? 'line' : 'added line'} ${pieces.line} (${pieces.why})`); continue; }

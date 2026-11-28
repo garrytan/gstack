@@ -230,42 +230,51 @@ function looksLikeCompactTimestamp(span: string): boolean {
 /**
  * TRUT-39 (truther#1231): a run folder named by date and minute
  * (`20261123-1711`, YYYYMMDD-HHMM) reads as an 8-4 digit phone number.
- * Only that exact shape with a valid month, day, hour and minute from the
+ * Only that exact shape with a real calendar date, hour and minute from the
  * years 1900-2099 is exempt; a phone number written 8-4 is not a national
  * format, and every other grouping, a `+` or any separator but one `-`
  * still reports.
  */
 const RUN_STAMP = /^(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])-(?:[01]\d|2[0-3])[0-5]\d$/;
 export function looksLikeRunStamp(span: string): boolean {
-  return RUN_STAMP.test(span);
+  if (!RUN_STAMP.test(span)) return false;
+  const [year, month, day] = [span.slice(0, 4), span.slice(4, 6), span.slice(6, 8)].map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day!)).getUTCDate() === day;
 }
 
 /**
- * HARN-108: `AIza…` and `sk-…` turn up by chance inside long base64 runs (a
- * data: URI, an encoded blob or session). A pattern match that starts at
- * least 64 characters into a run of 200 or more base64 or base64url
- * characters is that chance, so the provider rule skips it. The 64 or more
- * characters before the match must read as encoded data: no `=` (padding
- * only ends a run) and at least one uppercase letter, lowercase letter and
- * digit. So a key at the start of a run, a run under 200 characters and a key
- * after a long name (`MY_LONG_SERVICE_..._API_KEY_V2=sk-…`, a kebab path) still
- * report, and a known secret's exact value, base64 forms included, is found
- * by value in redact-engine whatever surrounds it. The scan looks at most 200
+ * HARN-108: two provider shapes are short enough to turn up by chance inside
+ * long base64 text (a data: URI, an encoded blob or session): Google's
+ * `AIza` + 35 characters inside standard base64, and OpenAI's bare `sk-` + 32
+ * or more letters and digits inside base64url. Only those two call this; a
+ * longer fixed prefix (`sk-ant-api03-`, `sk-or-v1-`, `sk-proj-`, Google's
+ * `AQ.`) cannot occur by chance and always reports. A match is chance when it
+ * starts at least 64 characters into a run of 200 or more characters of one
+ * alphabet (standard `+` and `/` for `AIza`, url-safe `-` and `_` for
+ * `sk-`), the 64 or more characters before it hold an uppercase letter, a
+ * lowercase letter and a digit with no `=` (padding only ends a run), and at
+ * most one in 16 of them is a `+`, `/`, `-` or `_`, so a path or a long
+ * name (`MY_LONG_SERVICE_..._KEY_V2=`, `/v1/Projects/Abc123/...`) never
+ * qualifies. A known secret's exact value, base64 forms included, is found by
+ * value in redact-engine whatever surrounds it. The scan looks at most 200
  * characters each way, so it stays linear.
  */
-const BASE64_CHAR = /[A-Za-z0-9+/=_-]/;
+const BASE64_STANDARD = /[A-Za-z0-9+/]/;
+const BASE64_URL = /[A-Za-z0-9_-]/;
 const BASE64_RUN_MIN = 200;
 const BASE64_DEPTH_MIN = 64;
-function deepInsideBase64Run(match: RegExpExecArray): boolean {
+function chanceMatchInBase64(match: RegExpExecArray): boolean {
   const { start, end } = spanBounds(match);
   const text = match.input;
+  const alphabet = text.startsWith("sk-", start) ? BASE64_URL : BASE64_STANDARD;
   let before = 0;
-  while (before < BASE64_RUN_MIN && start - before > 0 && BASE64_CHAR.test(text[start - before - 1]!)) before++;
+  while (before < BASE64_RUN_MIN && start - before > 0 && alphabet.test(text[start - before - 1]!)) before++;
   if (before < BASE64_DEPTH_MIN) return false;
   const lead = text.slice(start - before, start);
-  if (lead.includes("=") || !/[A-Z]/.test(lead) || !/[a-z]/.test(lead) || !/\d/.test(lead)) return false;
+  if (!/[A-Z]/.test(lead) || !/[a-z]/.test(lead) || !/\d/.test(lead)) return false;
+  if (lead.replace(/[A-Za-z0-9]/g, "").length * 16 > lead.length) return false;
   let after = 0;
-  while (before + (end - start) + after < BASE64_RUN_MIN && end + after < text.length && BASE64_CHAR.test(text[end + after]!)) after++;
+  while (before + (end - start) + after < BASE64_RUN_MIN && end + after < text.length && alphabet.test(text[end + after]!)) after++;
   return before + (end - start) + after >= BASE64_RUN_MIN;
 }
 
@@ -1326,37 +1335,24 @@ function declaredLiteralIsSecret(span: string, match: RegExpExecArray): boolean 
 }
 
 /**
- * GBRA-108: a JSON field named exactly `"key"` whose value is a short
+ * GBRA-108: in a .json, .json5, .jsonc or .jsonl file, a field named exactly `"key"` whose value is a short
  * lowercase path of words (`"key": "sources/vector-index"`,
  * `"key": "config/embedding_model"` in a check's golden output) names a
  * setting, not a credential. Every `/`, `_`, `.` or `-` separated word is
  * letters only or at most four characters (`v2`, `e2e`), the value holds a
  * `/` and is at most 120 characters, and it is not secret-shaped. Any other
  * name, quoting, an uppercase letter, a long mixed run of letters and digits
- * (`sources/x7k2m9q4`) or a key prefix (`"key": "sk-…"`) is checked as before.
+ * (`sources/x7k2m9q4`), a key prefix (`"key": "sk-…"`), another file type or
+ * a scan without a path is checked as before.
  */
 const JSON_KEY_FIELD = /"key"[ \t]*:[ \t]*"$/;
+const JSON_SOURCE = /\.json[5cl]?$/i;
 const LOWERCASE_KEY_PATH = /^[a-z][a-z0-9]*(?:[/_.-][a-z0-9]+)*$/;
-function isJsonKeyPath(span: string, match: RegExpExecArray): boolean {
-  if (span.length > 120 || !span.includes("/") || !LOWERCASE_KEY_PATH.test(span)) return false;
+function isJsonKeyPath(span: string, match: RegExpExecArray, sourcePath: string | undefined): boolean {
+  if (!sourcePath || !JSON_SOURCE.test(sourcePath) || span.length > 120 || !span.includes("/") || !LOWERCASE_KEY_PATH.test(span)) return false;
   if (!span.split(/[/_.-]/).every((word) => /^[a-z]+$/.test(word) || word.length <= 4)) return false;
   const { start, end } = spanBounds(match);
   return JSON_KEY_FIELD.test(match.input.slice(match.index, start)) && match.input[end] === '"' && !isSecretShapedValue(span);
-}
-
-/**
- * GEVA-561: an unquoted value that is itself an environment-variable name
- * ending in a credential word (`API_KEY=OPENAI_API_KEY`, `token: GITHUB_TOKEN`,
- * `token: DAEMON_TOKEN,`) refers to where a key lives without holding one.
- * Two or more uppercase words, each with optional trailing digits, joined by
- * `_`, the last of them KEY, TOKEN, SECRET, PASSWORD, PASSWD, CREDENTIAL(S),
- * DSN, AUTH, COOKIE, SESSION or PRIVATE. A quoted value (`'ANOTHER_SECRET'` is
- * text that could be a password), lowercase, mixed case, a digit inside a word
- * or any other last word is checked as before.
- */
-const ENV_NAME_VALUE = /^[A-Z]+\d*(?:_[A-Z]+\d*)*_(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[,;]?$/;
-function isEnvNameReference(span: string, match: RegExpExecArray): boolean {
-  return ENV_NAME_VALUE.test(span) && !/["'\x60]/.test(match.input[spanBounds(match).start - 1] ?? "");
 }
 
 /** The text of the `"…"` or `'…'` literal whose quote is at `i` and the index after it, or null when it does not close on the line. */
@@ -1724,7 +1720,6 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "Anthropic API key",
     regex: /\b(sk-ant-[A-Za-z0-9_\-]{20,})\b/,
-    validate: (_span, match) => !deepInsideBase64Run(match),
   },
   {
     id: "openai.key",
@@ -1737,7 +1732,7 @@ export const PATTERNS: RedactPattern[] = [
     //   bare:     sk- + contiguous alphanumeric run (legacy), keeps {32,} floor
     regex:
       /\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,})\b/,
-    validate: (_span, match) => !deepInsideBase64Run(match),
+    validate: (span, match) => !(/^sk-[A-Za-z0-9]+$/.test(span) && chanceMatchInBase64(match)),
   },
   {
     id: "openrouter.key",
@@ -1745,7 +1740,6 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "OpenRouter API key",
     regex: /\b(sk-or-v1-[a-f0-9]{64})\b/,
-    validate: (_span, match) => !deepInsideBase64Run(match),
   },
   {
     id: "sendgrid.key",
@@ -1872,7 +1866,7 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "Google API key (AIza… or AQ.…; sometimes a public client key)",
     regex: /\b(AIza[0-9A-Za-z\-_]{35}|AQ\.[0-9A-Za-z\-_]{20,})\b/,
-    validate: (_span, match) => !deepInsideBase64Run(match),
+    validate: (span, match) => !(span.startsWith("AIza") && chanceMatchInBase64(match)),
   },
   {
     id: "jwt",
@@ -1936,8 +1930,7 @@ export const PATTERNS: RedactPattern[] = [
     // GST-3474: so is a Rust type annotation or match-arm path (isRustTypeAnnotation).
     // #3208: so is a schema field identifier (isSchemaFieldIdentifier).
     // GST-1894: so is a self-named fixture label in a test file (isTestFixtureLabel).
-    // GBRA-108: so is a JSON "key" field's lowercase path (isJsonKeyPath), and
-    // GEVA-561: so is an unquoted environment-variable name ending in a credential word (isEnvNameReference).
+    // GBRA-108: so is a JSON "key" field's lowercase path (isJsonKeyPath).
     // GST-3004: so is a dotted field path (isDottedFieldPath, #4289), and so
     // is key-naming text in a comment
     // (isCommentText). GST-3297: so is a regex literal's body after its
@@ -1959,8 +1952,7 @@ export const PATTERNS: RedactPattern[] = [
           !isRegexLiteralBody(span, match) &&
           !isSchemaFieldIdentifier(span, match) &&
           !isTestFixtureLabel(span, opts?.sourcePath) &&
-          !isJsonKeyPath(span, match) &&
-          !isEnvNameReference(span, match) &&
+          !isJsonKeyPath(span, match, opts?.sourcePath) &&
           shannonEntropy(span) >= 3.0)),
   },
   {
@@ -2002,7 +1994,8 @@ export const PATTERNS: RedactPattern[] = [
     // `accessor`, `const`, `let` and `var` (after an optional `export`),
     // an optional `#` private name, a secret-named name with an optional
     // `?`/`!` and type (which stops at `;`, so the value belongs to the same
-    // declaration), then `=` and a quoted or template literal, at a line
+    // declaration), then `=` and a quoted or template literal (an empty
+    // first piece of a `+` chain and leading spaces are read past), at a line
     // start (diff markers as env.kv) or after `//` or `/*`. A name with no
     // keyword is left to env.kv, so no line reports twice. Names like these
     // are everywhere in code, so the name never decides: the literal must be
@@ -2011,7 +2004,7 @@ export const PATTERNS: RedactPattern[] = [
     // exemptions. It is its own pattern so env.kv's matches are unchanged,
     // and validate keeps it to .js, .jsx, .ts, .tsx, .mjs, .cjs, .mts and .cts
     // files; a scan without a path is env.kv.rust's.
-    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}#?[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=;\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]([^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:export[ \t]+)?(?:(?:declare|public|private|protected|static|readonly|override|accessor|const|let|var)[ \t]+){1,4}#?[$\w]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[?!]?(?:[ \t]*:[^=;\n]{1,120}?)?[ \t]*=[ \t]*["'\x60]((?:["'\x60][ \t]*\+[ \t]*["'\x60]|[ \t]+)?[^\s'"\x60\\]{8,}|[^\s'"\x60\\]{1,7}(?=["'\x60]?[ \t]*\+))/i,
     validate: (span, match, opts) => {
       if (!opts?.sourcePath || !JS_SOURCE.test(opts.sourcePath)) return false;
       const name = /([$\w]+)[?!]?[ \t]*(?::[^=;\n]*)?=/.exec(match[0])?.[1]?.replace(/\$/g, "");
@@ -2030,7 +2023,7 @@ export const PATTERNS: RedactPattern[] = [
     // string literal, at a line start (diff markers as env.kv) or after `//`
     // or `/*`. As in env.kv.js, the literal must be secret-shaped
     // (declaredLiteralIsSecret); validate keeps it to .go files.
-    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:(?:var|const)[ \t]+\w*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)(?:[ \t]+[\w.*[\]]{1,60})?[ \t]*=|\w*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[ \t]*:=)[ \t]*["\x60]([^\s"\x60\\]{8,}|[^\s"\x60\\]{1,7}(?=["\x60]?[ \t]*\+))/i,
+    regex: /(?:^(?:[ +-]?\+|[ +-]?-(?! [^ \t]))?|(?<=(?:^|[ \t])(?:\/{2,3}|\/\*{1,2})))[ \t]*(?:(?:var|const)[ \t]+\w*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)(?:[ \t]+[\w.*[\]]{1,60})?[ \t]*=|\w*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[ \t]*:=)[ \t]*["\x60]((?:["\x60][ \t]*\+[ \t]*["\x60]|[ \t]+)?[^\s"\x60\\]{8,}|[^\s"\x60\\]{1,7}(?=["\x60]?[ \t]*\+))/i,
     validate: (span, match, opts) => {
       if (!opts?.sourcePath || !GO_SOURCE.test(opts.sourcePath)) return false;
       const name = /(?:\b(?:var|const)[ \t]+)?(\w+)(?:[ \t]+[\w.*[\]]+)?[ \t]*:?=/i.exec(match[0])?.[1];
