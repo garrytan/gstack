@@ -232,7 +232,7 @@ _gstack_codex_exclude_scratch() {
   local _ex _ig
   [ -d .gstack/tmp ] && [ ! -L .gstack ] && [ ! -L .gstack/tmp ] || return 0
   _ex=$(git rev-parse --git-path info/exclude 2>/dev/null) && [ -n "$_ex" ] || return 0
-  _ig="/$(git rev-parse --show-prefix 2>/dev/null).gstack/tmp/"
+  _ig="/$(git rev-parse --show-prefix 2>/dev/null | sed 's/[][*?\\]/\\&/g').gstack/tmp/"
   grep -qsxF "$_ig" "$_ex" && return 0
   mkdir -p "${_ex%/*}" 2>/dev/null || return 0
   { [ ! -s "$_ex" ] || [ -z "$(tail -c1 "$_ex")" ] || echo; printf '%s\n' "$_ig"; } >>"$_ex" 2>/dev/null

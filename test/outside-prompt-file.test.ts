@@ -114,7 +114,9 @@ describe.skipIf(process.platform === 'win32')('plan-review prompt file is git-ex
   const stub = path.join(scratch, 'stub-bin');
   fs.mkdirSync(stub, { recursive: true });
   fs.writeFileSync(path.join(stub, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  const env = { ...process.env, PATH: stub + path.delimiter + process.env.PATH, _TEL: 'off' };
+  const home = path.join(scratch, 'probe-home');
+  fs.mkdirSync(home, { recursive: true });
+  const env = { ...process.env, PATH: stub + path.delimiter + process.env.PATH, _TEL: 'off', HOME: home, GSTACK_HOME: path.join(home, '.gstack'), GSTACK_STATE_ROOT: path.join(home, '.gstack') };
   const status = (cwd: string) => git(cwd, 'status', '--porcelain', '--untracked-files=all');
   const session = (create: string, cwd: string) => {
     const made = spawnSync('bash', ['-c', create], { cwd, env, encoding: 'utf8', timeout: 30_000 });
@@ -146,6 +148,11 @@ describe.skipIf(process.platform === 'win32')('plan-review prompt file is git-ex
       session(create, path.join(main, 'sub', 'dir'));
       expect(status(main)).toBe('');
       expect(lines().filter(l => l === '/sub/dir/.gstack/tmp/')).toHaveLength(1);
+
+      fs.mkdirSync(path.join(main, 'pkg[1]', 'a*b'), { recursive: true });
+      session(create, path.join(main, 'pkg[1]', 'a*b'));
+      expect(status(main)).toBe('');
+      expect(lines()).toContain('/pkg\\[1\\]/a\\*b/.gstack/tmp/');
 
       git(main, 'worktree', 'add', '-q', path.join(base, 'wt'));
       session(create, path.join(base, 'wt')); session(create, path.join(base, 'wt'));

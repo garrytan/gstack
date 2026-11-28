@@ -186,7 +186,7 @@ function sha256File(file: string): string {
   return hash.digest('hex');
 }
 
-let hostRuntime: { size: number; sha256: string } | null | undefined;
+let hostRuntime: { exe: string; size: number; sha256?: string } | null | undefined;
 /**
  * A copy of a binary already on the machine, not a fetch (GST-3959: gstack-evals#463's tests copy their own `bun` into /tmp):
  * a file with exactly the size and SHA-256 of the runtime running this sweep (process.execPath, hashed at most once per process
@@ -194,10 +194,10 @@ let hostRuntime: { size: number; sha256: string } | null | undefined;
  */
 function hostRuntimeCopy(file: string, size: number): boolean {
   if (hostRuntime === undefined) {
-    try { const exe = fs.realpathSync(process.execPath); hostRuntime = { size: fs.statSync(exe).size, sha256: sha256File(exe) }; } catch { hostRuntime = null; }
+    try { const exe = fs.realpathSync(process.execPath); hostRuntime = { exe, size: fs.statSync(exe).size }; } catch { hostRuntime = null; }
   }
   if (!hostRuntime || size !== hostRuntime.size) return false;
-  try { return sha256File(file) === hostRuntime.sha256; } catch { return false; }
+  try { hostRuntime.sha256 ??= sha256File(hostRuntime.exe); return sha256File(file) === hostRuntime.sha256; } catch { return false; }
 }
 
 function du(p: string): number | null {
