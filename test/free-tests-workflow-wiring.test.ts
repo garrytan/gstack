@@ -57,7 +57,7 @@ describe('free-tests workflow wiring', () => {
     expect(trunk.needs).toBeUndefined();
     expect(trunk.steps).toHaveLength(1);
     const [step] = trunk.steps;
-    expect(step.uses).toBe('trunk-io/dynamic-ci@5bcddbf3615c2b032c21eed1b514c91164bda4a8');
+    expect(step.uses).toBe('trunk-io/dynamic-ci@09739668b8d766d05e3dbf6f3eb0159da6597aaf');
     expect(step.run).toBeUndefined();
     expect(step.if).toBe("env.TRUNK_API_TOKEN != ''");
     expect(step['continue-on-error']).toBe(true);
