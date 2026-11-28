@@ -1823,7 +1823,8 @@ full preflight, gate dispositions, lane exceptions and rulings
 without `--owner-ref` stop. Only gstack's commands end it: `finish` removes the
 record (only when the open PR's body names that run), `gstack-ship-receipt stop`
 marks it stopped (a new run's preflight replaces it), `gstack-skill-end` marks it finished on any
-outcome, and `gstack-ship-run abandon` ends a run that stopped working, never
+outcome, the run's own Step 22 `gstack-ship-budget close` marks its open record finished (the next
+preflight does the same for an open record whose run's budget ledger already closed, GST-4109), and `gstack-ship-run abandon` ends a run that stopped working, never
 within 60 minutes of its last beat unless the harness process it ran under is
 provably gone (GST-3546). No timer ends a run. A bare marker from an
 older gstack reads as `legacy` and an unreadable record as `unreadable`; both

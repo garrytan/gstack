@@ -1,10 +1,14 @@
 /**
  * ship-clock — a driven /ship's 100-minute stop and its call count, in code instead of prose (ship/DRIVER.md).
  * Measured conductors made 121-308 calls against the driver's 9 to 12, and 10 of 12 ran past its 100-minute stop
- * (handoffs/ship-conductor-cost-2026-11-16), so the limits now print. An observe-mode run measures its time from
+ * (handoffs/ship-conductor-cost-2026-11-16), so the limits now print. An observe-mode run measures its active time from
  * the ledger's start, or from the resume that followed a time stop; the first `gstack-ship-budget note` or
- * `gstack-ship-phase run` past 100 minutes stops the run and writes its state (head, review passes, next act) to
+ * `gstack-ship-phase run` past 100 active minutes stops the run and writes its state (head, review passes, next act) to
  * <ledger dir>/stop.json, so the next session starts from that file and the record, not from memory.
+ * Active time (GST-4109) is wall time minus parked time: any stretch over PARKED_AFTER_MS with no gstack call in the call
+ * log is the lane parked on CI, a Captain or a ruling, so only its first PARKED_AFTER_MS count. A run that keeps calling
+ * gstack (a runaway pass or phase loop) never parks, so it still stops at 100 minutes; with no call log (off Capy) the
+ * clock is wall time.
  * Calls come from the call log (lib/ship-call-log.ts): the calls that ran a gstack command plus its keep-alive
  * estimate; quick calls that run no gstack command are not in it.
  */
@@ -17,8 +21,32 @@ import { callLogFile, countLoggedCalls, pendingRow, readCallLog } from './ship-c
 export const TIME_LIMIT_MIN = 100;
 export const STOP_FILE = 'stop.json';
 
+/** The call log's idle line (lib/ship-call-log.ts, a gap that outlives the prompt cache): a longer stretch with no gstack call is parked past it. */
+export const PARKED_AFTER_MS = 300_000;
+
 export const clockFrom = (l: Pick<Ledger, 'created_at' | 'clock_from'>) => l.clock_from ?? l.created_at;
-export const elapsedMin = (l: Pick<Ledger, 'created_at' | 'clock_from'>, now = Date.now()) => (now - Date.parse(clockFrom(l))) / 60_000;
+
+/**
+ * The run's clock in minutes since clockFrom: wall, parked (each stretch between call-log rows, or from the clock's start to the first
+ * row and from the last row to now, past PARKED_AFTER_MS) and active (wall minus parked), which the 100-minute stop compares. Every
+ * row on this state root counts, a row lasting as long as it ran, and this process's own pending row too. With no row in the window
+ * (no call log: off Capy) the clock is wall time and source is wall.
+ */
+export function runClock(l: Pick<Ledger, 'created_at' | 'clock_from'>, env: NodeJS.ProcessEnv, now = Date.now()): { active: number; wall: number; parked: number; source: 'log' | 'wall' } {
+  const from = Date.parse(clockFrom(l));
+  const wall = Math.max(0, now - from);
+  const self = pendingRow();
+  const spans = [...readCallLog(callLogFile(env)), ...(self ? [self] : [])]
+    .map(r => [Date.parse(r.start), Date.parse(r.start) + Math.max(0, r.ms)] as const)
+    .filter(([s, e]) => e >= from && s <= now).map(([s, e]) => [Math.max(s, from), Math.min(e, now)] as const).sort((a, b) => a[0] - b[0]);
+  if (!spans.length) return { active: wall / 60_000, wall: wall / 60_000, parked: 0, source: 'wall' };
+  let parked = 0, cursor = from;
+  for (const [s, e] of [...spans, [now, now] as const]) {
+    parked += Math.max(0, s - cursor - PARKED_AFTER_MS);
+    cursor = Math.max(cursor, e);
+  }
+  return { active: (wall - parked) / 60_000, wall: wall / 60_000, parked: parked / 60_000, source: 'log' };
+}
 
 /**
  * Calls whose rows start after `since` (and at or before `until`): the log's calls plus its keep-alive estimate.
@@ -59,12 +87,13 @@ export function nextAct(record: string | undefined): string | null {
 const oneLine = (s: string) => s.replace(/[\x00-\x1f\x7f]+/g, ' ').slice(0, 300);
 
 /**
- * The time stop: null while an observe-mode run is within 100 minutes (or already stopped or closed); past them it
+ * The time stop: null while an observe-mode run is within 100 active minutes (runClock; or already stopped or closed); past them it
  * marks the ledger stopped, writes stop.json and returns the STOP block. The caller persists the ledger (mutateLedger).
  */
 export function timeStop(l: Ledger, cwd: string, step: string, env: NodeJS.ProcessEnv, now = Date.now(), fallbackNext = `resume, then continue after Step ${step}`): string[] | null {
   if (l.mode !== 'observe' || l.stopped || l.closed_at) return null;
-  const min = elapsedMin(l, now);
+  const clock = runClock(l, env, now);
+  const min = clock.active;
   if (!(min > TIME_LIMIT_MIN)) return null;
   const at = new Date(now).toISOString();
   const g = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8', timeout: 15_000 });
@@ -74,12 +103,12 @@ export function timeStop(l: Ledger, cwd: string, step: string, env: NodeJS.Proce
   const calls = callsSince(env, l.created_at, at, true);
   const file = path.join(l.dir, STOP_FILE);
   const state = { schema_version: 1, kind: 'gstack-ship-stop', reason: 'past_100_minutes', run: l.run, record: l.record ?? null, at,
-    clock_from: clockFrom(l), elapsed_min: Math.floor(min), step, head, rounds, next, calls };
+    clock_from: clockFrom(l), elapsed_min: Math.floor(clock.wall), active_min: Math.floor(min), parked_min: Math.floor(clock.parked), clock_source: clock.source, step, head, rounds, next, calls };
   fs.mkdirSync(l.dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 });
   l.stopped = { at, reason: 'past_100_minutes', step, next };
   return [
-    `STOP: past 100 minutes (${Math.floor(min)} min since ${clockFrom(l)}) head=${head.slice(0, 12)} rounds=${rounds} calls=${calls ?? 'unknown'} next=${oneLine(next)} state=${file}`,
+    `STOP: past 100 minutes (${Math.floor(min)} active min since ${clockFrom(l)}, ${Math.floor(clock.parked)} min parked) head=${head.slice(0, 12)} rounds=${rounds} calls=${calls ?? 'unknown'} next=${oneLine(next)} state=${file}`,
     `RECOVER: hand ${file} to the next session; it runs gstack-ship-budget resume --record ${l.record ?? '<record>'} (the clock restarts), then reruns the phase that stopped`,
     `GSTACK_RESULT: skill=ship status=incomplete run=${l.dir}`,
   ];

@@ -47,10 +47,19 @@ const bin = (b: Box, name: string, args: string[], extra: NodeJS.ProcessEnv = {}
 const phase = (b: Box, args: string[], cmds: string[], extra: NodeJS.ProcessEnv = {}) =>
   bin(b, 'gstack-ship-phase', ['run', '--dir', path.join(b.root, 'run'), ...args, '--', ...cmds], extra);
 const ledgerOf = (b: Box) => /ledger=(\S+)/.exec(fs.readFileSync(b.record, 'utf8'))![1]!;
-const backdate = (b: Box, minutes: number) => {
+/** Appends a gstack call every 2 minutes from `fromMin` to `toMin` minutes ago to the box's call log, as a run that keeps working writes. */
+const calls = (b: Box, fromMin: number, toMin: number) => {
+  const rows: string[] = [];
+  for (let m = fromMin; m >= toMin; m -= 2) rows.push(JSON.stringify({ v: 1, bin: 'gstack-ship-phase', sub: 'run', start: new Date(Date.now() - m * 60_000).toISOString(), ms: 1000, exit: 0 }));
+  fs.mkdirSync(b.state, { recursive: true });
+  fs.appendFileSync(path.join(b.state, 'ship-calls.jsonl'), rows.join('\n') + '\n');
+};
+/** Moves the run's start back `minutes`; an active run (the default) made a gstack call every 2 minutes since. */
+const backdate = (b: Box, minutes: number, active = true) => {
   const l = JSON.parse(fs.readFileSync(ledgerOf(b), 'utf8'));
   l.created_at = new Date(Date.now() - minutes * 60_000).toISOString();
   fs.writeFileSync(ledgerOf(b), JSON.stringify(l, null, 2));
+  if (active) calls(b, minutes, 0);
 };
 const start = (b: Box, mode: 'observe' | 'admit' = 'observe') => {
   const r = bin(b, 'gstack-ship-budget', ['start', '--record', b.record, ...(mode === 'observe' ? ['--mode', 'observe'] : []), '--reading', '1000', '--credits', '1']);
@@ -218,7 +227,7 @@ describe('the 100-minute stop', () => {
     expect(lines[0]).toMatch(/^NOTE: 6 used=2000 credits=2/);
     const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: b.repo, encoding: 'utf8', timeout: 30_000 }).stdout.trim();
     const dir = path.dirname(ledgerOf(b));
-    expect(lines[1]).toMatch(new RegExp(`^STOP: past 100 minutes \\(10[01] min since \\S+\\) head=${head.slice(0, 12)} rounds=0 calls=\\d+ next=Phase 3: audits and review state=${dir}/stop\\.json$`));
+    expect(lines[1]).toMatch(new RegExp(`^STOP: past 100 minutes \\(10[01] active min since \\S+, 0 min parked\\) head=${head.slice(0, 12)} rounds=0 calls=\\d+ next=Phase 3: audits and review state=${dir}/stop\\.json$`));
     expect(lines.at(-1)).toBe(`GSTACK_RESULT: skill=ship status=incomplete run=${dir}`);
     const state = JSON.parse(fs.readFileSync(path.join(dir, 'stop.json'), 'utf8'));
     expect(state).toMatchObject({ kind: 'gstack-ship-stop', reason: 'past_100_minutes', head, rounds: 0, next: 'Phase 3: audits and review', step: '6', record: b.record });
@@ -244,7 +253,7 @@ describe('the 100-minute stop', () => {
     const marker = path.join(b.root, 'phase-ran');
     const late = phase(b, ['--phase', '5', '--record', b.record], [`touch ${marker}`]);
     expect(late.status).toBe(3);
-    expect(late.stdout).toMatch(/^STOP: past 100 minutes \(1[12]\d min since /);
+    expect(late.stdout).toMatch(/^STOP: past 100 minutes \(1[12]\d active min since /);
     expect(late.stdout).toContain('next=Phase 3: audits and review');
     expect(fs.existsSync(marker)).toBe(false);
     const admit = box();
@@ -252,6 +261,39 @@ describe('the 100-minute stop', () => {
     backdate(admit, 300);
     const note = bin(admit, 'gstack-ship-budget', ['note', '--record', admit.record, '--step', '6', '--reading', '2000', '--credits', '2']);
     expect(note.stdout).not.toContain('past 100 minutes');
+  });
+
+  // Value: protects=the 100-minute clock counts active time: a lane parked on CI or a Captain ruling (no gstack call for over 5 minutes)
+  //   does not trip it, while a run that keeps calling gstack past 100 minutes still stops, and with no call log the clock is wall time;
+  //   fails_when=a run 3 hours old with 50 active minutes stops mid-run (GSKI-1 #12, HARN-1 #7), a runaway pass loop with no idle gap runs
+  //   on, or a host with no call log never stops; why_new=the stop was only driven with created_at backdated; seam=the call log;
+  //   no_claim=work that runs no gstack command, which the call log cannot see
+  test('parked stretches do not count toward 100 minutes; a busy run and a run with no call log still stop', () => {
+    const parked = box();
+    start(parked);
+    backdate(parked, 180, false);
+    calls(parked, 180, 150);
+    calls(parked, 20, 0);
+    const ok = bin(parked, 'gstack-ship-budget', ['note', '--record', parked.record, '--step', '16', '--reading', '2000', '--credits', '2']);
+    expect(ok.status, ok.stdout + ok.stderr).toBe(0);
+    expect(ok.stdout).not.toContain('past 100 minutes');
+    const busy = box();
+    start(busy);
+    backdate(busy, 180, false);
+    calls(busy, 180, 150);
+    calls(busy, 110, 0);
+    const late = bin(busy, 'gstack-ship-budget', ['note', '--record', busy.record, '--step', '16', '--reading', '2000', '--credits', '2']);
+    expect(late.status).toBe(3);
+    expect(late.stdout).toMatch(/^STOP: past 100 minutes \(1[34]\d active min since \S+, 3\d min parked\) /m);
+    const state = JSON.parse(fs.readFileSync(path.join(path.dirname(ledgerOf(busy)), 'stop.json'), 'utf8'));
+    expect(state).toMatchObject({ clock_source: 'log', elapsed_min: 180 });
+    const wall = box();
+    start(wall);
+    backdate(wall, 101, false);
+    fs.rmSync(path.join(wall.state, 'ship-calls.jsonl'), { force: true });
+    const plain = bin(wall, 'gstack-ship-budget', ['note', '--record', wall.record, '--step', '6', '--reading', '2000', '--credits', '2'], { GSTACK_CAPY: '' });
+    expect(plain.status).toBe(3);
+    expect(plain.stdout).toMatch(/^STOP: past 100 minutes \(10[01] active min since \S+, 0 min parked\) /m);
   });
 });
 

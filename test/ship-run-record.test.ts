@@ -336,3 +336,68 @@ describe('a stop before any PR fails when nothing records it (#4826 review)', ()
     expect(record(f)).toMatchObject({ run: 'rx', state: 'stopped', stop: { head: head(f) } });
   });
 });
+
+describe('a finished run no longer blocks the next /ship, and abandon never hints a mark that refuses (GST-4109)', () => {
+  const BUDGET = (f: ShipFx, args: string[]) => run(f, 'gstack-ship-budget', args);
+  const startBudget = (f: ShipFx, name: string) => {
+    const rec = path.join(f.root, `${name}.md`);
+    fs.writeFileSync(rec, '# /ship record\n\n## Next steps\n- Step 1\n');
+    const s = BUDGET(f, ['start', '--record', rec, '--mode', 'observe', '--reading', '1000', '--credits', '1']);
+    expect(s.status, s.stdout + s.stderr).toBe(0);
+    return rec;
+  };
+
+  // Value: protects=a /ship that finished (its ledger closed at Step 22) ends its own open run record, and a record an older gstack left open
+  //   behind a closed ledger is ended by the next preflight, while a run whose ledger is still open keeps blocking; fails_when=a finished
+  //   run blocks the next /ship until someone abandons it by hand (GSKI-1 #7), or a live run's record is ended;
+  //   why_new=no test ran the budget close against the run record; seam=gstack-ship-budget close, lib/ship-preflight.ts shipRunClear;
+  //   no_claim=a run that never reaches close, which stop, skill-end or abandon end as before
+  test('close ends its own open record; preflight ends one an older close left; an unclosed run still blocks', () => {
+    const f = fx();
+    const rec = startBudget(f, 'r1');
+    expect(preflight(f, 'r1').status).toBe(0);
+    const closed = BUDGET(f, ['close', '--record', rec, '--reading', '2000', '--credits', '2']);
+    expect(closed.status, closed.stdout + closed.stderr).toBe(0);
+    expect(closed.stdout).toMatch(/^RUN_ENDED: run=r1 state=finished ended_by=gstack-ship-budget close \(its budget ledger ship-\S+ closed at /m);
+    expect(record(f)).toMatchObject({ run: 'r1', state: 'finished', ended_by: 'gstack-ship-budget close' });
+    fs.writeFileSync(recordFile(f), JSON.stringify({ ...record(f), state: 'open', ended_by: undefined }) + '\n');
+    f.advanceBase({ 'docs/new.md': '# new\n' });
+    startBudget(f, 'r2');
+    const next = preflight(f, 'r2');
+    expect(next.status, next.stdout).toBe(0);
+    expect(next.stdout).toMatch(/^RUN_ENDED: run=r1 state=finished /m);
+    expect(record(f)).toMatchObject({ run: 'r2', state: 'open' });
+    f.advanceBase({ 'docs/other.md': '# other\n' });
+    startBudget(f, 'r3');
+    const live = preflight(f, 'r3');
+    expect(live.status).toBe(3);
+    expect(live.stdout).toContain('STOP: /ship run r2 is open on this checkout and past its preflight (');
+    expect(record(f)).toMatchObject({ run: 'r2', state: 'open' });
+  });
+
+  // Value: protects=abandon of an unreadable record with an open PR ends with no PR mark and no hint, and a mark the PR refuses prints why
+  //   with no rerun hint; fails_when=abandon --run unknown, or a run the PR body never recorded, prints a gstack-ship-receipt abandoned
+  //   command that refuses the same way (GSTA-891); why_new=only the no-PR case was driven; seam=bin/gstack-ship-run, a gh stub;
+  //   no_claim=gh failures, which keep the add-the-entry hint since a rerun can pass once gh works
+  test('abandon --run unknown with an open PR skips the mark; a refused mark prints no looping hint', () => {
+    const f = fx();
+    fs.writeFileSync(recordFile(f), '{"v":1,"run":\n');
+    const sha = /sha256=([0-9a-f]{64})/.exec(run(f, 'gstack-ship-run', ['status']).stdout)![1]!;
+    const unknown = run(f, 'gstack-ship-run', ['abandon', '--run', 'unknown', '--sha256', sha, '--pr', '7', '--by', CAPTAIN, '--reason', 'corrupt record']);
+    expect(unknown.status, unknown.stderr).toBe(0);
+    expect(unknown.stdout).toContain("RUN_ABANDON_PR: skipped (an unreadable record names no run, so PR #7's body has no entry to mark)");
+    expect(unknown.stdout).not.toContain('gstack-ship-receipt abandoned --pr');
+    const g = fx();
+    expect(preflight(g, 'r1').status).toBe(0);
+    age(g, 61);
+    const view = JSON.stringify({ body: 'A change.', headRefName: 'feat', headRepository: { name: 'fx' }, headRepositoryOwner: { login: 'fx' }, state: 'OPEN' });
+    g.gh(`if [ "$1" = pr ] && [ "$2" = view ]; then printf '%s\\n' '${view}'; exit 0; fi; exit 0`);
+    const named = run(g, 'gstack-ship-run', ['abandon', '--run', 'r1', '--pr', '7', '--by', CAPTAIN, '--reason', 'stopped answering']);
+    expect(named.status, named.stderr).toBe(0);
+    expect(named.stdout).toContain("RUN_ABANDON_PR: not recorded (gstack-ship-receipt abandoned: PR #7's body records no entry for run r1");
+    expect(named.stdout).toContain('the same mark would refuse the same way');
+    expect(named.stdout).not.toContain('add the entry with');
+    expect(record(g)).toMatchObject({ run: 'r1', state: 'abandoned' });
+  });
+});
+

@@ -27,7 +27,8 @@ const HELP = `gstack-ship-run — this checkout's /ship run record (docs/ship-po
               mark:abandoned entry (skipped with a note when no PR body is reachable). Refused (SHIP_RUN_ABANDON_REFUSED, exit 3)
               while the run beat in the last 60 minutes, for another run's record, or once it ended; --by gstack is usage (2).
               A bare marker from an older gstack (state legacy) goes at any age; an unreadable record goes as --run unknown with
-              the --sha256 status printed. It completes in one call: never rerun it after RUN_ABANDONED
+              the --sha256 status printed; such a record names no run, so no PR body entry is marked. A mark the PR refuses (it
+              records no entry for that run) prints why and no rerun hint. It completes in one call: never rerun it after RUN_ABANDONED
   skill-end --run <session id>
               what gstack-skill-end calls: marks the record finished (ended_by skill-end) when it names that run
   live [--state-root <dir>]
@@ -83,10 +84,13 @@ function main(argv: string[]): number {
   const listed = flag('--body') || flag('--pr') || !branch ? undefined : ghSpawnSync(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number', '--jq', '.[0].number // empty'], { cwd, encoding: 'utf8', timeout: 60_000 });
   const pr = flag('--pr') ?? listed?.stdout?.trim();
   const target = flag('--body') ? ['--body', flag('--body')!] : pr && /^[1-9]\d*$/.test(pr) ? ['--pr', pr, ...(flag('--repo') ? ['--repo', flag('--repo')!] : [])] : undefined;
+  if (target && run === 'unknown') { process.stdout.write(`RUN_ABANDON_PR: skipped (an unreadable record names no run, so ${target[0] === '--pr' ? `PR #${target[1]}'s` : 'the'} body has no entry to mark); the record is abandoned, so nothing else is needed\n`); return EXIT.ok; }
   if (!target) { process.stdout.write(`RUN_ABANDON_PR: skipped (no open PR body reachable${branch ? ` for ${branch}` : ''}${listed?.status ? `: gh exit ${listed.status}` : ''}); the record is abandoned, so do not rerun abandon\n`); return EXIT.ok; }
   const mark = runScriptSync(path.join(BIN_DIR, 'gstack-ship-receipt'), ['abandoned', ...target, '--run', run, '--by', by, '--reason', reason], { cwd, encoding: 'utf8', timeout: 120_000 });
   process.stdout.write(mark.stdout ?? '');
-  if (mark.status !== 0) process.stdout.write(`RUN_ABANDON_PR: not recorded (${(mark.stderr ?? '').trim().split('\n')[0] || `gstack-ship-receipt abandoned exit ${mark.status}`}); the record is abandoned, so do not rerun abandon: add the entry with gstack-ship-receipt abandoned ${target.join(' ')} --run ${run} --by "<who>" --reason "<one line>"\n`);
+  const why = (mark.stderr ?? '').trim().split('\n')[0] || `gstack-ship-receipt abandoned exit ${mark.status}`;
+  if (mark.status === EXIT.refused) process.stdout.write(`RUN_ABANDON_PR: not recorded (${why}); the record is abandoned, so do not rerun abandon, and the same mark would refuse the same way: act on the reason above only if this PR should carry the entry\n`);
+  else if (mark.status !== 0) process.stdout.write(`RUN_ABANDON_PR: not recorded (${why}); the record is abandoned, so do not rerun abandon: add the entry with gstack-ship-receipt abandoned ${target.join(' ')} --run ${run} --by "<who>" --reason "<one line>"\n`);
   return EXIT.ok;
 }
 

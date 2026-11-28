@@ -13,6 +13,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { resultLine } from './result-codes';
 import { thisRunOwner } from './ship-run-record';
+import { endClosedRun } from './ship-run-live';
+import { resolveStateRoot } from './state-root';
 import { spawnSync } from './spawn-sync';
 import {
   BudgetError, DEFAULT_TAIL, SUBAGENT_DEFAULT_CAP, DELEGATE_SEGMENT_CALL, DELEGATE_START_CALL, MAX_CHAIN_DEPTH, METER_CONTRACTS, SEGMENTS, SHIP_STEPS,
@@ -264,8 +266,9 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   const delegate = str(o, 'delegate') ?? 'auto';
   if (delegate !== 'auto' && delegate !== 'never') throw usageError(`--delegate '${delegate}' is not auto or never`);
   const existing = parseRecordBlock(record);
-  if (existing?.ledger && fs.existsSync(existing.ledger) && !readLedger(existing.ledger).closed_at) {
-    return mutateLedger(existing.ledger, ctx.env, l => {
+  const prior = existing?.ledger && fs.existsSync(existing.ledger) ? readLedger(existing.ledger) : undefined;
+  if (prior && !prior.closed_at && !progressed(prior)) {
+    return mutateLedger(prior.file, ctx.env, l => {
       if (scope === 'tree' || parentCounter) l.meter_scope = 'tree';
       return { stdout: [`BUDGET_RUN: id=${l.run} ledger=${l.file}`, budgetLine(l, { call: null, next: '1', projected: 0, verdict: l.stopped ? 'stop' : 'continue' })], exit: l.stopped ? 3 : 0 };
     });
@@ -275,6 +278,8 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
     if (cap !== null) throw budgetError('BUDGET_METER_UNAVAILABLE', 'tried --reading (absent), a Claude Code session (--session/--nonce absent) and --meter estimate (not passed)');
     return { stdout: ['BUDGET: unmetered admission_cap=none (no readable meter: --reading <n> on Capy, --session <id> on Claude Code)'], exit: 0 };
   }
+  const superseded = prior && !prior.closed_at
+    ? [`SUPERSEDED: run ${prior.run} on this record ${prior.stopped ? `stopped (${prior.stopped.reason})` : 'already ran past its start'} and stays as it was; this /ship is a new run whose cap and clock count from its own start (to continue that run instead: gstack-ship-budget resume --record ${record})`] : [];
   const run = mintRunId();
   const dir = runDirFor(ctx.env, run);
   const owner = thisRunOwner(), checkout = toplevel(ctx.cwd);
@@ -301,8 +306,16 @@ export function cmdStart(argv: string[], ctx: Ctx): Outcome {
   writeLedger(l, ctx.env);
   pointMarker(l.marker, l);
   const note = defaultCap ? [`BUDGET_DEFAULT_CAP: ${SUBAGENT_DEFAULT_CAP / 1e6}M (a /ship run metering its own counter; --token-cap <n> or none to change it)`] : [];
-  return labelScope(l, { stdout: [`BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
+  return labelScope(l, { stdout: [...superseded, `BUDGET_RUN: id=${run} ledger=${l.file}`, ...note, ...out.stdout], exit: out.exit });
 }
+
+/**
+ * Whether a run went past its start (GST-4109): a stop, a note, a completed or settled step, a check's second reservation or a
+ * handoff. start re-attaches only a run that has not, a rerun of the same start; any other open ledger on the record is an earlier
+ * /ship, which a new start never joins, so its tokens and minutes never count against this run's cap and clock.
+ */
+const progressed = (l: Ledger) => Boolean(l.stopped || l.notes?.length || l.steps_done?.length || l.handoffs.length
+  || l.reservations.length > 1 || l.reservations.some(r => r.state !== 'open'));
 
 /**
  * check: read the meter, settle what is done (open step reservations, the
@@ -357,7 +370,9 @@ export function cmdSettle(argv: string[], ctx: Ctx, release = false): Outcome {
 
 export function cmdClose(argv: string[], ctx: Ctx): Outcome {
   const o = parseArgs(argv, ['run', 'record', 'reading', 'credits', 'approved-by', 'words']);
-  return mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
+  let checkout: string | undefined;
+  const out = mutateLedger(ledgerFileFor({ run: str(o, 'run'), record: str(o, 'record') }, ctx.env), ctx.env, l => {
+    checkout = l.checkout;
     readMeter(l, o, false);
     for (const r of l.reservations) if (r.kind === 'step' && r.state === 'open') settleIn(l, r);
     if (freshReading(l, o)) measureSettled(l);
@@ -388,6 +403,8 @@ export function cmdClose(argv: string[], ctx: Ctx): Outcome {
     if (l.marker) { try { fs.unlinkSync(l.marker); } catch {} }
     return { stdout: lines, exit: 0 };
   });
+  const ended = out.exit === 0 && checkout ? endClosedRun(checkout, resolveStateRoot(ctx.env)) : null;
+  return ended ? { ...out, stdout: [...out.stdout, ended] } : out;
 }
 
 const noteText = (n: Note) => `${n.step}${n.label ? `:${n.label}` : ''} used=${n.used}${n.credits === undefined ? '' : ` credits=${n.credits}`}${n.calls === undefined ? '' : ` calls=${n.calls}`}`
@@ -472,6 +489,7 @@ export function cmdResume(argv: string[], ctx: Ctx): Outcome {
     const meter = pickMeter(o) ?? l.meter.contract.meter;
     const successor = source !== undefined && source !== l.meter.source;
     if (successor && meter === 'capy' && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: a successor's counter needs --reading <its cost.tokens>, the new epoch's baseline`);
+    if (meter === 'capy' && meter !== l.meter.contract.meter && str(o, 'reading') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter capy: run ${l.run} moves from meter=${l.meter.contract.meter} to capy, and the new epoch's baseline is --reading <cost.tokens>; without it the thread's whole counter would count as this run's use`);
     if (successor && l.credits && str(o, 'credits') === undefined) throw budgetError('BUDGET_READING_MISSING', `resume --meter-source ${source}: run ${l.run} meters credits; pass --credits <its cost.credits>, the new epoch's baseline`);
     const open = successor ? l.handoffs.filter(h => !h.reconciled_at) : [];
     if (open.length) throw budgetError('BUDGET_READING_REJECTED', `resume --meter-source ${source}: handoff ${open.map(h => `${h.sha} (steps ${h.from}-${h.to})`).join(', ')} still runs on ${l.meter.source ?? 'the previous'} counter, which the new epoch cannot see; wait for its RETURN, reconcile it with a reading of that counter (${open.map(h => `gstack-ship-budget reconcile --run ${l.run} --return ${h.return_file} --reading <its cost.tokens>`).join('; ')}), then resume. A reconcile without --return writes the child off as interrupted, and its later spend is never charged`);

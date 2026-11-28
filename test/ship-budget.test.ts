@@ -458,3 +458,69 @@ describe('meter epochs', () => {
     expect(tally(l).used).toBe(24_000_000);
   });
 });
+
+describe('a new /ship on a reused record meters only itself (GST-4109)', () => {
+  // Value: protects=the token cap measures this run's own use: a start on a record whose earlier run already noted (or stopped) opens a new run at its own reading, so earlier runs in the thread never count; fails_when=start re-attaches the earlier run's ledger, so its baseline (and every token since) counts against the new run's cap (GSKI-1 #10, HARN-1 #8);
+  //   why_new=start's re-attach branch was only driven by a rerun before any progress; seam=none; no_claim=the host's counter itself, which a fake --reading stands in for
+  test('a start after an earlier run progressed opens a new run whose used counts from its own reading', () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '50M', '--reading', '1000000', '--credits', '10']);
+    const a = h.field(first.out, 'BUDGET_RUN', 'id');
+    expect(h.sb(['note', '--record', record, '--step', '9', '--reading', '45000000', '--credits', '400']).code).toBe(0);
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '50M', '--reading', '46000000', '--credits', '410']);
+    expect(second.code, second.out + second.err).toBe(0);
+    const b = h.field(second.out, 'BUDGET_RUN', 'id');
+    expect(b).not.toBe(a);
+    expect(second.out).toContain(`SUPERSEDED: run ${a} on this record already ran past its start`);
+    const note = h.sb(['note', '--record', record, '--step', '6', '--reading', '48000000', '--credits', '430']);
+    expect(note.code, note.out + note.err).toBe(0);
+    expect(note.out).toMatch(/^NOTE: 6 used=2000000 credits=20\b/m);
+    expect(h.ledger(h.field(first.out, 'BUDGET_RUN', 'ledger')).meter.last).toBe(45_000_000);
+  });
+
+  // Value: protects=a stopped earlier run never blocks or charges a fresh /ship; resume still continues the stopped run itself; fails_when=start on the stopped run's record exits 3 with verdict=stop, or resume no longer reaches that run;
+  //   why_new=the stopped re-attach was never driven; seam=none; no_claim=which run a lane should continue, its call
+  test('a start on a record whose run stopped at its cap opens a new run; resume still names the stopped one', () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '10M', '--reading', '1000000']);
+    const a = h.field(first.out, 'BUDGET_RUN', 'id');
+    expect(h.sb(['note', '--record', record, '--step', '9', '--reading', '20000000']).code).toBe(3);
+    const second = h.sb(['start', '--record', record, '--mode', 'observe', '--token-cap', '10M', '--reading', '21000000']);
+    expect(second.code, second.out + second.err).toBe(0);
+    expect(second.out).toContain(`SUPERSEDED: run ${a} on this record stopped (budget_exhausted)`);
+    expect(second.out).toMatch(/^BUDGET: used=0 /m);
+    const resumed = h.sb(['resume', '--run', a, '--reading', '22000000', '--token-cap', '30M', '--approved-by', 'GSTA-36', '--words', 'raise it']);
+    expect(resumed.code, resumed.out + resumed.err).toBe(0);
+    expect(resumed.out).toContain(`BUDGET_RUN: id=${a} `);
+  });
+
+  // Value: protects=a rerun of the same start before any progress stays one run; fails_when=every start mints a run, so a restarted Phase 2 splits one /ship into two ledgers;
+  //   why_new=the guard above narrows re-attach; seam=none; no_claim=admission-mode reruns past Step 1
+  test('a rerun of start before the run progressed re-attaches the same run', () => {
+    const h = fresh();
+    const record = h.record();
+    const first = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1000000']);
+    const again = h.sb(['start', '--record', record, '--mode', 'observe', '--reading', '1100000']);
+    expect(again.code, again.out + again.err).toBe(0);
+    expect(h.field(again.out, 'BUDGET_RUN', 'id')).toBe(h.field(first.out, 'BUDGET_RUN', 'id'));
+    expect(again.out).not.toContain('SUPERSEDED:');
+  });
+
+  // Value: protects=a resume that moves a run onto the Capy counter takes that counter's reading as the new epoch's baseline; fails_when=resume --meter capy with no --reading sets the baseline to 0, so the thread's lifetime counter counts as this run's use;
+  //   why_new=only a successor's resume required the reading; seam=none; no_claim=the Claude meter's own baseline
+  test('resume --meter capy without a reading is refused instead of metering from zero', () => {
+    const h = fresh();
+    const record = h.record();
+    expect(h.sb(['start', '--record', record, '--mode', 'observe', '--meter', 'estimate']).code).toBe(0);
+    const bare = h.sb(['resume', '--record', record, '--meter', 'capy']);
+    expect(bare.code).toBe(2);
+    expect(bare.err).toContain('BUDGET_READING_MISSING');
+    const ok = h.sb(['resume', '--record', record, '--meter', 'capy', '--reading', '900000000']);
+    expect(ok.code, ok.out + ok.err).toBe(0);
+    const note = h.sb(['note', '--record', record, '--step', '6', '--reading', '901000000']);
+    expect(note.out).toMatch(/^NOTE: 6 used=1000000\b/m);
+  });
+});
+

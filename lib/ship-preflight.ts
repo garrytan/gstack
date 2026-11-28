@@ -18,6 +18,8 @@ import { classifyDiff } from './review-depth';
 import { wtreeFingerprint } from './script-invocation';
 import { audit } from './ship-audit';
 import { changeRunRecord, openRun, readRunRecord, thisRunOwner } from './ship-run-record';
+import { endClosedRun } from './ship-run-live';
+import { resolveStateRoot } from './state-root';
 import { bin, carryNoneLines, firstLine, flagReader, gh, git, hostedOrigin, laneConcurrency, laneLine, lanes, mappedLanes, recordCiTimeout, Report, runLanes, shipPolicy, short } from './ship-bin-common';
 
 export const PREFLIGHT_HELP = `gstack-ship-preflight — /ship Steps 1-3 and Step 5's pregate and lanes in one call (ship/SKILL.md)
@@ -63,9 +65,12 @@ const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
  * or abandoned record of another run is replaced once Steps 1-3 pass; a preflight with no --run stops on a stopped one, which it
  * could not replace. A record that already names this --run stops too: a run id is
  * one /ship run (gstack-evals#406). A --run is still opened on the checkout's lease, before the fetch, for the upgrade guard alone, and
- * one that cannot be is a STOP, never an unprotected run.
+ * one that cannot be is a STOP, never an unprotected run. An open record whose own budget ledger already closed is a finished run, so it
+ * is ended first (endClosedRun, GST-4109); one whose ledger is still open keeps blocking.
  */
 function shipRunClear(cwd: string, base: string, run: string | undefined, r: Report): boolean {
+  const ended = endClosedRun(git(cwd, ['rev-parse', '--show-toplevel']).stdout.trim(), resolveStateRoot(process.env));
+  if (ended) r.add(ended);
   const read = readRunRecord(cwd);
   const open = openRun(read);
   if (open && (open.state !== 'stopped' || !run)) {
