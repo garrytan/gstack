@@ -347,6 +347,7 @@ gstack_result_anchor() {
     RECEIPT_DOCS_AUDIT_READ) printf '%s' 'receipt-docs-audit-read' ;;
     DOCS_AUDIT_BLOCKED) printf '%s' 'docs-audit-blocked' ;;
     DOCS_RESULT_INVALID) printf '%s' 'docs-result-invalid' ;;
+    DOCS_RUN_FOLDER_MISSING) printf '%s' 'docs-run-folder-missing' ;;
     RECEIPT_PROSE_MISMATCH) printf '%s' 'receipt-prose-mismatch' ;;
     RECEIPT_CARRY_PREGATE_STALE) printf '%s' 'receipt-carry-pregate-stale' ;;
     RECEIPT_GIT_TOO_OLD) printf '%s' 'receipt-git-too-old' ;;

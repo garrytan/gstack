@@ -28,6 +28,8 @@
  * or already contains it while the branch has commits its real base lacks is
  * refused (BASE_CONTAINS_HEAD, lib/default-base.ts): it would select nothing.
  * --run names the /ship invocation (its record's path) and is saved as run_id.
+ * A --out or --run folder that does not exist yet refuses before anything is
+ * read (DOCS_RUN_FOLDER_MISSING): no audit ran, so it spends no attempt.
  * --pre <Prepare snapshot> marks a post snapshot: it must be this audit's
  * (same audit id, HEAD and run) and the record saves `edited`, each path whose
  * content the audit changed with its content before (the Prepare hash, else
@@ -250,6 +252,9 @@ function main(argv: string[]): void {
     const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs', '--exception', '--run', '--pre', '--carry', '--carry-stopped']);
     for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
     const out = path.resolve(one(args, '--out'));
+    const run = optional(args, '--run');
+    const absent = [...new Set([path.dirname(out), ...(run === undefined ? [] : [path.dirname(path.resolve(run))])])].filter(d => !fs.existsSync(d));
+    if (absent.length) throw new Error(resultLine('snapshot', 'DOCS_RUN_FOLDER_MISSING', `${absent.join(', ')} does not exist yet; this Prepare snapshot read nothing and launched no audit, so it spends no attempt`));
     const top = fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim());
     if (out === top || out.startsWith(top + path.sep)) throw new Error('--out must be outside the repository');
     const mode = one(args, '--mode');
@@ -268,7 +273,6 @@ function main(argv: string[]): void {
     const docs = expand(listed, docsPaths(listed, flag(args, '--docs')));
     const tracked = [...new Set([...selected, ...docs, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
     const auditId = one(args, '--audit-id');
-    const run = optional(args, '--run');
     const record = { schema_version: 1, audit_id: auditId, ...(run === undefined ? {} : { run_id: run }), mode, base, ...now, selected, docs, hashes: hashes(tracked), ...(exception ? { exception } : {}) };
     if (carryFile !== undefined && (preFile === undefined || run === undefined)) throw new Error('--carry needs --pre and --run: only a post snapshot of a named /ship run carries an earlier audit');
     if (stoppedFile !== undefined && (preFile === undefined || run === undefined)) throw new Error('--carry-stopped needs --pre and --run: only a post snapshot of a named /ship run carries a stopped audit');

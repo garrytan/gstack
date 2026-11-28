@@ -63,7 +63,7 @@ import { RISK_CLASSES, type RiskClass } from '../lib/review-risk';
 import { checkReceiptProse, proseLine } from '../lib/ship-receipt-prose';
 import { resolveStateRoot } from '../lib/state-root';
 import { readPause, receiptBaseRed } from '../lib/base-red';
-import { bodyLineText, bodyListsLine, INTERNAL_ID, keepsInternalIds, publicRuledNote, readRuledNotes, redactInternalIds, RELAYED_REF, repoRuledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { bodyLineText, bodyListsLine, INTERNAL_ID, keepsInternalIds, publicRuledNote, readRuledNotes, redactInternalIds, RELAYED_REF, repoRuledNotes, ruledNoteText, shiftedRulings } from '../lib/ruled-notes';
 import { renderMode, repoVisibility } from '../lib/approval-record';
 import { appliedGateDispositions, gateDispositionText, publicGateDisposition } from '../lib/gate-dispositions';
 import { securityFingerprints } from '../lib/security-findings';
@@ -377,14 +377,20 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
     const loopRaw = jsonArg(flag(rest, '--review-loop'));
     const reviewLoop = loopRaw ? parseReviewLoop(loopRaw) : undefined;
     if (loopRaw && !reviewLoop) throw new Error('--review-loop needs integer passes, blocking_found and deferred (gstack-review-scope summary --out <file>, then @<file>)');
-    const ruledOpen = unruledOpenBlockers(loopRaw, ruledNotes, ruledHead => spawnSync('git', ['merge-base', '--is-ancestor', ruledHead, headSha ?? head], { cwd: repoRoot, timeout: 30_000 }).status === 0);
+    const onHead = (ruledHead: string) => spawnSync('git', ['merge-base', '--is-ancestor', ruledHead, headSha ?? head], { cwd: repoRoot, timeout: 30_000 }).status === 0;
+    const loopOpen: unknown[] = Array.isArray(loopRaw?.open) ? loopRaw.open : [];
+    const rows = loopOpen.length && unruledOpenBlockers(loopRaw, ruledNotes, onHead).length ? reviewRows(repoRoot) ?? [] : [];
+    const shifted = rows.length && ruledNotes.length ? shiftedRulings(repoRoot, loopOpen, rows, ruledNotes, onHead) : [];
+    for (const s of shifted) process.stderr.write(s.line + '\n');
+    const ruledOpen = unruledOpenBlockers(loopRaw, [...ruledNotes, ...shifted], onHead);
     const at = headSha ?? head, baseRef = `origin/${base.replace(/^origin\//, '')}`, run = flag(rest, '--run'), pr = Number(flag(rest, '--pr'));
-    const blockers = (Array.isArray(loopRaw?.open) ? loopRaw.open : []).filter((b: any) => ruledOpen.includes(typeof b === 'string' ? b : b?.id));
-    const rows = ruledOpen.length ? reviewRows(repoRoot) ?? [] : [];
+    const blockers = loopOpen.filter((b: any) => ruledOpen.includes(typeof b === 'string' ? b : b?.id)) as Array<string | { id: string; fingerprint: string }>;
     const clearing = ruledOpen.length ? await import('../lib/review-trailer-clearing') : undefined;
     const byTrailer = clearing ? clearing.clearByTrailer(repoRoot, { head: at, baseRef, rows, open: blockers }) : [];
     for (const t of byTrailer) process.stderr.write(`TRAILER_CLEAR: ${t.id} (fixed by ${t.commit.slice(0, 12)}, read clean by the full review at ${t.review.slice(0, 12)})\n`);
-    const open = ruledOpen.filter(id => !byTrailer.some(t => t.id === id));
+    const byReview = clearing ? clearing.clearByReview(repoRoot, { head: at, baseRef, rows, open: blockers.filter(b => !byTrailer.some(t => t.id === (typeof b === 'string' ? b : b.id))) }) : [];
+    for (const t of byReview) process.stderr.write(`REVIEW_CLEAR: ${t.id} (fixed by ${t.commit.slice(0, 12)}, which changed its file after it was raised and carries no Review-Finding trailer; read clean by the full review at ${t.review.slice(0, 12)})\n`);
+    const open = ruledOpen.filter(id => !byTrailer.some(t => t.id === id) && !byReview.some(t => t.id === id));
     if (open.length) { process.stderr.write(resultLineWithDocs('gstack-ship-receipt write', 'RECEIPT_BLOCKER_OPEN', `${open.join(', ')}; nothing written`) + '\n'); return EXIT.refused; }
     input = {
       schema_version: 1, pr: flag(rest, '--pr') !== undefined ? Number(flag(rest, '--pr')) : undefined, head,
@@ -398,7 +404,7 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
       policy: flag(rest, '--policy') ?? tree?.policy, queue_mode: flag(rest, '--queue-mode'), preregistration: flag(rest, '--preregistration'), history: flag(rest, '--history'),
       ...pregate, issues: issuesFile ? receiptIssuesFrom(issuesFile) : undefined, approval: approval.kind === 'ok' ? approval.approval : undefined,
       review_loop: reviewLoop, ...(docs?.ok ? { docs: docs.docs } : {}), ...product,
-      gstack_version: installedGstackVersion(), review_depth: reviewDepth, cleared_by_trailer: byTrailer.length ? byTrailer : undefined, ruled_notes: ruledNotes.length ? ruledNotes.map(publicRuledNote) : undefined, gate_dispositions: gateDispositions.map(publicGateDisposition), mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
+      gstack_version: installedGstackVersion(), review_depth: reviewDepth, cleared_by_trailer: byTrailer.length ? byTrailer : undefined, cleared_by_review: byReview.length ? byReview : undefined, ruled_notes: ruledNotes.length ? ruledNotes.map(publicRuledNote) : undefined, gate_dispositions: gateDispositions.map(publicGateDisposition), mechanical: mechanical.length ? mechanical : undefined, review_targeted: targeted?.ok ? targeted.targeted : undefined,
       design: review.frontend ? { mode: 'static', reason: 'no preview declared' } : undefined,
       base_red: pause ? receiptBaseRed(pause) : undefined,
       review_exclude: receiptExclude(review.exclude),
@@ -434,7 +440,8 @@ async function cmdWrite(rest: string[], json: boolean): Promise<number> {
     return EXIT.fail;
   }
   const block = renderReceiptBlock(receipt);
-  const closed = [...(receipt.cleared_by_trailer ?? []).map(t => `Closed by fix ${t.commit.slice(0, 12)}: ${t.id} (a later full review at ${t.review.slice(0, 12)} read it clean)`)];
+  const closed = [...(receipt.cleared_by_trailer ?? []).map(t => `Closed by fix ${t.commit.slice(0, 12)}: ${t.id} (a later full review at ${t.review.slice(0, 12)} read it clean)`),
+    ...(receipt.cleared_by_review ?? []).map(t => `Closed by fix ${t.commit.slice(0, 12)}: ${t.id} (no Review-Finding trailer; it changed the finding's file after it was raised, and a later full review at ${t.review.slice(0, 12)} read it clean)`)];
   if (body) {
     let text = fs.existsSync(body) ? fs.readFileSync(body, 'utf8') : '';
     const pr = flag(rest, '--pr');

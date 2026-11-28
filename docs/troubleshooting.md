@@ -8112,6 +8112,22 @@ remaining re-audit with the printed `RETRY_NOTE:` text appended to its prompt,
 word for word; it quotes the exact keys. With no attempt left, Step 14.5 stops
 and reports this code and the keys it names
 ([ship/sections/documentation.md](../ship/sections/documentation.md)).
+
+<a id="docs-run-folder-missing"></a>
+### `DOCS_RUN_FOLDER_MISSING`
+
+**Meaning.** `gstack-docs-candidate snapshot`, /gstack-ship Step 14.5's Prepare
+snapshot, was given an `--out` or `--run` path whose folder does not exist yet,
+usually because the /ship run folder (the invocation record's directory) was not
+created before the docs audit. It refused before reading the repository or
+writing anything, and no audit child was launched, so it spends none of the
+step's two attempts (GSKI-1 #13; before, it died with a raw `ENOENT` that lanes
+counted as a failed launch).
+
+**Fix.** Create the run folder, or correct the path, and rerun the same
+snapshot. Keep the attempt count where it was
+([ship/sections/documentation.md](../ship/sections/documentation.md)).
+
 <a id="gstack-pr-wait"></a>
 ## gstack-pr-wait
 
