@@ -494,13 +494,15 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
     // and the allowlist and placeholder rules see both forms.
     const value = normalizeOriginal(raw).normalized;
     if (allow.has(raw) || allow.has(value) || value.length < MIN_ENV_VALUE_LENGTH || isPlaceholderSpan(value)) continue;
-    for (const { form, alphabet, before, after } of [{ form: value }, ...base64Encodings(value), ...base64Encodings(raw)]) {
+    for (const { form, encoded, before, after } of [{ form: value, encoded: false }, ...base64Encodings(value), ...base64Encodings(raw)]) {
       // GST-4104: a base64 form leaves out the characters it shares with
       // neighbouring bytes, so the characters beside a match must carry the
       // value's bits there too; a value that differs only in those bits
-      // (`build124` for `build123`) is not this secret.
+      // (`build124` for `build123`) is not this secret. Either alphabet's
+      // symbol reads as its index, since a form without symbols is the same
+      // text in both.
       const fits = (c: string | undefined, edge?: Base64Edge) => {
-        const index = c === undefined || !alphabet ? -1 : alphabet.indexOf(c);
+        const index = c === undefined ? -1 : Math.max(BASE64_STANDARD.indexOf(c), BASE64_URL.indexOf(c));
         return !edge || index < 0 || (index & edge.mask) === edge.bits;
       };
       let from = 0;
@@ -521,7 +523,7 @@ function scanInternal(input: string, opts: ScanOptions, spans?: Map<Finding, Ori
           tier: "HIGH",
           severity: "HIGH",
           category: "secret",
-          description: `Value of the ${name} environment variable${alphabet ? ", base64-encoded" : ""}`,
+          description: `Value of the ${name} environment variable${encoded ? ", base64-encoded" : ""}`,
           line,
           col,
           // A live credential: the name already says what leaked; show no bytes.
@@ -588,9 +590,9 @@ const BASE64_TAIL_BITS = [0, 2, 4];
 const BASE64_STANDARD = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const BASE64_URL = BASE64_STANDARD.slice(0, 62) + "-_";
 interface Base64Edge { mask: number; bits: number }
-function base64Encodings(value: string): Array<{ form: string; alphabet: string; before?: Base64Edge; after?: Base64Edge }> {
+function base64Encodings(value: string): Array<{ form: string; encoded: true; before?: Base64Edge; after?: Base64Edge }> {
   const bytes = Buffer.from(value, "utf8");
-  const out: Array<{ form: string; alphabet: string; before?: Base64Edge; after?: Base64Edge }> = [];
+  const out: Array<{ form: string; encoded: true; before?: Base64Edge; after?: Base64Edge }> = [];
   for (const [shift, lead] of BASE64_LEAD.entries()) {
     const encoded = Buffer.concat([Buffer.alloc(shift), bytes]).toString("base64").replace(/=+$/, "");
     const leadBits = BASE64_LEAD_BITS[shift]!;
@@ -600,8 +602,8 @@ function base64Encodings(value: string): Array<{ form: string; alphabet: string;
     const edge = (c: string, mask: number) => ({ mask, bits: BASE64_STANDARD.indexOf(c) & mask });
     const before = leadBits ? edge(encoded[lead - 1]!, (1 << leadBits) - 1) : undefined;
     const after = tailBits ? edge(encoded[encoded.length - 1]!, ((1 << tailBits) - 1) << (6 - tailBits)) : undefined;
-    out.push({ form: core, alphabet: BASE64_STANDARD, before, after });
-    out.push({ form: core.replace(/\+/g, "-").replace(/\//g, "_"), alphabet: BASE64_URL, before, after });
+    out.push({ form: core, encoded: true, before, after });
+    out.push({ form: core.replace(/\+/g, "-").replace(/\//g, "_"), encoded: true, before, after });
   }
   return out;
 }

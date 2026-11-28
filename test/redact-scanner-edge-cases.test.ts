@@ -84,6 +84,19 @@ describe("env.value: a base64 form matches only the secret's exact bits", () => 
     }
   });
 
+  test("a base64 or base64url symbol beside a form is read for its bits in either alphabet", () => {
+    const value = "build123secretvalue";
+    const near = { MY_API_TOKEN: value };
+    const forms = (shift: number) => Buffer.concat([Buffer.alloc(shift), Buffer.from(value)]).toString("base64").replace(/=+$/, "");
+    const core = forms(1).slice(2, -1);
+    expect(forms(1)[1]).toBe("G");
+    for (const lead of ["+", "/", "-", "_", "Q"]) {
+      const hits = scan("xx " + lead + core + " yy", { processEnv: near }).findings.filter((f) => f.id === "env.value");
+      expect({ lead, hits: hits.length }).toEqual({ lead, hits: 0 });
+    }
+    expect(scan("xx G" + core + " yy", { processEnv: near }).findings.filter((f) => f.id === "env.value").length).toBe(1);
+  });
+
   test("the exact secret's base64 and base64url forms still report HIGH at every alignment, mid-stream and at its end", () => {
     for (const shift of [0, 1, 2]) for (const tail of [0, 31]) for (const u of [false, true]) {
       const text = u ? url(stream("build123", shift, tail)) : stream("build123", shift, tail);
