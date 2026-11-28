@@ -35,11 +35,11 @@ export const OWNER_REF = /^[A-Z][A-Z0-9]*-[1-9]\d*:[A-Za-z0-9][\w.:+-]*$/;
  * A Capy thread or message id as public text must never carry it (GST-1955, CAPY-1 qm#3938): a `jam_` thread id, an `icm_` or `iev_`
  * message id, or a relay ref in OWNER_REF's shape, `<thread code>:<message id or timestamp>`. A thread code alone (`GStack Minder (GSTA-36)`) names a ruler.
  * Two exemptions sit on top of those catches (GST-4105), each a lookaround that leaves the matched text as it was: an id right after a
- * `/` is a file name (`test/jam_fix.ts`) unless it is a full 26-character Capy id, and a ref's message part must be a Capy id or an
- * ISO time (`2026-11-28T09:28Z`), so `SHA-256:abc`, `UTF-8:x`, `PR-12:fix` and `A-1:b` are text. A relayed ruling's ref reads
+ * `/` is a file name (`test/jam_fix.ts`) unless it is a full 26-character Capy id, and a ref's message part must be a Capy id, an
+ * ISO date or time (`2026-11-19`, `2026-11-28T09:28Z`) or epoch seconds (`1732790000`), so `SHA-256:abc`, `UTF-8:x`, `PR-12:fix` and `A-1:b` are text. A relayed ruling's ref reads
  * PRIVATE_REF on a public repository whatever its shape (repoRuledNotes).
  */
-export const INTERNAL_ID = /\b(?:(?<!\/)|(?=(?:jam|icm|iev)_[A-Za-z0-9]{26}(?![A-Za-z0-9])))(?:jam|icm|iev)_[A-Za-z0-9]+|\b[A-Z][A-Z0-9]*-[1-9]\d*:(?=(?:jam|icm|iev)_[A-Za-z0-9]|\d{4}-\d\d-\d\dT\d\d:\d\d)[A-Za-z0-9][\w.:+-]*/;
+export const INTERNAL_ID = /\b(?:(?<!\/)|(?=(?:jam|icm|iev)_[A-Za-z0-9]{26}(?![A-Za-z0-9])))(?:jam|icm|iev)_[A-Za-z0-9]+|\b[A-Z][A-Z0-9]*-[1-9]\d*:(?=(?:jam|icm|iev)_[A-Za-z0-9]|\d{4}-\d\d-\d\d|\d{9,}(?![\w.:+-]))[A-Za-z0-9][\w.:+-]*/;
 /** A Ruled note line that relays from anything but PRIVATE_REF: on a public repository its ref is internal whatever its shape. */
 export const RELAYED_REF = /\(relayed from (?!a private message\))/;
 /** What public text says in place of an INTERNAL_ID: the relay a Ruled note names, and any id in an abandon entry's who and why. */

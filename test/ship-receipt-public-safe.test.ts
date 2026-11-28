@@ -308,8 +308,8 @@ describe('a Captain ruling and gate disposition on a public repository write cle
 //   public repository, or any earlier catch slips through; seam=lib/ruled-notes.ts INTERNAL_ID, redactInternalIds, publicReceiptLeaks
 describe('INTERNAL_ID leaves look-alike text alone and keeps every Capy id catch (GST-4105)', () => {
   const caught = ['jam_01abc', 'icm_01M8GG556RYA3HGG7Q12G7GP1J', 'iev_01M8GG5564BWTXRD3PP941B4PD', 'GSTA-36:icm_01M8GG556RYA3HGG7Q12G7GP1J', 'per GSTA-36:icm_01abc',
-    REF, 'GSTA-36:2026-11-28T09:28Z', 'GSTA-36:iev_01abc', '(jam_01abc)', 'see .capy/work/jam_01M8GSKHFHTDZWPHJVG6ZVJ3D4/x', 'ids/icm_01M8GG556RYA3HGG7Q12G7GP1J'];
-  const text = ['SHA-256:abc', 'UTF-8:x', 'PR-12:fix', 'A-1:b', 'test/jam_fix.ts', 'GStack Minder (GSTA-36)', 'my_jam_fix', 'approval a-315e17d615b1', 'lib/icm_parse.ts'];
+    REF, 'GSTA-36:2026-11-28T09:28Z', 'GSTA-36:2026-11-19', 'GSTA-36:1732790000', 'GSTA-36:iev_01abc', '(jam_01abc)', 'see .capy/work/jam_01M8GSKHFHTDZWPHJVG6ZVJ3D4/x', 'ids/icm_01M8GG556RYA3HGG7Q12G7GP1J'];
+  const text = ['SHA-256:abc', 'SHA-256:1234567890abcdef', 'UTF-8:x', 'PR-12:fix', 'A-1:b', 'test/jam_fix.ts', 'GStack Minder (GSTA-36)', 'my_jam_fix', 'approval a-315e17d615b1', 'lib/icm_parse.ts'];
 
   test('each earlier catch still matches and each look-alike does not', () => {
     expect(caught.filter(s => !INTERNAL_ID.test(s))).toEqual([]);
