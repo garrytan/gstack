@@ -1,0 +1,4 @@
+---
+important: blocker
+---
+**The stable release no longer skips a fully tested commit because a report-only workflow failed on it.** The daily stable cut refused v1.104.2.0 because the weekly mutation report, which never blocks a merge, failed on that commit. Now its check runs are set aside like the nightly Windows suite's, along with the other workflows whose own header says they never block: the Trunk flaky-test upload, the marathon evals and the eval sweep. A red free-tests or main-backstop check still keeps a commit out. The weekly mutation report also runs again: the free-suite setup rebuilds a committed bundle whose bytes differ by machine, so the report refused its own fresh checkout as dirty; the workflow now puts those files back first, and the report names the edited files when it does refuse. Release note lines also drop a stray trailing comma or semicolon before the pull request link.
