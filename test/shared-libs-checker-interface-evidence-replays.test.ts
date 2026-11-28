@@ -2,7 +2,6 @@
 import { describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { hasTrustedSharedLibsCheck } from './helpers/shared-libs-review-start-evidence';
 import { fixtureGit, fixtureWorkingTree } from './helpers/shared-libs-eval-fixture';
@@ -173,14 +172,20 @@ describe('errored cat -A read from the captured filtered revalidation', () => {
     expect(hasTrustedSharedLibsCheck(events, showAllRead.expected)).toBe(true);
   });
 
-  // GNU cat itself renders a source with a tab, a control byte, DEL and a non-ASCII character.
-  const sample = 'export const retry = (value: string) =>\tvalue.trim(); // \u0001\u007f café\n';
-  const shownBy = (flag: string) => {
-    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cat-shown-')), 'retry-route.ts');
-    fs.writeFileSync(file, sample);
-    try { return execFileSync('cat', [...(flag ? [flag] : []), file], { encoding: 'utf8', timeout: 10_000 }); }
-    finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }
+  // Recorded from GNU coreutils 9.4 cat for a source with a tab, a control byte, DEL and a
+  // non-ASCII character (stock macOS cat rejects -A, -E and -T).
+  const sample = 'export const retry = (value: string) =>\tvalue.trim(); // \u0001\u007f café\nend\n';
+  const head = 'export const retry = (value: string) =>';
+  const gnu: Record<string, string> = {
+    '-A': `${head}^Ivalue.trim(); // ^A^? cafM-CM-)$\nend$\n`,
+    '-e': `${head}\tvalue.trim(); // ^A^? cafM-CM-)$\nend$\n`,
+    '-t': `${head}^Ivalue.trim(); // ^A^? cafM-CM-)\nend\n`,
+    '-v': `${head}\tvalue.trim(); // ^A^? cafM-CM-)\nend\n`,
+    '-E': `${head}\tvalue.trim(); // \u0001\u007f café$\nend$\n`,
+    '-T': `${head}^Ivalue.trim(); // \u0001\u007f café\nend\n`,
+    '-vET': `${head}^Ivalue.trim(); // ^A^? cafM-CM-)$\nend$\n`,
   };
+  const shownBy = (flag: string) => gnu[flag];
   const withShown = (flag: string, shown: string) => {
     const events = structuredClone(showAllRead.events), call = read(events), result = output(events, call.id);
     const expected: any = structuredClone(showAllRead.expected);
@@ -191,12 +196,12 @@ describe('errored cat -A read from the captured filtered revalidation', () => {
     return { events, expected };
   };
 
-  test.skipIf(process.platform === 'win32').each(['-A', '-e', '-t', '-v', '-E', '-T', '-vET'])('GNU cat %s output of the exact source counts', flag => {
+  test.each(['-A', '-e', '-t', '-v', '-E', '-T', '-vET'])('GNU cat %s output of the exact source counts', flag => {
     const { events, expected } = withShown(flag, shownBy(flag));
     expect(hasTrustedSharedLibsCheck(events, expected)).toBe(true);
   });
 
-  test.skipIf(process.platform === 'win32').each([['-T', '-A'], ['-A', '-v'], ['-e', '-A'], ['-E', '-e']])('cat %s with the output of cat %s is still rejected', (flag, printed) => {
+  test.each([['-T', '-A'], ['-A', '-v'], ['-e', '-A'], ['-E', '-e']])('cat %s with the output of cat %s is still rejected', (flag, printed) => {
     const { events, expected } = withShown(flag, shownBy(printed));
     expect(hasTrustedSharedLibsCheck(events, expected)).toBe(false);
   });
