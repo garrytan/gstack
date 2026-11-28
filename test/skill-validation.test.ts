@@ -1567,7 +1567,7 @@ describe('Codex skill', () => {
     expectMentions(content, [['only', 'disabled', 'passes']], 'content');
     // Review log
     expect(content).toContain('adversarial-review');
-    expect(content).toContain('run-with-timeout --effort high ');
+    expect(content).toContain('gstack-outside-voice" run --runner codex-cli --pass adversarial --gate review --effort high ');
     expect(content).toContain('ADVERSARIAL REVIEW SYNTHESIS');
     // Large diff structured review still gated
     expectMentions(content, [['only', 'structured', 'review']], 'content');
@@ -1675,8 +1675,11 @@ describe('Codex skill', () => {
       const content = rel === 'ship/SKILL.md' ? readShipUnion()
         : rel === 'review/SKILL.md' ? readSkillUnion('review')
         : readSkillUnion('codex');
-      expect(content).toMatch(/codex\s+exec\s+-\s/);
-      expect(content).toContain('git merge-base <base> HEAD');
+      if (rel === 'review/SKILL.md') expect(content).toMatch(/gstack-outside-voice" run --runner codex-cli --pass structured .*--append-diff <base> /);
+      else {
+        expect(content).toMatch(/codex\s+exec\s+-\s/);
+        expect(content).toContain('git merge-base <base> HEAD');
+      }
       const offending: string[] = [];
       for (const line of content.split('\n')) {
         if (line.includes('`codex review`')) continue;
