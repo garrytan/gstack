@@ -58,7 +58,14 @@ describe('every rendered Codex invocation is classified by the shared validator'
   test('the Claude render has the expected invocation sites', () => {
     const files = new Set(rendered.claude!.map(s => s.file.replace(/^claude\//, '')));
     for (const expected of ['codex/sections/review-mode.md', 'codex/sections/challenge-mode.md', 'codex/sections/consult-mode.md',
-      'review/sections/adversarial.md', 'ship/sections/adversarial.md']) expect(files.has(expected)).toBe(true);
+      'ship/sections/adversarial.md']) expect(files.has(expected)).toBe(true);
+  });
+
+  test('the Claude /review render runs Codex only through gstack-outside-voice, which classifies with the shared validator', () => {
+    expect(rendered.claude!.filter(s => s.file === 'claude/review/sections/adversarial.md')).toEqual([]);
+    const section = fs.readFileSync(path.join(TMP, 'claude', 'review', 'sections', 'adversarial.md'), 'utf8');
+    expect(section.match(/gstack-outside-voice" run --runner codex-cli --pass (adversarial|structured) /g)?.length).toBe(2);
+    expect(fs.readFileSync(path.join(ROOT, 'lib', 'outside-voice-runner.ts'), 'utf8')).toMatch(VALIDATOR);
   });
 
   for (const host of ['claude', 'codex']) {

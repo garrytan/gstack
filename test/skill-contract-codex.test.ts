@@ -281,7 +281,7 @@ describe('checkContract on Codex with the real /review contract', () => {
   test('the contract comes from gstack\'s own review/SKILL.md, all three items', () => {
     const t = rollout('exec-read-met.jsonl');
     expect(transcriptContract(t, 'gstack-review', {})).toMatchObject({ file: path.join(ROOT, 'review', 'SKILL.md') });
-    expect(realReview(t).items.map(i => i.kind)).toEqual(['selected_specialists_dispatched', 'agent_dispatch', 'report_labels']);
+    expect(realReview(t).items.map(i => i.kind)).toEqual(['selected_specialists_dispatched', 'agent_dispatch', 'outside_voice', 'report_labels']);
   });
 
   test('specialists-dispatched is skipped on Codex and only there', () => {

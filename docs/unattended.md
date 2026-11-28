@@ -746,7 +746,16 @@ Each prompt file ends with this contract; `submit` enforces it.
 `bin/gstack-outside-voice runners` prints each runner's availability on this
 machine; `family <model>` prints the model family `submit` compares. A completed
 `api` or `host-subagent` review is a full outside voice in the record, labeled
-by its runner. Result codes: `EXECUTION_UNKNOWN`, `RUN_LOCKED`,
+by its runner. `run` also takes `--pass <name>` (adds `pass=<name>` to the
+status line), `--effort <level>` (codex-cli's default reasoning effort, below
+`GSTACK_CODEX_EFFORT` and config `codex_effort`), `--append-diff <base>` (adds
+the diff from `git merge-base <base> HEAD` to a private copy of the prompt) and
+`--show` (prints the status line, the review text, then the status line again).
+Without `--json`, every run that gets past its arguments ends with one
+`OUTSIDE_STATUS:` line, including refusals (`not_run`), an unavailable runner
+or unreadable diff (`unavailable`) and a crash (`failed reason=internal_error`);
+/review's Stop-hook `outside_voice` item reads that line
+([skill-routing-and-contracts.md](skill-routing-and-contracts.md)). Result codes: `EXECUTION_UNKNOWN`, `RUN_LOCKED`,
 `RUN_NOT_INITIALIZED`, `PHASE_NOT_AWAITING`, `ATTEMPT_MISMATCH`,
 `RESULT_RECEIPT_MISSING`, `RESULT_FINDINGS_MISSING`, `MODEL_FAMILY_CONFLICT`,
 `SPEND_CAP_EXCEEDED`, `CONSENSUS_MISSING`, `OUTSIDE_RUNNER_UNAVAILABLE`

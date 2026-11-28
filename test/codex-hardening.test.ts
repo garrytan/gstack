@@ -636,8 +636,7 @@ describe('codex review-mode section Step 2A: PROMPT + --base mutual exclusion gu
 // which downstream reads as "Codex reviewed and found nothing".
 describe('codex timeout wrapper: /review + /ship diff passes', () => {
   const WRAPPED_SITES = [
-    'scripts/resolvers/outside-voice-steps.ts', // generator (source of truth)
-    'review/sections/adversarial.md', // review section (Step 4.8 carved out of the skeleton)
+    'scripts/resolvers/outside-voice-steps.ts', // generator (source of truth), /ship render
     'ship/sections/adversarial.md', // ship section source
   ];
 
@@ -647,7 +646,7 @@ describe('codex timeout wrapper: /review + /ship diff passes', () => {
 
   for (const relPath of WRAPPED_SITES) {
     const read = () => relPath === 'scripts/resolvers/outside-voice-steps.ts'
-      ? generateAdversarialStep({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'review', tmplPath: 'review/SKILL.md.tmpl' })
+      ? generateAdversarialStep({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'ship', tmplPath: 'ship/SKILL.md.tmpl' })
       : fs.readFileSync(path.join(ROOT, relPath), 'utf8');
 
     test(`${relPath}: both diff-review Codex calls run under the wrapper`, () => {
@@ -674,6 +673,23 @@ describe('codex timeout wrapper: /review + /ship diff passes', () => {
         // call first and the exit-124 branch below it becomes dead code.
         expect(ms).toBeLessThan(BASH_GATE_MS);
       }
+    });
+  }
+
+  // Standalone /review runs both passes through gstack-outside-voice, whose own --timeout-ms stops Codex first.
+  for (const relPath of ['scripts/resolvers/outside-voice-steps.ts', 'review/sections/adversarial.md']) {
+    test(`${relPath} (/review): both Codex passes run through gstack-outside-voice under the outer Bash gate`, () => {
+      const text = relPath === 'review/sections/adversarial.md' ? fs.readFileSync(path.join(ROOT, relPath), 'utf8')
+        : generateAdversarialStep({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'review', tmplPath: 'review/SKILL.md.tmpl' });
+      const budgets = [...text.matchAll(/gstack-outside-voice" run --runner codex-cli --pass (?:adversarial|structured) .*--timeout-ms (\d+)/g)].map(m => Number(m[1]));
+      expect(budgets.length).toBe(2);
+      for (const ms of budgets) expect(ms).toBeLessThan(BASH_GATE_MS);
+      const fences = [...text.matchAll(/```bash\n([\s\S]*?)```/g)].map(m => m[1]!).filter(f => f.includes('gstack-outside-voice" run'));
+      expect(fences.length).toBe(2);
+      for (const fence of fences) expect(fence.indexOf('harness mismatch')).toBeGreaterThan(-1);
+      for (const fence of fences) expect(fence.indexOf('harness mismatch')).toBeLessThan(fence.indexOf('gstack-outside-voice" run'));
+      expect(text.match(new RegExp(`Use Bash \`timeout: ${BASH_GATE_MS}\``, 'g'))?.length).toBe(2);
+      expect(text).not.toMatch(/doesn't exist on macOS/);
     });
   }
 });

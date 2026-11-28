@@ -67,6 +67,7 @@ For each conditional specialist that passed scope gating, read the `gstack-speci
 
 Print the selection:
 "Dispatching N specialists: [names]. Skipped: [names] (scope not detected). Gated: [names] (0 findings in N+ reviews)."
+Only names go on that line. When DIFF_LINES > 200, name `red-team` there too (it counts in N) and dispatch it after the others return, as Red Team dispatch below says.
 
 ---
 

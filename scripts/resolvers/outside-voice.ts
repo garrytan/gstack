@@ -191,6 +191,28 @@ Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fen
 }
 
 /**
+ * The Codex passes of standalone /review run through bin/gstack-outside-voice (GEVA-590): one command whose tool prints
+ * `OUTSIDE_STATUS: <status> ... pass=<pass>` on every outcome, so a model that rewrites the shell cannot drop the line
+ * /review's Stop-hook contract (item outside-voice) reads from the Bash result.
+ */
+export function outsideVoiceHelperInvocation(ctx: TemplateContext, opts: { pass: 'adversarial' | 'structured'; gate: 'review' | 'structured'; appendDiffBase?: string }): string {
+  const bin = toShellPath(ctx.paths.binDir);
+  const completion = opts.gate === 'structured'
+    ? `Put the filesystem boundary first. Request [P0]-[P3] severity tags and ${VERDICT_LAST_LINE}.`
+    : `Request severity (Critical, High, Medium or Low) per finding, a Recommendation: <action> because <reason> line, and ${VERDICT_LAST_LINE}.`;
+  const run = `"${bin}/gstack-outside-voice" run --runner codex-cli --pass ${opts.pass} --gate ${opts.gate} --effort high --timeout-ms ${OUTSIDE_GATE_MAX_MS - OUTSIDE_CLEANUP_MS} --show${opts.appendDiffBase ? ` --append-diff ${opts.appendDiffBase}` : ''} --prompt '<prepared-prompt-file>' --out "$_OUTSIDE_TMP/review.md"`;
+  return `Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for \`<prepared-prompt-file>\`; never interpolate user text into shell source. ${completion}
+
+Run this block unchanged and never call \`codex\` yourself: \`gstack-outside-voice\` runs Codex, prints the review, \`VERDICT:\` and \`FINDINGS:\`, and on every outcome ends with its own \`OUTSIDE_STATUS: <status> ... pass=${opts.pass}\` line, the record the Stop check reads.
+
+\`\`\`bash
+${[runtimeRootPrelude(ctx), outsideVoiceGuard(ctx), '_OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1', 'trap \'rm -r "$_OUTSIDE_TMP"\' EXIT', run].filter(Boolean).join('\n')}
+\`\`\`
+
+Use Bash \`timeout: ${OUTSIDE_GATE_MAX_MS}\` in the foreground, never \`run_in_background\`; show the full response in a \`tool-output\` fence. Only \`OUTSIDE_STATUS: completed\` is outside coverage; \`unverified\` is missing coverage, and any other status (refusal, empty or malformed output, timeout, CLI failure) means \`outside_status: unavailable\` for the reason it names. P0/P1 findings block like native ones. Retain the required native pass without duplicating it; it cannot complete outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.`;
+}
+
+/**
  * outsideVoiceFailurePolicy owns the auth / timeout / empty-response / fallback
  * bullets every outside-voice step renders after its invocation (moved from
  * the copies in review.ts and design.ts). Add a call site by passing that

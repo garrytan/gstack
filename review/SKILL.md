@@ -24,8 +24,9 @@ triggers:
 contract:
   version: 1
   items:
-    - { id: specialists-dispatched, kind: selected_specialists_dispatched, marker: "Dispatching N specialists:" }
+    - { id: specialists-dispatched, kind: selected_specialists_dispatched, marker: "Dispatching N specialists:", large_diff: { marker: "DIFF_LINES: N", over: 200, names: [red-team] } }
     - { id: adversarial-pass, kind: agent_dispatch, match: Think like an attacker and a chaos engineer, task_name: adversarial }
+    - { id: outside-voice, kind: outside_voice, pass: adversarial }
     - { id: review-report, kind: report_labels, heading: Pre-Landing Review, labels: [Gate edits] }
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
@@ -35,8 +36,9 @@ contract:
 
 Finish only when each of these exists (contract v1):
 
-- `specialists-dispatched`: the specialist selection printed (`Dispatching N specialists:` ...), then one Agent dispatch per specialist it names (none when a small diff skips them).
+- `specialists-dispatched`: the specialist selection printed (`Dispatching N specialists:` ...), then one Agent dispatch per specialist it names (none when a small diff skips them), plus `red-team` when Bash prints `DIFF_LINES: N` over 200.
 - `adversarial-pass`: an Agent dispatch for the adversarial pass, its prompt including "Think like an attacker and a chaos engineer".
+- `outside-voice`: Step 4.8's `gstack-outside-voice --pass adversarial` status, or a non-ready `CODEX_MODE:`.
 - `review-report`: a `Pre-Landing Review` with Gate edits filled in (`none: <why>` where the skill's own stop rule leaves one empty).
 
 `~/.claude/skills/gstack/bin/gstack-skill-contract check` reads them from the transcript (docs/skill-routing-and-contracts.md). For an item that truly does not apply, run `~/.claude/skills/gstack/bin/gstack-skill-contract waive <item> --reason "<why>"` (this session only; it counts as a miss).
@@ -210,7 +212,7 @@ sections. Read a section in full before doing its step; do not work from memory.
 | leaving Step 1.5 | `sections/plan-completion.md` |
 | Select surfaces and read QA methods | Inline in [Step 4](#step-4-critical-pass-core-review); setup and probes run in Step 4.7 |
 | dispatching the Review Army specialists and merging their findings after the critical pass (Step 4.5) | `sections/review-army.md` |
-| running the always-on native adversarial review before fixes (Step 4.8) | `sections/adversarial.md` |
+| running Step 4.8's reviews | `sections/adversarial.md` |
 | reusing explicitly skipped shared-code advice (Step 5.0) | `sections/shared-code-reuse.md` |
 
 ---
@@ -285,7 +287,7 @@ git diff "$DIFF_BASE"
    REVIEW_START, then `FIX_BASE=<sha>`. Wherever this pass sets DIFF_BASE outside
    Step 4.8, use FIX_BASE instead; Step 4.8 and every other `<base>` use stay full.
    On refusal, start a full pass.
-3. Native/outside reviewer attempts own separate PASS_START tokens, not REVIEW_START.
+3. Other reviewer runs own separate PASS_START tokens, not REVIEW_START.
 4. Read non-ignored untracked source too (`git ls-files --others --exclude-standard`);
    the captured candidate includes it.
 5. First pass only: emit Step 1.5's final Scope Check; `Diff read` records this read.
@@ -294,7 +296,7 @@ Keep the review-record terms separate:
 
 | Value | Purpose and owner |
 |---|---|
-| REVIEW_START / PASS_START | Opaque start receipts from the logger: one for the core pass, one for each other reviewer attempt. |
+| REVIEW_START / PASS_START | Opaque start receipts from the logger (items 1 and 3). |
 | Finding fingerprint | Groups duplicate findings. The installed helper computes shared-code fingerprints; a matching key alone never proves a prior Skip is reusable. |
 | `review_binding` | The logger's proof tying a finished review to its captured candidate, not a finding identifier. |
 | `snapshot_covered_paths` | Supporting advice files the logger proved byte-identical to that candidate. Used by the prior-Skip checker, never supplied by the reviewer. |
@@ -671,7 +673,7 @@ findings and decides completion.
 
 ---
 
-> **STOP.** Before running the always-on native adversarial review before fixes (Step 4.8), Read `~/.claude/skills/gstack/review/sections/adversarial.md` and execute it
+> **STOP.** Before running Step 4.8's reviews, Read `~/.claude/skills/gstack/review/sections/adversarial.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ## Step 5: Fix-First Review
@@ -892,11 +894,9 @@ Before replying, run greptile-triage.md's **Escalation Detection** to pick Tier 
   zero counts and `completed:false`; explain the gap. Advice never blocks clean
   status or relaxes completion, convergence, start-token or missing-reviewer rules.
 
-The required in-host adversarial result controls native completion. Optional outside
-attempts keep their own incomplete records when unavailable and cannot substitute
-for the native result, or vice versa. Step 4.8's structured-review gate still applies.
-An outside review reporting `unverified` or `unavailable` is missing coverage, never a
-pass: report it with its reason.
+Outside records cannot substitute for the native adversarial result, or vice versa,
+and outside `unverified` or `unavailable` is missing coverage, never a pass. Step
+4.8's structured-review gate still applies.
 
 - Use Step 4.6's `specialists` object unchanged, including its small-diff map.
   If this host omits Review Army, use `specialists: {}` without claiming specialist coverage.

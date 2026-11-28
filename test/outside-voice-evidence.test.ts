@@ -25,6 +25,14 @@ describe('cross-harness live eval evidence', () => {
     transcript.push({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'outside', content: finding }] } } as any);
     expect(foundInvoiceAuthorizationDefect(claudeOutsideExecutions(transcript), 'codex')).toBe(true);
   });
+  test('/review runs Codex through gstack-outside-voice; its completed output counts and an unavailable status does not', () => {
+    const run = (content: string) => foundInvoiceAuthorizationDefect(claudeOutsideExecutions([
+      { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'ov', name: 'Bash', input: { command: '"/runtime/bin/gstack-outside-voice" run --runner codex-cli --pass adversarial --show' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'ov', content }] } },
+    ]), 'codex');
+    expect(run(`${finding}\nOUTSIDE_STATUS: completed provider=codex-cli pass=adversarial`)).toBe(true);
+    expect(run(`${finding}\nOUTSIDE_STATUS: unavailable reason=timeout pass=adversarial`)).toBe(false);
+  });
   test('Codex requires completed, successful command execution with findings in its output', () => {
     const event = { type: 'item.completed', item: { type: 'command_execution', command: '"/runtime/bin/gstack-claude-code" --cwd /repo --access none --timeout-ms 1000', aggregated_output: finding, exit_code: 0 } };
     expect(foundInvoiceAuthorizationDefect(codexOutsideExecutions([JSON.stringify(event)]), 'claude-code')).toBe(true);

@@ -184,7 +184,7 @@ export function codexExecutionTranscript(executions: OutsideExecution[]) {
 }
 
 function outsideInvocation(provider: 'codex' | 'claude-code'): RegExp {
-  return provider === 'codex' ? /\bcodex\s+(?:exec|review)\b/
+  return provider === 'codex' ? /\bcodex\s+(?:exec|review)\b|\bgstack-outside-voice(?:['"])?\s+run\s+--runner\s+codex-cli\b/
     : /\bgstack-claude-code(?:['"])?\s+--/;
 }
 

@@ -29,8 +29,9 @@ triggers:
 contract:
   version: 1
   items:
-    - { id: specialists-dispatched, kind: selected_specialists_dispatched, marker: "Dispatching N specialists:" }
+    - { id: specialists-dispatched, kind: selected_specialists_dispatched, marker: "Dispatching N specialists:", large_diff: { marker: "DIFF_LINES: N", over: 200, names: [red-team] } }
     - { id: adversarial-pass, kind: agent_dispatch, match: Think like an attacker and a chaos engineer, task_name: adversarial }
+    - { id: outside-voice, kind: outside_voice, pass: adversarial }
     - { id: review-report, kind: report_labels, heading: Pre-Landing Review, labels: [Gate edits] }
 ---
 
@@ -104,7 +105,7 @@ git diff "$DIFF_BASE"
    REVIEW_START, then `FIX_BASE=<sha>`. Wherever this pass sets DIFF_BASE outside
    Step 4.8, use FIX_BASE instead; Step 4.8 and every other `<base>` use stay full.
    On refusal, start a full pass.
-3. Native/outside reviewer attempts own separate PASS_START tokens, not REVIEW_START.
+3. Other reviewer runs own separate PASS_START tokens, not REVIEW_START.
 4. Read non-ignored untracked source too (`git ls-files --others --exclude-standard`);
    the captured candidate includes it.
 5. First pass only: emit Step 1.5's final Scope Check; `Diff read` records this read.
@@ -113,7 +114,7 @@ Keep the review-record terms separate:
 
 | Value | Purpose and owner |
 |---|---|
-| REVIEW_START / PASS_START | Opaque start receipts from the logger: one for the core pass, one for each other reviewer attempt. |
+| REVIEW_START / PASS_START | Opaque start receipts from the logger (items 1 and 3). |
 | Finding fingerprint | Groups duplicate findings. The installed helper computes shared-code fingerprints; a matching key alone never proves a prior Skip is reusable. |
 | `review_binding` | The logger's proof tying a finished review to its captured candidate, not a finding identifier. |
 | `snapshot_covered_paths` | Supporting advice files the logger proved byte-identical to that candidate. Used by the prior-Skip checker, never supplied by the reviewer. |
@@ -428,11 +429,9 @@ Before replying, run greptile-triage.md's **Escalation Detection** to pick Tier 
   zero counts and `completed:false`; explain the gap. Advice never blocks clean
   status or relaxes completion, convergence, start-token or missing-reviewer rules.
 
-The required in-host adversarial result controls native completion. Optional outside
-attempts keep their own incomplete records when unavailable and cannot substitute
-for the native result, or vice versa. Step 4.8's structured-review gate still applies.
-An outside review reporting `unverified` or `unavailable` is missing coverage, never a
-pass: report it with its reason.
+Outside records cannot substitute for the native adversarial result, or vice versa,
+and outside `unverified` or `unavailable` is missing coverage, never a pass. Step
+4.8's structured-review gate still applies.
 
 - Use Step 4.6's `specialists` object unchanged, including its small-diff map.
   If this host omits Review Army, use `specialists: {}` without claiming specialist coverage.

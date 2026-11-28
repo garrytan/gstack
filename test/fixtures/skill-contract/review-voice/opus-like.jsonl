@@ -1,0 +1,9 @@
+{"type":"user","message":{"role":"user","content":"<command-name>/review</command-name> Review the changes on this branch against the base branch main."}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Dispatching 2 specialists: testing, security. Skipped: performance (scope not detected)."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"a1","name":"Agent","input":{"description":"testing specialist","prompt":"You are the testing specialist. Read the diff.","run_in_background":false}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"a1","content":"NO FINDINGS"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"a2","name":"Agent","input":{"description":"security specialist","prompt":"You are the security specialist. Read the diff.","run_in_background":false}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"a2","content":"NO FINDINGS"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"a3","name":"Agent","input":{"description":"adversarial","prompt":"Think like an attacker and a chaos engineer. Find failures.","run_in_background":false}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"a3","content":"Recommendation: Ship as-is because nothing found"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Pre-Landing Review: 0 issues (0 critical, 0 informational)\nCodex outside review (optional, not run).\nGate edits: none detected (0 listed, 0 read; patterns: ts; unlisted idioms: none)\nSTATUS: DONE"}]}}

@@ -207,6 +207,70 @@ describe('never blocks the wrong turn', () => {
     expect(stop(transcript(unanswered, 'unanswered.jsonl'), {}, { session_id: 'sess-2' })).toEqual({ code: 0, stdout: '', stderr: '' });
   });
 
+  // Value: protects=a headless one-shot session (claude -p) cannot end while Agents its skill run started are still running, which
+  //   lost specialists, adversarial passes and the Red Team in GEVA-590's Fable runs; fails_when=the hook allows that stop
+  //   (deferred) or keeps blocking once the agents report back; why_new=GEVA-590; seam=the Stop hook's pending-agent branch;
+  //   no_claim=how long a model waits after the block
+  test('headless: a stop while background Agents run is blocked on every stop until they finish, then the contract is checked', () => {
+    const base = [slash('review'), say('Dispatching 2 specialists: Testing, Security. Skipped: Performance (scope not detected).')];
+    const running = [...base, tool('a1', 'Agent', { description: 'Testing specialist', prompt: 'review', run_in_background: true }),
+      result('a1', 'Async agent launched in the background. agentId: a1'), tool('a2', 'Agent', { description: 'Security specialist', prompt: 'review', run_in_background: true }),
+      result('a2', 'Async agent launched in the background. agentId: a2'), say('Both specialists are running; the review continues when they report.')];
+    const file = transcript(running);
+    const first = JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout);
+    expect(first.decision).toBe('block');
+    expect(first.reason).toBe('SKILL_CONTRACT_AGENTS_RUNNING review: 2 background Agent dispatches this run started are still running (a1, a2). ' +
+      'No one answers this session, so ending the turn now ends it and their results never arrive. Wait for each completion notice, then finish the skill with their results.');
+    expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'deferred', deferred_agents: ['a1', 'a2'] });
+    expect(fs.readFileSync(path.join(state, 'hooks', 'skill-contract.log'), 'utf8')).toContain('event=agents-running-blocked');
+    fs.appendFileSync(file, `${meta('<task-notification>agent a1 completed: NO FINDINGS</task-notification>')}\n${say('Testing is back; waiting on Security.')}\n`);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).reason).toContain('1 background Agent dispatch this run started is still running (a2)');
+    fs.appendFileSync(file, `${meta('<task-notification>agent a2 completed: NO FINDINGS</task-notification>')}\n${say('Both specialists reported. Done.')}\n`);
+    // Claude Code marks every stop after a hook block stop_hook_active; the hook's own agents-running hold must not spend the contract block.
+    const after = JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout);
+    expect(after.decision).toBe('block');
+    expect(after.reason).toStartWith('SKILL_CONTRACT_UNMET review');
+    expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'blocked' });
+    expect(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).toBe('');
+    expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'miss' });
+  });
+
+  test('headless: the same running set past AGENT_STALL_MS is stalled, and the contract is checked instead', () => {
+    const file = transcript([slash('review'), tool('a1', 'Agent', { description: 'Testing specialist', prompt: 'review', run_in_background: true }),
+      result('a1', 'Async agent launched in the background.'), say('Waiting.')]);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).reason).toStartWith('SKILL_CONTRACT_AGENTS_RUNNING');
+    const rec = record();
+    const key = Object.keys(rec.runs)[0];
+    rec.runs[key].deferred_at = new Date(Date.now() - AGENT_STALL_MS - 1000).toISOString();
+    fs.writeFileSync(path.join(state, 'skill-contracts', 'sess-1.json'), JSON.stringify(rec));
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).reason).toStartWith('SKILL_CONTRACT_UNMET review');
+    // The stalled set is still pending on the next stop: it is not held again, and the unmet contract is a miss.
+    expect(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).toBe('');
+    expect(Object.values(record().runs)[0]).toMatchObject({ outcome: 'miss' });
+  });
+
+  test('headless: an Agent launched in the background without the explicit flag is held too', () => {
+    const file = transcript([slash('review'), tool('a1', 'Agent', { description: 'Testing specialist', prompt: 'review' }),
+      result('a1', 'Async agent launched successfully. agentId: a1'), say('Waiting.')]);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).reason).toStartWith('SKILL_CONTRACT_AGENTS_RUNNING');
+  });
+
+  // Value: protects=a headless run whose background Agents finished is released when Claude Code records the completion
+  //   natively (an attachment queued_command record, the shape in fixtures/outside-async-task-m-events.json) instead of
+  //   holding for AGENT_STALL_MS; fails_when=the parser skips attachment records; why_new=GST-4097's final review
+  test('headless: a native queued_command task-notification attachment releases the hold for its Agent only', () => {
+    const notice = (task: string, toolUse: string) => JSON.stringify({ isSidechain: false, type: 'attachment', sessionId: 'sess-1', attachment: {
+      type: 'queued_command', commandMode: 'task-notification',
+      prompt: `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${toolUse}</tool-use-id>\n<output-file>/tmp/tasks/${task}.output</output-file>\n<status>completed</status>\n<summary>Agent "Testing specialist" completed</summary>\n</task-notification>` } });
+    const file = transcript([slash('review'), tool('toolu_bg1', 'Agent', { description: 'Testing specialist', prompt: 'review', run_in_background: true }),
+      result('toolu_bg1', 'Async agent launched in the background. agentId: bg1'), say('Waiting.')]);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }).stdout).reason).toStartWith('SKILL_CONTRACT_AGENTS_RUNNING');
+    fs.appendFileSync(file, `${notice('other7', 'toolu_other7')}\n`);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).reason).toStartWith('SKILL_CONTRACT_AGENTS_RUNNING');
+    fs.appendFileSync(file, `${notice('bg1', 'toolu_bg1')}\n`);
+    expect(JSON.parse(stop(file, { GSTACK_HEADLESS: '1' }, { stop_hook_active: true }).stdout).reason).toStartWith('SKILL_CONTRACT_UNMET review');
+  });
+
   test('a stop on a turn that ends on a question never starts the agent clock', () => {
     const asking = [slash('review'), tool('a1', 'Agent', { description: 'Testing specialist', prompt: 'review', run_in_background: true }),
       result('a1', 'Async agent launched in the background.'), say('Should I also review the migrations?')];
