@@ -1856,7 +1856,8 @@ relays the owner's words with `--owner-ref <thread code>:<message id or timestam
 (on Capy the owner, a Captain, has no session on the lane's checkout). A relayed row's
 source is `relayed:<owner ref>`, and its `RULED_NOTE:`, receipt entry and `Ruled note:`
 line say `(relayed from <owner ref>)`, so a reader can check the words against that
-message; without it the refusal is `APPROVAL_RULING_RUN_OPEN`. `add` refuses a
+message. On a repository gh does not report as private they say `(relayed from a private
+message)` instead, and the ref stays in the approval record. Without `--owner-ref` the refusal is `APPROVAL_RULING_RUN_OPEN`. `add` refuses a
 `ruled_note` scope, so `rule` is the only path. A review-log field never makes a
 ruling: `ruled`, `action: "ruled"` or any other claim the lane writes on its own
 row is ignored. Step 16's `finish` reads the branch's rulings
