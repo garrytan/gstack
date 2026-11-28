@@ -65,7 +65,7 @@ usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
 need() { [ -n "${2:-}" ] || { echo "gstack-capy-install: $1 needs a value" >&2; usage >&2; exit 2; }; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --for|--only) need "$1" "${2:-}"; FOR="$2"; shift ;;
+    --for|--only) need "$1" "${2:-}"; FOR="$2"; [ "$FOR" = gstack-ship ] && FOR=ship; shift ;;
     --require) need "$1" "${2:-}"; REQUIRE="$2"; shift ;;
     --with-browser) WITH_BROWSER=1 ;;
     --revision) need "$1" "${2:-}"; REVISION="$2"; shift ;;

@@ -129,13 +129,18 @@ export function parseStep(raw: string | undefined, flag = '--step'): string {
   throw usageError(`${flag} '${raw ?? ''}' is not a ship step id; valid: ${SHIP_STEPS.join(', ')}; fix: use a step number from ship/SKILL.md.tmpl`);
 }
 
-export type Next = { kind: 'step'; step: string } | { kind: 'dispatch'; roles: string[] };
+export type Next = { kind: 'step'; step: string } | { kind: 'dispatch'; roles: string[]; entries?: string[] };
+/**
+ * `--next <step>` or `dispatch:<roles>`; `role*k` stands for the k slice readers of one sliced reader (lib/review-slices.ts), each
+ * priced and reserved as one reader. `entries` keeps the listed items when one is sliced, so admission never splits a slice set.
+ */
 export function parseNext(raw: string | undefined): Next {
   if (raw?.startsWith('dispatch:')) {
-    const roles = raw.slice('dispatch:'.length).split(',').filter(Boolean);
+    const entries = raw.slice('dispatch:'.length).split(',').filter(Boolean);
+    const roles = entries.flatMap(r => { const m = /^(.+)\*([1-8])$/.exec(r); return m ? Array<string>(Number(m[2])).fill(m[1]!) : [r]; });
     const bad = roles.filter(r => !(DISPATCH_ROLES as readonly string[]).includes(r));
-    if (roles.length === 0 || bad.length) throw usageError(`--next '${raw}' names unknown roles (${bad.join(', ') || 'none given'}); valid: ${DISPATCH_ROLES.join(', ')}; fix: list the plan's roles, e.g. dispatch:specialist,red-team`);
-    return { kind: 'dispatch', roles };
+    if (roles.length === 0 || bad.length) throw usageError(`--next '${raw}' names unknown roles (${bad.join(', ') || 'none given'}); valid: ${DISPATCH_ROLES.join(', ')}, each optionally *<slices 1-8> for a reader gstack-review-dispatch pass sliced into that many slice readers; fix: list the plan's roles, e.g. dispatch:specialist,red-team or dispatch:specialist,adversarial-native*3`);
+    return { kind: 'dispatch', roles, ...(roles.length !== entries.length ? { entries } : {}) };
   }
   return { kind: 'step', step: parseStep(raw, '--next') };
 }

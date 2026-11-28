@@ -296,7 +296,7 @@ describe('shape', () => {
   test('the Capy skill points /ship at the driver with the autoplan line\'s shape', () => {
     const capy = read('capy/skill/gstack/SKILL.md');
     for (const s of ['autoplan', 'ship']) {
-      expect(capy).toContain(`For \`/${s}\` driven from Capy, read \`${s}/DRIVER.md\` in the checkout (\`~/.local/share/gstack/${s}/DRIVER.md\`)`);
+      expect(capy).toContain(`For \`/${s === 'ship' ? 'gstack-ship' : s}\` driven from Capy, read \`${s}/DRIVER.md\` in the checkout (\`~/.local/share/gstack/${s}/DRIVER.md\`)`);
       expect(capy).toContain(`A checkout without that file predates it; follow its \`${s}/SKILL.md\` instead`);
     }
     expect(capy).toContain('--mode observe');

@@ -126,6 +126,17 @@ function fixture(opts: { minWrapper?: number; cloneAt?: 'A' | 'B'; next?: boolea
 }
 
 describe('capy skill bootstrapper (capy/skill/gstack/scripts/install.sh)', () => {
+  // Value: protects=/gstack-ship's own name installs the ship skill: --for gstack-ship is --for ship in the check, its fix line and
+  //   the install; fails_when=the wrapper passes gstack-ship to gstack-doctor, which refuses it as an unknown skill;
+  //   seam=capy/skill/gstack/scripts/install.sh argument parsing
+  test('--for gstack-ship is the same check and install as --for ship', () => {
+    const f = fixture();
+    const check = f.run(['--check', '--for', 'gstack-ship']);
+    expect(check.last).toBe(`gstack: fail revision — installed 1.0.0 is below the supported minimum 1.0.1 (fast-forward available); fix: bash ${BOOT} --for ship (fast-forwards) (REVISION_BELOW_MINIMUM)`);
+    const install = f.run(['--for', 'gstack-ship']);
+    expect(install.status, install.stdout + install.stderr).toBe(0);
+    expect(f.calls()).toEqual([`installer --root ${f.root} --for ship lock=1 rev=5 min=1.0.1 from=1.0.0`]);
+  });
   test('the first line names the wrapper revision and path; bash -n passes for the bootstrapper and the full wrapper', () => {
     for (const file of [BOOT, path.join(REPO, 'bin/gstack-capy-session')]) {
       expect(fs.existsSync(file), file).toBe(true);
@@ -638,7 +649,7 @@ describe('capy skill: vendored text and support file', () => {
     for (const token of ['--check', 'GSTACK_LAUNCH', '^gstack: ok', 'gstack: fail not-installed', 'gstack-pregate sealed', 'autoplan/DRIVER.md', 'first report']) {
       expect(text, token).toContain(token);
     }
-    const named = [...text.matchAll(/\b(?:bin\/)?(gstack-[a-z0-9-]+)\b/g)].map(m => m[1]).filter(n => n !== 'gstack-capy-skill');
+    const named = [...text.matchAll(/\b(?:bin\/)?(gstack-[a-z0-9-]+)\b/g)].filter(m => m[0].startsWith('bin/') || text[m.index! - 1] !== '/').map(m => m[1]).filter(n => n !== 'gstack-capy-skill');
     const missing = [...new Set(named)].filter(n => !fs.existsSync(path.join(REPO, 'bin', n)) && n !== 'gstack-pregate');
     expect(missing).toEqual([]);
     expect(fs.existsSync(path.join(REPO, 'bin/gstack-pregate'))).toBe(true);

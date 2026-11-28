@@ -328,8 +328,9 @@ describe.skipIf(!POSIX)('slice guards', () => {
     expect(after.readers.filter(x => x.role === 'adversarial-native' && x.state === 'rendered')).toEqual([]);
   }, 300_000);
 
-  // Value: protects=the targeted-reader record a receipt reads is done only when every slice was collected, and counts every
-  //   slice's findings; fails_when=a sliced targeted reader records done with a slice uncollected, or findings miss a slice;
+  // Value: protects=the targeted-reader record a receipt reads is done only when every slice was collected and its slice set is
+  //   clean, and counts every slice's findings; fails_when=a sliced targeted reader records done with a slice uncollected, with
+  //   a dirty SLICE row (GSTA-876 follow-up on #4853), or findings miss a slice;
   //   why_new=GST-4019 review (targetedRecord's sliced path had no test); seam=pass, stage voices, collect, verify --targeted-out
   test.skipIf(!POSIX)('a sliced targeted reader records done only when every slice is collected, with findings summed', () => {
     const repo = fixture(Object.fromEntries(['billing', 'beta', 'gamma'].flatMap(d => Array.from({ length: 6 }, (_, k) => [`${d}/m${k}.ts`, `export const charge_limit_usd = ${k};\n` + src(`${d}${k}`, 290)]))));
@@ -355,6 +356,13 @@ describe.skipIf(!POSIX)('slice guards', () => {
     expect(record()).toContain('status=failed');
     send(targeted.find(x => x.reader === last)!, finding);
     expect(record()).toMatch(/status=done findings=2 /);
+    const events = fs.readFileSync(staged.ledger, 'utf8').trimEnd().split('\n').map(l => JSON.parse(l) as Record<string, any>);
+    const tampered = events.filter(e => e.event === 'rendered' && e.reader === last).at(-1)!;
+    tampered.slice.files_sha256 = '0'.repeat(64);
+    fs.writeFileSync(staged.ledger, events.map(e => JSON.stringify(e)).join('\n') + '\n');
+    const dirty = runBin(repo, 'gstack-review-dispatch', ['verify', '--ledger', staged.ledger]).out;
+    expect(dirty).toMatch(/^SLICE targeted CHANGED /m);
+    expect(dirty.match(/^TARGETED_RECORD: .*$/m)?.[0]).toMatch(/status=failed findings=2 /);
   }, 300_000);
 
   // Value: protects=a malformed --slice is a usage error before any ledger write; fails_when=3/2, 1/9, 0/1 or x is accepted;

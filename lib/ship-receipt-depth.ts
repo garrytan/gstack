@@ -617,14 +617,16 @@ export const plainDocsSince = (root: string, from: string, head: string, base: s
 /**
  * The owner's `edit:<path>` rulings (docs/ship-policy.md#ruled-edits) that clear every path the PR's own change moved from `from`
  * to `head`, release stamps aside (productChangeSince), each at its ruled bytes as finish and gstack-review-plan read them
- * (ruledEdits); null when a path has no clearing ruling, is deleted, or the change cannot be built. A targeted record carries
- * across such a change only when nothing in it carries a targeted class (parseReviewTargeted, HARN-1 #638).
+ * (ruledEdits); null when a path has no clearing ruling, is deleted, the change cannot be built, or it is a docs claim
+ * (docsChangeSince), which gstack-review-plan's targeted-only read still reads fresh (lib/review-targeted-delta.ts), so a ruling
+ * never carries the record past it. A targeted record carries across such a change only when nothing in it carries a targeted
+ * class (parseReviewTargeted, HARN-1 #638).
  */
 export function ruledChangeSince(root: string, from: string, head: string, base: string): RuledNote[] | null {
   const edits = readRuledNotes(root).filter(n => n.finding.startsWith('edit:'));
   const change = edits.length ? productChangeSince(root, base, from, head) : null;
   const c = change ? collectCommit(root, from, change.since) : null;
-  if (!c || c.errors.length || !c.paths.length) return null;
+  if (!c || c.errors.length || !c.paths.length || docsChangeSince(root, from, head, base)?.verdict === 'claim') return null;
   const { ruled } = ruledEdits(root, c.paths, head, edits);
   return ruled.size === c.paths.length ? [...ruled.values()] : null;
 }

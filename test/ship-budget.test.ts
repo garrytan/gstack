@@ -30,6 +30,9 @@ describe('parsing and the admission rule', () => {
     expect(parseNext('dispatch:specialist,red-team')).toEqual({ kind: 'dispatch', roles: ['specialist', 'red-team'] });
     expect(() => parseNext('7.7')).toThrow(/valid: 0.9, 1, 2/);
     expect(() => parseNext('dispatch:security')).toThrow(/unknown roles \(security\)/);
+    expect(parseNext('dispatch:specialist,adversarial-native*3')).toEqual({ kind: 'dispatch', roles: ['specialist', 'adversarial-native', 'adversarial-native', 'adversarial-native'], entries: ['specialist', 'adversarial-native*3'] });
+    expect(() => parseNext('dispatch:adversarial-native*9')).toThrow(/unknown roles \(adversarial-native\*9\)/);
+    expect(() => parseNext('dispatch:adversarial-native*0')).toThrow(/unknown roles/);
   });
 
   test('exactly at the cap is admitted; one token over is not', () => {

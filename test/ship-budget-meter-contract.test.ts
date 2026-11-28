@@ -40,7 +40,7 @@ describe('the Capy meter is the agent\'s own jam counter', () => {
       expect(text, rel).toMatch(/thread_id: "<(?:this agent's|your) own jam id>"/);
     }
     const capy = read('capy/skill/gstack/SKILL.md');
-    expect(capy.slice(capy.indexOf('Token caps on /ship'), capy.indexOf('/ship reviewers on Capy'))).toMatch(/own jam id/);
+    expect(capy.slice(capy.indexOf('Token caps on /gstack-ship'), capy.indexOf('/ship reviewers on Capy'))).toMatch(/own jam id/);
   });
 
   // Value: protects=a handoff child meters its own counter, which starts far below the parent's, and the parent charges the child's own delta; fails_when=verify-handoff baselines the child at the parent's reading (its own lower reading is rejected) or reconcile charges the parent's counter delta;

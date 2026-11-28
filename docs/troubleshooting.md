@@ -7781,7 +7781,11 @@ changed as product (every changed line at a branch-added position, the mode
 unchanged, the base not touching the file), a stamp file the branch changes by
 no more than a stamp against each head's base (a changelog-fragment conversion
 that puts `package.json` back at the base's content), base context next to unchanged
-hunks, or hunks the base merge spliced after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
+hunks, a clean base merge that itself made some of the branch's exact changes so
+those hunks left the branch's diff (a three-way replay of the reviewed change onto
+the new base gives each current file's exact bytes and mode, regular files only;
+reason `branch hunks the base landed identically (<paths>; …)`,
+[ship-policy.md](ship-policy.md#receipt-carry)), or hunks the base merge spliced after a clean scoped review ([`RECEIPT_CARRY_SCOPED_REVIEW`](#receipt-carry-scoped-review)), which the
 `carry` object in the carried receipt records with the product patch-id and
 the range-diff evidence ([unattended.md](unattended.md#the-terminal-line)).
 

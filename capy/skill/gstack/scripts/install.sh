@@ -53,7 +53,7 @@ args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) check=1 ;;
-    --for|--only) skill="${2:-}"; args+=("$1" "${2:-}"); shift ;;
+    --for|--only) skill="${2:-}"; [ "$skill" = gstack-ship ] && skill=ship; args+=("$1" "$skill"); shift ;;
     --revision) revision="${2:-}"; args+=("$1" "${2:-}"); shift ;;
     *) args+=("$1") ;;
   esac

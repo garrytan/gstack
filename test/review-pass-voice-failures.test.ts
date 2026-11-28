@@ -5,6 +5,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { READ_ONLY_RETRY } from '../lib/review-brief';
 import { planCyberRetry, type Manifest } from '../lib/review-pass';
@@ -183,6 +184,22 @@ describe('Capy pass program (fake host, real bins)', () => {
     };
     expect(chain(['anthropic'])).toEqual(['outside-voice/astra-read-only', 'outside-voice/gemini-4-carbon']);
     expect(chain(['google'])).toEqual(['outside-voice/astra-read-only', null]);
+  });
+
+  // Value: protects=a sliced native voice's family still counts as taken when an outside voice is retried after a cyber_policy
+  //   refusal, so a Google native voice skips the Gemini step; fails_when=retry looks up only the key adversarial-native and
+  //   misses adversarial-native#i/k (GSTA-876 follow-up on #4853); seam=gstack-review-dispatch retry with voice-models.json
+  test('retry reads a sliced native voice\'s family from its adversarial-native#i/k keys (R95)', () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'cyber-slice-'));
+    try {
+      const file = path.join(out, 'pass-manifest.json');
+      fs.writeFileSync(file, JSON.stringify({ version: 1, pass: 'u2', out, readers: [{ reader: 'outside-voice', role: 'outside-voice', stage: 'voices', state: 'collected' }] }));
+      fs.writeFileSync(path.join(out, 'voice-models.json'), JSON.stringify({ laneModel: 'anthropic/claude-opus-5-5', readers: { 'adversarial-native#1/2': { model_id: 'google/gemini-4-argon' }, 'adversarial-native#2/2': { model_id: 'google/gemini-4-argon' } } }));
+      const error = path.join(ROOT, 'test/fixtures/cyber-policy/capy-latest-error.txt');
+      const retry = (reader: string) => spawnSync(path.join(BIN, 'gstack-review-dispatch'), ['retry', '--manifest', file, '--reader', reader, '--error-file', error], { encoding: 'utf8', timeout: 30_000 }).stdout;
+      expect(retry('outside-voice')).toContain('RETRY: reader=outside-voice/astra-read-only model=openai/gpt-6.2-astra');
+      expect(retry('outside-voice/astra-read-only')).toContain('RETRY: exhausted reader=outside-voice/astra-read-only');
+    } finally { fs.rmSync(out, { recursive: true, force: true }); }
   });
 
   // Value: protects=only cyber_policy starts a retry: a failed voice whose host error is another provider failure, and a voice that reviews normally, each run exactly one outside voice; fails_when=any failure, or a success, dispatches an Astra or Gemini reader;

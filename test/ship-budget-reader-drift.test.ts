@@ -253,7 +253,7 @@ describe('the budget section states both contracts', () => {
   //   why_new=the template test above never read the Capy skill; seam=none; no_claim=how often an agent obeys the prose
   test('the Capy skill reads the meter inside the budget command\'s program and names no meter-only call', () => {
     const capy = fs.readFileSync(path.join(import.meta.dir, '..', 'capy', 'skill', 'gstack', 'SKILL.md'), 'utf8');
-    const caps = capy.slice(capy.indexOf('Token caps on /ship'), capy.indexOf('/ship on Capy is about a dozen calls'));
+    const caps = capy.slice(capy.indexOf('Token caps on /gstack-ship'), capy.indexOf('/gstack-ship on Capy is about a dozen calls'));
     expect(caps.length).toBeGreaterThan(0);
     expect(caps).not.toContain('returning only that number');
     expect(caps).toMatch(/inside the same (?:execute )?program as the\s+`gstack-ship-budget` command/);
@@ -263,7 +263,7 @@ describe('the budget section states both contracts', () => {
   //   why_new=no test reads the pass order; seam=none; no_claim=the model's adherence (GSTA-167 replay 5: arm D walked Steps 9-9.4 in 27 calls)
   test('a review pass is one execute program: plan, review-log --start, BEFORE, create, poll, note with the pair, collect (Capy, observe mode); the admission-mode section keeps check and settle', () => {
     const capy = fs.readFileSync(path.join(import.meta.dir, '..', 'capy', 'skill', 'gstack', 'SKILL.md'), 'utf8');
-    const pass = capy.slice(capy.indexOf('/ship on Capy is about a dozen calls'), capy.indexOf('## Plan, approve, ship'));
+    const pass = capy.slice(capy.indexOf('/gstack-ship on Capy is about a dozen calls'), capy.indexOf('## Plan, approve, ship'));
     expect(pass).toContain('Each review pass and Step 11 is one call to the checked-in pass program');
     expect(pass).toContain('gstack-review-dispatch program');
     expect(pass).not.toMatch(/one execute program per batch/);

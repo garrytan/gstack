@@ -168,6 +168,16 @@ describe('gstack-capy-install', () => {
     expect(g.calls().filter(l => l.startsWith('doctor '))).toEqual(['doctor --check --require claude,codex,patch,browse-bundle,browser GSTACK_EPHEMERAL=1']);
   });
 
+  // Value: protects=/gstack-ship's own name certifies the ship workflow from the checkout's installer, which every bootstrapper
+  //   revision hands over to; fails_when=the installer passes gstack-ship to the doctor, which refuses it as an unknown skill;
+  //   seam=bin/gstack-capy-install --for parsing
+  test('--for gstack-ship is --for ship: the doctor checks ship', () => {
+    const f = fixture();
+    const r = run(f, ['--for', 'gstack-ship']);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(f.calls().filter(l => l.startsWith('doctor '))).toEqual(['doctor --check --for ship GSTACK_EPHEMERAL=1']);
+  });
+
   test('a FAIL from the doctor is exit 1 with its trailer last and no launch file; usage errors exit 2', () => {
     const f = fixture();
     const r = run(f, [], { STUB_DOCTOR_FAIL: '1' });
