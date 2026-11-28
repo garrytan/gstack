@@ -147,7 +147,7 @@ export function inventory(roots: readonly string[], checkout: string, skip: read
           const s = fs.statSync(p);
           if (s.size < BIG_BYTES) continue;
           if (buildOutput(home, p)) inv.ignored![p] = { reason: 'build-output' };
-          else if (hostRuntimeCopy(p, s.size)) inv.ignored![p] = { reason: 'host-runtime' };
+          else if (Date.now() <= deadline && hostRuntimeCopy(p, s.size)) inv.ignored![p] = { reason: 'host-runtime' };
           else inv.big[p] = s.size;
         } catch { /* gone */ }
         continue;
@@ -190,7 +190,8 @@ let hostRuntime: { exe: string; size: number; sha256?: string } | null | undefin
 /**
  * A copy of a binary already on the machine, not a fetch (GST-3959: gstack-evals#463's tests copy their own `bun` into /tmp):
  * a file with exactly the size and SHA-256 of the runtime running this sweep (process.execPath, hashed at most once per process
- * and only when a file of its size turns up). A name, a path, or any other binary never counts.
+ * and only when a file of its size turns up). A name, a path, or any other binary never counts, and past the sweep's time budget
+ * no file is hashed, so it stays a download.
  */
 function hostRuntimeCopy(file: string, size: number): boolean {
   if (hostRuntime === undefined) {
