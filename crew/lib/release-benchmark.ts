@@ -29,13 +29,13 @@ export type Records = { ok: true; records: WeeklyRecord[] } | { ok: false; why: 
 export interface BenchmarkStatus { state: 'none' | 'clear' | 'hold' | 'unreadable'; line: string; record: WeeklyRecord | null }
 export interface Gate { action: 'pass' | 'wait' | 'refuse'; code?: 'REFUSED_BENCHMARK' | 'STABLE_STALE' | 'BENCHMARK_UNKNOWN'; line?: string; level?: 'notice' | 'warning' | 'error' }
 
-const clean = (s: unknown) => String(s).replace(/[\u0000-\u001f\u007f]+/g, ' ');
+const clean = (s: unknown) => String(s).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ');
 const short = (s: string) => clean(s.trim()).slice(0, 200);
 const retried = (gh: Gh, args: string[]) => { const r = gh(args); return r.status === 0 ? r : gh(args); };
 const num = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
 const f1 = (x: number) => (x >= 0 ? '+' : '') + x.toFixed(1);
 
-/** One record, checked: schema 1, a known verdict, a run start, 40-hex shas, numeric model rows, and a verdict its model rows agree with (HOLD exactly when some row's interval lies wholly below 0). A vs_none with a non-numeric field is dropped, since it never decides; text is stripped of control characters so it cannot start a workflow command in the job log. */
+/** One record, checked: schema 1, a known verdict, a run start, 40-hex shas, numeric model rows, and a verdict its model rows agree with (HOLD exactly when some row's interval lies wholly below 0). A vs_none with a non-numeric field is dropped, since it never decides; text is stripped of C0 and C1 control characters and U+2028/U+2029 so it cannot start a workflow command in the job log. Model ids that clean alike refuse the record, which makes the whole read unreadable: a gate fails closed rather than guess which row counts (GST-3606). */
 export function parseRecord(tag: string, text: string): WeeklyRecord | string {
   let r: any;
   try { r = JSON.parse(text); } catch { return tag + "'s " + BENCHMARK.asset + ' is not JSON'; }
@@ -49,7 +49,7 @@ export function parseRecord(tag: string, text: string): WeeklyRecord | string {
   for (const [id, m] of Object.entries(models)) {
     if (![m?.n, m?.d, m?.lo, m?.hi].every(num)) return tag + ': model row ' + clean(id) + ' is not numeric';
     const v = m.vs_none;
-    if (clean(id) in rows) return tag + ': model ids ' + JSON.stringify(clean(id)) + ' collide once control characters are stripped';
+    if (clean(id) in rows) return tag + ': model ids ' + JSON.stringify(clean(id)) + ' collide once control characters and line separators are stripped';
     rows[clean(id)] = { host: m.host, n: m.n, d: m.d, lo: m.lo, hi: m.hi, ...(v && [v.d, v.lo, v.hi].every(num) ? { vs_none: { d: v.d, lo: v.lo, hi: v.hi } } : {}) };
   }
   if (Object.values(rows).some((m) => m.hi < 0) !== (r.verdict === 'HOLD')) return tag + ': verdict ' + r.verdict + ' disagrees with its model rows (verdict mismatch)';

@@ -92,6 +92,26 @@ describe('release-benchmark: reading the records', () => {
     expect(parseRecord('weekly-2026-w48', JSON.stringify(twins))).toContain('collide');
   });
 
+  test('C1 controls and Unicode line or paragraph separators are stripped too, so no record text breaks the line', () => {
+    const reason = 'a\u0085b\u009bc\u2028d\u2029e';
+    const s = status(records(['weekly-2026-w48', rec('NO_CHANGE')], ['weekly-2026-w49', { ...rec('INCOMPLETE', { week: '2026-W49', start: '2026-12-05T06:00:00Z' }), incomplete_reason: reason }]));
+    expect(s.line).toContain('INCOMPLETE (a b c d e)');
+    expect(s.line).not.toMatch(/[\u0080-\u009f\u2028\u2029]/);
+    const u = status({ ok: false, why: 'x\u2028::stop-commands::tok\u0085y' });
+    expect(u.line).toContain('(x ::stop-commands::tok y)');
+  });
+
+  test('model ids that collide once separators are stripped refuse the record, and the whole read fails closed', () => {
+    const twins = { ...rec('GAIN'), models: { 'm\u2028': { n: 1, d: -2, lo: -4, hi: -1 }, 'm\u0085': { n: 1, d: 1, lo: 0, hi: 2 } } };
+    const why = parseRecord('weekly-2026-w48', JSON.stringify(twins));
+    expect(why).toContain('collide');
+    const older = rec('NO_CHANGE', { week: '2026-W47', start: '2026-11-21T06:00:00Z' });
+    const gh: Gh = (args) => ({ status: 0, stderr: '', stdout: JSON.stringify(args[1] === 'list' ? [{ tagName: 'weekly-2026-w48' }, { tagName: 'weekly-2026-w47' }] : args[2] === 'weekly-2026-w48' ? twins : older) });
+    const read = readRecords(gh);
+    expect(read.ok).toBe(false);
+    expect(status(read).state).toBe('unreadable');
+  });
+
   test('readRecords lists weekly tags only, retries each call once, and any failure makes the whole read unreadable', () => {
     const calls: string[][] = [];
     let flaky = 1;
