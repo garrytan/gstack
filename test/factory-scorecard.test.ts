@@ -68,6 +68,29 @@ describe('factory-scorecard: recorded window', () => {
     expect(values.releases).toBe('1 (v1.0.0)');
   });
 
+  test('red-train rate groups non-cancelled runs by train head branch (#4767)', () => {
+    // Value: protects=bisect and rebuild runs on one train branch count as one train, any non-cancelled red run keeps that train red even after a green rebuild, and an all-cancelled train branch stays out; fails_when=scorecardRows counts each train run as its own train again; why_new=#4767: bisect + rebuild inflated both red count and train denominator; seam=fixtureSource; no_claim=cause attribution across distinct train branches
+    const fx = fixture();
+    const runsKey = Object.keys(fx.responses).find(k => k.includes('/actions/workflows/evals.yml/runs?') && k.includes('event=workflow_dispatch'))!;
+    const runs = (fx.responses[runsKey] as { workflow_runs: any[] }).workflow_runs;
+    const redTrain = runs.find(r => r.id === 9002)!;
+    runs.unshift(
+      { ...redTrain, id: 9010, conclusion: 'cancelled', created_at: '2026-10-23T11:00:00Z' },
+      { ...redTrain, id: 9011, conclusion: 'failure', created_at: '2026-10-23T12:00:00Z' },
+      { ...redTrain, id: 9012, conclusion: 'success', created_at: '2026-10-23T13:00:00Z' },
+      { ...redTrain, id: 9013, head_branch: 'train/gate.train-dddddddddddd-cccccccccccc-dddddd', conclusion: 'cancelled', created_at: '2026-10-23T14:00:00Z' },
+    );
+    const rows = scorecardRows(collectScorecard(fixtureSource(fx, scratch()), options()));
+    const redTrainRow = rows.find(r => r.id === 'red_train')!;
+    expect(redTrainRow.value).toBe('50% (1 red of 2 trains; 0 red backstop, 0 red screens)');
+    expect(redTrainRow.rule).toContain('distinct head branches');
+
+    runs.unshift({ ...redTrain, id: 9014, head_branch: 'train/gate.train-eeeeeeeeeeee-cccccccccccc-eeeeee', conclusion: 'failure', created_at: '2026-10-23T15:00:00Z' });
+    expect(byId(scorecardRows(collectScorecard(fixtureSource(fx, scratch()), options()))).red_train).toBe('67% (2 red of 3 trains; 0 red backstop, 0 red screens)');
+    runs.unshift({ ...redTrain, id: 9015, head_branch: 'train/gate.train-eeeeeeeeeeee-cccccccccccc-eeeeee', conclusion: 'failure', created_at: '2026-10-23T16:00:00Z' });
+    expect(byId(scorecardRows(collectScorecard(fixtureSource(fx, scratch()), options()))).red_train).toBe('67% (2 red of 3 trains; 0 red backstop, 0 red screens)');
+  });
+
   test('free runs that ran no shards (reused main pushes) stay out of the free-retry count and its denominator (#3725)', () => {
     // Value: protects=the free-retry rate is read over runs that executed shards only; fails_when=a reused run (no artifacts, reuse job green) counts as a zero-retry run again; why_new=#3725, after #3709 a main push that reuses its PR's run uploads nothing; seam=fixtureSource; no_claim=runs past --max-artifact-runs, which are not read
     const fx = fixture();
