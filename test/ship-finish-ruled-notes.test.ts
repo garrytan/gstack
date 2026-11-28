@@ -132,6 +132,7 @@ describe('ruledNotes reads only approved owner rulings (GST-1537)', () => {
 describe('a ruling relayed into an open /ship run (GBRA-108, gbrain #9762)', () => {
   test('without --owner-ref it refuses as APPROVAL_RULING_RUN_OPEN; with one it records and marks the ruling relayed', () => {
     const { f, passHead } = rulingHead();
+    f.gh('[ "$1" = repo ] && echo PRIVATE; exit 0');
     const marker = path.resolve(f.work, f.git('rev-parse', '--git-path', 'gstack-ship-run').stdout.trim());
     fs.writeFileSync(marker, 'ship-9762-abc\n');
     const bare = rule(f, RACE, passHead, 'GBrain Minder (GBRA-108)');

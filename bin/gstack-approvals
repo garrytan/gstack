@@ -28,7 +28,7 @@ import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { EXIT, exitTableHelp } from '../lib/headless-artifacts';
 import { appendRows, branchExists, buildRow, importAutoplan, locate, readRecord, renderMode, renderRecord, repoVisibility, syncRecord, type RecordError, type StoreLocation } from '../lib/approval-record';
-import { isGstackActor, openShipRun, OWNER_REF, OWNER_REF_SHAPE, RULED_NOTE_SCOPE, ruledNoteRow, ruledNoteSource, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
+import { isGstackActor, openShipRun, OWNER_REF, OWNER_REF_SHAPE, repoRuledNotes, RULED_NOTE_SCOPE, ruledNoteRow, ruledNoteSource, ruledNotes, ruledNoteText } from '../lib/ruled-notes';
 import { resultLine } from '../lib/result-codes';
 import { parsePlanLine, publicPlanLine, resolvePlan } from '../lib/plan-record';
 import { TEST_LANE_EXCEPTION_SCOPE, testLaneExceptionRow } from '../lib/test-lane-exception';
@@ -46,13 +46,16 @@ const HELP = `gstack-approvals — the per-thread approval record (capy/skill/gs
           the owner's ruling that a review finding ships as a disclosed note (docs/ship-policy.md#ruled-notes); the
           receipt write counts that finding closed at a head that holds the ruled head, and the receipt and PR body
           list it; inside this checkout's open /ship run it needs --owner-ref, the message the lane relays the owner's
-          words from, and the row, receipt and Ruled note line then say relayed from it (APPROVAL_RULING_RUN_OPEN without);
+          words from, and the row, receipt and Ruled note line then say relayed from it (APPROVAL_RULING_RUN_OPEN without;
+          on a repository gh does not report private, the line and receipt say relayed from a private message, and the
+          ref stays in the row);
           the ref is ${OWNER_REF_SHAPE};
           --not-security: the owner's call that a red-team finding is not security class, so public text shows it;
           --finding edit:<path> rules an edit after the final review a note: finish routes that path at the head's bytes
           as RULED_EDIT instead of stopping (docs/ship-policy.md#ruled-edits);
           refused while a /ship run is open on this checkout
-  rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry
+  rulings                         the "Ruled note: …" lines the Pre-Landing Review and the PR body carry, in the form
+                                  finish prints and receipt write checks
   gate    --finding <the gate finding's fingerprint> --gate-id <its gate_id> --head <the stop head the owner answered at>
           --reason <the gate change, one line> --words <the owner's exact words, one line> --by <who recorded them>
           the owner's disposition of a gate finding an unattended /ship logged open (docs/ship-policy.md#gate-dispositions);
@@ -268,7 +271,7 @@ function main(argv: string[]): number {
     return EXIT.ok;
   }
   if (cmd === 'rulings') {
-    const notes = ruledNotes(readRecord(loc).rows);
+    const notes = repoRuledNotes(ruledNotes(readRecord(loc).rows), process.cwd());
     process.stdout.write(notes.length ? notes.map(n => `Ruled note: ${ruledNoteText(n)}\n`).join('') : 'RULED_NOTES: none\n');
     return EXIT.ok;
   }
